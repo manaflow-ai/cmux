@@ -625,7 +625,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [first, second, third]
 
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: first,
                 targetTabId: first,
                 tabIds: tabIds,
@@ -633,7 +633,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             )
         )
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: third,
                 targetTabId: nil,
                 tabIds: tabIds,
@@ -645,7 +645,7 @@ final class SidebarDropPlannerTests: XCTestCase {
     func testNoIndicatorWhenOnlyOneTabExists() {
         let only = UUID()
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: only,
                 targetTabId: nil,
                 tabIds: [only],
@@ -653,7 +653,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             )
         )
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: only,
                 targetTabId: only,
                 tabIds: [only],
@@ -668,7 +668,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let third = UUID()
         let tabIds = [first, second, third]
 
-        let indicator = SidebarDropPlanner.indicator(
+        let indicator = SidebarDropPlanner().indicator(
             draggedTabId: second,
             targetTabId: nil,
             tabIds: tabIds,
@@ -684,7 +684,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let third = UUID()
         let tabIds = [first, second, third]
 
-        let index = SidebarDropPlanner.targetIndex(
+        let index = SidebarDropPlanner().targetIndex(
             draggedTabId: second,
             targetTabId: nil,
             indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
@@ -701,7 +701,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [first, second, third]
 
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: second,
                 targetTabId: second,
                 tabIds: tabIds,
@@ -717,7 +717,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [first, second, third]
 
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: first,
                 targetTabId: second,
                 tabIds: tabIds,
@@ -734,7 +734,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let third = UUID()
         let tabIds = [first, second, third]
 
-        let indicator = SidebarDropPlanner.indicator(
+        let indicator = SidebarDropPlanner().indicator(
             draggedTabId: first,
             targetTabId: second,
             tabIds: tabIds,
@@ -745,7 +745,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         XCTAssertEqual(indicator?.tabId, third)
         XCTAssertEqual(indicator?.edge, .top)
         XCTAssertEqual(
-            SidebarDropPlanner.targetIndex(
+            SidebarDropPlanner().targetIndex(
                 draggedTabId: first,
                 targetTabId: second,
                 indicator: indicator,
@@ -762,7 +762,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let third = UUID()
         let tabIds = [first, second, third]
 
-        let fromBottomOfFirst = SidebarDropPlanner.indicator(
+        let fromBottomOfFirst = SidebarDropPlanner().indicator(
             draggedTabId: third,
             targetTabId: first,
             tabIds: tabIds,
@@ -770,7 +770,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             pointerY: 38,
             targetHeight: 40
         )
-        let fromTopOfSecond = SidebarDropPlanner.indicator(
+        let fromTopOfSecond = SidebarDropPlanner().indicator(
             draggedTabId: third,
             targetTabId: second,
             tabIds: tabIds,
@@ -792,7 +792,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [first, second, third]
 
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: third,
                 targetTabId: second,
                 tabIds: tabIds,
@@ -811,7 +811,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
         let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
 
-        let indicator = SidebarDropPlanner.indicator(
+        let indicator = SidebarDropPlanner().indicator(
             draggedTabId: unpinnedB,
             targetTabId: pinnedA,
             tabIds: tabIds,
@@ -832,7 +832,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
         let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
 
-        let targetIndex = SidebarDropPlanner.targetIndex(
+        let targetIndex = SidebarDropPlanner().targetIndex(
             draggedTabId: unpinnedB,
             targetTabId: pinnedA,
             indicator: SidebarDropIndicator(tabId: pinnedA, edge: .top),
@@ -848,7 +848,7 @@ final class SidebarDropPlannerTests: XCTestCase {
     func testCrossWindowInsertionAppendsWhenDroppingOnEmptyArea() {
         let a = UUID()
         let b = UUID()
-        let result = SidebarDropPlanner.crossWindowInsertion(
+        let result = SidebarDropPlanner().crossWindowInsertion(
             targetTabId: nil,
             draggedIsPinned: false,
             indicator: nil,
@@ -864,7 +864,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let a = UUID()
         let b = UUID()
         let c = UUID()
-        let result = SidebarDropPlanner.crossWindowInsertion(
+        let result = SidebarDropPlanner().crossWindowInsertion(
             targetTabId: b,
             draggedIsPinned: false,
             indicator: nil,
@@ -882,7 +882,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let a = UUID()
         let b = UUID()
         let c = UUID()
-        let result = SidebarDropPlanner.crossWindowInsertion(
+        let result = SidebarDropPlanner().crossWindowInsertion(
             targetTabId: b,
             draggedIsPinned: false,
             indicator: nil,
@@ -900,7 +900,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let pinnedA = UUID()
         let pinnedB = UUID()
         let unpinned = UUID()
-        let result = SidebarDropPlanner.crossWindowInsertion(
+        let result = SidebarDropPlanner().crossWindowInsertion(
             targetTabId: pinnedA,
             draggedIsPinned: false,
             indicator: SidebarDropIndicator(tabId: pinnedA, edge: .top),
@@ -917,7 +917,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let a = UUID()
         let b = UUID()
         // Drop a pinned workspace into the empty area of a window with no pins.
-        let result = SidebarDropPlanner.crossWindowInsertion(
+        let result = SidebarDropPlanner().crossWindowInsertion(
             targetTabId: nil,
             draggedIsPinned: true,
             indicator: nil,
@@ -934,7 +934,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let pinnedA = UUID()
         let unpinnedA = UUID()
         let unpinnedB = UUID()
-        let result = SidebarDropPlanner.crossWindowInsertion(
+        let result = SidebarDropPlanner().crossWindowInsertion(
             targetTabId: unpinnedB,
             draggedIsPinned: true,
             indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
@@ -952,7 +952,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let b = UUID()
         let c = UUID()
         // At drop time the delegate replays the indicator it already showed.
-        let result = SidebarDropPlanner.crossWindowInsertion(
+        let result = SidebarDropPlanner().crossWindowInsertion(
             targetTabId: b,
             draggedIsPinned: false,
             indicator: SidebarDropIndicator(tabId: c, edge: .top),
@@ -969,22 +969,22 @@ final class SidebarDropPlannerTests: XCTestCase {
 
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
     func testAutoScrollPlanTriggersNearTopAndBottomOnly() {
-        let topPlan = SidebarDragAutoScrollPlanner.plan(distanceToTop: 4, distanceToBottom: 96, edgeInset: 44, minStep: 2, maxStep: 12)
+        let topPlan = SidebarDragAutoScrollPlanner(distanceToTop: 4, distanceToBottom: 96, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(topPlan?.direction, .up)
         XCTAssertNotNil(topPlan)
 
-        let bottomPlan = SidebarDragAutoScrollPlanner.plan(distanceToTop: 96, distanceToBottom: 4, edgeInset: 44, minStep: 2, maxStep: 12)
+        let bottomPlan = SidebarDragAutoScrollPlanner(distanceToTop: 96, distanceToBottom: 4, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(bottomPlan?.direction, .down)
         XCTAssertNotNil(bottomPlan)
 
         XCTAssertNil(
-            SidebarDragAutoScrollPlanner.plan(distanceToTop: 60, distanceToBottom: 60, edgeInset: 44, minStep: 2, maxStep: 12)
+            SidebarDragAutoScrollPlanner(distanceToTop: 60, distanceToBottom: 60, edgeInset: 44, minStep: 2, maxStep: 12).plan
         )
     }
 
     func testAutoScrollPlanSpeedsUpCloserToEdge() {
-        let nearTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: 1, distanceToBottom: 99, edgeInset: 44, minStep: 2, maxStep: 12)
-        let midTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: 22, distanceToBottom: 78, edgeInset: 44, minStep: 2, maxStep: 12)
+        let nearTop = SidebarDragAutoScrollPlanner(distanceToTop: 1, distanceToBottom: 99, edgeInset: 44, minStep: 2, maxStep: 12).plan
+        let midTop = SidebarDragAutoScrollPlanner(distanceToTop: 22, distanceToBottom: 78, edgeInset: 44, minStep: 2, maxStep: 12).plan
 
         XCTAssertNotNil(nearTop)
         XCTAssertNotNil(midTop)
@@ -992,11 +992,11 @@ final class SidebarDragAutoScrollPlannerTests: XCTestCase {
     }
 
     func testAutoScrollPlanStillTriggersWhenPointerIsPastEdge() {
-        let aboveTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: -500, distanceToBottom: 600, edgeInset: 44, minStep: 2, maxStep: 12)
+        let aboveTop = SidebarDragAutoScrollPlanner(distanceToTop: -500, distanceToBottom: 600, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(aboveTop?.direction, .up)
         XCTAssertEqual(aboveTop?.pointsPerTick, 12)
 
-        let belowBottom = SidebarDragAutoScrollPlanner.plan(distanceToTop: 600, distanceToBottom: -500, edgeInset: 44, minStep: 2, maxStep: 12)
+        let belowBottom = SidebarDragAutoScrollPlanner(distanceToTop: 600, distanceToBottom: -500, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(belowBottom?.direction, .down)
         XCTAssertEqual(belowBottom?.pointsPerTick, 12)
     }
