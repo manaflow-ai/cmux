@@ -1,6 +1,6 @@
 import AppKit
 import Bonsplit
-import CMUXWorkstream
+import CMUXAgentLaunch
 import Foundation
 @preconcurrency import UserNotifications
 import CmuxSettings

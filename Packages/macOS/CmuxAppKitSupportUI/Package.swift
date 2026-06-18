@@ -15,14 +15,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxFoundation"),
-        .package(path: "../CmuxWorkspaceWindow"),
+        .package(path: "../CmuxWorkspaces"),
     ],
     targets: [
         .target(
             name: "CmuxAppKitSupportUI",
             dependencies: [
                 "CmuxFoundation",
-                "CmuxWorkspaceWindow",
+                "CmuxWorkspaces",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

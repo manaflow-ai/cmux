@@ -1,6 +1,6 @@
 import XCTest
 import Darwin
-import CmuxProcess
+import CmuxFoundation
 
 import CmuxSidebar
 

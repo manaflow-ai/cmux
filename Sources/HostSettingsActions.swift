@@ -1,6 +1,6 @@
 import AppKit
 import CMUXMobileCore
-import CmuxFileOpen
+import CmuxWorkspaces
 import CmuxSettingsUI
 import CmuxFoundation
 import Foundation
