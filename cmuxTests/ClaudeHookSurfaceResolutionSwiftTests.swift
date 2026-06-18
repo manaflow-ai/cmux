@@ -307,6 +307,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
     }
 
     private func writeClaudeHookStore(to storeURL: URL, sessionId: String, workspaceId: String, surfaceId: String, cwd: String) throws {
+        let now = Date().timeIntervalSince1970
         let store: [String: Any] = [
             "version": 1,
             "sessions": [
@@ -321,11 +322,11 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                         "executablePath": "/usr/local/bin/claude",
                         "arguments": ["/usr/local/bin/claude"],
                         "workingDirectory": cwd,
-                        "capturedAt": 0,
+                        "capturedAt": now,
                         "source": "test",
                     ],
-                    "startedAt": 1,
-                    "updatedAt": 1,
+                    "startedAt": now,
+                    "updatedAt": now,
                 ],
             ],
         ]
