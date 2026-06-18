@@ -266,9 +266,13 @@ check_app_hosted_xctest_socket_isolation() {
 	    in_job && /CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:[[:space:]]*"360"/ { saw_idle_timeout=1 }
 	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"3"/ { saw_attempts=1 }
 	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
-	    END { exit !(saw_xcode_runner && saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper) }
+	    in_job && /name: Capture Ghostty revision/ { saw_ghostty_revision=1 }
+	    in_job && saw_ghostty_revision && /name: Cache GhosttyKit\.xcframework/ { saw_ghosttykit_cache=1 }
+	    in_job && saw_ghosttykit_cache && /name: Download pre-built GhosttyKit\.xcframework/ { saw_ghosttykit_download=1 }
+	    in_job && saw_ghosttykit_download && /name: Run TerminalCore split-theme package regression/ { saw_terminal_core_after_ghosttykit=1 }
+	    END { exit !(saw_xcode_runner && saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper && saw_terminal_core_after_ghosttykit) }
 	  ' "$CI_FILE"; then
-	    echo "FAIL: xctest-focused-regressions must use the app Xcode runner, unique CMUX_SOCKET_PATH, override, bounded app-host idle timeout, three attempts, and the app-host wrapper"
+	    echo "FAIL: xctest-focused-regressions must use the app Xcode runner, unique CMUX_SOCKET_PATH, override, bounded app-host idle timeout, three attempts, the app-host wrapper, and GhosttyKit before TerminalCore"
 	    exit 1
 	  fi
 
