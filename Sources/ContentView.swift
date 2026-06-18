@@ -9864,7 +9864,7 @@ private final class CmuxExtensionSidebarMenuTarget: NSObject {
 ///
 /// Caching the composed publishers and rebuilding them only from explicit
 /// lifecycle callbacks keeps `.onReceive` stable when the workspace set is
-/// unchanged, so `removeDuplicates()` can suppress no-op replays.
+/// unchanged, avoiding subscription churn during ordinary body passes.
 @MainActor
 private struct ExtensionSidebarObservationPublishers {
     private var cachedWorkspaceIds: [UUID] = []
