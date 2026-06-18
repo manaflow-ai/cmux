@@ -4,7 +4,7 @@
 34475	CLI/cmux.swift
 17604	Sources/AppDelegate.swift
 15933	Sources/ContentView.swift
-14194	Sources/TerminalController.swift
+14188	Sources/TerminalController.swift
 12658	Sources/Workspace.swift
 12115	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11731	Sources/GhosttyTerminalView.swift
@@ -18,7 +18,7 @@
 6172	Sources/TabManager.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
-5940	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+5939	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
 5526	cmuxTests/BrowserConfigTests.swift
 4516	Sources/cmuxApp.swift
@@ -38,8 +38,8 @@
 2585	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
+2474	Sources/Mobile/MobileHostService.swift
 2460	cmuxTests/CommandPaletteSearchEngineTests.swift
-2452	Sources/Mobile/MobileHostService.swift
 2355	Sources/FileExplorerView.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2257	Sources/TerminalWindowPortal.swift
@@ -57,9 +57,9 @@
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1655	cmuxTests/MarkdownPanelTests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
+1585	cmuxTests/MobileHostAuthorizationTests.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
-1533	cmuxTests/MobileHostAuthorizationTests.swift
 1512	cmuxTests/RestorableAgentSessionIndexTests.swift
 1497	cmuxTests/OmnibarAndToolsTests.swift
 1496	cmuxUITests/MultiWindowNotificationsUITests.swift
@@ -105,7 +105,7 @@
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
-843	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
+833	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 830	Sources/TaskManagerTypes.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
