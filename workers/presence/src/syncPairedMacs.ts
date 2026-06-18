@@ -227,6 +227,21 @@ export async function applyBackupOps(
   return deltas;
 }
 
+/** The live (non-tombstone) backup records for a user, newest-first by
+ * `lastSeenAt`. Backs the GET restore path: the phone fetches this on sign-in
+ * and merges it into its local store. Returns the payloads only (the wire
+ * `rev`/tombstone bookkeeping is internal to the sync machinery). */
+export async function listLiveBackup(
+  storage: SyncStorage,
+  userId: string,
+): Promise<PairedMacBackupRecord[]> {
+  const all = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection(userId));
+  return all
+    .filter((r) => !r.deleted)
+    .map((r) => r.payload)
+    .sort((a, b) => (b?.lastSeenAt ?? 0) - (a?.lastSeenAt ?? 0));
+}
+
 /** Re-export so the DO can build an empty delta if it ever needs to. */
 export { buildDelta };
 export type { SyncRecord };

@@ -83,13 +83,16 @@ export default {
     }
 
     if (url.pathname === "/v1/sync/paired-macs") {
-      // Back up the caller's saved-host list to the per-team DO, scoped to the
-      // verified user. Mirrors the heartbeat RPC: the verified user id is passed
-      // to the DO, which writes the per-user `pairedMacs:<userId>` collection and
-      // broadcasts deltas to that user's other signed-in devices.
-      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      // The per-user saved-host backup. Both directions are scoped to the
+      // verified user (passed to the DO, never client input):
+      //   POST  back up the caller's saved-host list (upsert/delete ops)
+      //   GET   read it back (the sign-in restore path on a fresh install)
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
+      if (request.method === "GET") {
+        return json(await team.stub.listPairedMacs(team.teamId, team.user.id));
+      }
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
       const body = await readBoundedJson(request);
       if (!body.ok) return json({ error: "invalid_request" }, body.status);
       const parsed = parsePairedMacBackup(body.value);

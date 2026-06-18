@@ -7,6 +7,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   applyBackupOps,
+  listLiveBackup,
   MAX_PAIRED_MACS_PER_USER,
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
@@ -94,8 +95,7 @@ describe("parsePairedMacBackup", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     const op = parsed.ops[0];
-    expect(op.kind).toBe("upsert");
-    if (op.kind !== "upsert") return;
+    if (op?.kind !== "upsert") throw new Error("expected an upsert op");
     expect(op.record.routes).toEqual([{ id: "ok" }]);
   });
 });
@@ -111,7 +111,7 @@ describe("applyBackupOps", () => {
     );
     expect(deltas).toHaveLength(1);
     // The wire frame carries the LOGICAL name, never the user-id suffix.
-    expect(deltas[0].collection).toBe(PAIRED_MACS_COLLECTION);
+    expect(deltas[0]?.collection).toBe(PAIRED_MACS_COLLECTION);
     // Storage is under the per-user PHYSICAL collection.
     const stored = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection("user-1"));
     expect(stored.map((r) => r.id)).toEqual(["mac-a"]);
@@ -138,12 +138,33 @@ describe("applyBackupOps", () => {
     expect(second).toHaveLength(0);
   });
 
+  it("listLiveBackup returns live records newest-first and excludes tombstones, scoped per user", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [
+        { kind: "upsert", id: "old", record: { ...record("old", "10.0.0.1", 22), lastSeenAt: T0 } },
+        { kind: "upsert", id: "new", record: { ...record("new", "10.0.0.2", 22), lastSeenAt: T0 + 5000 } },
+        { kind: "upsert", id: "gone", record: record("gone", "10.0.0.3", 22) },
+      ],
+      T0,
+    );
+    await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "gone" }], T0 + 6000);
+    await applyBackupOps(storage, "user-2", [{ kind: "upsert", id: "other", record: record("other", "10.9.9.9", 22) }], T0);
+
+    const list = await listLiveBackup(storage, "user-1");
+    expect(list.map((r) => r.macDeviceID)).toEqual(["new", "old"]); // newest-first, tombstone excluded
+    const otherList = await listLiveBackup(storage, "user-2");
+    expect(otherList.map((r) => r.macDeviceID)).toEqual(["other"]); // isolated per user
+  });
+
   it("tombstones a deleted host", async () => {
     const storage = new FakeStorage();
     await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "10.0.0.1", 22) }], T0);
     const del = await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-a" }], T0 + 1000);
     expect(del).toHaveLength(1);
-    expect(del[0].records[0].deleted).toBe(true);
+    expect(del[0]?.records[0]?.deleted).toBe(true);
     const live = (await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection("user-1"))).filter((r) => !r.deleted);
     expect(live).toHaveLength(0);
   });

@@ -53,6 +53,7 @@ import {
 } from "./syncDevices";
 import {
   applyBackupOps,
+  listLiveBackup,
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
   relabelDelta,
@@ -331,6 +332,17 @@ export class TeamPresence extends DurableObject {
     const deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now());
     for (const delta of deltas) this.broadcastSyncToUser(userId, delta);
     return { ok: true, changed: deltas.length };
+  }
+
+  /** Read a user's backed-up saved-host list (the GET restore path). Called only
+   * by the worker after it verifies the token, so `userId` is trusted. Returns
+   * the live records' payloads for the per-user collection, newest-first. */
+  async listPairedMacs(
+    teamId: string,
+    userId: string,
+  ): Promise<{ records: PairedMacBackupRecord[] }> {
+    await this.rememberTeamId(teamId);
+    return { records: await listLiveBackup(this.syncStorage(), userId) };
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----
