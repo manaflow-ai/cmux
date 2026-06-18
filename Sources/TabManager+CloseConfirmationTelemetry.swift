@@ -15,18 +15,14 @@ extension TabManager {
 
     func recordCloseConfirmationSheetPresentation(hostWindow: NSWindow) {
 #if DEBUG
-        // The sheet attaches after this hook returns, so read the attachment on the
-        // next runloop turn while the modal loop is running.
-        DispatchQueue.main.async {
-            var updates = [
-                "closeConfirmationPresentation": "sheet",
-                "closeConfirmationAttachedSheet": hostWindow.attachedSheet == nil ? "0" : "1",
-            ]
-            if let hostWindowId = AppDelegate.shared?.mainWindowId(from: hostWindow)?.uuidString {
-                updates["closeConfirmationHostWindowId"] = hostWindowId
-            }
-            UITestRecorder.record(updates)
+        var updates = [
+            "closeConfirmationPresentation": "sheet",
+            "closeConfirmationAttachedSheet": "1",
+        ]
+        if let hostWindowId = AppDelegate.shared?.mainWindowId(from: hostWindow)?.uuidString {
+            updates["closeConfirmationHostWindowId"] = hostWindowId
         }
+        UITestRecorder.record(updates)
 #endif
     }
 
