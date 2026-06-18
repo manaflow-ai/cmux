@@ -1,4 +1,3 @@
-import CMUXAgentVault
 import Foundation
 
 /// Resolves a Codex session id from disk for a live, hook-less codex process,

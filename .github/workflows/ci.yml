@@ -253,7 +253,15 @@ jobs:
         run: bun run test:db:behavior
 
   tests:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # TEMPORARY (2026-06-18): pinned to hosted runners. The self-hosted austin
+    # mac-minis in the MACOS_RUNNER_15 pool cannot broker the XCTest control
+    # session with testmanagerd ("Timed out 120s initiating control session
+    # with daemon" -> Executed 0 tests -> idle-timeout), so this required check
+    # can never go green there. Revert to
+    # `${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}` once the austin
+    # runners are repaired (GUI login session + automation mode + unwedged
+    # testmanagerd). Tracked by the CI-flakiness handoff.
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 75
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -367,11 +375,11 @@ jobs:
               # .ci-source-packages can make resolve report success without the
               # binary artifacts (Sparkle/Sentry) actually present, which then
               # fails the build. Verify they materialized; if not, clear and retry.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
                 exit 0
               fi
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
+              rm -rf "$SOURCE_PACKAGES_DIR"  # whole dir — resolve will not re-materialize artifacts into a partial tree
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -541,17 +549,12 @@ jobs:
             CmuxAuthRuntime
             CmuxCommandPalette
             CmuxControlSocket
-            CmuxFileWatch
             CmuxFoundation
             CmuxGit
-            CmuxProcess
             CmuxSettings
             CmuxSettingsUI
-            CmuxSocketControl
             CmuxTerminal
             CmuxTerminalCore
-            CmuxTerminalEngine
-            CmuxTerminalServices
             CmuxUpdater
             CMUXAgentLaunch
           )
@@ -575,7 +578,7 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxTerminal|CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
+            CmuxTerminal|CmuxTerminalCore)
               status=0
               output="$(swift test --package-path "$pkgdir" 2>&1)" || status=$?
               printf '%s\n' "$output"
@@ -792,11 +795,11 @@ jobs:
               # .ci-source-packages can make resolve report success without the
               # binary artifacts (Sparkle/Sentry) actually present, which then
               # fails the build. Verify they materialized; if not, clear and retry.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
                 exit 0
               fi
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
+              rm -rf "$SOURCE_PACKAGES_DIR"  # whole dir — resolve will not re-materialize artifacts into a partial tree
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
@@ -1288,11 +1291,11 @@ jobs:
               # .ci-source-packages can make resolve report success without the
               # binary artifacts (Sparkle/Sentry) actually present, which then
               # fails the build. Verify they materialized; if not, clear and retry.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && ls -d "$SOURCE_PACKAGES_DIR"/artifacts/sentry-cocoa/*/*.xcframework >/dev/null 2>&1; then
+              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
                 exit 0
               fi
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR/artifacts"
+              rm -rf "$SOURCE_PACKAGES_DIR"  # whole dir — resolve will not re-materialize artifacts into a partial tree
             fi
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2

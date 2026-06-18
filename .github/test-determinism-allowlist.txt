@@ -5,7 +5,7 @@
 Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/HostBrowserSignInFlowTests.swift	sleep-then-assert	grandfathered
 Packages/macOS/CmuxBrowser/Tests/CmuxBrowserTests/Omnibar/BrowserOmnibarPageFocusRepositoryTests.swift	sleep-then-assert	grandfathered
 Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/SocketTransportIOTests.swift	assert-on-duration	grandfathered
-Packages/macOS/CmuxProcess/Tests/CmuxProcessTests/CommandRunnerTests.swift	assert-on-duration	grandfathered
+Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/Process/CommandRunnerTests.swift	assert-on-duration	grandfathered
 Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/UserDefaultsSettingsStoreTests.swift	sleep-then-assert	grandfathered
 cmuxTests/CMUXOpenCommandTests.swift	assert-on-duration	grandfathered
 cmuxTests/FileExplorerStoreTests.swift	sleep-then-assert	grandfathered
