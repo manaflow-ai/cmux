@@ -62,6 +62,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowWorkspaceListLayoutPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.workspaceListLayoutPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
@@ -158,6 +166,8 @@ struct CMUXMobileRootView: View {
     private var rootContent: some View {
         if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
+        } else if shouldShowWorkspaceListLayoutPreview {
+            WorkspaceListLayoutPreviewView()
         } else if shouldShowRestoringSession {
             RestoringSessionView()
         } else if !isAuthenticated {

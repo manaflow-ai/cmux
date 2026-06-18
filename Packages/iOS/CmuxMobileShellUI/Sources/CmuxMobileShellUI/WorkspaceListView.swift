@@ -25,6 +25,9 @@ struct WorkspaceListView: View {
     /// How many lines each row's activity preview shows (1 or 2). Passed in as
     /// a value snapshot so no `@Observable` store crosses the `List` boundary.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
+    var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
+    var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
@@ -232,7 +235,8 @@ struct WorkspaceListView: View {
                     isAnchorSelected: navigationStyle == .sidebar
                         && selectedWorkspaceID == group.anchorWorkspaceID,
                     selectWorkspace: selectWorkspace,
-                    toggleCollapsed: toggleGroupCollapsed
+                    toggleCollapsed: toggleGroupCollapsed,
+                    unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
@@ -251,6 +255,9 @@ struct WorkspaceListView: View {
             navigationStyle: navigationStyle,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
+            unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+            profilePictureLeftShift: profilePictureLeftShift,
+            profilePictureSize: profilePictureSize,
             selectWorkspace: selectWorkspace,
             renameWorkspace: renameWorkspace,
             setPinned: setPinned,

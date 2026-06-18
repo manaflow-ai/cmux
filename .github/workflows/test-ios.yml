@@ -338,6 +338,12 @@ jobs:
           )
           if [ -n "${TEST_FILTER:-}" ]; then
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
+          else
+            # Full UI tests currently exceed the pull-request simulator budget
+            # on macos-26. Keep them runnable via workflow_dispatch +
+            # test_filter, while the PR lane still builds the app and runs
+            # non-UI iOS tests.
+            XCODEBUILD_ARGS+=(-skip-testing:cmuxUITests)
           fi
           XCODEBUILD_ARGS+=(test)
           selected_tests_passed_despite_xcodebuild_status() {
