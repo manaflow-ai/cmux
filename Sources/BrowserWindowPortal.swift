@@ -1781,6 +1781,39 @@ final class WindowBrowserSlotView: NSView {
         return nil
     }
 
+    func allowsPaneBodyPointerFocusFallback(for hitView: NSView, at windowPoint: NSPoint) -> Bool {
+        guard hitView === self || hitView.isDescendant(of: self) else { return false }
+        guard !interactiveBrowserChromeOwnsPointerHit(hitView) else { return false }
+        guard let hostedWebView else { return true }
+        return hostedWebView.frame.contains(convert(windowPoint, from: nil))
+    }
+
+    private func interactiveBrowserChromeOwnsPointerHit(_ hitView: NSView) -> Bool {
+        if view(hitView, isContainedIn: searchOverlayHostingView) {
+            return true
+        }
+        if view(hitView, isContainedIn: omnibarSuggestionsHostingView) {
+            return true
+        }
+
+        var current: NSView? = hitView
+        while let candidate = current {
+            if candidate is BrowserOmnibarInteractionView || candidate is NSControl {
+                return true
+            }
+            if candidate === self {
+                return false
+            }
+            current = candidate.superview
+        }
+        return false
+    }
+
+    private func view(_ view: NSView, isContainedIn root: NSView?) -> Bool {
+        guard let root else { return false }
+        return view === root || view.isDescendant(of: root)
+    }
+
     @discardableResult
     func yieldSearchOverlayFocusIfOwned(by panelId: UUID, in window: NSWindow) -> Bool {
         guard let firstResponder = window.firstResponder,

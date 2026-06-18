@@ -3001,6 +3001,81 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    private func makeBrowserOmnibarSuggestionsConfiguration(panelId: UUID) -> BrowserPortalOmnibarSuggestionsConfiguration {
+        BrowserPortalOmnibarSuggestionsConfiguration(
+            panelId: panelId,
+            popupFrame: CGRect(x: 8, y: 8, width: 160, height: 44),
+            colorScheme: .light,
+            engineName: "Search",
+            items: [
+                OmnibarSuggestion(kind: .search(engineName: "Search", query: "cmux"))
+            ],
+            selectedIndex: 0,
+            isLoadingRemoteSuggestions: false,
+            searchSuggestionsEnabled: true,
+            onCommit: { _ in },
+            onHighlight: { _ in }
+        )
+    }
+
+    func testPaneBodyPointerFallbackSeparatesPassThroughBodyOverlaysFromBrowserChrome() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 20, y: 20, width: 220, height: 160))
+        contentView.addSubview(slot)
+        let webView = WKWebView(frame: slot.bounds)
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        realizeWindowLayout(window)
+
+        let passThroughBodyOverlay = NSView(frame: NSRect(x: 24, y: 24, width: 80, height: 50))
+        slot.addSubview(passThroughBodyOverlay, positioned: .above, relativeTo: webView)
+        let bodyPointInWindow = passThroughBodyOverlay.convert(NSPoint(x: 8, y: 8), to: nil)
+        XCTAssertTrue(
+            slot.allowsPaneBodyPointerFocusFallback(for: passThroughBodyOverlay, at: bodyPointInWindow),
+            "A passive overlay inside the hosted web-view frame should still allow pane-body portal fallback"
+        )
+
+        let chromeButton = NSButton(frame: NSRect(x: 36, y: 36, width: 72, height: 24))
+        slot.addSubview(chromeButton)
+        let buttonPointInWindow = chromeButton.convert(NSPoint(x: 8, y: 8), to: nil)
+        XCTAssertFalse(
+            slot.allowsPaneBodyPointerFocusFallback(for: chromeButton, at: buttonPointInWindow),
+            "Native browser chrome controls must not be preempted by pane-body portal fallback"
+        )
+
+        slot.setSearchOverlay(makeBrowserSearchOverlayConfiguration(panelId: UUID()))
+        guard let searchOverlay = slot.browserPortalTestSearchOverlayView else {
+            XCTFail("Expected search overlay")
+            return
+        }
+        let searchPointInWindow = searchOverlay.convert(NSPoint(x: 8, y: 8), to: nil)
+        XCTAssertFalse(
+            slot.allowsPaneBodyPointerFocusFallback(for: searchOverlay, at: searchPointInWindow),
+            "Browser find chrome must receive its click before any pane-body web-view focus fallback"
+        )
+
+        slot.setOmnibarSuggestions(makeBrowserOmnibarSuggestionsConfiguration(panelId: UUID()))
+        slot.layoutSubtreeIfNeeded()
+        guard let suggestionHitView = slot.hitTest(NSPoint(x: 16, y: 16)) else {
+            XCTFail("Expected omnibar suggestions hit")
+            return
+        }
+        let suggestionPointInWindow = slot.convert(NSPoint(x: 16, y: 16), to: nil)
+        XCTAssertFalse(
+            slot.allowsPaneBodyPointerFocusFallback(for: suggestionHitView, at: suggestionPointInWindow),
+            "Omnibar suggestions must commit/highlight normally instead of being blurred by pane-body fallback"
+        )
+    }
+
     // Regression guard for https://github.com/manaflow-ai/cmux/issues/5733.
     // The per-keystroke find-overlay lookup (`searchOverlayPanelId`) used to scan
     // `entriesByWebViewId.values`, copying each `Entry` struct. Every copy

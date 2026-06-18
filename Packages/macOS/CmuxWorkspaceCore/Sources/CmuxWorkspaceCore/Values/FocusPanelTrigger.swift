@@ -6,4 +6,6 @@ public enum FocusPanelTrigger: Sendable, Equatable {
     case standard
     /// Focus driven by the terminal view taking AppKit first responder.
     case terminalFirstResponder
+    /// Focus driven by a pointer down in the body of a terminal or browser pane.
+    case paneBodyPointer
 }
