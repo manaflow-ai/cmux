@@ -459,6 +459,25 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 
+    func testToggleWorkspaceInputBroadcastShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleWorkspaceInputBroadcast.label,
+            "Broadcast Input to All Panes"
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleWorkspaceInputBroadcast.defaultsKey,
+            "shortcut.toggleWorkspaceInputBroadcast"
+        )
+
+        // Cmd+Shift+B (distinct from Cmd+B / Cmd+Opt+B sidebar toggles).
+        let shortcut = KeyboardShortcutSettings.Action.toggleWorkspaceInputBroadcast.defaultShortcut
+        XCTAssertEqual(shortcut.key, "b")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
     func testSaveFilePreviewShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.saveFilePreview.label, "Save File Preview")
         XCTAssertEqual(

@@ -79,6 +79,62 @@ extension TerminalSurface {
         }
     }
 
+    /// Updates the cached workspace-input-broadcast flag for this surface.
+    ///
+    /// Called by the single mutation path (`Workspace.applyInputBroadcastEnabled(_:)`)
+    /// so the desktop `keyDown`/IME/paste hooks can gate on a cheap `Bool` read
+    /// instead of walking the window/workspace tree on every keystroke. See
+    /// ``inputBroadcastEnabled``.
+    @MainActor
+    public func setInputBroadcastEnabled(_ enabled: Bool) {
+        inputBroadcastEnabled = enabled
+    }
+
+    /// Replays a key event captured from another (focused) pane onto this surface
+    /// for workspace input broadcast.
+    ///
+    /// Mirrors the desktop `keyDown` C-string lifetime contract: `text` is bound
+    /// only for the duration of the `ghostty_surface_key` call. Unlike
+    /// ``sendText(_:)`` this does not queue on a cold surface — broadcast only
+    /// targets visible peer panes, which are live.
+    ///
+    /// - Returns: Whether the runtime handled the key (`false` when no live
+    ///   surface is available).
+    @MainActor
+    @discardableResult
+    public func sendMirroredKeyEvent(
+        action: ghostty_input_action_e,
+        keycode: UInt32,
+        mods: ghostty_input_mods_e,
+        consumedMods: ghostty_input_mods_e,
+        unshiftedCodepoint: UInt32,
+        composing: Bool,
+        text: String?
+    ) -> Bool {
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "broadcast.key") else {
+            return false
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return false }
+        hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = action
+        keyEvent.keycode = keycode
+        keyEvent.mods = mods
+        keyEvent.consumed_mods = consumedMods
+        keyEvent.unshifted_codepoint = unshiftedCodepoint
+        keyEvent.composing = composing
+
+        if let text, !text.isEmpty {
+            return text.withCString { ptr in
+                keyEvent.text = ptr
+                return ghostty_surface_key(liveSurface, keyEvent)
+            }
+        }
+        keyEvent.text = nil
+        return ghostty_surface_key(liveSurface, keyEvent)
+    }
+
     /// Sends a named key (e.g. `"ctrl-c"`, `"enter"`), queueing on a cold
     /// surface.
     @MainActor

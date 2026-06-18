@@ -5105,6 +5105,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
         _ = performBindingAction("paste_from_clipboard")
+        broadcastClipboardPasteIfNeeded()
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
@@ -5112,6 +5113,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
         recordDirectAgentHibernationTerminalInput()
         _ = performBindingAction("paste_from_clipboard")
+        broadcastClipboardPasteIfNeeded()
     }
 
     private func applyConfiguredMenuShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {
@@ -5744,7 +5746,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If Ghostty handled the key (action/encoding), we're done.
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
             // so the IME gets a chance to process this event.
-            if handled { return }
+            if handled {
+                broadcastKeyIfNeeded(keyEvent, text: text.isEmpty ? nil : text)
+                return
+            }
         }
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -5902,6 +5907,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                         extra: "textBytes=\(text.utf8.count)"
                     )
 #endif
+                    broadcastKeyIfNeeded(keyEvent, text: text)
                 } else {
                     keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                     keyEvent.text = nil
@@ -5917,6 +5923,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     #else
                     _ = ghostty_surface_key(surface, keyEvent)
                     #endif
+                    broadcastKeyIfNeeded(keyEvent, text: nil)
                 }
             }
 
@@ -5938,6 +5945,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #else
                 _ = ghostty_surface_key(surface, keyEvent)
 #endif
+                broadcastKeyIfNeeded(keyEvent, text: nil)
             }
         } else {
             // Get the appropriate text for this key event
@@ -5984,6 +5992,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                         extra: "handled=\(handled ? 1 : 0) textBytes=\(text.utf8.count)"
                     )
 #endif
+                    broadcastKeyIfNeeded(keyEvent, text: text)
                 } else {
                     keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                     keyEvent.text = nil
@@ -5999,6 +6008,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     #else
                     _ = ghostty_surface_key(surface, keyEvent)
                     #endif
+                    // The local surface was sent a stripped key (text cleared
+                    // above); mirror exactly that to peers, never the suppressed
+                    // Swift `text` (e.g. Shift+Space, composing fallback).
+                    broadcastKeyIfNeeded(keyEvent, text: nil)
                 }
             } else {
                 keyEvent.consumed_mods = GHOSTTY_MODS_NONE
@@ -6015,6 +6028,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 #else
                 _ = ghostty_surface_key(surface, keyEvent)
                 #endif
+                broadcastKeyIfNeeded(keyEvent, text: nil)
             }
         }
 
@@ -6027,6 +6041,74 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
 #endif
         return ghostty_surface_key(surface, keyEvent)
+    }
+
+    // MARK: - Input broadcast
+
+    /// Mirrors a key event that was just sent to this surface onto the other
+    /// visible terminal panes when workspace input broadcast is enabled.
+    ///
+    /// Gated on the per-surface `inputBroadcastEnabled` cache so the common
+    /// (broadcast-off) keystroke path costs only a single `Bool` read and never
+    /// walks the window tree. Reads only `keyEvent`'s scalar fields plus the
+    /// in-scope Swift `text` — never `keyEvent.text`, whose C pointer is only
+    /// valid inside the originating `withCString` closure.
+    private func broadcastKeyIfNeeded(_ keyEvent: ghostty_input_key_s, text: String?) {
+        guard let surface = terminalSurface, surface.inputBroadcastEnabled else { return }
+        surface.owningWorkspace()?.broadcastTerminalInput(
+            .key(
+                action: keyEvent.action,
+                keycode: keyEvent.keycode,
+                mods: keyEvent.mods,
+                consumedMods: keyEvent.consumed_mods,
+                unshiftedCodepoint: keyEvent.unshifted_codepoint,
+                composing: keyEvent.composing,
+                text: text
+            ),
+            from: surface.id
+        )
+    }
+
+    /// Mirrors committed paste/drop text onto the other visible terminal panes
+    /// when workspace input broadcast is enabled.
+    private func broadcastTextIfNeeded(_ text: String) {
+        guard !text.isEmpty, let surface = terminalSurface, surface.inputBroadcastEnabled else { return }
+        surface.owningWorkspace()?.broadcastTerminalInput(.text(text), from: surface.id)
+    }
+
+    /// Mirrors IME/dictation/accessibility-committed text (delivered directly,
+    /// not through the `keyDown` accumulator) onto peer panes as a key event so
+    /// it is encoded identically to the source pane (not bracketed-pasted).
+    private func broadcastCommittedTextIfNeeded(_ text: String) {
+        guard !text.isEmpty, let surface = terminalSurface, surface.inputBroadcastEnabled else { return }
+        surface.owningWorkspace()?.broadcastTerminalInput(
+            .key(
+                action: GHOSTTY_ACTION_PRESS,
+                keycode: 0,
+                mods: GHOSTTY_MODS_NONE,
+                consumedMods: GHOSTTY_MODS_NONE,
+                unshiftedCodepoint: 0,
+                composing: false,
+                text: text
+            ),
+            from: surface.id
+        )
+    }
+
+    /// Mirrors a clipboard paste onto peer panes. The local paste goes through
+    /// Ghostty's `paste_from_clipboard` binding, which routes image/file-URL
+    /// clipboards through the image-transfer pipeline (a per-surface side effect,
+    /// possibly a remote upload) rather than typing them into the PTY. So we
+    /// mirror a paste ONLY when it resolves to plain insertable text — exactly
+    /// `TerminalImageTransferPlanner.preparePaste`'s `.insertText` branch (no
+    /// image, no file URLs) — without materializing a temp file on this path.
+    private func broadcastClipboardPasteIfNeeded() {
+        guard let surface = terminalSurface, surface.inputBroadcastEnabled else { return }
+        guard let pasteboard = GhosttyApp.terminalPasteboard.pasteboard(for: GHOSTTY_CLIPBOARD_STANDARD) else { return }
+        if pasteboard.canReadObject(forClasses: [NSImage.self], options: nil) { return }
+        if pasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { return }
+        guard let value = GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), !value.isEmpty else { return }
+        surface.owningWorkspace()?.broadcastTerminalInput(.text(value), from: surface.id)
     }
 
 #if DEBUG
@@ -6109,6 +6191,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEvent.composing = false
             keyEvent.unshifted_codepoint = 0
             _ = sendGhosttyKey(surface, keyEvent)
+            broadcastKeyIfNeeded(keyEvent, text: nil)
         }
 
         let selectionActive = ghostty_surface_has_selection(surface)
@@ -7680,6 +7763,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         case .insertText(let text):
             terminalSurface?.sendText(text)
+            broadcastTextIfNeeded(text)
             return true
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
@@ -7939,6 +8023,10 @@ final class GhosttySurfaceScrollView: NSView {
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
     private let notificationRingOverlayView: GhosttyFlashOverlayView
     private let notificationRingLayer: CAShapeLayer
+    /// Small dot pinned to the pane's top-right corner while its workspace has
+    /// iTerm2-style input broadcast enabled. Lives on the portal-hosted view so
+    /// it stays visible above the terminal and regardless of the sidebar state.
+    private let broadcastDotView: GhosttyFlashOverlayView
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     var isRightSidebarDockSurface: Bool {
@@ -8192,6 +8280,7 @@ final class GhosttySurfaceScrollView: NSView {
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingLayer = CAShapeLayer()
+        broadcastDotView = GhosttyFlashOverlayView(frame: .zero)
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         keyboardCopyModeBadgeContainerView = GhosttyFlashOverlayView(frame: .zero)
@@ -8261,6 +8350,11 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.layer?.addSublayer(notificationRingLayer)
         notificationRingOverlayView.isHidden = true
         addSubview(notificationRingOverlayView)
+        broadcastDotView.wantsLayer = true
+        broadcastDotView.layer?.backgroundColor = NSColor.systemOrange.cgColor
+        broadcastDotView.autoresizingMask = [.minXMargin, .minYMargin]
+        broadcastDotView.isHidden = true
+        addSubview(broadcastDotView)
         flashOverlayView.wantsLayer = true
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         flashOverlayView.layer?.masksToBounds = false
@@ -8681,6 +8775,20 @@ final class GhosttySurfaceScrollView: NSView {
             setDropZoneOverlay(zone: pending)
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
+        // Pin the broadcast dot to the top-right corner. This view is NOT flipped,
+        // so the top edge is `maxY`.
+        let broadcastDotSize: CGFloat = 8
+        let broadcastDotInset: CGFloat = 6
+        let broadcastDotFrame = CGRect(
+            x: bounds.maxX - broadcastDotSize - broadcastDotInset,
+            y: bounds.maxY - broadcastDotSize - broadcastDotInset,
+            width: broadcastDotSize,
+            height: broadcastDotSize
+        )
+        if broadcastDotView.frame != broadcastDotFrame {
+            broadcastDotView.frame = broadcastDotFrame
+            broadcastDotView.layer?.cornerRadius = broadcastDotSize / 2
+        }
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
@@ -8993,6 +9101,17 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.isHidden = targetHidden
         notificationRingLayer.opacity = targetOpacity
         CATransaction.commit()
+    }
+
+    func setBroadcastDot(visible: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setBroadcastDot(visible: visible)
+            }
+            return
+        }
+        guard broadcastDotView.isHidden != !visible else { return }
+        broadcastDotView.isHidden = !visible
     }
 
     private func cancelDeferredSearchOverlayMutation() {
@@ -11704,6 +11823,7 @@ extension GhosttyNSView: NSTextInputClient {
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText
         )
+        broadcastCommittedTextIfNeeded(sanitizedChars)
     }
 
     private func insertBopomofoPreeditText(_ chars: String, replacementRange: NSRange) {
@@ -11745,6 +11865,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var portalZPriority: Int = 0
     var showsInactiveOverlay: Bool = false
     var showsUnreadNotificationRing: Bool = false
+    var showsBroadcastDot: Bool = false
     var inactiveOverlayColor: NSColor = .clear
     var inactiveOverlayOpacity: Double = 0
     var searchState: TerminalSurface.SearchState? = nil
@@ -11836,6 +11957,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var desiredIsActive: Bool = true
         var desiredIsVisibleInUI: Bool = true
         var desiredShowsUnreadNotificationRing: Bool = false
+        var desiredShowsBroadcastDot: Bool = false
         var desiredPortalZPriority: Int = 0
         var lastBoundHostId: ObjectIdentifier?
         var lastPaneDropZone: DropZone?
@@ -11910,6 +12032,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
         coordinator.desiredShowsUnreadNotificationRing = showsUnreadNotificationRing
+        coordinator.desiredShowsBroadcastDot = showsBroadcastDot
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.hostedView = hostedView
 #if DEBUG
@@ -11962,6 +12085,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 visible: showsInactiveOverlay
             )
             hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
+            hostedView.setBroadcastDot(visible: showsBroadcastDot)
             hostedView.setSearchOverlay(searchState: searchState)
             hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
         }
@@ -12028,6 +12152,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                hostedView.setBroadcastDot(visible: coordinator.desiredShowsBroadcastDot)
             }
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
@@ -12065,6 +12190,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                     hostedView.setActive(coordinator.desiredIsActive)
                     hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                    hostedView.setBroadcastDot(visible: coordinator.desiredShowsBroadcastDot)
                 }
                 Self.synchronizePortalGeometry(
                     for: host,
@@ -12169,6 +12295,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false
         coordinator.desiredShowsUnreadNotificationRing = false
+        coordinator.desiredShowsBroadcastDot = false
         coordinator.desiredPortalZPriority = 0
         coordinator.lastBoundHostId = nil
         let hostedView = coordinator.hostedView

@@ -22,6 +22,7 @@ struct TerminalPanelView: View {
     let isSplit: Bool
     let appearance: PanelAppearance
     let hasUnreadNotification: Bool
+    var showsBroadcastDot: Bool = false
     let terminalAgentContext: String
     let onFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
@@ -74,6 +75,7 @@ struct TerminalPanelView: View {
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
+                showsBroadcastDot: showsBroadcastDot,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
                 searchState: panel.searchState,
