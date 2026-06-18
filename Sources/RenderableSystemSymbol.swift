@@ -74,8 +74,8 @@ extension Image {
         alignment: Alignment = .center
     ) -> some View {
         let rasterSize = RenderableSystemSymbol.clampedRasterPointSize(pointSize)
-        return font(.system(size: rasterSize))
-            .fontWeight(weight)
+        let systemFont: Font = weight.map { .system(size: rasterSize, weight: $0) } ?? .system(size: rasterSize)
+        return font(systemFont)
             .frame(width: rasterSize, height: rasterSize, alignment: alignment)
     }
 }
