@@ -1,22 +1,5 @@
 import Foundation
-
-/// What double-clicking (or activating via Return in the search results list) a
-/// FILE in the file explorer / right-sidebar file tree should do.
-///
-/// Directories are unaffected — they always expand/collapse regardless of this
-/// setting. The default, ``preview``, preserves the historical behavior of
-/// opening the built-in cmux file preview, so existing users see no change.
-enum FileExplorerDoubleClickAction: String, CaseIterable, Sendable {
-    /// Open the built-in cmux file preview (historical default).
-    case preview
-    /// Open with the macOS default application for the file type — identical to
-    /// the file explorer context menu's "Open in <App>" action.
-    case defaultEditor
-    /// Open with the user's configured `app.preferredEditor` command, matching
-    /// the terminal Cmd-click path (`PreferredEditorService.open(_:)`). Falls
-    /// back to ``defaultEditor`` when no preferred editor command is configured.
-    case preferredEditor
-}
+import CmuxSettings
 
 /// The concrete open behavior for a file activation, after resolving the
 /// configured action and any fallbacks. Computed by

@@ -131,6 +131,22 @@ Embedded browser settings from Settings > Browser.
 | `browser.showImportHintOnBlankTabs` | boolean | `true` | Show the browser import hint on blank tabs. |
 | `browser.reactGrabVersion` | string | `"0.1.29"` | Pinned react-grab version for the browser toolbar helper. |
 
+## fileExplorer
+
+Right-sidebar file explorer (file tree) settings.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `fileExplorer.doubleClickAction` | `"preview"` or `"defaultEditor"` or `"preferredEditor"` | `"preview"` | What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview. |
+
+## diffViewer
+
+Built-in diff viewer settings.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `diffViewer.defaultLayout` | `"unified"` or `"split"` | `"unified"` | Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both. |
+
 ## shortcuts
 
 Keyboard shortcut settings from Settings > Keyboard Shortcuts.

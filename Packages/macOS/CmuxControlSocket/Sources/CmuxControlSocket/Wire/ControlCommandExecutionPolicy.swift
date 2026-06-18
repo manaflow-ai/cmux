@@ -15,18 +15,25 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// from the main thread.
     case socketWorker(mainThreadCallable: Bool)
 
-    /// Classifies a method: every `vm.`- and `remotes.`-prefixed method and the
-    /// fixed socket-worker set run on the worker; everything else runs on the
-    /// main actor.
+    /// Classifies a method: every `vm.`-, `remotes.`-, and
+    /// `settings.control.`-prefixed method and the fixed socket-worker set run
+    /// on the worker; everything else runs on the main actor.
+    ///
+    /// `settings.control.*` powers the catalog-driven `cmux settings` CLI
+    /// backend. Its reads/writes are `async` actor hops through the settings
+    /// engine, which the synchronous main-actor coordinator cannot host. The
+    /// unrelated main-actor `settings.open` does not share this prefix.
     ///
     /// `remotes.*` (the `cmux remotes` device-registry verbs) make blocking,
     /// authenticated web API calls just like `vm.*`, so they must stay off the
-    /// main actor; a prefix match keeps the three verbs in lockstep without
-    /// listing each.
+    /// main actor; a prefix match keeps the verbs in lockstep without listing
+    /// each.
     ///
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
-        if method.hasPrefix("vm.") || method.hasPrefix("remotes.")
+        if method.hasPrefix("vm.")
+            || method.hasPrefix("settings.control.")
+            || method.hasPrefix("remotes.")
             || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)

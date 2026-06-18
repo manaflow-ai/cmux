@@ -8,6 +8,19 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.anything.else").runsOnSocketWorker)
     }
 
+    @Test func settingsControlMethodsRunOnTheSocketWorker() {
+        // The `cmux settings` CLI backend is async (catalog-driven engine).
+        for method in [
+            "settings.control.list", "settings.control.get", "settings.control.set",
+            "settings.control.describe", "settings.control.export", "settings.control.import",
+            "settings.control.shortcuts.set", "settings.control.shortcuts.reset",
+        ] {
+            #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
+        }
+        // The unrelated main-actor `settings.open` must NOT be rerouted.
+        #expect(ControlCommandExecutionPolicy(forMethod: "settings.open") == .mainActor)
+    }
+
     @Test func remotesPrefixedMethodsRunOnTheSocketWorker() {
         // `cmux remotes` verbs make blocking authenticated web API calls, so
         // they must run on the worker; otherwise the dispatcher never reaches

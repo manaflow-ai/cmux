@@ -16351,6 +16351,15 @@ struct CMUXCLI {
     /// Dispatch help for a subcommand. Returns true if help was printed.
     private func dispatchSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
         guard commandArgs.contains("--help") || commandArgs.contains("-h") else { return false }
+        if command == "settings" {
+            let parsedArgs = docsSettingsArguments(commandArgs).arguments
+            if parsedArgs.first?.lowercased() == "shortcuts" {
+                print("cmux settings shortcuts")
+                print("")
+                print(Self.settingsShortcutsUsage)
+                return true
+            }
+        }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
         print("")
@@ -34237,7 +34246,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         Commands:
           welcome
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
-          settings [open [target]|path|docs|<target>]
+          settings <list|get|set|unset|reset|describe|export|import|shortcuts|open> [args]
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status

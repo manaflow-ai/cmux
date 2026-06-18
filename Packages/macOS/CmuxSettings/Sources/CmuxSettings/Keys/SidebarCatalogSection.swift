@@ -29,7 +29,8 @@ public struct SidebarCatalogSection: SettingCatalogSection {
     public let branchVerticalLayout = DefaultsKey<Bool>(
         id: "sidebar.branchVerticalLayout",
         defaultValue: true,
-        userDefaultsKey: "sidebarBranchVerticalLayout"
+        userDefaultsKey: "sidebarBranchVerticalLayout",
+        jsonAliases: ["sidebar.branchLayout"]
     )
 
     public let stackBranchDirectory = DefaultsKey<Bool>(

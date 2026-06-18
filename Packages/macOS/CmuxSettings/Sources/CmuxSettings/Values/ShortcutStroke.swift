@@ -34,4 +34,9 @@ public struct ShortcutStroke: Sendable, Equatable, Hashable, Codable {
 
     /// True when at least one of `cmd`, `shift`, `opt`, or `ctrl` is set.
     public var hasAnyModifier: Bool { command || shift || option || control }
+
+    /// True when a non-shift "primary" modifier (`cmd`, `opt`, or `ctrl`) is set.
+    /// A system-wide Carbon hotkey requires one of these; shift alone is not
+    /// enough. Mirrors the app target's `ShortcutStroke.hasPrimaryModifier`.
+    public var hasPrimaryModifier: Bool { command || option || control }
 }

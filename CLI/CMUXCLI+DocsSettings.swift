@@ -298,6 +298,20 @@ extension CMUXCLI {
             return
         }
 
+        // Data subcommands (read/write settings and shortcuts) route to the
+        // catalog-driven engine over the control socket; everything else opens
+        // the GUI Settings window.
+        if settingsUsesControlEngine(subcommand: subcommand, args: args) {
+            try runSettingsControl(
+                subcommand: subcommand,
+                args: args,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                jsonOutput: wantsJSON
+            )
+            return
+        }
+
         switch subcommand {
         case "path", "paths":
             guard args.count == 1 else {
@@ -339,7 +353,7 @@ extension CMUXCLI {
                 throw CLIError(message: "Unknown settings subcommand '\(subcommand)'. Run 'cmux settings --help'.")
             }
             guard args.count == 1 else {
-                throw CLIError(message: "Usage: cmux settings [open [target]|path|docs|<target>]")
+                throw CLIError(message: "Usage: cmux settings open [target]   (run 'cmux settings --help' for read/write subcommands)")
             }
             try openSettingsTarget(
                 targetRaw,
@@ -355,39 +369,6 @@ extension CMUXCLI {
         let subcommand = parsedArgs.arguments.first?.lowercased() ?? "open"
         return hasHelpRequest(beforeSeparator: parsedArgs.head) ||
             ["path", "paths", "docs", "documentation"].contains(subcommand)
-    }
-
-    func settingsUsage() -> String {
-        return """
-        Usage: cmux settings [open [target]|path|docs|<target>]
-
-        Open cmux Settings, print cmux.json paths, or show settings documentation.
-
-        Subcommands:
-          open [target]       Open Settings, optionally to a target section.
-          path                Print cmux.json paths, docs URL, and schema URL.
-          docs                Print the same output as `cmux docs settings`.
-
-        Targets:
-          account, app, terminal, sidebar-appearance, custom-sidebars,
-          automation, browser, browser-import, global-hotkey,
-          keyboard-shortcuts, shortcuts, workspace-colors, cmux-json,
-          json, reset
-
-        Config file:
-          \(Self.primarySettingsDisplayPath)
-          legacy config: \(Self.legacySettingsDisplayPath)
-          legacy app support: \(Self.fallbackSettingsDisplayPath)
-
-        Related (not cmux-owned, but cmux reads it for terminal behavior):
-          \(Self.ghosttyConfigDisplayPath)
-
-        Before editing cmux.json:
-          Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.
-
-        Reload after editing cmux.json or Ghostty config:
-          cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)
-        """
     }
 
     private func settingsTargetRawValue(for rawValue: String) -> String? {

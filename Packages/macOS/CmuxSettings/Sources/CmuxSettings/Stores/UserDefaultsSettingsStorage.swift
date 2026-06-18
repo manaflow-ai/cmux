@@ -21,4 +21,8 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
     func removeObject(forKey key: String) {
         defaults.removeObject(forKey: key)
     }
+
+    func hasStoredValue<Value>(for key: DefaultsKey<Value>) -> Bool {
+        key.hasStoredValue(in: defaults)
+    }
 }

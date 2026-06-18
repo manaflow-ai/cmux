@@ -431,6 +431,7 @@ extension CmuxSettingsFileStore {
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
         "fileExplorer.doubleClickAction",
+        "diffViewer.defaultLayout",
         "shortcuts.bindings",
     ]
 }
