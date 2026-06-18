@@ -143,7 +143,11 @@ extension Array where Element == CuratedSettingEntry {
                     String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic"),
                 ].joined(separator: " "),
                 paths: ["automation.workspaceAutoNaming"],
-                synonyms: "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation"
+                synonyms: String(
+                    localized: "settings.search.alias.setting.automation.workspace-auto-naming",
+                    defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated name summarize summary summarizer conversation agent picker naming agent"
+                ),
+                anchorPath: "automation.workspaceAutoNaming"
             ),
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),

@@ -997,8 +997,6 @@ jobs:
     # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
     # of the generic persistent macOS 26 pool.
     runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'warp-macos-26-arm64-6x' }}
-    # Cold cache saves can add several minutes after the Release build and
-    # artifact validation have already passed.
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -1034,6 +1032,15 @@ jobs:
         id: ghostty-revision
         run: |
           echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Reclaim release runner disk
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:"
+          df -h /
+          rm -rf build-universal .spm-cache
+          echo "Disk after cleanup:"
+          df -h /
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-release
