@@ -119,6 +119,10 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "suppressSubagentNotifications": true
   // },
 
+  // "sidebar": {
+  //   "position": "left"
+  // },
+
   // "workspaceColors": {
   //   "colors": {
   //     "Red": "#C0392B",

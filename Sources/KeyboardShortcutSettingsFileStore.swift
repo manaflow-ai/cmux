@@ -641,6 +641,16 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        if let raw = jsonString(section["position"]) {
+            if let position = SidebarPositionOption(rawValue: raw) {
+                snapshot.managedUserDefaults[SidebarPositionSettings.key] = .string(position.rawValue)
+            } else {
+                logInvalid("sidebar.position", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("position") {
+            logInvalid("sidebar.position", sourcePath: sourcePath)
+        }
+
         for setting in SidebarSettingsFileMapping.booleanSettings {
             if let value = jsonBool(section[setting.jsonKey]) {
                 snapshot.managedUserDefaults[setting.defaultsKey] = .bool(value)

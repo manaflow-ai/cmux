@@ -112,6 +112,13 @@ struct SettingsSearchIndexTests {
         )
     }
 
+    @Test func settingsPathAnchorIncludesSidebarPosition() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "sidebar.position")
+                == SettingsSearchIndex.sectionID(for: .sidebarAppearance)
+        )
+    }
+
     @Test func settingsPathAnchorIncludesClickablePullRequests() {
         #expect(
             SettingsSearchIndex.anchorID(forSettingsPath: "sidebar.makePullRequestsClickable")

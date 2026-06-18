@@ -500,6 +500,7 @@ enum SettingsSearchIndex {
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
+        "sidebar.position": sectionID(for: .sidebarAppearance),
         "canvas.paneGap": settingID(for: .app, idSuffix: "canvas-pane-gap"),
         "canvas.snappingEnabled": settingID(for: .app, idSuffix: "canvas-snapping"),
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
