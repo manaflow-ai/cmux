@@ -54,54 +54,57 @@ import Testing
         #expect(output == nil)
     }
 
-    @Test func timesOutLongRunningCommand() async {
-        let start = Date()
-        let result = await runner.run(
-            directory: tempDir,
-            executable: "sleep",
-            arguments: ["10"],
-            timeout: 0.3
-        )
-        let elapsed = Date().timeIntervalSince(start)
+    @Test func timesOutLongRunningCommand() async throws {
+        // `sleep 10` never exits within the 0.3s deadline, so the only way `run` can
+        // return is by firing its timeout. Racing against a generous guard deadline
+        // (well under the 10s sleep) turns "did not hang" into a logical outcome: a
+        // regression that waited on the child instead of the timer would not produce a
+        // result before `guardSeconds` and would fail the test deterministically.
+        let result = try await expectCompletes(within: 6) {
+            await runner.run(
+                directory: tempDir,
+                executable: "sleep",
+                arguments: ["10"],
+                timeout: 0.3
+            )
+        }
         #expect(result.timedOut == true)
         #expect(result.exitStatus == nil)
-        // The deadline fired well before the 10s sleep would have finished.
-        #expect(elapsed < 5)
     }
 
-    @Test func timesOutPromptlyWhenDescendantKeepsPipesOpen() async {
+    @Test func timesOutPromptlyWhenDescendantKeepsPipesOpen() async throws {
         // A backgrounded grandchild inherits stdout/stderr and outlives the immediate
         // child, so the pipes never reach EOF at the deadline. The timeout result must
         // not wait on the pipe readers; otherwise `run` hangs until the grandchild exits.
-        let start = Date()
-        let result = await runner.run(
-            directory: tempDir,
-            executable: "sh",
-            arguments: ["-c", "sleep 5 & wait"],
-            timeout: 0.3
-        )
-        let elapsed = Date().timeIntervalSince(start)
+        // The guard deadline (under the 5s grandchild) catches that regression as a
+        // failure to complete, not as a slow-but-passing elapsed measurement.
+        let result = try await expectCompletes(within: 4) {
+            await runner.run(
+                directory: tempDir,
+                executable: "sh",
+                arguments: ["-c", "sleep 5 & wait"],
+                timeout: 0.3
+            )
+        }
         #expect(result.timedOut == true)
         #expect(result.exitStatus == nil)
-        // Returns at the ~0.3s deadline, not after the 5s grandchild finishes.
-        #expect(elapsed < 3)
     }
 
-    @Test func timesOutWhenChildExitsEarlyButDescendantKeepsPipesOpen() async {
+    @Test func timesOutWhenChildExitsEarlyButDescendantKeepsPipesOpen() async throws {
         // The immediate child (`sh`) exits almost immediately, but the backgrounded
         // grandchild inherits stdout/stderr and keeps a pipe open. The deadline must stay
         // armed after the child exits, otherwise `run` strands on the pipe readers with no
-        // timeout left. (No `wait`, so `sh` returns before the 0.3s deadline.)
-        let start = Date()
-        let result = await runner.run(
-            directory: tempDir,
-            executable: "sh",
-            arguments: ["-c", "sleep 5 &"],
-            timeout: 0.3
-        )
-        let elapsed = Date().timeIntervalSince(start)
+        // timeout left. (No `wait`, so `sh` returns before the 0.3s deadline.) The guard
+        // deadline (under the 5s grandchild) catches a stranded `run` as a non-completion.
+        let result = try await expectCompletes(within: 4) {
+            await runner.run(
+                directory: tempDir,
+                executable: "sh",
+                arguments: ["-c", "sleep 5 &"],
+                timeout: 0.3
+            )
+        }
         #expect(result.timedOut == true)
-        #expect(elapsed < 3)
     }
 
     @Test func zeroTimeoutTerminatesWithoutCrashing() async {
@@ -176,4 +179,46 @@ import Testing
         )
         #expect(output == nil)
     }
+
+    /// Runs `work` and returns its result the instant it finishes, but fails the test
+    /// if it has not finished within `guardSeconds`.
+    ///
+    /// This is a "did not hang" guard expressed as a deadline-bounded wait on the real
+    /// completion signal (the awaited `run` returning), not a measured-elapsed assertion.
+    /// `guardSeconds` is chosen comfortably below the child/grandchild lifetime in the
+    /// caller, so a regression that waits on the process instead of the timeout deadline
+    /// fails by not completing in time, deterministically, rather than by a flaky
+    /// wall-clock comparison. It resolves the moment `work` yields, so a healthy timeout
+    /// (~0.3s) is not slowed by the guard.
+    private func expectCompletes<Value: Sendable>(
+        within guardSeconds: Double,
+        _ work: @Sendable @escaping () async -> Value,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws -> Value {
+        try await withThrowingTaskGroup(of: Value.self) { group in
+            group.addTask { await work() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(guardSeconds))
+                throw TimedOutWaiting()
+            }
+            do {
+                guard let value = try await group.next() else {
+                    throw TimedOutWaiting()
+                }
+                group.cancelAll()
+                return value
+            } catch is TimedOutWaiting {
+                group.cancelAll()
+                Issue.record(
+                    "run did not complete within \(guardSeconds)s; it appears to be waiting on the process instead of its timeout deadline",
+                    sourceLocation: sourceLocation
+                )
+                throw TimedOutWaiting()
+            }
+        }
+    }
+
+    /// The guard deadline in ``expectCompletes(within:_:sourceLocation:)`` won the race
+    /// against the work, indicating `run` failed to return promptly on timeout.
+    private struct TimedOutWaiting: Error {}
 }
