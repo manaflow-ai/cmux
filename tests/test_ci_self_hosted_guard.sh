@@ -50,6 +50,20 @@ check_display_runner_identity_guard() {
   echo "PASS: $job in $(basename "$file") validates display runner identity"
 }
 
+check_release_build_runner_disk_capacity() {
+  if ! awk '
+    /^  release-build:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /runs-on:/ && /vars\.MACOS_RUNNER_26_RELEASE/ && /warp-macos-26-arm64-6x/ { saw_release_runner=1 }
+    END { exit !saw_release_runner }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-build must use the release-specific macOS 26 runner var with clean Warp fallback for disk-heavy universal builds"
+    exit 1
+  fi
+
+  echo "PASS: release-build uses release-specific macOS 26 runner fallback"
+}
+
 check_e2e_runner_fallbacks() {
   if ! awk '
     /^run-name:/ {
@@ -142,6 +156,27 @@ check_release_build_signal() {
   fi
 
   echo "PASS: release-build keeps universal artifact verification"
+}
+
+check_release_build_disk_cleanup() {
+  if ! awk '
+    /^  release-build:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- name: Reclaim release runner disk/ { in_step=1; saw_step=1; next }
+    in_step && /^[[:space:]]*- name:/ { in_step=0 }
+    in_step && /df -h \// { saw_df=1 }
+    in_step && /rm -rf build-universal \.spm-cache/ { saw_workspace=1 }
+    in_step && /Library\/Developer\/Xcode\/DerivedData/ { saw_direct_derived_data=1 }
+    in_step && /cleanup-dev-builds\.sh/ { saw_tag_cleanup=1 }
+
+    END { exit !(saw_step && saw_df && saw_workspace && !saw_direct_derived_data && !saw_tag_cleanup) }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-build cleanup must stay limited to job-owned workspace paths"
+    exit 1
+  fi
+
+  echo "PASS: release-build reclaims runner disk before large cache restores"
 }
 
 check_release_helper_upload_retry() {
@@ -603,6 +638,7 @@ check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
 check_macos_runner "$CI_FILE" "ui-regressions"
+check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
 check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
 
@@ -618,6 +654,7 @@ check_e2e_runner_fallbacks
 
 check_xcode_selection
 check_release_build_signal
+check_release_build_disk_cleanup
 check_release_helper_upload_retry
 check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
