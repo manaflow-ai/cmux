@@ -15,16 +15,15 @@ import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-// The app target still declares legacy duplicates of these CmuxSettings
-// value types; with CmuxSettings imported unconditionally the names are
-// ambiguous. These tests exercise the app-side BrowserThemeSettings /
-// BrowserSearchSettings paths, so pin the app types.
+// The app target still declares a legacy duplicate of BrowserThemeMode; with
+// CmuxSettings imported unconditionally the name is ambiguous. Pin the app
+// type for theme tests and the package type for browser search settings.
 private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
-private typealias BrowserSearchEngine = cmux_DEV.BrowserSearchEngine
+private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #elseif canImport(cmux)
 @testable import cmux
 private typealias BrowserThemeMode = cmux.BrowserThemeMode
-private typealias BrowserSearchEngine = cmux.BrowserSearchEngine
+private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
@@ -4922,7 +4921,8 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCustomSearchURLTemplateReplacesQueryPlaceholder() throws {
-        let url = try XCTUnwrap(BrowserSearchSettings.searchURL(
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
             fromTemplate: "https://search.example.test/find?q={query}&src=cmux",
             query: "hello world"
         ))
@@ -4933,7 +4933,8 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCustomSearchURLTemplateReplacesPercentPlaceholder() throws {
-        let url = try XCTUnwrap(BrowserSearchSettings.searchURL(
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
             fromTemplate: "https://search.example.test/find?term=%s",
             query: "c++ && swift"
         ))
@@ -4943,7 +4944,8 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCustomSearchURLTemplateAppendsQueryItemWhenPlaceholderIsMissing() throws {
-        let url = try XCTUnwrap(BrowserSearchSettings.searchURL(
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
             fromTemplate: "https://search.example.test/find?source=cmux",
             query: "hello world"
         ))
@@ -4954,7 +4956,8 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCustomSearchURLTemplateFallbackEscapesPlusSigns() throws {
-        let url = try XCTUnwrap(BrowserSearchSettings.searchURL(
+        let store = BrowserSearchSettingsStore()
+        let url = try XCTUnwrap(store.searchURL(
             fromTemplate: "https://search.example.test/find?source=cmux",
             query: "c++ && swift"
         ))
@@ -4966,11 +4969,12 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCustomSearchURLTemplateRejectsNonHTTPURLs() {
-        XCTAssertNil(BrowserSearchSettings.searchURL(
+        let store = BrowserSearchSettingsStore()
+        XCTAssertNil(store.searchURL(
             fromTemplate: "file:///tmp/search?q={query}",
             query: "hello world"
         ))
-        XCTAssertFalse(BrowserSearchSettings.isValidSearchURLTemplate("cmux://search?q={query}"))
+        XCTAssertFalse(store.isValidSearchURLTemplate("cmux://search?q={query}"))
     }
 
     func testCurrentSearchConfigurationUsesCustomProvider() throws {
@@ -4983,11 +4987,11 @@ final class BrowserSearchEngineTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(BrowserSearchEngine.custom.rawValue, forKey: BrowserSearchSettings.searchEngineKey)
-        defaults.set("Kagi Fast", forKey: BrowserSearchSettings.customSearchEngineNameKey)
-        defaults.set("https://kagi.com/search?q={query}", forKey: BrowserSearchSettings.customSearchEngineURLTemplateKey)
+        defaults.set(BrowserSearchEngine.custom.rawValue, forKey: BrowserSearchSettingsStore.searchEngineKey)
+        defaults.set("Kagi Fast", forKey: BrowserSearchSettingsStore.customSearchEngineNameKey)
+        defaults.set("https://kagi.com/search?q={query}", forKey: BrowserSearchSettingsStore.customSearchEngineURLTemplateKey)
 
-        let configuration = BrowserSearchSettings.currentConfiguration(defaults: defaults)
+        let configuration = BrowserSearchSettingsStore(defaults: defaults).currentConfiguration
         let url = try XCTUnwrap(configuration.searchURL(query: "swift actors"))
 
         XCTAssertEqual(configuration.displayName, "Kagi Fast")
@@ -4997,7 +5001,7 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testCurrentSearchConfigurationFallsBackForInvalidCustomURLTemplate() throws {
-        let configuration = BrowserSearchSettings.configuration(
+        let configuration = BrowserSearchSettingsStore().configuration(
             engineRaw: BrowserSearchEngine.custom.rawValue,
             customName: "",
             customURLTemplate: "ftp://search.example.test?q={query}"
@@ -5033,8 +5037,8 @@ final class BrowserSearchSettingsTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.removeObject(forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
-        XCTAssertTrue(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+        defaults.removeObject(forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
+        XCTAssertTrue(BrowserSearchSettingsStore(defaults: defaults).currentSearchSuggestionsEnabled)
     }
 
     func testCurrentSearchSuggestionsEnabledHonorsExplicitValue() {
@@ -5047,11 +5051,11 @@ final class BrowserSearchSettingsTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        defaults.set(false, forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
-        XCTAssertFalse(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+        defaults.set(false, forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
+        XCTAssertFalse(BrowserSearchSettingsStore(defaults: defaults).currentSearchSuggestionsEnabled)
 
-        defaults.set(true, forKey: BrowserSearchSettings.searchSuggestionsEnabledKey)
-        XCTAssertTrue(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
+        defaults.set(true, forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
+        XCTAssertTrue(BrowserSearchSettingsStore(defaults: defaults).currentSearchSuggestionsEnabled)
     }
 }
 

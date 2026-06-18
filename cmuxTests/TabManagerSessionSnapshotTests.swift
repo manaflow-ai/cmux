@@ -3224,6 +3224,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -tt dev@example.com")
     }
 
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/5931 — a restored
+    /// terminal pane header showed the default "Terminal" title instead of its real
+    /// title until a command ran. `applySessionPanelMetadata` wrote the restored title
+    /// into `panelTitles` but never pushed it to the bonsplit tab header.
+    func testRestoredTerminalPaneHeaderTitleSyncsToBonsplitTab() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        let restoredTitle = "~/projects/cmux"
+        workspace.updatePanelTitle(panelId: panelId, title: restoredTitle)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        drainMainQueue()
+
+        let restoredWorkspace = try XCTUnwrap(restored.selectedWorkspace)
+        let restoredPanelId = try XCTUnwrap(
+            restoredWorkspace.panelTitles.first(where: { $0.value == restoredTitle })?.key
+        )
+        let restoredTabId = try XCTUnwrap(restoredWorkspace.surfaceIdFromPanelId(restoredPanelId))
+        let restoredTab = try XCTUnwrap(restoredWorkspace.bonsplitController.tab(restoredTabId))
+
+        XCTAssertEqual(restoredTab.title, restoredTitle)
+        XCTAssertNotEqual(restoredTab.title, "Terminal")
+    }
+
     private static func persistentSSHWorkspaceSnapshot(
         panel: SessionPanelSnapshot,
         focusedPanelId: UUID
