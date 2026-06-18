@@ -2,26 +2,21 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import CmuxBrowser
-import CmuxBrowserPanel
 import CmuxCommandPalette
-import CmuxCommandPaletteUI
 import CmuxPanes
 import CmuxControlSocket
-import CmuxIPCService
+import CmuxWindowing
 import CmuxNotifications
 import CmuxTerminalCore
-import CmuxTerminalEngine
-import CmuxTerminalServices
+import CmuxTerminal
 import CmuxSettings
 import CmuxSettingsUI
-import CmuxSocketControl
 import CmuxUpdater
 import CmuxWorkspaces
 import CmuxUpdaterUI
-import CmuxWindowing
 import SwiftUI
 import Bonsplit
-import CMUXWorkstream
+import CMUXAgentLaunch
 import CoreServices
 import UserNotifications
 import Sentry
@@ -31,8 +26,6 @@ import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
 import CmuxSidebar
-import CmuxSession
-import CmuxTerminal
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
