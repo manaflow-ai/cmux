@@ -88,6 +88,11 @@ final class InactivePaneFirstClickFocusTests: XCTestCase {
             appIsActive: true,
             paneFirstClickFocusEnabled: false
         ))
+        XCTAssertFalse(shouldRunPaneBodyPointerFocusPreflight(
+            windowIsKey: true,
+            appIsActive: false,
+            paneFirstClickFocusEnabled: false
+        ))
         XCTAssertTrue(shouldRunPaneBodyPointerFocusPreflight(
             windowIsKey: true,
             appIsActive: true,
