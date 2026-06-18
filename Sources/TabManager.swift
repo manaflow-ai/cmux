@@ -5,15 +5,12 @@ import SwiftUI
 import Foundation
 import Bonsplit
 import CmuxBrowser
-import CmuxFileWatch
 import CmuxGit
 import CmuxNotifications
 import CmuxPanes
-import CmuxProcess
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
-import CmuxWorkspaceNavigation
 import CmuxWorkspaces
 import CoreVideo
 import Combine
@@ -21,7 +18,6 @@ import CoreServices
 import Darwin
 import OSLog
 import CmuxTerminal
-import CmuxWorkspaceCore
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace

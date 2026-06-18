@@ -1,6 +1,6 @@
 #if DEBUG
 import AppKit
-import CMUXWorkstream
+import CMUXAgentLaunch
 import SwiftUI
 
 /// Debug-only window that renders every Feed item kind + state against

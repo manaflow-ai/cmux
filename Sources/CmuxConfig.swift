@@ -1,5 +1,5 @@
 import Bonsplit
-import CmuxFileWatch
+import CmuxFoundation
 import Combine
 import CryptoKit
 import Foundation
