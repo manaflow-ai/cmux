@@ -1,0 +1,492 @@
+import Dispatch
+import Foundation
+import Darwin
+import Testing
+
+@Suite(.serialized)
+struct ClaudeHookSurfaceResolutionSwiftTests {
+    @Test func claudeSessionStartOverridesLeakedEnvSurfaceWithTTYBinding() throws {
+        let context = try makeClaudeHookContext(name: "claude-leaked-surface")
+        defer { context.cleanup() }
+
+        let leakedSurfaceId = context.surfaceId
+        let ttySurfaceId = "33333333-3333-3333-3333-333333333333"
+        let ttyName = "ttys-claude-leaked-surface"
+        let sessionId = "claude-leaked-surface-session"
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [
+                (leakedSurfaceId, "surface:1", true),
+                (ttySurfaceId, "surface:2", false),
+            ],
+            ttyName: ttyName,
+            ttySurfaceId: ttySurfaceId
+        )
+
+        let environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": leakedSurfaceId,
+            "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
+        ]
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let request = try #require(
+            resumeBindingRequests(in: context).last,
+            "Expected Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+        )
+        #expect(
+            request["surface_id"] as? String == ttySurfaceId,
+            "Claude must persist the agent TTY surface, not the leaked ambient CMUX_SURFACE_ID; params=\(request)"
+        )
+        #expect(
+            context.state.snapshot().contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    && $0.contains("--panel=\(ttySurfaceId)")
+            },
+            "Claude visible status should also target the TTY surface, saw \(context.state.snapshot())"
+        )
+    }
+
+    @Test func claudeExplicitSurfaceOverridesMappedSessionAndTTYBinding() throws {
+        let explicitSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let ttySurfaceId = "44444444-4444-4444-4444-444444444444"
+        try assertPromptSubmitRoutes(
+            name: "claude-explicit-surface",
+            sessionId: "claude-explicit-surface-session",
+            explicitSurfaceId: explicitSurfaceId,
+            ttyName: "ttys-claude-explicit-surface",
+            ttySurfaceId: ttySurfaceId,
+            surfaces: { mappedSurfaceId in [
+                (mappedSurfaceId, "surface:1", true),
+                (explicitSurfaceId, "surface:2", false),
+                (ttySurfaceId, "surface:3", false),
+            ] },
+            expectedSurfaceId: { _ in explicitSurfaceId },
+            requestMessage: "Explicit --surface must beat both mapped session state and TTY binding"
+        )
+    }
+
+    @Test func claudeMappedSessionOverridesTTYBindingWithoutExplicitSurface() throws {
+        let ttySurfaceId = "44444444-4444-4444-4444-444444444444"
+        try assertPromptSubmitRoutes(
+            name: "claude-mapped-session-surface",
+            sessionId: "claude-mapped-session-surface-session",
+            ttyName: "ttys-claude-mapped-session-surface",
+            ttySurfaceId: ttySurfaceId,
+            surfaces: { mappedSurfaceId in [
+                (mappedSurfaceId, "surface:1", true),
+                (ttySurfaceId, "surface:2", false),
+            ] },
+            expectedSurfaceId: { mappedSurfaceId in mappedSurfaceId },
+            requestMessage: "Mapped Claude session state must beat leaked TTY binding when --surface is absent"
+        )
+    }
+
+    @Test func claudeInvalidExplicitSurfaceFallsBackToMappedSession() throws {
+        let staleExplicitSurfaceId = "55555555-5555-5555-5555-555555555555"
+        let ttySurfaceId = "44444444-4444-4444-4444-444444444444"
+        try assertPromptSubmitRoutes(
+            name: "claude-invalid-explicit-surface",
+            sessionId: "claude-invalid-explicit-surface-session",
+            explicitSurfaceId: staleExplicitSurfaceId,
+            ttyName: "ttys-claude-invalid-explicit-surface",
+            ttySurfaceId: ttySurfaceId,
+            surfaces: { mappedSurfaceId in [
+                (mappedSurfaceId, "surface:1", true),
+                (ttySurfaceId, "surface:2", false),
+            ] },
+            expectedSurfaceId: { mappedSurfaceId in mappedSurfaceId },
+            requestMessage: "Invalid explicit --surface should fall back to the mapped session, not TTY/default"
+        )
+    }
+
+    private struct ProcessRunResult { let status: Int32; let stdout: String; let stderr: String; let timedOut: Bool }
+    private typealias SurfaceFixture = (id: String, ref: String, focused: Bool)
+
+    private struct ClaudeHookContext {
+        let cliPath: String
+        let socketPath: String
+        let listenerFD: Int32
+        let state: MockSocketServerState
+        let root: URL
+        let workspaceId: String
+        let surfaceId: String
+
+        func cleanup() {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    private final class MockSocketServerState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var commands: [String] = []
+
+        func append(_ command: String) {
+            lock.lock()
+            commands.append(command)
+            lock.unlock()
+        }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            let value = commands
+            lock.unlock()
+            return value
+        }
+    }
+
+    private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-\(name)-\(UUID().uuidString)", isDirectory: true)
+        let socketPath = makeSocketPath(String(name.prefix(6)))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return ClaudeHookContext(
+            cliPath: try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self),
+            socketPath: socketPath,
+            listenerFD: try bindUnixSocket(at: socketPath),
+            state: MockSocketServerState(),
+            root: root,
+            workspaceId: "11111111-1111-1111-1111-111111111111",
+            surfaceId: "22222222-2222-2222-2222-222222222222"
+        )
+    }
+
+    private func makeSocketPath(_ name: String) -> String {
+        let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
+        return URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
+            .path
+    }
+
+    private func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: "cmux.tests", code: Int(errno))
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
+        let utf8 = Array(path.utf8)
+        guard utf8.count < maxPathLength else {
+            Darwin.close(fd)
+            throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG))
+        }
+        _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
+                for index in 0..<utf8.count {
+                    buffer[index] = CChar(bitPattern: utf8[index])
+                }
+                buffer[utf8.count] = 0
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0, Darwin.listen(fd, 1) == 0 else {
+            let code = errno
+            Darwin.close(fd)
+            throw NSError(domain: "cmux.tests", code: Int(code))
+        }
+        return fd
+    }
+
+    private func startMockServer(listenerFD: Int32, state: MockSocketServerState, handler: @escaping @Sendable (String) -> String) -> DispatchSemaphore {
+        let handled = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { handled.signal() }
+
+            var clientAddr = sockaddr_un()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else {
+                return
+            }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+
+                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                    pending.removeSubrange(0...newlineRange.lowerBound)
+                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                    state.append(line)
+                    let response = handler(line) + "\n"
+                    _ = response.withCString { ptr in
+                        Darwin.write(clientFD, ptr, strlen(ptr))
+                    }
+                }
+            }
+        }
+        return handled
+    }
+
+    private func startClaudeSurfaceResolutionServer(context: ClaudeHookContext, surfaces: [SurfaceFixture], ttyName: String, ttySurfaceId: String) -> DispatchSemaphore {
+        startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return "OK"
+            }
+            switch method {
+            case "surface.list":
+                let surfacePayload: [[String: Any]] = surfaces.map { ["id": $0.id, "ref": $0.ref, "focused": $0.focused] }
+                return v2Response(id: id, ok: true, result: ["surfaces": surfacePayload])
+            case "debug.terminals":
+                return v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["terminals": [[
+                        "tty": ttyName,
+                        "workspace_id": context.workspaceId,
+                        "surface_id": ttySurfaceId,
+                    ]]]
+                )
+            case "feed.push":
+                return v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            default:
+                return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+    }
+
+    private func claudeHookEnvironment(context: ClaudeHookContext, surfaceId: String, ttyName: String, storeURL: URL) -> [String: String] {
+        [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": storeURL.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+    }
+
+    private func writeClaudeHookStore(to storeURL: URL, sessionId: String, workspaceId: String, surfaceId: String, cwd: String) throws {
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": cwd,
+                    "isRestorable": true,
+                    "launchCommand": [
+                        "launcher": "claude",
+                        "executablePath": "/usr/local/bin/claude",
+                        "arguments": ["/usr/local/bin/claude"],
+                        "workingDirectory": cwd,
+                        "capturedAt": 0,
+                        "source": "test",
+                    ],
+                    "startedAt": 1,
+                    "updatedAt": 1,
+                ],
+            ],
+        ]
+        let storeData = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+        try storeData.write(to: storeURL)
+    }
+
+    private func assertPromptSubmitRoutes(
+        name: String,
+        sessionId: String,
+        explicitSurfaceId: String? = nil,
+        ttyName: String,
+        ttySurfaceId: String,
+        surfaces: (String) -> [SurfaceFixture],
+        expectedSurfaceId: (String) -> String,
+        requestMessage: String
+    ) throws {
+        let context = try makeClaudeHookContext(name: name)
+        defer { context.cleanup() }
+
+        let mappedSurfaceId = context.surfaceId
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try writeClaudeHookStore(
+            to: storeURL,
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: mappedSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: surfaces(mappedSurfaceId),
+            ttyName: ttyName,
+            ttySurfaceId: ttySurfaceId
+        )
+
+        var arguments = ["hooks", "claude", "prompt-submit"]
+        if let explicitSurfaceId {
+            arguments += ["--surface", explicitSurfaceId]
+        }
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: arguments,
+            environment: claudeHookEnvironment(
+                context: context,
+                surfaceId: mappedSurfaceId,
+                ttyName: ttyName,
+                storeURL: storeURL
+            ),
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let expected = expectedSurfaceId(mappedSurfaceId)
+        let request = try #require(
+            resumeBindingRequests(in: context).last,
+            "Expected Claude surface resolution to publish a resume binding, saw \(context.state.snapshot())"
+        )
+        #expect(
+            request["surface_id"] as? String == expected,
+            "\(requestMessage); params=\(request)"
+        )
+        #expect(
+            context.state.snapshot().contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    && $0.contains("--panel=\(expected)")
+            },
+            "Claude visible status should target \(expected), saw \(context.state.snapshot())"
+        )
+    }
+
+    private func assertSuccessfulHook(_ result: ProcessRunResult) {
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "OK\n")
+    }
+
+    private func resumeBindingRequests(in context: ClaudeHookContext) -> [[String: Any]] {
+        context.state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+    }
+
+    private func v2Response(
+        id: String,
+        ok: Bool,
+        result: [String: Any]? = nil,
+        error: [String: Any]? = nil
+    ) -> String {
+        var payload: [String: Any] = ["id": id, "ok": ok]
+        if let result { payload["result"] = result }
+        if let error { payload["error"] = error }
+        let data = try? JSONSerialization.data(withJSONObject: payload, options: [])
+        return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
+
+    private func jsonObject(_ line: String) -> [String: Any]? {
+        guard let data = line.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+    }
+
+    private func base64NULSeparated(_ values: [String]) -> String {
+        var data = Data()
+        for value in values {
+            data.append(contentsOf: value.utf8)
+            data.append(0)
+        }
+        return data.base64EncodedString()
+    }
+
+    private func runProcess(executablePath: String, arguments: [String], environment: [String: String], standardInput: String? = nil, timeout: TimeInterval) -> ProcessRunResult {
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let stdinPipe = standardInput == nil ? nil : Pipe()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = stdinPipe ?? FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+        } catch {
+            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
+        }
+        if let standardInput, let stdinPipe {
+            stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
+            try? stdinPipe.fileHandleForWriting.close()
+        }
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        if timedOut {
+            process.terminate()
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+        }
+
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return ProcessRunResult(
+            status: process.isRunning ? SIGKILL : process.terminationStatus,
+            stdout: stdout,
+            stderr: stderr,
+            timedOut: timedOut
+        )
+    }
+}
