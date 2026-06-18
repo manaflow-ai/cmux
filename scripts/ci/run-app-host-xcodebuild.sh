@@ -15,6 +15,12 @@ attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
   : >"$log_path"
+  # Self-hosted macOS runners reuse the GUI session. A stale "cmux DEV" app-host
+  # left running by a prior job (or another job sharing the machine) contends for
+  # the single foreground session and testmanagerd, a top cause of the "Failed to
+  # establish communication with the test runner" flake. Start each attempt from
+  # a clean slate.
+  pkill -x "cmux DEV" || true
   set +e
   CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
     scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@"
@@ -37,6 +43,12 @@ while [ "$attempt" -le "$max_attempts" ]; do
       retry_reason="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout"
     elif grep -Fq 'The test runner hung before establishing connection.' "$log_path"; then
       retry_reason="XCTest startup hang"
+    elif grep -Fq 'Failed to establish communication with the test runner' "$log_path"; then
+      retry_reason="test runner communication failure"
+    elif grep -Fq 'com.apple.testmanagerd.control was invalidated' "$log_path"; then
+      retry_reason="testmanagerd connection invalidated"
+    elif grep -Fq "Couldn't communicate with a helper application" "$log_path"; then
+      retry_reason="test helper communication failure"
     fi
 
     if [ -n "$retry_reason" ] && [ "$attempt" -lt "$max_attempts" ]; then
