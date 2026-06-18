@@ -231,6 +231,42 @@ enum JSONCParser {
 }
 
 enum JSONCObjectEditor {
+    /// Sets (replaces or inserts) a top-level property on the root JSON object
+    /// while preserving the rest of the document verbatim — including comments,
+    /// trailing commas, indentation, and newline style.
+    ///
+    /// Use this instead of re-serializing a decoded dictionary when the on-disk
+    /// file may be JSONC and the user's formatting/comments must survive the edit.
+    ///
+    /// - Parameters:
+    ///   - key: The top-level property key to set.
+    ///   - valueJSON: The replacement value, encoded as JSON (may be multi-line;
+    ///     it is re-indented to match the property's column).
+    ///   - source: The original document text.
+    /// - Returns: The edited document text, or `nil` when `source` is not a JSON
+    ///   object (so the caller can fall back to a full re-serialization).
+    static func setRootProperty(
+        key: String,
+        valueJSON: String,
+        in source: String
+    ) -> String? {
+        guard let root = rootObject(in: source) else { return nil }
+        let newline = preferredNewline(in: source)
+
+        if let property = root.property(named: key) {
+            let indent = indentationBeforeLine(containing: property.keyStart, in: source)
+            let replacement = withPreferredNewline(
+                valueJSONForProperty(valueJSON, propertyIndent: indent),
+                newline: newline
+            )
+            return replacing(source, from: property.valueStart, to: property.valueEnd, with: replacement)
+        }
+
+        let indent = propertyIndent(for: root, in: source)
+        let property = propertyText(key: key, valueJSON: valueJSON, indent: indent)
+        return inserting(property, into: root, in: source)
+    }
+
     static func setNestedObjectProperty(
         parentKey: String,
         childKey: String,
