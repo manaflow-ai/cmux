@@ -499,7 +499,12 @@ private struct FeedListView: View {
         if focusFeed {
             FeedInlineNativeTextView.blurActiveEditor()
         }
-        let optimisticSnapshot = FeedFocusSnapshot(selectedItemId: id, isKeyboardActive: true)
+        let ownsPaneFocus = window?.firstResponder.map { responder in
+            focusHostBox.view?.ownsKeyboardFocus(responder) == true
+        } ?? false
+        let optimisticSnapshot = FeedFocusSnapshot(
+            selectedItemId: id, isKeyboardActive: usesRightSidebarFocusCoordinator || ownsPaneFocus
+        )
         focusSnapshot = optimisticSnapshot
         if usesRightSidebarFocusCoordinator,
            let controller = AppDelegate.shared?.keyboardFocusCoordinator(for: window) {
