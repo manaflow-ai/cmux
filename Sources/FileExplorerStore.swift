@@ -767,33 +767,99 @@ enum FileExplorerError: LocalizedError {
         case .providerUnavailable:
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
         case .sshCommandFailed(let detail):
-            guard let line = Self.meaningfulErrorLine(in: detail) else {
+            return Self.failureCategory(for: detail).localizedDescription
+        }
+    }
+
+    /// A user-facing classification of an SSH probe failure.
+    ///
+    /// Raw `ssh` stderr is mapped into one of these categories so the explorer can
+    /// tell the user *what kind* of failure happened (timeout, auth, host key, …)
+    /// without ever surfacing SSH-internal tokens such as `ControlPath` socket
+    /// paths, `ProxyCommand` invocations, or internal hostnames. This keeps the
+    /// error self-diagnosing while honoring the user-facing-error privacy rule.
+    enum SSHFailureCategory {
+        case timedOut
+        case authenticationFailed
+        case connectionRefused
+        case hostKeyChanged
+        case hostUnresolved
+        case hostUnreachable
+        case remoteHomeUnresolved
+        case unknown
+
+        /// The localized, cmux-phrased message shown to the user for this category.
+        var localizedDescription: String {
+            switch self {
+            case .timedOut:
+                return String(localized: "fileExplorer.error.ssh.timedOut", defaultValue: "SSH connection timed out")
+            case .authenticationFailed:
+                return String(localized: "fileExplorer.error.ssh.authFailed", defaultValue: "SSH authentication failed")
+            case .connectionRefused:
+                return String(localized: "fileExplorer.error.ssh.connectionRefused", defaultValue: "SSH connection refused")
+            case .hostKeyChanged:
+                return String(localized: "fileExplorer.error.ssh.hostKeyChanged", defaultValue: "SSH host key verification failed")
+            case .hostUnresolved:
+                return String(localized: "fileExplorer.error.ssh.hostUnresolved", defaultValue: "Couldn't resolve the SSH host")
+            case .hostUnreachable:
+                return String(localized: "fileExplorer.error.ssh.hostUnreachable", defaultValue: "SSH host is unreachable")
+            case .remoteHomeUnresolved:
+                return String(localized: "fileExplorer.error.ssh.remoteHomeUnresolved", defaultValue: "Couldn't determine the remote home directory")
+            case .unknown:
                 return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed")
             }
-            return String(
-                localized: "fileExplorer.error.sshFailedWithDetail",
-                defaultValue: "SSH command failed: \(line)"
-            )
         }
     }
 
-    // Picks the most informative stderr line so the explorer surfaces *why* SSH
-    // failed (timeout, stale control socket, host-key error, ...) instead of a
-    // generic message. Benign ProxyCommand/login banners (e.g. Coder
-    // version-mismatch or "workspace is outdated" notices) are skipped so the real
-    // error is shown.
-    static func meaningfulErrorLine(in text: String) -> String? {
-        let lines = text
+    /// Classifies raw `ssh` stderr (and cmux's own internal failure strings) into
+    /// a user-facing ``SSHFailureCategory``.
+    ///
+    /// Scans the meaningful stderr lines bottom-up (skipping benign
+    /// ProxyCommand/login banners such as Coder version-mismatch or
+    /// "workspace is outdated" notices) and returns the first category that
+    /// matches a known failure signature, or ``SSHFailureCategory/unknown`` when
+    /// nothing matches. The raw text is only inspected here and is never returned
+    /// to the caller, so no SSH-internal detail can leak into the UI.
+    static func failureCategory(for stderr: String) -> SSHFailureCategory {
+        let lines = stderr
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !lines.isEmpty else { return nil }
-        for line in lines.reversed() where !isNoiseLine(line) {
-            return String(line.prefix(200))
+            .filter { !$0.isEmpty && !isNoiseLine($0) }
+        for line in lines.reversed() {
+            let lowered = line.lowercased()
+            if lowered.contains("timed out") || lowered.contains("timeout") {
+                return .timedOut
+            }
+            if lowered.contains("permission denied")
+                || lowered.contains("publickey")
+                || lowered.contains("authentication failed")
+                || lowered.contains("too many authentication failures") {
+                return .authenticationFailed
+            }
+            if lowered.contains("connection refused") {
+                return .connectionRefused
+            }
+            if lowered.contains("host key verification failed")
+                || lowered.contains("remote host identification has changed") {
+                return .hostKeyChanged
+            }
+            if lowered.contains("could not resolve hostname")
+                || lowered.contains("name or service not known")
+                || lowered.contains("nodename nor servname") {
+                return .hostUnresolved
+            }
+            if lowered.contains("no route to host") || lowered.contains("network is unreachable") {
+                return .hostUnreachable
+            }
+            if lowered.contains("remote home was empty") {
+                return .remoteHomeUnresolved
+            }
         }
-        return lines.last.map { String($0.prefix(200)) }
+        return .unknown
     }
 
+    /// Whether `line` is a benign ProxyCommand/login banner that should be ignored
+    /// when classifying a failure (so a real error printed below it still wins).
     private static func isNoiseLine(_ line: String) -> Bool {
         let lowered = line.lowercased()
         if lowered.hasPrefix("warning: permanently added") { return true }

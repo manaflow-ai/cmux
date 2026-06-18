@@ -665,18 +665,57 @@ struct FileExplorerStoreTests {
     /// The opaque "SSH command failed" message hid the actual failure during the
     /// proxied-host investigation. The explorer must surface the meaningful stderr
     /// line while skipping benign ProxyCommand/login banners.
+    /// The opaque "SSH command failed" message hid the actual failure during the
+    /// proxied-host investigation, but raw ssh stderr must never reach the UI (it
+    /// can leak ControlPath socket paths, ProxyCommand invocations, internal
+    /// hostnames). The explorer must classify stderr into a sanitized, localized
+    /// category — surfacing *what kind* of failure happened without the raw text,
+    /// and skipping benign ProxyCommand/login banners.
     @Test
-    func testSSHErrorSurfacesMeaningfulStderrLine() {
+    func testSSHErrorClassifiesIntoSanitizedCategoryWithoutLeakingRawStderr() {
         let stderr = """
         👋 Your workspace is outdated! Update it here: https://example.com/ws
         Warning: Permanently added 'host' (ED25519) to the list of known hosts.
+        ControlPath /tmp/cmux-ssh-501-deadbeef
         ssh: connect to host nt-8-a100-80g.coder port 22: Operation timed out
         """
         let description = FileExplorerError.sshCommandFailed(stderr).errorDescription
-        #expect(description?.contains("Operation timed out") == true)
+        // Surfaces the timeout *category*, not the raw line.
+        #expect(description == String(localized: "fileExplorer.error.ssh.timedOut", defaultValue: "SSH connection timed out"))
+        // No SSH-internal tokens leak into the user-facing message.
+        #expect(description?.contains("nt-8-a100-80g") == false)
+        #expect(description?.contains("/tmp/cmux-ssh") == false)
+        #expect(description?.contains("ControlPath") == false)
         #expect(description?.contains("workspace is outdated") == false)
 
-        // With no usable detail, it falls back to the generic message.
+        // Classification covers the common ssh failure signatures.
+        #expect(
+            FileExplorerError.sshCommandFailed("Permission denied (publickey).").errorDescription
+                == String(localized: "fileExplorer.error.ssh.authFailed", defaultValue: "SSH authentication failed")
+        )
+        #expect(
+            FileExplorerError.sshCommandFailed("ssh: connect to host h port 22: Connection refused").errorDescription
+                == String(localized: "fileExplorer.error.ssh.connectionRefused", defaultValue: "SSH connection refused")
+        )
+        #expect(
+            FileExplorerError.sshCommandFailed("Host key verification failed.").errorDescription
+                == String(localized: "fileExplorer.error.ssh.hostKeyChanged", defaultValue: "SSH host key verification failed")
+        )
+        #expect(
+            FileExplorerError.sshCommandFailed("ssh: Could not resolve hostname h: nodename nor servname provided").errorDescription
+                == String(localized: "fileExplorer.error.ssh.hostUnresolved", defaultValue: "Couldn't resolve the SSH host")
+        )
+        #expect(
+            FileExplorerError.sshCommandFailed("remote HOME was empty").errorDescription
+                == String(localized: "fileExplorer.error.ssh.remoteHomeUnresolved", defaultValue: "Couldn't determine the remote home directory")
+        )
+
+        // An unrecognized failure falls back to the generic message (no raw text).
+        let unknown = FileExplorerError.sshCommandFailed("some unexpected ssh internal: /private/var/x").errorDescription
+        #expect(unknown == String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed"))
+        #expect(unknown?.contains("/private/var/x") == false)
+
+        // Blank stderr also falls back to the generic message.
         let blank = FileExplorerError.sshCommandFailed("   \n  ").errorDescription
         #expect(blank == String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed"))
     }

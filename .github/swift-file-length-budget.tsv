@@ -62,7 +62,7 @@
 1512	cmuxTests/RestorableAgentSessionIndexTests.swift
 1497	cmuxTests/OmnibarAndToolsTests.swift
 1496	cmuxUITests/MultiWindowNotificationsUITests.swift
-1535	Sources/FileExplorerStore.swift
+1601	Sources/FileExplorerStore.swift
 1426	Sources/VaultAgentProcessScanner.swift
 1412	Sources/RemoteTmuxControlConnection.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
@@ -79,7 +79,7 @@
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1161	cmuxTests/SidebarOrderingTests.swift
 1144	cmuxTests/PiVaultAgentPersistenceTests.swift
-1205	cmuxTests/FileExplorerStoreTests.swift
+1244	cmuxTests/FileExplorerStoreTests.swift
 1120	cmuxTests/AgentHibernationTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
