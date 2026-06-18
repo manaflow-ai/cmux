@@ -1268,6 +1268,7 @@
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "toggleWorkspaceInputBroadcast",
               "focusTextBoxInput",
               "attachTextBoxFile",
               "sendCtrlFToTerminal",

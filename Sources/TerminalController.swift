@@ -4010,7 +4010,8 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color"
+            "set_color", "clear_color",
+            "toggle_broadcast", "set_broadcast"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -4178,6 +4179,19 @@ class TerminalController {
             case "clear_color":
                 tabManager.setTabColor(tabId: workspace.id, color: nil)
                 finish(["color": NSNull()])
+
+            case "toggle_broadcast":
+                let enabled = !tabManager.isBroadcastInputEnabled(for: workspace.id)
+                tabManager.setBroadcastInputEnabled(enabled, for: workspace.id)
+                finish(["broadcast_input": enabled])
+
+            case "set_broadcast":
+                guard let enabled = v2Bool(params, "enabled") else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid 'enabled' (expected boolean)", data: nil)
+                    return
+                }
+                tabManager.setBroadcastInputEnabled(enabled, for: workspace.id)
+                finish(["broadcast_input": enabled])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -11355,6 +11369,8 @@ class TerminalController {
         var ok = false
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
+            let wasBroadcasting = AppDelegate.shared?.tabManagerFor(tabId: wsId)?
+                .isBroadcastInputEnabled(for: wsId) ?? false
             guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
                   let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
                   let ws = srcTM.detachWorkspace(tabId: wsId) else {
@@ -11362,6 +11378,9 @@ class TerminalController {
                 return
             }
             dstTM.attachWorkspace(ws, select: focus)
+            if wasBroadcasting {
+                dstTM.setBroadcastInputEnabled(true, for: wsId)
+            }
             if focus {
                 _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
                 setActiveTabManager(dstTM)

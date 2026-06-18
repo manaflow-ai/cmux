@@ -20,6 +20,7 @@ struct PanelContentView: View {
     let customSidebarTabManager: TabManager?
     let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
+    var showsBroadcastDot: Bool = false
     let terminalAgentContext: String
     /// Explicit browser pane-ownership signal for hosts whose panels live outside
     /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
@@ -51,6 +52,7 @@ struct PanelContentView: View {
                     isSplit: isSplit,
                     appearance: appearance,
                     hasUnreadNotification: hasUnreadNotification,
+                    showsBroadcastDot: showsBroadcastDot,
                     terminalAgentContext: terminalAgentContext,
                     onFocus: onFocus,
                     onResumeAgentHibernation: onResumeAgentHibernation,

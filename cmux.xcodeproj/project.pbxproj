@@ -1027,6 +1027,7 @@
 		C7A507000000000000004529 /* TaskManagerViewSnapshotBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */; };
 		C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A502000000000000000001 /* TaskManagerWindowController.swift */; };
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
+		BC0ADCA570010000000000F1 /* TerminalBroadcastInputPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC0ADCA570010000000000F2 /* TerminalBroadcastInputPayload.swift */; };
 		E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
 		C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */; };
@@ -2252,6 +2253,7 @@
 		C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerViewSnapshotBoundaryTests.swift; sourceTree = "<group>"; };
 		C7A502000000000000000001 /* TaskManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerWindowController.swift; sourceTree = "<group>"; };
 		02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
+		BC0ADCA570010000000000F2 /* TerminalBroadcastInputPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalBroadcastInputPayload.swift; sourceTree = "<group>"; };
 		F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClearScreenKeepScrollbackTests.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
 		C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlAppFocusContext.swift"; sourceTree = "<group>"; };
@@ -2952,6 +2954,7 @@
 				B35750000000000000000001 /* VaultAgentRegistry.swift */,
 				D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */,
 				77F5AB36771F1414A95E3330 /* GhosttyKeyModifiers.swift */,
+				BC0ADCA570010000000000F2 /* TerminalBroadcastInputPayload.swift */,
 				C5D0DEC0CF00000000000B1 /* CmuxConfigStore+ConfigStoreReloading.swift */,
 				D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */,
 				D0B1000BA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift */,
@@ -4825,6 +4828,7 @@
 				C7A504000000000000000002 /* TaskManagerTypes.swift in Sources */,
 				C7A506000000000000000002 /* TaskManagerView.swift in Sources */,
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,
+				BC0ADCA570010000000000F1 /* TerminalBroadcastInputPayload.swift in Sources */,
 				C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */,
 				C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */,
 				CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */,
