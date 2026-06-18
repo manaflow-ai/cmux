@@ -23213,7 +23213,8 @@ struct CMUXCLI {
         let hookArgs = Array(commandArgs.dropFirst())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+        let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
+        let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
@@ -23256,6 +23257,7 @@ struct CMUXCLI {
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: nil,
                 fallback: surfaceArg,
+                fallbackIsExplicit: hookSurfaceFlag != nil,
                 workspaceId: workspaceId,
                 client: client
             )
@@ -23383,6 +23385,7 @@ struct CMUXCLI {
                 let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
+                    fallbackIsExplicit: hookSurfaceFlag != nil,
                     workspaceId: workspaceId,
                     client: client
                 )
@@ -23487,6 +23490,7 @@ struct CMUXCLI {
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
+                fallbackIsExplicit: hookSurfaceFlag != nil,
                 workspaceId: workspaceId,
                 client: client
             )
@@ -23594,6 +23598,7 @@ struct CMUXCLI {
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
+                    fallbackIsExplicit: hookSurfaceFlag != nil,
                     workspaceId: workspaceId,
                     client: client
                 )
@@ -23630,6 +23635,7 @@ struct CMUXCLI {
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
+                fallbackIsExplicit: hookSurfaceFlag != nil,
                 workspaceId: workspaceId,
                 client: client
             )
@@ -23728,6 +23734,7 @@ struct CMUXCLI {
                    let forkSurface = try? resolvePreferredSurfaceForClaudeHookDetailed(
                        preferred: nil,
                        fallback: surfaceArg,
+                       fallbackIsExplicit: hookSurfaceFlag != nil,
                        workspaceId: forkWorkspaceId,
                        client: client
                    ),
@@ -23755,6 +23762,7 @@ struct CMUXCLI {
                 return try? resolvePreferredSurfaceIdForClaudeHook(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
+                    fallbackIsExplicit: hookSurfaceFlag != nil,
                     workspaceId: fallbackWorkspaceId,
                     client: client
                 )
@@ -23827,6 +23835,7 @@ struct CMUXCLI {
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
+                fallbackIsExplicit: hookSurfaceFlag != nil,
                 workspaceId: workspaceId,
                 client: client
             )
@@ -24144,12 +24153,14 @@ struct CMUXCLI {
     private func resolvePreferredSurfaceIdForClaudeHook(
         preferred: String?,
         fallback: String?,
+        fallbackIsExplicit: Bool = false,
         workspaceId: String,
         client: SocketClient
     ) throws -> String {
         try resolvePreferredSurfaceForClaudeHookDetailed(
             preferred: preferred,
             fallback: fallback,
+            fallbackIsExplicit: fallbackIsExplicit,
             workspaceId: workspaceId,
             client: client
         ).surfaceId
@@ -24165,14 +24176,33 @@ struct CMUXCLI {
     private func resolvePreferredSurfaceForClaudeHookDetailed(
         preferred: String?,
         fallback: String?,
+        fallbackIsExplicit: Bool = false,
         workspaceId: String,
         client: SocketClient
     ) throws -> ClaudeHookResolvedSurface {
+        if fallbackIsExplicit, let fallback = nonEmptyClaudeHookIdentifier(fallback) {
+            return try resolveSurfaceAllowingFallbackDetailed(
+                fallback,
+                workspaceId: workspaceId,
+                client: client,
+                preferCallerTTYOverRaw: false
+            )
+        }
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveSurfaceAllowingFallbackDetailed(preferred, workspaceId: workspaceId, client: client)
+            return try resolveSurfaceAllowingFallbackDetailed(
+                preferred,
+                workspaceId: workspaceId,
+                client: client,
+                preferCallerTTYOverRaw: true
+            )
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveSurfaceAllowingFallbackDetailed(fallback, workspaceId: workspaceId, client: client)
+            return try resolveSurfaceAllowingFallbackDetailed(
+                fallback,
+                workspaceId: workspaceId,
+                client: client,
+                preferCallerTTYOverRaw: !fallbackIsExplicit
+            )
         }
         return try resolveSurfaceAllowingFallbackDetailed(nil, workspaceId: workspaceId, client: client)
     }
@@ -24339,13 +24369,24 @@ struct CMUXCLI {
     private func resolveSurfaceAllowingFallbackDetailed(
         _ raw: String?,
         workspaceId: String,
-        client: SocketClient
+        client: SocketClient,
+        preferCallerTTYOverRaw: Bool = false
     ) throws -> ClaudeHookResolvedSurface {
-        if let raw,
-           !raw.isEmpty,
-           let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
-           claudeHookSurfaceIsListed(candidate, workspaceId: workspaceId, client: client) {
-            return ClaudeHookResolvedSurface(surfaceId: candidate, isAuthoritative: true)
+        let rawCandidate: String? = if let raw,
+            !raw.isEmpty,
+            let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
+            claudeHookSurfaceIsListed(candidate, workspaceId: workspaceId, client: client) {
+            candidate
+        } else {
+            nil
+        }
+        if preferCallerTTYOverRaw,
+           let callerSurfaceId = resolveCallerSurfaceIdByTTY(workspaceId: workspaceId, client: client),
+           claudeHookSurfaceIsListed(callerSurfaceId, workspaceId: workspaceId, client: client) {
+            return ClaudeHookResolvedSurface(surfaceId: callerSurfaceId, isAuthoritative: true)
+        }
+        if let rawCandidate {
+            return ClaudeHookResolvedSurface(surfaceId: rawCandidate, isAuthoritative: true)
         }
         if let callerSurfaceId = resolveCallerSurfaceIdByTTY(workspaceId: workspaceId, client: client),
            claudeHookSurfaceIsListed(callerSurfaceId, workspaceId: workspaceId, client: client) {
