@@ -20,7 +20,10 @@ echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TI
 # different machines use different locks and cross-machine parallelism is kept.
 lock_dir="${CMUX_APP_HOST_TEST_LOCK_DIR:-${TMPDIR:-/tmp}/cmux-app-host-test.lock}"
 lock_wait_seconds="${CMUX_APP_HOST_TEST_LOCK_WAIT_SECONDS:-2400}"
-lock_stale_seconds="${CMUX_APP_HOST_TEST_LOCK_STALE_SECONDS:-2400}"
+# Fallback only: break a lock whose owner pid is missing/unreadable once it is
+# older than this. The PRIMARY staleness signal is owner-process liveness below,
+# so an actively-running test of ANY duration is never broken.
+lock_orphan_seconds="${CMUX_APP_HOST_TEST_LOCK_ORPHAN_SECONDS:-3600}"
 lock_held=0
 release_test_lock() { [ "$lock_held" = "1" ] && rm -rf "$lock_dir" 2>/dev/null || true; }
 trap release_test_lock EXIT
@@ -28,25 +31,57 @@ waited=0
 while :; do
   # Ownership is proven ONLY by creating the dir ourselves (atomic mkdir).
   if mkdir "$lock_dir" 2>/dev/null; then
+    echo "$$" >"$lock_dir/owner.pid" 2>/dev/null || true
     lock_held=1
-    echo "Holding app-host test lock: ${lock_dir}"
+    echo "Holding app-host test lock: ${lock_dir} (pid $$)"
     break
   fi
-  # Break a lock orphaned by a crashed job (older than the stale threshold).
-  lock_age=$(( $(date +%s) - $(stat -f %m "$lock_dir" 2>/dev/null || echo 0) ))
-  if [ "$lock_age" -ge "$lock_stale_seconds" ]; then
-    echo "WARN: breaking stale app-host test lock ${lock_dir} (age ${lock_age}s)" >&2
-    rm -rf "$lock_dir" 2>/dev/null || true
-    continue
-  fi
+  # Break the lock only when its owner process is genuinely gone, never on a
+  # wall-clock guess: a long but live xcodebuild must keep its lock.
+  owner_pid="$(cat "$lock_dir/owner.pid" 2>/dev/null || true)"
+  case "$owner_pid" in
+    ''|*[!0-9]*)
+      # No readable numeric owner pid (lock just created, or corrupt): fall back
+      # to an absolute age cap so a wedged lock cannot block the runner forever.
+      lock_age=$(( $(date +%s) - $(stat -f %m "$lock_dir" 2>/dev/null || echo 0) ))
+      if [ "$lock_age" -ge "$lock_orphan_seconds" ]; then
+        echo "WARN: breaking app-host test lock ${lock_dir}; no owner pid, age ${lock_age}s" >&2
+        rm -rf "$lock_dir" 2>/dev/null || true
+        continue
+      fi
+      ;;
+    *)
+      if ! kill -0 "$owner_pid" 2>/dev/null; then
+        echo "WARN: breaking app-host test lock ${lock_dir}; owner pid ${owner_pid} is gone" >&2
+        rm -rf "$lock_dir" 2>/dev/null || true
+        continue
+      fi
+      ;;
+  esac
   if [ "$waited" -ge "$lock_wait_seconds" ]; then
     echo "WARN: app-host test lock not acquired in ${lock_wait_seconds}s; proceeding without exclusivity" >&2
     break
   fi
-  [ "$waited" = "0" ] && echo "Waiting for app-host test lock ${lock_dir} (another GUI test host holds this Mac)..."
+  [ "$waited" = "0" ] && echo "Waiting for app-host test lock ${lock_dir} (owner pid ${owner_pid:-unknown} holds this Mac)..."
   sleep 5
   waited=$(( waited + 5 ))
 done
+
+# Resolve our own DerivedData path from the xcodebuild args so app-host cleanup
+# targets ONLY the host this script launched, never an unrelated tagged dev
+# build a human or another job is running on the same Mac.
+derived_data_path=""
+prev_arg=""
+for arg in "$@"; do
+  if [ "$prev_arg" = "-derivedDataPath" ]; then derived_data_path="$arg"; break; fi
+  prev_arg="$arg"
+done
+app_host_products="${derived_data_path:+${derived_data_path%/}/Build/Products/}"
+kill_stale_app_host() {
+  # Only kill app-host processes launched from our own build products. If we
+  # cannot identify them, do nothing rather than risk an unrelated cmux DEV.
+  [ -n "$app_host_products" ] && pkill -f "$app_host_products" 2>/dev/null || true
+}
 
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
@@ -57,7 +92,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
   # the single foreground session and testmanagerd, a top cause of the "Failed to
   # establish communication with the test runner" flake. Start each attempt from
   # a clean slate.
-  pkill -x "cmux DEV" || true
+  kill_stale_app_host
   set +e
   CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
     scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@"
@@ -90,7 +125,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
 
     if [ -n "$retry_reason" ] && [ "$attempt" -lt "$max_attempts" ]; then
       echo "Retrying app-host xcodebuild after ${retry_reason} (attempt $attempt/$max_attempts)" >&2
-      pkill -x "cmux DEV" || true
+      kill_stale_app_host
       attempt=$((attempt + 1))
       continue
     fi
