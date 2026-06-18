@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import SwiftUI
 
 enum HeaderChromeIconStyle {
@@ -144,7 +145,12 @@ struct RightSidebarChromePillModifier: ViewModifier {
 struct RightSidebarChromeBottomBorderModifier: ViewModifier {
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
-            WindowChromeBorder(orientation: .horizontal, ignoresSafeArea: false)
+            WindowChromeBorder(
+                orientation: .horizontal,
+                ignoresSafeArea: false,
+                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
+                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+            )
         }
     }
 }
