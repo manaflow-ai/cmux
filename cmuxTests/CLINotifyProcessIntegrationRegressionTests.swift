@@ -294,6 +294,126 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeMappedSessionOverridesTTYBindingWithoutExplicitSurface() throws {
+        let context = try makeClaudeHookContext(name: "claude-mapped-session-surface")
+        defer { context.cleanup() }
+
+        let mappedSurfaceId = context.surfaceId
+        let ttySurfaceId = "44444444-4444-4444-4444-444444444444"
+        let ttyName = "ttys-claude-mapped-session-surface"
+        let sessionId = "claude-mapped-session-surface-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": mappedSurfaceId,
+                    "cwd": context.root.path,
+                    "isRestorable": true,
+                    "launchCommand": [
+                        "launcher": "claude",
+                        "executablePath": "/usr/local/bin/claude",
+                        "arguments": ["/usr/local/bin/claude"],
+                        "workingDirectory": context.root.path,
+                        "capturedAt": 0,
+                        "source": "test",
+                    ],
+                    "startedAt": 1,
+                    "updatedAt": 1,
+                ],
+            ],
+        ]
+        let storeData = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+        try storeData.write(to: storeURL)
+
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [
+                        ["id": mappedSurfaceId, "ref": "surface:1", "focused": true],
+                        ["id": ttySurfaceId, "ref": "surface:2", "focused": false],
+                    ]]
+                )
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["terminals": [[
+                        "tty": ttyName,
+                        "workspace_id": context.workspaceId,
+                        "surface_id": ttySurfaceId,
+                    ]]]
+                )
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        let environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": mappedSurfaceId,
+            "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": storeURL.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let resumeBindingRequests = context.state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(
+            resumeBindingRequests.last,
+            "Expected mapped Claude surface to publish a resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertEqual(
+            request["surface_id"] as? String,
+            mappedSurfaceId,
+            "Mapped Claude session state must beat leaked TTY binding when --surface is absent; params=\(request)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    && $0.contains("--panel=\(mappedSurfaceId)")
+            },
+            "Claude visible status should target the mapped surface, saw \(context.state.commands)"
+        )
+    }
+
     func testClaudeInvalidExplicitSurfaceFallsBackToMappedSession() throws {
         let context = try makeClaudeHookContext(name: "claude-invalid-explicit-surface")
         defer { context.cleanup() }
