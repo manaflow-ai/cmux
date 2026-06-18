@@ -12530,9 +12530,7 @@ private struct SidebarHelpMenuButton: View {
 
     private func helpOptionTrailingIcon(systemName: String, size: CGFloat = 13) -> some View {
         Image(systemName: systemName)
-            .resizable()
-            .scaledToFit()
-            .frame(width: size, height: size)
+            .cmuxSymbolRasterSize(size)
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
     }
 
@@ -13301,7 +13299,7 @@ struct TabItemView: View, Equatable {
                         tabManager.closeWorkspaceWithConfirmation(tab)
                     }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: scaledFontSize(9), weight: .medium))
+                            .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
                             .foregroundColor(activeSecondaryColor(0.7))
                             .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
                             .contentShape(Rectangle())
