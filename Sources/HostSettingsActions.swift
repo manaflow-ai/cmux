@@ -183,7 +183,7 @@ final class HostSettingsActions: SettingsHostActions {
     func setSidebarFontSize(_ points: Double) async -> Bool {
         await persistFontSize(
             key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
-            points: CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(points),
+            points: CmuxGhosttyConfigSettingEditor().clampedSidebarFontSize(points),
             reloadSource: "settings.sidebar.fontSize"
         )
     }
@@ -201,7 +201,7 @@ final class HostSettingsActions: SettingsHostActions {
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool {
         await persistFontSize(
             key: CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey,
-            points: CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(points),
+            points: CmuxGhosttyConfigSettingEditor().clampedSurfaceTabBarFontSize(points),
             reloadSource: "settings.terminal.tabBarFontSize"
         )
     }
@@ -212,7 +212,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func setSurfaceTabsFillPaneWidth(_ enabled: Bool) async -> Bool {
-        let formatted = CmuxGhosttyConfigSettingEditor.formattedBool(enabled)
+        let formatted = CmuxGhosttyConfigSettingEditor().formattedBool(enabled)
         guard await ghosttyConfigWriter.write(
             key: CmuxGhosttyConfigSettingEditor.surfaceTabsFillPaneWidthKey,
             value: formatted
@@ -225,7 +225,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func formattedFontSize(_ points: Double) -> String {
-        CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
+        CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
     }
 
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
@@ -333,7 +333,7 @@ final class HostSettingsActions: SettingsHostActions {
     /// - Returns: `true` on success, `false` if the write failed (a generic
     ///   warning is logged here; the Settings UI surfaces a save-failed message).
     private func persistFontSize(key: String, points: Double, reloadSource: String) async -> Bool {
-        let formatted = CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
+        let formatted = CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
         guard await ghosttyConfigWriter.write(key: key, value: formatted) else {
             hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
             return false

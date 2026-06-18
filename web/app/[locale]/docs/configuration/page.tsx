@@ -50,6 +50,7 @@ const sectionOrder = [
   "browser",
   "markdown",
   "fileEditor",
+  "fileExplorer",
   "shortcuts",
 ] as const;
 
@@ -109,6 +110,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "wordWrap": false
   // },
 
+  // "fileExplorer": {
+  //   // ${t("exampleFileExplorerDoubleClickAction")}
+  //   "doubleClickAction": "preview"
+  // },
+
   // "automation": {
   //   "suppressSubagentNotifications": true
   // },
@@ -147,7 +153,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
+  return text[locale as keyof LocalizedText] ?? (locale.startsWith("ja") ? text.ja : text.en);
 }
 
 function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {
@@ -381,13 +387,14 @@ working-directory = ~/code`}</CodeBlock>
         }
 
         const skipBindings = sectionName === "shortcuts" ? ["bindings"] : [];
+        const description = property.descriptionKey ? t(property.descriptionKey) : property.description;
 
         return (
           <section key={sectionName}>
             <DocsHeading level={3} id={`schema-${sectionName}`}>
               <code>{sectionName}</code>
             </DocsHeading>
-            {property.description && <p>{property.description}</p>}
+            {description && <p>{description}</p>}
             <PropertyGrid prefix={sectionName} properties={property.properties} skip={skipBindings} />
             {sectionName === "workspaceColors" && (
               <>
