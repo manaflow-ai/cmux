@@ -1,4 +1,5 @@
 import Foundation
+import CmuxAppKitSupportUI
 import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
@@ -416,6 +417,11 @@ class GhosttyApp {
     )
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
+    /// Shared config-file discovery seam. Resolves Ghostty config scan paths,
+    /// scans them for font/appearance directives, and decides legacy/CJK/theme
+    /// overrides. The C-API config-load methods below call it to decide *what*
+    /// to load; it performs no `ghostty_config_t` mutation itself.
+    private static let configDiscovery = GhosttyConfigDiscovery()
     private static let fallbackAppearanceConfig = GhosttyConfig()
     private static let initializationLogger = Logger(
         subsystem: releaseBundleIdentifier,
@@ -1343,356 +1349,91 @@ class GhosttyApp {
         )
     }
 
-    /// Unicode ranges shared by all CJK languages (Han ideographs, symbols, fullwidth forms).
-    private static let sharedCJKRanges = [
-        "U+3000-U+303F",  // CJK Symbols and Punctuation
-        "U+4E00-U+9FFF",  // CJK Unified Ideographs
-        "U+F900-U+FAFF",  // CJK Compatibility Ideographs
-        "U+FF00-U+FFEF",  // Halfwidth and Fullwidth Forms
-        "U+3400-U+4DBF",  // CJK Unified Ideographs Extension A
-    ]
-
-    /// Unicode ranges specific to Japanese (kana).
-    private static let japaneseRanges = [
-        "U+3040-U+309F",  // Hiragana
-        "U+30A0-U+30FF",  // Katakana
-    ]
-
-    /// Representative scalars used to detect whether the configured primary
-    /// font already covers the ranges cmux would otherwise auto-map.
-    private static let cjkCoverageSampleCharactersByRange: [String: [UniChar]] = [
-        "U+3000-U+303F": [0x3001, 0x300C],
-        "U+4E00-U+9FFF": [0x4E00, 0x65E5, 0x6C34],
-        "U+F900-U+FAFF": [0xF900],
-        "U+FF00-U+FFEF": [0xFF10, 0xFF21],
-        "U+3400-U+4DBF": [0x3400],
-        "U+1100-U+11FF": [0x1100, 0x1161],
-        "U+3130-U+318F": [0x3131, 0x314F],
-        "U+3040-U+309F": [0x3042, 0x3093],
-        "U+30A0-U+30FF": [0x30A2, 0x30F3],
-        "U+AC00-U+D7AF": [0xAC00, 0xD55C],
-    ]
-
-    private struct UserFontConfigSummary {
-        var containsCodepointMap = false
-        var effectiveFontFamilies: [String] = []
-
-        var hasExplicitFontFamilyFallbackChain: Bool {
-            effectiveFontFamilies.count > 1
-        }
-
-        mutating func applyFontCodepointMap(_ value: String) {
-            if value.isEmpty {
-                containsCodepointMap = false
-                return
-            }
-
-            guard value.contains("=") else {
-                return
-            }
-
-            containsCodepointMap = true
-        }
-
-        mutating func recordFontFamily(_ value: String) {
-            if value.isEmpty {
-                effectiveFontFamilies.removeAll()
-                return
-            }
-
-            guard !effectiveFontFamilies.contains(value) else {
-                return
-            }
-
-            effectiveFontFamilies.append(value)
-        }
-    }
-
     /// Returns (range, font) pairs for CJK font fallback based on the system's
-    /// preferred languages, or nil if no CJK language is detected. Each language
-    /// only maps its own script ranges to avoid assigning glyphs to a font that
-    /// lacks coverage (e.g. Hangul to Hiragino Sans).
+    /// preferred languages. Forwards to ``GhosttyConfigDiscovery``.
     static func cjkFontMappings(
         preferredLanguages: [String] = Locale.preferredLanguages
     ) -> [(String, String)]? {
-        var mappings: [(String, String)] = []
-        var coveredShared = false
-
-        for lang in preferredLanguages {
-            let lower = lang.lowercased()
-            let font: String
-            var langRanges: [String] = []
-
-            if lower.hasPrefix("ja") {
-                font = "Hiragino Sans"
-                langRanges = japaneseRanges
-            } else if lower.hasPrefix("zh-hant") || lower.hasPrefix("zh-tw") || lower.hasPrefix("zh-hk") {
-                font = "PingFang TC"
-            } else if lower.hasPrefix("zh") {
-                font = "PingFang SC"
-            } else {
-                continue
-            }
-
-            if !coveredShared {
-                for range in sharedCJKRanges {
-                    mappings.append((range, font))
-                }
-                coveredShared = true
-            }
-
-            for range in langRanges {
-                mappings.append((range, font))
-            }
-        }
-
-        return mappings.isEmpty ? nil : mappings
+        configDiscovery.cjkFontMappings(preferredLanguages: preferredLanguages)
     }
 
-    /// Returns only the CJK mappings cmux should auto-inject after respecting
-    /// explicit user overrides and the glyph coverage of the configured
-    /// primary font family.
+    /// Returns only the CJK mappings cmux should auto-inject. Forwards to
+    /// ``GhosttyConfigDiscovery``.
     static func autoInjectedCJKFontMappings(
         preferredLanguages: [String] = Locale.preferredLanguages,
-        configPaths: [String] = loadedCJKScanPaths(),
+        configPaths: [String]? = nil,
         rangeCoverageProbe: ((String, String) -> Bool)? = nil
     ) -> [(String, String)]? {
-        guard var mappings = cjkFontMappings(preferredLanguages: preferredLanguages) else { return nil }
-
-        let summary = userFontConfigSummary(configPaths: configPaths)
-        if summary.containsCodepointMap || summary.hasExplicitFontFamilyFallbackChain {
-            return nil
-        }
-
-        guard let configuredFontFamily = summary.effectiveFontFamilies.first else {
-            return mappings
-        }
-
-        if let rangeCoverageProbe {
-            mappings.removeAll { range, _ in
-                rangeCoverageProbe(configuredFontFamily, range)
-            }
-        } else if let configuredFont = configuredCTFont(named: configuredFontFamily) {
-            mappings.removeAll { range, _ in
-                fontContainsGlyphs(configuredFont, forRange: range)
-            }
-        }
-
-        return mappings.isEmpty ? nil : mappings
+        configDiscovery.autoInjectedCJKFontMappings(
+            preferredLanguages: preferredLanguages,
+            configPaths: configPaths,
+            rangeCoverageProbe: rangeCoverageProbe
+        )
     }
 
-    /// Checks whether the user's Ghostty config files already contain
-    /// a `font-codepoint-map` entry covering CJK ranges. Also checks
-    /// application-support config paths that cmux may load at runtime.
+    /// Whether the user's Ghostty config files already contain a CJK
+    /// `font-codepoint-map` entry. Forwards to ``GhosttyConfigDiscovery``.
     static func userConfigContainsCJKCodepointMap(
-        configPaths: [String] = loadedGhosttyConfigScanPaths()
+        configPaths: [String]? = nil
     ) -> Bool {
-        userFontConfigSummary(configPaths: configPaths).containsCodepointMap
+        configDiscovery.userConfigContainsCJKCodepointMap(configPaths: configPaths)
     }
 
     static func userConfigHasExplicitFontFamilyFallbackChain(
-        configPaths: [String] = loadedGhosttyConfigScanPaths()
+        configPaths: [String]? = nil
     ) -> Bool {
-        userFontConfigSummary(configPaths: configPaths).hasExplicitFontFamilyFallbackChain
+        configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(configPaths: configPaths)
     }
 
     static func shouldInjectCJKFontFallback(
         preferredLanguages: [String] = Locale.preferredLanguages,
-        configPaths: [String] = loadedCJKScanPaths(),
+        configPaths: [String]? = nil,
         rangeCoverageProbe: ((String, String) -> Bool)? = nil
     ) -> Bool {
-        autoInjectedCJKFontMappings(
+        configDiscovery.shouldInjectCJKFontFallback(
             preferredLanguages: preferredLanguages,
             configPaths: configPaths,
             rangeCoverageProbe: rangeCoverageProbe
-        ) != nil
+        )
     }
 
     static func shouldApplyManagedDefaultAppearance(
-        configPaths: [String] = loadedGhosttyConfigScanPaths()
+        configPaths: [String]? = nil
     ) -> Bool {
-        GhosttyConfig.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
+        configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
     }
 
     static func conditionalThemeOverrideConfigContents(
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
-        configPaths: [String] = loadedGhosttyConfigScanPaths()
+        configPaths: [String]? = nil
     ) -> String? {
-        let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: configPaths)
-        guard let rawThemeValue = summary.lastThemeDirective else { return nil }
-
-        // Inject a resolved plain theme whenever the requested appearance side is
-        // explicitly named via ghostty's conditional `light:...`/`dark:...`
-        // syntax, even when both sides resolve to the same theme. `cmux themes
-        // set` always encodes the selection with this syntax (a single theme
-        // becomes `light:X,dark:X`), and ghostty mis-applies the conditional form
-        // — the background lands but the foreground/palette stay at the default
-        // white colors, producing the white-on-light terminals reported in
-        // https://github.com/manaflow-ai/cmux/issues/3459. Only override sides the
-        // value explicitly specifies: a one-sided `light:X` must not force the
-        // light theme onto dark appearances (which would clobber the inherited or
-        // default dark theme). Plain (non-conditional) theme values are applied
-        // correctly by ghostty, so they need no override.
-        guard let explicitTheme = GhosttyConfig.explicitConditionalThemeName(
-            from: rawThemeValue,
-            preferredColorScheme: preferredColorScheme
-        ) else {
-            return nil
-        }
-
-        let resolvedTheme = explicitTheme.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !resolvedTheme.isEmpty,
-              resolvedTheme.rangeOfCharacter(from: .newlines) == nil else {
-            return nil
-        }
-
-        return "theme = \(resolvedTheme)"
+        configDiscovery.conditionalThemeOverrideConfigContents(
+            preferredColorScheme: preferredColorScheme,
+            configPaths: configPaths
+        )
     }
 
-    /// Resolve auto-injected CJK families through the regular-weight descriptor
-    /// path first so locale-sensitive families such as Hiragino Sans don't fall
-    /// back to ultra-light faces like W0 when Ghostty later matches by name.
+    /// Resolves auto-injected CJK families through the regular-weight descriptor
+    /// path. Forwards to ``GhosttyConfigDiscovery``.
     static func resolvedInjectedCJKFontName(
         named name: String,
         size: CGFloat = 12
     ) -> String {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return name }
-        guard let regularWeightFont = discoveredCTFont(named: trimmed, size: size, weightTrait: 0.0) else {
-            return trimmed
-        }
-
-        let candidateNames = [
-            CTFontCopyName(regularWeightFont, kCTFontFullNameKey) as String?,
-            CTFontCopyName(regularWeightFont, kCTFontPostScriptNameKey) as String?,
-        ].compactMap { $0 }
-        let expectedFullName = CTFontCopyFullName(regularWeightFont) as String
-        let expectedPostScriptName = CTFontCopyPostScriptName(regularWeightFont) as String
-
-        for candidate in candidateNames {
-            guard let verifiedFont = discoveredCTFont(named: candidate, size: size) else { continue }
-            let verifiedNames = [
-                CTFontCopyName(verifiedFont, kCTFontFamilyNameKey) as String?,
-                CTFontCopyName(verifiedFont, kCTFontFullNameKey) as String?,
-                CTFontCopyName(verifiedFont, kCTFontPostScriptNameKey) as String?,
-            ].compactMap { $0 }
-            let matchesRegularWeightFace = verifiedNames.contains {
-                normalizedFontName($0) == normalizedFontName(expectedFullName) ||
-                normalizedFontName($0) == normalizedFontName(expectedPostScriptName)
-            }
-            if matchesRegularWeightFace {
-                return candidate
-            }
-        }
-
-        return trimmed
+        configDiscovery.resolvedInjectedCJKFontName(named: name, size: size)
     }
 
-    private static func configuredCTFont(
-        named name: String,
-        size: CGFloat = 12
-    ) -> CTFont? {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let font = CTFontCreateWithName(trimmed as CFString, size, nil)
-        let normalizedRequestedName = normalizedFontName(trimmed)
-        let resolvedNames = [
-            kCTFontFamilyNameKey,
-            kCTFontFullNameKey,
-            kCTFontPostScriptNameKey,
-        ].compactMap { CTFontCopyName(font, $0) as String? }
-
-        guard resolvedNames.contains(where: { normalizedFontName($0) == normalizedRequestedName }) else {
-            return nil
-        }
-
-        return font
-    }
-
-    /// Mirror Ghostty's family-name CoreText discovery path so injected
-    /// `font-codepoint-map` values are validated against the same lookup mode.
+    /// Mirror Ghostty's family-name CoreText discovery path. Forwards to
+    /// ``GhosttyConfigDiscovery``.
     static func discoveredCTFont(
         named name: String,
         size: CGFloat = 12,
         weightTrait: CGFloat? = nil
     ) -> CTFont? {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        var attributes: [CFString: Any] = [
-            kCTFontFamilyNameAttribute: trimmed,
-            kCTFontSizeAttribute: size,
-        ]
-        if let weightTrait {
-            attributes[kCTFontTraitsAttribute] = [
-                kCTFontWeightTrait: weightTrait,
-            ] as CFDictionary
-        }
-
-        let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
-        let collection = CTFontCollectionCreateWithFontDescriptors([descriptor] as CFArray, nil)
-        guard let match = (CTFontCollectionCreateMatchingFontDescriptors(collection) as? [CTFontDescriptor])?.first else {
-            return nil
-        }
-        return CTFontCreateWithFontDescriptor(match, size, nil)
+        configDiscovery.discoveredFont(named: name, size: size, weightTrait: weightTrait)
     }
 
-    private static func fontContainsGlyphs(
-        _ font: CTFont,
-        forRange range: String
-    ) -> Bool {
-        guard let characters = cjkCoverageSampleCharactersByRange[range] else {
-            return false
-        }
-
-        var glyphs = Array(repeating: CGGlyph(), count: characters.count)
-        let hasGlyphs = CTFontGetGlyphsForCharacters(font, characters, &glyphs, characters.count)
-        return hasGlyphs && !glyphs.contains(0)
-    }
-
-    private static func normalizedFontName(_ name: String) -> String {
-        name
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-            .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-            .lowercased()
-    }
-
-    private static func userFontConfigSummary(
-        configPaths: [String] = loadedCJKScanPaths()
-    ) -> UserFontConfigSummary {
-        var summary = UserFontConfigSummary()
-        var recursiveConfigPaths: [String] = []
-
-        for path in configPaths.map({ NSString(string: $0).expandingTildeInPath }) {
-            scanFontConfigFile(
-                atPath: path,
-                summary: &summary,
-                recursiveConfigPaths: &recursiveConfigPaths
-            )
-        }
-
-        var loadedRecursivePaths = Set<String>()
-        while !recursiveConfigPaths.isEmpty {
-            let path = recursiveConfigPaths.removeFirst()
-            let resolved = (path as NSString).standardizingPath
-            guard !loadedRecursivePaths.contains(resolved) else { continue }
-            loadedRecursivePaths.insert(resolved)
-
-            scanFontConfigFile(
-                atPath: path,
-                summary: &summary,
-                recursiveConfigPaths: &recursiveConfigPaths
-            )
-        }
-
-        return summary
-    }
-
-    /// Returns the top-level Ghostty config paths cmux may load before
-    /// recursive `config-file` processing.
+    /// Returns the top-level Ghostty config paths cmux may load before recursive
+    /// `config-file` processing. Forwards to ``GhosttyConfigDiscovery``.
     static func loadedGhosttyConfigScanPaths(
         currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appSupportDirectory: URL? = FileManager.default.urls(
@@ -1700,48 +1441,10 @@ class GhosttyApp {
             in: .userDomainMask
         ).first
     ) -> [String] {
-        var paths = [
-            "~/.config/ghostty/config",
-            "~/.config/ghostty/config.ghostty",
-        ]
-
-        guard let appSupportDirectory else { return paths }
-
-        let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-        let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        paths.append(nativeConfig.path)
-        if shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: configFileSize(at: nativeConfig),
-            legacyConfigFileSize: configFileSize(at: nativeLegacyConfig)
-        ) {
-            paths.append(nativeLegacyConfig.path)
-        }
-
-        guard let bundleId = currentBundleIdentifier,
-              !bundleId.isEmpty else { return paths }
-
-        let appSupportConfigURLs = cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: bundleId,
+        configDiscovery.loadedGhosttyConfigScanPaths(
+            currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory
         )
-        paths.append(contentsOf: appSupportConfigURLs.map(\.path))
-
-        let releaseDir = appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
-        let releaseLegacyConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
-        let releaseConfig = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
-
-        let releaseConfigSize = configFileSize(at: releaseConfig)
-        let releaseLegacyConfigSize = configFileSize(at: releaseLegacyConfig)
-
-        if shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: releaseConfigSize,
-            legacyConfigFileSize: releaseLegacyConfigSize
-        ), !paths.contains(releaseLegacyConfig.path) {
-            paths.append(releaseLegacyConfig.path)
-        }
-
-        return paths
     }
 
     static func loadedCJKScanPaths(
@@ -1751,127 +1454,30 @@ class GhosttyApp {
             in: .userDomainMask
         ).first
     ) -> [String] {
-        loadedGhosttyConfigScanPaths(
+        configDiscovery.loadedCJKScanPaths(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory
         )
-    }
-
-    private static func configFileSize(at url: URL) -> Int? {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = attrs[.size] as? NSNumber else { return nil }
-        return size.intValue
-    }
-
-    /// Scans a single config file for font settings relevant to cmux's
-    /// injected CJK fallback and updates the pending recursive config-file
-    /// queue using Ghostty's repeatable path semantics.
-    private static func scanFontConfigFile(
-        atPath path: String,
-        summary: inout UserFontConfigSummary,
-        recursiveConfigPaths: inout [String]
-    ) {
-        let resolved = (path as NSString).standardizingPath
-        guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
-            return
-        }
-        let parentDir = (resolved as NSString).deletingLastPathComponent
-
-        for line in contents.components(separatedBy: .newlines) {
-            guard let entry = parsedConfigEntry(from: line) else { continue }
-
-            switch entry.key {
-            case "font-codepoint-map":
-                guard let value = entry.value else { continue }
-                summary.applyFontCodepointMap(value)
-            case "font-family":
-                guard let value = entry.value else { continue }
-                summary.recordFontFamily(value)
-            case "config-file":
-                guard let value = entry.value else { continue }
-                applyConfigFileDirective(
-                    value,
-                    valueWasQuoted: entry.valueWasQuoted,
-                    parentDir: parentDir,
-                    recursiveConfigPaths: &recursiveConfigPaths
-                )
-            default:
-                continue
-            }
-        }
-    }
-
-    private static func parsedConfigEntry(
-        from rawLine: String
-    ) -> (key: String, value: String?, valueWasQuoted: Bool)? {
-        var trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("\u{FEFF}") {
-            trimmed.removeFirst()
-        }
-        if trimmed.isEmpty || trimmed.hasPrefix("#") { return nil }
-
-        guard let separatorIndex = trimmed.firstIndex(of: "=") else {
-            return (trimmed.trimmingCharacters(in: .whitespacesAndNewlines), nil, false)
-        }
-
-        let key = trimmed[..<separatorIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-        var value = trimmed[trimmed.index(after: separatorIndex)...]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let valueWasQuoted = value.count >= 2 && value.hasPrefix("\"") && value.hasSuffix("\"")
-
-        if valueWasQuoted {
-            value.removeFirst()
-            value.removeLast()
-        }
-
-        return (String(key), String(value), valueWasQuoted)
-    }
-
-    private static func applyConfigFileDirective(
-        _ value: String,
-        valueWasQuoted: Bool,
-        parentDir: String,
-        recursiveConfigPaths: inout [String]
-    ) {
-        if value.isEmpty {
-            recursiveConfigPaths.removeAll()
-            return
-        }
-
-        var includePath = value
-        if !valueWasQuoted, includePath.hasPrefix("?") {
-            includePath.removeFirst()
-            if includePath.count >= 2,
-               includePath.hasPrefix("\""),
-               includePath.hasSuffix("\"") {
-                includePath.removeFirst()
-                includePath.removeLast()
-            }
-        }
-        guard !includePath.isEmpty else { return }
-
-        let expanded = NSString(string: includePath).expandingTildeInPath
-        let absolute = (expanded as NSString).isAbsolutePath
-            ? expanded
-            : (parentDir as NSString).appendingPathComponent(expanded)
-        recursiveConfigPaths.append(absolute)
     }
 
     static func shouldLoadLegacyGhosttyConfig(
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {
-        guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
-        return newConfigFileSize == 0
+        configDiscovery.shouldLoadLegacyGhosttyConfig(
+            newConfigFileSize: newConfigFileSize,
+            legacyConfigFileSize: legacyConfigFileSize
+        )
     }
 
     static func shouldIncludeLegacyGhosttyConfigInScanPaths(
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {
-        guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
-        guard let newConfigFileSize else { return true }
-        return newConfigFileSize == 0
+        configDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(
+            newConfigFileSize: newConfigFileSize,
+            legacyConfigFileSize: legacyConfigFileSize
+        )
     }
 
     static func shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
@@ -1880,17 +1486,9 @@ class GhosttyApp {
             in: .userDomainMask
         ).first
     ) -> Bool {
-        guard let appSupportDirectory else { return false }
-        let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-        let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        guard let legacyConfigSize = configFileSize(at: nativeLegacyConfig), legacyConfigSize > 0 else {
-            return false
-        }
-        guard let nativeConfigSize = configFileSize(at: nativeConfig), nativeConfigSize > 0 else {
-            return false
-        }
-        return true
+        configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+            appSupportDirectory: appSupportDirectory
+        )
     }
 
     static func cmuxAppSupportConfigURLs(
@@ -1898,7 +1496,7 @@ class GhosttyApp {
         appSupportDirectory: URL,
         fileManager: FileManager = .default
     ) -> [URL] {
-        CmuxGhosttyConfigPathResolver().loadConfigURLs(
+        configDiscovery.cmuxAppSupportConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory,
             fileManager: fileManager
@@ -3279,15 +2877,12 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
                let surfaceId = surfaceView.terminalSurface?.id {
+                let change = GhosttyTitleChange(tabId: tabId, surfaceId: surfaceId, title: title)
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(
                         name: .ghosttyDidSetTitle,
                         object: surfaceView,
-                        userInfo: [
-                            GhosttyNotificationKey.tabId: tabId,
-                            GhosttyNotificationKey.surfaceId: surfaceId,
-                            GhosttyNotificationKey.title: title,
-                        ]
+                        userInfo: change.userInfo
                     )
                 }
             }
@@ -3627,11 +3222,16 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
-        let snapshot = WindowAppearanceSnapshot.currentFromUserDefaults(app: self)
-        let plan = snapshot.backdropPlan()
-        _ = WindowBackdropController.apply(plan: plan, to: window)
+        let windowChrome = AppWindowChromeComposition()
+        let snapshot = windowChrome.appearanceSnapshotFromUserDefaults(app: self)
+        let plan = snapshot.backdropPlan(
+            glassEffectAvailable: windowChrome.glassEffect.isAvailable,
+            windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+        )
+        _ = windowChrome.backdropController.apply(plan: plan, to: window)
         if backgroundLogEnabled {
             logBackground(
                 "applied window backdrop phase=\(plan.hostingPhase.rawValue) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur)"
@@ -4122,6 +3722,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    @MainActor
     func applyWindowBackgroundIfActive() {
         guard let window else { return }
         let appDelegate = AppDelegate.shared
@@ -4137,12 +3738,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         applySurfaceBackground()
-        let windowRoot = WindowAppearanceSnapshot
-            .currentFromUserDefaults(app: GhosttyApp.shared)
+        let windowChrome = AppWindowChromeComposition()
+        let windowRoot = windowChrome
+            .appearanceSnapshotFromUserDefaults(app: GhosttyApp.shared)
             .windowRootBackdropResolution(surfaceBackgroundColor: backgroundColor)
-        let plan = windowRoot.snapshot.backdropPlan()
+        let plan = windowRoot.snapshot.backdropPlan(
+            glassEffectAvailable: windowChrome.glassEffect.isAvailable,
+            windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+        )
         let color = windowRoot.snapshot.compositedTerminalBackgroundColor
-        _ = WindowBackdropController.apply(plan: plan, to: window)
+        _ = windowChrome.backdropController.apply(plan: plan, to: window)
         if GhosttyApp.shared.backgroundLogEnabled {
             let signature = "\(plan.hostingPhase.rawValue):\(color.hexString()):\(String(format: "%.3f", color.alphaComponent)):\(GhosttyApp.shared.defaultBackgroundBlur)"
             if signature != lastLoggedWindowBackgroundSignature {
@@ -4303,6 +3908,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         updateSurfaceSize()
         syncKeyboardCopyModeCursorOverlay()
         invalidateTextInputCoordinates()
+        terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapplyIfReady(
+            reason: "becomeFirstResponder.hiddenOrTiny.layout"
+        )
     }
 
     override var isOpaque: Bool { false }
@@ -5297,6 +4905,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                ) == false {
                 desiredFocus = false
                 terminalSurface.recordExternalFocusState(false)
+                terminalSurface.hostedView.cancelSuppressedFirstResponderFocusReapply()
 #if DEBUG
                 dlog("focus.firstResponder SUPPRESSED (coordinator) surface=\(terminalSurface.id.uuidString.prefix(5))")
 #endif
@@ -5311,6 +4920,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
             // the old view from stealing focus and creating model/surface divergence.
             if suppressingReparentFocus {
+                let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
+                if isVisibleInUI && (!hasUsableFocusGeometry || hiddenInHierarchy) {
+                    terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapply(
+                        reason: "becomeFirstResponder.reparent.hiddenOrTiny"
+                    )
+                }
 #if DEBUG
                 cmuxDebugLog("focus.firstResponder SUPPRESSED (reparent) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif
@@ -5332,6 +4947,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) hidden=\(hiddenInHierarchy ? 1 : 0)"
                 )
 #endif
+                terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapply(
+                    reason: "becomeFirstResponder.hiddenOrTiny"
+                )
             }
         }
         if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput() {
@@ -5358,6 +4976,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
             terminalSurface?.recordExternalFocusState(true)
+            terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             ghostty_surface_set_focus(surface, true)
 
             // Ghostty only restarts its vsync display link on display-id changes while focused.
@@ -5378,6 +4997,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             imeConsumedKeyUps.removeAll()
             desiredFocus = false
+            terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
         }
         if result, let surface = surface {
@@ -7905,7 +7525,9 @@ private final class TerminalViewportBorderOverlayView: NSView {
         // sidebar trailing edge, and tab-bar separators (one source of truth), so the
         // iOS-connected viewport border is pixel-identical to every other border in the
         // app instead of the previous hardcoded near-white separator stroke.
-        WindowChromeSeparatorColor.current().setStroke()
+        WindowChromeColorResolver()
+            .separatorColor(forChromeBackground: GhosttyBackgroundTheme.currentColor())
+            .setStroke()
         path.stroke()
     }
 }
@@ -8004,7 +7626,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
-    // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
+    private var pendingSuppressedFirstResponderFocusReapply = false
+    // Hidden/tiny focus retry is bounded by layout/visibility signals, not a timer loop.
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
     /// when the window becomes key while the find bar is open.
@@ -8590,6 +8213,9 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeGeometryAndContent()
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         bringPaneDropTargetToFrontIfNeeded()
+        scheduleSuppressedFirstResponderFocusReapplyIfReady(
+            reason: "becomeFirstResponder.hiddenOrTiny.layout"
+        )
     }
 
     override func viewDidMoveToSuperview() {
@@ -10073,6 +9699,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     func yieldTerminalSurfaceFocusForForeignResponder(reason: String) {
         surfaceView.desiredFocus = false
+        pendingSuppressedFirstResponderFocusReapply = false
         guard let terminalSurface = surfaceView.terminalSurface else { return }
         terminalSurface.setFocus(false)
 #if DEBUG
@@ -10133,7 +9760,6 @@ final class GhosttySurfaceScrollView: NSView {
 
         guard surfaceView.desiredFocus || surfaceOwnsFirstResponder else { return }
         guard surfaceView.isVisibleInUI else { return }
-        surfaceView.terminalSurface?.recordExternalFocusState(true)
         guard let window = uiWindow, window.isKeyWindow else { return }
         guard !isHiddenForFocus, hasUsablePortalGeometry else {
 #if DEBUG
@@ -10162,6 +9788,39 @@ final class GhosttySurfaceScrollView: NSView {
         reassertTerminalSurfaceFocus(reason: "clearSuppressReparentFocus", force: true)
     }
 
+    fileprivate func scheduleSuppressedFirstResponderFocusReapply(reason: String) {
+        pendingSuppressedFirstResponderFocusReapply = true
+        scheduleAutomaticFirstResponderApply(reason: reason)
+    }
+
+    fileprivate func cancelSuppressedFirstResponderFocusReapply() {
+        pendingSuppressedFirstResponderFocusReapply = false
+    }
+
+    fileprivate func scheduleSuppressedFirstResponderFocusReapplyIfReady(reason: String) {
+        guard pendingSuppressedFirstResponderFocusReapply else { return }
+        guard !pendingAutomaticFirstResponderApply else { return }
+        guard isActive, surfaceView.desiredFocus, surfaceView.isVisibleInUI else { return }
+        guard currentTerminalSurfaceOwnsFirstResponder() else { return }
+        let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+        guard !isHiddenForFocus,
+              bounds.width > 1,
+              bounds.height > 1,
+              surfaceView.bounds.width > 1,
+              surfaceView.bounds.height > 1 else {
+            return
+        }
+        guard let window = uiWindow, window.isKeyWindow else { return }
+        guard let tabId = surfaceView.tabId,
+              let panelId = surfaceView.terminalSurface?.id,
+              isRightSidebarDockSurface || matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId),
+              AppDelegate.shared?.allowsTerminalKeyboardFocus(workspaceId: tabId, panelId: panelId, in: window) != false,
+              AppDelegate.shared?.isCommandPaletteEffectivelyVisible(for: window) != true else {
+            return
+        }
+        scheduleAutomaticFirstResponderApply(reason: reason)
+    }
+
     /// Returns true if the terminal's actual Ghostty surface view is (or contains) the window first responder.
     /// This is stricter than checking `hostedView` descendants, since the scroll view can sometimes become
     /// first responder transiently while focus is being applied.
@@ -10173,6 +9832,10 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
     func debugIsSuppressingReparentFocusForTesting() -> Bool {
         surfaceView.suppressingReparentFocus
+    }
+
+    func debugHasPendingAutomaticFirstResponderApplyForTesting() -> Bool {
+        pendingAutomaticFirstResponderApply
     }
 #endif
 
@@ -10235,7 +9898,37 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    private func prepareTerminalSurfaceFocusReassertion(reason: String, force: Bool) -> Bool {
+        let requiresUsableGeometry = pendingSuppressedFirstResponderFocusReapply || force
+        guard requiresUsableGeometry else { return true }
+
+        // `force` bypasses TerminalSurface focus coalescing, not AppKit geometry readiness.
+        let portalSize = bounds.size
+        let surfaceSize = surfaceView.bounds.size
+        let hasUsablePortalGeometry = portalSize.width > 1 && portalSize.height > 1
+        let hasUsableSurfaceGeometry = surfaceSize.width > 1 && surfaceSize.height > 1
+        let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+        guard !isHiddenForFocus, hasUsablePortalGeometry, hasUsableSurfaceGeometry else {
+#if DEBUG
+            let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+            cmuxDebugLog(
+                "focus.surface.reassert.skip surface=\(surfaceShort) reason=\(reason).hidden_or_tiny " +
+                "hidden=\(isHiddenForFocus ? 1 : 0) " +
+                "force=\(force ? 1 : 0) " +
+                "frame=\(String(format: "%.1fx%.1f", portalSize.width, portalSize.height)) " +
+                "surfaceFrame=\(String(format: "%.1fx%.1f", surfaceSize.width, surfaceSize.height))"
+            )
+#endif
+            pendingSuppressedFirstResponderFocusReapply = true
+            scheduleAutomaticFirstResponderApply(reason: "\(reason).hiddenOrTiny")
+            return false
+        }
+
+        return true
+    }
+
     private func reassertTerminalSurfaceFocus(reason: String, force: Bool = false) {
+        guard prepareTerminalSurfaceFocusReassertion(reason: reason, force: force) else { return }
         guard let terminalSurface = surfaceView.terminalSurface else { return }
         if terminalSurface.surface == nil {
             terminalSurface.requestBackgroundSurfaceStartIfNeeded()
@@ -10244,6 +9937,7 @@ final class GhosttySurfaceScrollView: NSView {
         cmuxDebugLog("focus.surface.reassert surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
 #endif
         terminalSurface.setFocus(true, force: force)
+        pendingSuppressedFirstResponderFocusReapply = false
         refreshSurfaceAfterFocusIfNeeded(reason: reason)
     }
 
@@ -10270,16 +9964,25 @@ final class GhosttySurfaceScrollView: NSView {
             let size = bounds.size
             return size.width > 1 && size.height > 1
         }()
+        let hasUsableSurfaceGeometry: Bool = {
+            let size = surfaceView.bounds.size
+            return size.width > 1 && size.height > 1
+        }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
         let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+        let requiresSuppressedSurfaceGeometry = pendingSuppressedFirstResponderFocusReapply
 
         guard isActive else { return }
         guard surfaceView.isVisibleInUI else { return }
-        guard !isHiddenForFocus, hasUsablePortalGeometry else {
+        guard !isHiddenForFocus,
+              hasUsablePortalGeometry,
+              (!requiresSuppressedSurfaceGeometry || hasUsableSurfaceGeometry) else {
 #if DEBUG
             cmuxDebugLog(
                 "focus.apply.skip surface=\(surfaceShort) " +
-                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) " +
+                "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                "surfaceFrame=\(String(format: "%.1fx%.1f", surfaceView.bounds.width, surfaceView.bounds.height))"
             )
 #endif
             return
@@ -10287,7 +9990,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let window = uiWindow, window.isKeyWindow else { return }
         guard let tabId = surfaceView.tabId,
               let panelId = surfaceView.terminalSurface?.id,
-              matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
+              matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) || (pendingSuppressedFirstResponderFocusReapply && isRightSidebarDockSurface && currentTerminalSurfaceOwnsFirstResponder()) else {
 #if DEBUG
             cmuxDebugLog("focus.apply.skip surface=\(surfaceShort) reason=stale_target")
 #endif
@@ -10350,6 +10053,7 @@ final class GhosttySurfaceScrollView: NSView {
         let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
         switch searchFocusTarget {
         case .searchField:
+            pendingSuppressedFirstResponderFocusReapply = false
             if let firstResponder = window.firstResponder,
                isCurrentSurfaceSearchFieldResponder(firstResponder) {
                 surfaceView.terminalSurface?.setFocus(false)
@@ -10392,6 +10096,9 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         case .terminal:
             let result = requestSurfaceFirstResponder(in: window, reason: "restoreSearchFocus.terminal")
+            if result, isSurfaceViewFirstResponder() {
+                reassertTerminalSurfaceFocus(reason: "restoreSearchFocus.terminal")
+            }
 #if DEBUG
             cmuxDebugLog(
                 "find.restoreSearchFocus surface=\(surfaceShort) target=terminal " +
@@ -10563,6 +10270,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         if intent == .findField { _ = cmuxRememberFindSelection(in: searchOverlayHostingView) }
         surfaceView.terminalSurface?.setFocus(false)
+        pendingSuppressedFirstResponderFocusReapply = false
         resignOwnedFirstResponderIfNeeded(reason: "yieldPanelFocusIntent")
 #if DEBUG
         cmuxDebugLog(
@@ -10584,6 +10292,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         guard ownsSurfaceResponder || isCurrentSurfaceSearchResponder(firstResponder) else { return }
 
+        pendingSuppressedFirstResponderFocusReapply = false
 #if DEBUG
         cmuxDebugLog(
             "focus.surface.resign surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +

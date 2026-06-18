@@ -511,7 +511,7 @@ enum AgentResumeCommandBuilder {
             if args.first == "claude-teams" {
                 args.removeFirst()
             }
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: args) else { return nil }
+            guard let preserved = AgentLaunchSanitizer.preservedClaudeTeamsLaunchArguments(args: args) else { return nil }
             return [original.executable, "claude-teams", "--resume", sessionId, "--fork-session"] + preserved
         case "codexTeams":
             let original = commandParts(
