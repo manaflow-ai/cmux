@@ -73,66 +73,32 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.cellPixelSize(columns: 80, rows: 24, widthPx: 0, heightPx: 480) == .zero)
     }
 
-    @available(*, deprecated, message: "Exercises deprecated compatibility API.")
-    @Test("effective grid never pins the iOS render box")
-    func effectiveGridNeverPinsIOSRenderBox() {
-        // The remote effective grid is a viewport negotiation result, not a
-        // sizing constraint for the iOS view. The local render surface must keep
-        // filling the available container so no response shape can leave a dead
-        // band between the terminal and keyboard toolbar.
-        let cases: [(
-            effective: (cols: Int, rows: Int),
-            measuredColumns: Int,
-            measuredRows: Int,
-            cell: CGSize,
-            scale: CGFloat,
-            container: CGSize
-        )] = [
-            (
-                effective: (cols: 60, rows: 30),
-                measuredColumns: 100,
-                measuredRows: 40,
-                cell: CGSize(width: 9, height: 18),
-                scale: 3,
-                container: CGSize(width: 402, height: 700)
-            ),
-            (
-                effective: (cols: 100, rows: 40),
-                measuredColumns: 100,
-                measuredRows: 40,
-                cell: CGSize(width: 9, height: 18),
-                scale: 3,
-                container: CGSize(width: 402, height: 700)
-            ),
-            (
-                effective: (cols: 99, rows: 39),
-                measuredColumns: 100,
-                measuredRows: 40,
-                cell: CGSize(width: 9, height: 18),
-                scale: 3,
-                container: CGSize(width: 402, height: 700)
-            ),
-            (
-                effective: (cols: 134, rows: 116),
-                measuredColumns: 134,
-                measuredRows: 116,
-                cell: CGSize(width: 9, height: 18),
-                scale: 3,
-                container: CGSize(width: 402, height: 700)
-            ),
-        ]
+    @Test("render-grid output does not pin to the producer grid")
+    func renderGridOutputDoesNotPinProducerGrid() {
+        let pinned = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: false,
+            effective: (cols: 60, rows: 30),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: CGSize(width: 9, height: 18),
+            scale: 3,
+            container: CGSize(width: 402, height: 700)
+        )
+        #expect(pinned == nil)
+    }
 
-        for testCase in cases {
-            let pinned = TerminalLetterboxGeometry.pinnedPointSize(
-                effective: testCase.effective,
-                measuredColumns: testCase.measuredColumns,
-                measuredRows: testCase.measuredRows,
-                cell: testCase.cell,
-                scale: testCase.scale,
-                container: testCase.container
-            )
-            #expect(pinned == nil)
-        }
+    @Test("raw-byte output pins to a smaller producer grid")
+    func rawByteOutputPinsProducerGrid() {
+        let pinned = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 60, rows: 30),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: CGSize(width: 9, height: 18),
+            scale: 3,
+            container: CGSize(width: 402, height: 700)
+        )
+        #expect(pinned == CGSize(width: 180, height: 180))
     }
 
     // MARK: - Keyboard open/closed full-height contract
@@ -278,7 +244,6 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 0) == 0)
     }
 
-    @available(*, deprecated, message: "Exercises deprecated compatibility API.")
     @Test("clampPinnedSize bounds refined pixels by the container")
     func clampPinned() {
         // refined 540x540 px at scale 3 = 180x180 points, within container.

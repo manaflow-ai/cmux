@@ -5,7 +5,8 @@ import Foundation
 ///
 /// Absorbs the pixel arithmetic previously inlined in the iOS surface view's
 /// `syncSurfaceGeometry` (the parts that do not call libghostty): the bottom
-/// chrome reservation, keyboard/safe-area occupancy, and pixel/point conversion.
+/// chrome reservation, keyboard/safe-area occupancy, pixel/point conversion,
+/// and the raw-byte compatibility pinning decision.
 public struct TerminalLetterboxGeometry {
     private init() {}
 
@@ -147,12 +148,13 @@ public struct TerminalLetterboxGeometry {
         return (w, h)
     }
 
-    /// Legacy effective-grid pinning decision for the iOS render box.
+    /// Effective-grid pinning decision for the iOS render box.
     ///
-    /// iOS no longer letterboxes the local terminal to a smaller daemon
-    /// effective grid. The phone still reports its natural grid upstream, but
-    /// the render surface always fills the local container (minus keyboard and
-    /// chrome), so this compatibility helper always returns `nil`.
+    /// Render-grid output should not use this because it can fill the local
+    /// container independently. Legacy raw-byte output still needs it: those
+    /// bytes were produced by the Mac PTY at the negotiated effective grid, so
+    /// the local emulator must temporarily match that grid to keep wrapping,
+    /// cursor addressing, and mouse-cell coordinates aligned.
     ///
     /// - Parameters:
     ///   - effective: The daemon-authoritative `(cols, rows)` grid.
@@ -161,8 +163,8 @@ public struct TerminalLetterboxGeometry {
     ///   - cell: The measured cell size in device pixels.
     ///   - scale: The screen scale factor.
     ///   - container: The drawable container size in points.
-    /// - Returns: Always `nil`; the surface should fill the container.
-    @available(*, deprecated, message: "iOS no longer letterboxes to the daemon effective grid; this always returns nil.")
+    /// - Returns: `nil` when the surface should fill the container, otherwise
+    ///   the candidate pinned size in points (pre-libghostty-refinement).
     public static func pinnedPointSize(
         effective: (cols: Int, rows: Int),
         measuredColumns: Int,
@@ -171,12 +173,54 @@ public struct TerminalLetterboxGeometry {
         scale: CGFloat,
         container: CGSize
     ) -> CGSize? {
-        nil
+        guard effective.cols > 0, effective.rows > 0, cell.width > 0, cell.height > 0 else { return nil }
+        let fillsNaturalGrid = effective.cols >= measuredColumns && effective.rows >= measuredRows
+        let withinOneCell = (measuredColumns - effective.cols) <= 1 && (measuredRows - effective.rows) <= 1
+        let pinnedW = CGFloat(effective.cols) * cell.width / scale
+        let pinnedH = CGFloat(effective.rows) * cell.height / scale
+        guard !fillsNaturalGrid, !withinOneCell,
+              pinnedW + 0.5 < container.width || pinnedH + 0.5 < container.height else {
+            return nil
+        }
+        return CGSize(width: pinnedW, height: pinnedH)
+    }
+
+    /// Effective-grid pinning decision gated by the output transport.
+    ///
+    /// - Parameters:
+    ///   - preservesProducerGrid: Pass `true` for raw-byte fallback output and
+    ///     `false` for render-grid output.
+    ///   - effective: The daemon-authoritative `(cols, rows)` grid.
+    ///   - measuredColumns: The surface's measured natural columns.
+    ///   - measuredRows: The surface's measured natural rows.
+    ///   - cell: The measured cell size in device pixels.
+    ///   - scale: The screen scale factor.
+    ///   - container: The drawable container size in points.
+    /// - Returns: `nil` for render-grid output or when no pin is required,
+    ///   otherwise the raw-byte compatibility pinned size.
+    public static func producerGridPinnedPointSize(
+        preservesProducerGrid: Bool,
+        effective: (cols: Int, rows: Int),
+        measuredColumns: Int,
+        measuredRows: Int,
+        cell: CGSize,
+        scale: CGFloat,
+        container: CGSize
+    ) -> CGSize? {
+        guard preservesProducerGrid else { return nil }
+        return pinnedPointSize(
+            effective: effective,
+            measuredColumns: measuredColumns,
+            measuredRows: measuredRows,
+            cell: cell,
+            scale: scale,
+            container: container
+        )
     }
 
     /// Clamps a pixel box back into point space, bounded by the container.
     ///
-    /// Matches the legacy pinning path's final point conversion:
+    /// Matches the raw-byte compatibility pinning path's final point conversion:
     /// `min(actualPx / scale, containerPoints)` per axis.
     ///
     /// - Parameters:
@@ -185,7 +229,6 @@ public struct TerminalLetterboxGeometry {
     ///   - scale: The screen scale factor.
     ///   - container: The drawable container size in points.
     /// - Returns: The final pinned point size.
-    @available(*, deprecated, message: "iOS no longer letterboxes to the daemon effective grid; this only preserves legacy pixel conversion.")
     public static func clampPinnedSize(
         actualWidthPx: CGFloat,
         actualHeightPx: CGFloat,

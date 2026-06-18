@@ -14,12 +14,22 @@ public import Foundation
 /// propagation is a structured, cancellable `AsyncSequence` instead of a stored
 /// callback.
 public struct MobileTerminalOutputChunk: Sendable {
+    /// VT/PTY bytes to feed into the mounted terminal surface.
     public let data: Data
+    /// Stream generation token used to reject acknowledgements from stale mounts.
     public let streamToken: UUID
+    /// Whether the local emulator must keep the producer's grid before applying
+    /// this chunk.
+    ///
+    /// Legacy raw-byte output is produced by the Mac PTY at the negotiated
+    /// effective grid, so iOS must preserve that grid while applying it. Render-grid
+    /// output is already viewport-shaped state and can fill the local container.
+    public let preservesProducerGrid: Bool
 
-    public init(data: Data, streamToken: UUID) {
+    public init(data: Data, streamToken: UUID, preservesProducerGrid: Bool = false) {
         self.data = data
         self.streamToken = streamToken
+        self.preservesProducerGrid = preservesProducerGrid
     }
 }
 

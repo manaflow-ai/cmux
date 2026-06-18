@@ -93,8 +93,9 @@ protocol TerminalSurfaceHosting: AnyObject {
     func processOutput(_ data: Data)
     func focusInput()
     /// Apply the daemon's effective grid response for diagnostics and viewport
-    /// convergence. iOS still renders at its full local container; a smaller
-    /// effective grid must not shrink or letterbox the phone surface.
+    /// convergence. Render-grid output still renders at the full local
+    /// container; legacy raw-byte output may temporarily preserve this grid so
+    /// the local emulator matches the producer.
     func applyViewSize(cols: Int, rows: Int)
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)? { get set }
@@ -802,9 +803,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static let viewportReportSettleThreshold = 8
     private var lastSnapshotFallbackHTML: String?
     /// Last daemon-authoritative effective grid (min across attached devices).
-    /// Kept for diagnostics and natural-grid reassertion; it does not constrain
-    /// the iOS render layer, which always fills the local container.
+    /// Kept for diagnostics and natural-grid reassertion. It constrains the iOS
+    /// render layer only while applying legacy raw-byte output, where the local
+    /// emulator must match the Mac PTY's producer grid.
     private var effectiveGrid: (cols: Int, rows: Int)?
+    /// True while the stream is applying legacy raw-byte output. Render-grid
+    /// output is viewport-shaped state and must keep filling the local
+    /// container; raw bytes must preserve the effective producer grid.
+    private var rawByteProducerGridPinningEnabled = false
     /// Cached cell metrics derived from the most recent
     /// `ghostty_surface_size` measurement. Used for cursor, hit testing, and
     /// scroll gesture mapping. Zero until the first layout has measured.
@@ -2168,6 +2174,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    /// Process terminal output after selecting the geometry policy required by
+    /// that output transport.
+    ///
+    /// - Parameter data: VT or PTY bytes to feed into the surface.
+    /// - Parameter preservesProducerGrid: `true` for legacy raw-byte fallback
+    ///   output that must match the Mac PTY grid; `false` for render-grid output
+    ///   that should fill the local iOS container.
+    public func processOutputAndWait(_ data: Data, preservesProducerGrid: Bool) async {
+        setProducerGridPinningEnabled(preservesProducerGrid)
+        await processOutputAndWait(data)
+    }
+
+    private func setProducerGridPinningEnabled(_ enabled: Bool) {
+        guard rawByteProducerGridPinningEnabled != enabled else { return }
+        rawByteProducerGridPinningEnabled = enabled
+        MobileDebugLog.anchormux("sync.output_grid_mode=\(enabled ? "raw_bytes" : "render_grid")")
+        guard surface != nil else { return }
+        needsGeometrySync = false
+        pendingGeometryReassert = false
+        syncSurfaceGeometry(shouldReassertNaturalSize: !enabled)
+    }
+
     private func processOutput(
         _ data: Data,
         completion: (@MainActor @Sendable () -> Void)?
@@ -2879,16 +2907,62 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
         MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
-        // Do not recompute geometry here. The effective grid is remote state,
-        // not a local sizing constraint; resizing to it is what created the
-        // keyboard-toolbar dead band. The next real geometry trigger will
-        // reassert the natural grid if this value differs.
+        // Render-grid output treats the effective grid as remote diagnostics
+        // only; resizing to it is what created the keyboard-toolbar dead band.
+        // Raw-byte fallback still needs the local emulator grid to match the
+        // producer, so only that compatibility mode applies the pin.
+        if rawByteProducerGridPinningEnabled {
+            setNeedsGeometrySync(reassertNaturalSize: false)
+        }
+    }
+
+    /// Pure libghostty resize refinement; `nonisolated` so it runs on the
+    /// off-main surface queue (it touches only the passed surface pointer).
+    nonisolated private static func fitSurfaceToGrid(
+        _ surface: ghostty_surface_t,
+        cols: Int,
+        rows: Int,
+        cellPixelSize: CGSize
+    ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s) {
+        let requested = TerminalLetterboxGeometry.gridRequestPixelSize(
+            cols: cols,
+            rows: rows,
+            cellPixelSize: cellPixelSize
+        )
+        var requestedW = requested.width
+        var requestedH = requested.height
+
+        ghostty_surface_set_size(surface, requestedW, requestedH)
+        var actual = ghostty_surface_size(surface)
+
+        // Ghostty's grid calculation subtracts padding and floors partial cells,
+        // so the reverse mapping has to be confirmed against Ghostty itself.
+        // This keeps the raw-byte fallback on the exact daemon grid instead of
+        // occasionally rendering one column short.
+        var steps = 0
+        while steps < 8,
+              Int(actual.columns) < cols || Int(actual.rows) < rows {
+            if Int(actual.columns) < cols {
+                requestedW += 1
+            }
+            if Int(actual.rows) < rows {
+                requestedH += 1
+            }
+            ghostty_surface_set_size(surface, requestedW, requestedH)
+            actual = ghostty_surface_size(surface)
+            steps += 1
+        }
+
+        return (requestedW, requestedH, actual)
     }
 
     /// Result of an off-main geometry pass, handed back to the main actor.
     private struct GeometryResult: Sendable {
         let cellPixelSize: CGSize
         let naturalSize: TerminalGridSize
+        /// Pinned render size in points for raw-byte compatibility; nil means
+        /// fill the local container.
+        let pinnedSize: CGSize?
     }
 
     private func syncSurfaceGeometry(shouldReassertNaturalSize: Bool = true) {
@@ -2935,6 +3009,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let containerH = container.height
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
+        let pinToProducerGrid = rawByteProducerGridPinningEnabled
+        let eff = pinToProducerGrid ? effectiveGrid : nil
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
 
@@ -2953,13 +3029,36 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 )
             }
 
+            var pinnedSize: CGSize?
+            if let eff,
+               TerminalLetterboxGeometry.producerGridPinnedPointSize(
+                   preservesProducerGrid: pinToProducerGrid,
+                   effective: eff,
+                   measuredColumns: Int(measured.columns),
+                   measuredRows: Int(measured.rows),
+                   cell: cell,
+                   scale: scale,
+                   container: container
+               ) != nil {
+                let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
+                let aw = fitted.actual.width_px > 0 ? CGFloat(fitted.actual.width_px) : CGFloat(fitted.requestedW)
+                let ah = fitted.actual.height_px > 0 ? CGFloat(fitted.actual.height_px) : CGFloat(fitted.requestedH)
+                let refined = TerminalLetterboxGeometry.clampPinnedSize(
+                    actualWidthPx: aw,
+                    actualHeightPx: ah,
+                    scale: scale,
+                    container: container
+                )
+                pinnedSize = refined
+            }
+
             let natural = TerminalGridSize(
                 columns: Int(measured.columns),
                 rows: Int(measured.rows),
                 pixelWidth: Int(measured.width_px),
                 pixelHeight: Int(measured.height_px)
             )
-            let result = GeometryResult(cellPixelSize: cell, naturalSize: natural)
+            let result = GeometryResult(cellPixelSize: cell, naturalSize: natural, pinnedSize: pinnedSize)
             DispatchQueue.main.async {
                 self?.applyGeometryResult(
                     result,
@@ -2991,13 +3090,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // and ghostty floors the grid to whole cells, so a container-sized
         // layer is up to ~one cell larger than the surface and EVERY frame is
         // discarded (blank terminal). Using the measured full-container surface
-        // size makes them match so frames present. Left-align + top-anchor; the
-        // toolbar absorbs the small sub-cell remainder below the last row.
+        // size makes them match so frames present. Raw-byte compatibility pins
+        // are already derived from the fitted surface px. Left-align +
+        // top-anchor either way; render-grid output only leaves the small
+        // sub-cell remainder below the last row for the toolbar to absorb.
         let naturalRenderSize = CGSize(
             width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
         )
-        let renderRect = CGRect(origin: .zero, size: naturalRenderSize)
+        let renderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
+            ?? CGRect(origin: .zero, size: naturalRenderSize)
         lastRenderRect = renderRect
         // The docked toolbar's top hugs `lastRenderRect.maxY` (see
         // ``bottomDockFrames()``), so re-seat the whole bottom dock now that the
@@ -3009,10 +3111,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
             + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
+            + "rawPin=\(rawByteProducerGridPinningEnabled) "
+            + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
             + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))"
         )
         syncRendererLayerFrame(scale: scale, renderRect: renderRect)
-        hideLetterboxBorder()
+        updateLetterboxBorder(
+            renderRect: renderRect,
+            isLetterboxed: rawByteProducerGridPinningEnabled &&
+                (renderRect.width + 0.5 < containerW || renderRect.height + 0.5 < containerH)
+        )
         updateCursorOverlay()
         needsDraw = true
         // Keep drawing for several frames so a frame lands at the final settled
@@ -3068,10 +3176,57 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.commit()
     }
 
-    /// Hide the legacy visible-area border. The iOS terminal no longer
-    /// letterboxes to a smaller effective grid, so no local border should draw.
-    private func hideLetterboxBorder() {
-        letterboxBorderLayer?.isHidden = true
+    /// Add / update a 1-pixel separator border around the raw-byte
+    /// compatibility pinned surface rect. Render-grid output keeps the border
+    /// hidden because that path fills the local container.
+    private func updateLetterboxBorder(renderRect: CGRect, isLetterboxed: Bool) {
+        guard isLetterboxed else {
+            letterboxBorderLayer?.isHidden = true
+            return
+        }
+        let border: CAShapeLayer = {
+            if let existing = letterboxBorderLayer { return existing }
+            let b = CAShapeLayer()
+            b.name = "cmux.letterboxBorder"
+            b.fillColor = UIColor.clear.cgColor
+            b.lineWidth = 1.0
+            b.zPosition = 1000
+            b.isHidden = false
+            b.actions = [
+                "bounds": NSNull(),
+                "frame": NSNull(),
+                "hidden": NSNull(),
+                "opacity": NSNull(),
+                "path": NSNull(),
+                "position": NSNull(),
+                "strokeColor": NSNull(),
+            ]
+            b.isGeometryFlipped = false
+            layer.addSublayer(b)
+            letterboxBorderLayer = b
+            return b
+        }()
+        border.isHidden = false
+        border.strokeColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
+        border.contentsScale = layer.contentsScale
+        if border.frame != layer.bounds {
+            border.frame = layer.bounds
+        }
+
+        let scale = max(border.contentsScale, 1)
+        let lineWidth = border.lineWidth
+        let alignedRect = CGRect(
+            x: floor(renderRect.minX * scale) / scale,
+            y: floor(renderRect.minY * scale) / scale,
+            width: ceil(renderRect.width * scale) / scale,
+            height: ceil(renderRect.height * scale) / scale
+        )
+        let pathInset = max(lineWidth / 2, 0.5 / scale)
+        let outline = alignedRect.insetBy(dx: pathInset, dy: pathInset)
+        let path = UIBezierPath(rect: outline).cgPath
+        if border.path != path {
+            border.path = path
+        }
     }
 
     private func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
