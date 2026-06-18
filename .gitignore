@@ -47,3 +47,7 @@ tests/visual_report.html
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+
+# Orchestrator-local coordination (not product source)
+collab/
+docs.local/
