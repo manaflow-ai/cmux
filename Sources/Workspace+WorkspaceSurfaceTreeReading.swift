@@ -11,31 +11,41 @@ import Foundation
 /// weakly, so there is no retain cycle.
 extension Workspace: WorkspaceSurfaceTreeReading {
     var surfaceIdsInTabOrderAcrossAllPanes: [UUID] {
-        bonsplitController.allTabIds.map(\.uuid)
+        layoutBonsplitControllers.flatMap { $0.allTabIds.map(\.uuid) }
     }
 
     var focusedPaneSelectedSurfaceId: UUID? {
-        guard let paneId = bonsplitController.focusedPaneId,
-              let tab = bonsplitController.selectedTab(inPane: paneId) else {
+        let controller = bonsplitController
+        guard let paneId = controller.focusedPaneId,
+              let tab = controller.selectedTab(inPane: paneId) else {
             return nil
         }
         return tab.id.uuid
     }
 
     var allPaneIds: [UUID] {
-        bonsplitController.allPaneIds.map(\.id)
+        layoutBonsplitControllers.flatMap { $0.allPaneIds.map(\.id) }
     }
 
     var spatiallyOrderedPaneIds: [UUID] {
-        bonsplitController.treeSnapshot().orderedPaneIds.compactMap(UUID.init(uuidString:))
+        layoutBonsplitControllers.flatMap { controller in
+            controller.treeSnapshot().orderedPaneIds.compactMap(UUID.init(uuidString:))
+        }
     }
 
     func selectedSurfaceId(inPaneId paneId: UUID) -> UUID? {
-        bonsplitController.selectedTab(inPane: PaneID(id: paneId))?.id.uuid
+        let pane = PaneID(id: paneId)
+        return bonsplitController(containingPaneId: pane)?
+            .selectedTab(inPane: pane)?
+            .id
+            .uuid
     }
 
     func surfaceIdsInTabOrder(inPaneId paneId: UUID) -> [UUID] {
-        bonsplitController.tabs(inPane: PaneID(id: paneId)).map(\.id.uuid)
+        let pane = PaneID(id: paneId)
+        return bonsplitController(containingPaneId: pane)?
+            .tabs(inPane: pane)
+            .map(\.id.uuid) ?? []
     }
 
     func panelId(forSurfaceId surfaceId: UUID) -> UUID? {
