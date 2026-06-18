@@ -9978,7 +9978,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let window = uiWindow, window.isKeyWindow else { return }
         guard let tabId = surfaceView.tabId,
               let panelId = surfaceView.terminalSurface?.id,
-              isRightSidebarDockSurface || matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
+              matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) || (pendingSuppressedFirstResponderFocusReapply && isRightSidebarDockSurface && currentTerminalSurfaceOwnsFirstResponder()) else {
 #if DEBUG
             cmuxDebugLog("focus.apply.skip surface=\(surfaceShort) reason=stale_target")
 #endif

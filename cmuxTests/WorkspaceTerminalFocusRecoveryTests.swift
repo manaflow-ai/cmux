@@ -262,6 +262,57 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             "Right-sidebar dock deferred focus reconciliation should reapply Ghostty focus once geometry becomes usable"
         )
     }
+
+    @Test
+    func rightSidebarDockAutomaticVisibilityApplyDoesNotStealMainTerminalFocus() throws {
+        let originalAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer { AppDelegate.shared = originalAppDelegate }
+
+        let mainPanel = TerminalPanel(workspaceId: UUID())
+        let dockPanel = TerminalPanel(
+            workspaceId: UUID(),
+            focusPlacement: .rightSidebarDock
+        )
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView, "Expected content view")
+
+        mainPanel.hostedView.frame = contentView.bounds
+        dockPanel.hostedView.frame = contentView.bounds
+        contentView.addSubview(mainPanel.hostedView)
+        contentView.addSubview(dockPanel.hostedView)
+        mainPanel.hostedView.setVisibleInUI(true)
+        mainPanel.hostedView.setActive(true)
+        dockPanel.hostedView.setVisibleInUI(false)
+        dockPanel.hostedView.setActive(true)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        mainPanel.hostedView.layoutSubtreeIfNeeded()
+        dockPanel.hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let mainSurfaceView = try #require(findSurfaceView(in: mainPanel.hostedView), "Expected main terminal surface view")
+        _ = try #require(findSurfaceView(in: dockPanel.hostedView), "Expected dock terminal surface view")
+
+        #expect(window.makeFirstResponder(mainSurfaceView))
+        #expect(window.firstResponder === mainSurfaceView)
+        dockPanel.surface.setFocus(false)
+        #expect(!dockPanel.surface.debugDesiredFocusState())
+
+        dockPanel.hostedView.setVisibleInUI(true)
+        dockPanel.hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        #expect(window.firstResponder === mainSurfaceView)
+        #expect(!dockPanel.hostedView.debugRenderStats().desiredFocus)
+        #expect(
+            !dockPanel.surface.debugDesiredFocusState(),
+            "Dock visibility/readiness applies must not steal keyboard focus without an active hidden/tiny handoff"
+        )
+    }
 #endif
 
     private func makeWindow() -> NSWindow {
