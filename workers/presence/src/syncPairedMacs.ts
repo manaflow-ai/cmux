@@ -159,6 +159,23 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
   return { ok: true, ops };
 }
 
+/** List-shape equality for a backup record: compare identity, display name,
+ * routes, and active flag, but IGNORE the timestamps. `lastSeenAt` drifts on
+ * every route refresh, so comparing it would re-mint a rev (and broadcast a
+ * delta) on every heartbeat-driven upsert and on every full reconcile push,
+ * defeating the no-op optimization. Mirrors the device-list collection's
+ * shape-aware compare (which ignores per-tick freshness). The stored
+ * `lastSeenAt` therefore tracks the last SHAPE change, which is the right
+ * as-of-rev semantics for restore ordering. */
+export function pairedMacShapeEqual(a: PairedMacBackupRecord, b: PairedMacBackupRecord): boolean {
+  return (
+    a.macDeviceID === b.macDeviceID &&
+    (a.displayName ?? "") === (b.displayName ?? "") &&
+    a.isActive === b.isActive &&
+    JSON.stringify(a.routes) === JSON.stringify(b.routes)
+  );
+}
+
 /** Relabel a frame's collection from the physical per-user name back to the
  * logical `pairedMacs` so the client never sees (or stores under) the user-id
  * suffix. The rev space is the physical collection's, but each user has exactly
@@ -217,6 +234,7 @@ export async function applyBackupOps(
       op.id,
       op.record,
       nowMs,
+      pairedMacShapeEqual,
     );
     if (res.delta !== null) {
       if (isNew) liveCount += 1;

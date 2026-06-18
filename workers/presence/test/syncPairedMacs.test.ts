@@ -129,13 +129,18 @@ describe("applyBackupOps", () => {
     expect(ids(u2.pages)).toEqual(["mac-b"]);
   });
 
-  it("is a no-op when the payload is unchanged (no rev churn)", async () => {
+  it("is a no-op when only the timestamp drifts (shape-equality, no rev churn)", async () => {
     const storage = new FakeStorage();
     const rec = record("mac-a", "192.168.1.50", 22);
     const first = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: rec }], T0);
     expect(first).toHaveLength(1);
-    const second = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: rec }], T0 + 1000);
+    // Same shape (routes/name/active), only lastSeenAt advanced: must NOT churn.
+    const drift = { ...rec, lastSeenAt: rec.lastSeenAt + 60_000 };
+    const second = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: drift }], T0 + 1000);
     expect(second).toHaveLength(0);
+    // A real route change DOES produce a delta.
+    const changed = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "192.168.1.99", 22) }], T0 + 2000);
+    expect(changed).toHaveLength(1);
   });
 
   it("listLiveBackup returns live records newest-first and excludes tombstones, scoped per user", async () => {
