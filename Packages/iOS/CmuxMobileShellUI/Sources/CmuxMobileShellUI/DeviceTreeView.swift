@@ -23,8 +23,9 @@ import SwiftUI
 /// lives here at the boundary; below it everything is values.
 struct DeviceTreeView: View {
     @Bindable var store: CMUXMobileShellStore
-    /// Open a workspace (the existing tap-to-open path). Forwarded from the shell.
-    let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    /// Open a workspace (the existing tap-to-open path), scoped to its owning Mac.
+    /// Forwarded from the shell.
+    let selectWorkspace: (ScopedWorkspaceID) -> Void
     @Environment(\.dismiss) private var dismiss
     /// Display preferences (title wrapping, preview line count) shared with the
     /// flat workspace list, read here at the snapshot boundary and passed down
@@ -212,8 +213,8 @@ struct DeviceTreeView: View {
                         navigationStyle: .sidebar,
                         wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                         previewLineLimit: displaySettings.workspacePreviewLineCount,
-                        selectWorkspace: { id in
-                            selectWorkspace(id)
+                        selectWorkspace: { scopedID in
+                            selectWorkspace(scopedID)
                             dismiss()
                         },
                         renameWorkspace: nil,

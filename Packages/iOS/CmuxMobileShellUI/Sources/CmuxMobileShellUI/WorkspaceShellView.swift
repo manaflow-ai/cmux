@@ -13,8 +13,12 @@ struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
     @Environment(MobileDisplaySettings.self) private var displaySettings
-    @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
-    @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
+    /// The compact-stack navigation path, keyed on ``ScopedWorkspaceID`` so a
+    /// pushed workspace is unambiguous across Macs in the unified list. Flag off ⇒
+    /// every scope's `deviceId` is the single active Mac (or `""`), so this
+    /// behaves exactly like the previous bare-id path.
+    @State private var compactNavigationPath: [ScopedWorkspaceID] = []
+    @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<ScopedWorkspaceID>?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     #if os(iOS)
@@ -42,10 +46,10 @@ struct WorkspaceShellView: View {
             }
         }
         .onChange(of: usesCompactStack) { _, isCompact in
-            guard isCompact, hasPresentedSplitDetail, let selectedWorkspaceID = store.selectedWorkspaceID else {
+            guard isCompact, hasPresentedSplitDetail, let scopedID = store.scopedSelectedWorkspaceID else {
                 return
             }
-            compactNavigationPath = [selectedWorkspaceID]
+            compactNavigationPath = [scopedID]
         }
         // A notification-tap deep link must actually navigate, not just mark a
         // selection: on the compact stack an empty path ignores selection
@@ -69,9 +73,12 @@ struct WorkspaceShellView: View {
     private var stackLayout: some View {
         NavigationStack(path: $compactNavigationPath) {
             WorkspaceListView(
-                workspaces: store.workspaces,
+                workspaces: store.unifiedWorkspaces,
                 groups: store.workspaceGroups,
-                selectedWorkspaceID: store.selectedWorkspaceID,
+                selectedWorkspaceID: store.scopedSelectedWorkspaceID,
+                deviceNames: store.unifiedDeviceNames,
+                showsMacChips: store.unifiedMultiMacEnabled,
+                activatingDeviceID: store.activatingDeviceID,
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .push,
@@ -89,14 +96,14 @@ struct WorkspaceShellView: View {
                 closeWorkspace: closeWorkspaceClosure,
                 toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
-            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
+            .navigationDestination(for: ScopedWorkspaceID.self) { scopedID in
+                workspaceDestination(for: scopedID.workspaceID, createWorkspace: createWorkspaceInCompactStack)
             }
         }
-        .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
+        .onChange(of: store.scopedSelectedWorkspaceID) { _, scopedID in
             if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
                 currentPath: compactNavigationPath,
-                selectedWorkspaceID: selectedWorkspaceID,
+                selectedWorkspaceID: scopedID,
                 existingWorkspaceIDs: pendingCompactCreateNavigationWorkspaceIDs
             ) {
                 pendingCompactCreateNavigationWorkspaceIDs = nil
@@ -106,22 +113,23 @@ struct WorkspaceShellView: View {
             }
             compactNavigationPath = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
                 currentPath: compactNavigationPath,
-                selectedWorkspaceID: selectedWorkspaceID
+                selectedWorkspaceID: scopedID
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onChange(of: compactNavigationPath) { _, path in
-            guard let selectedWorkspaceID = path.last else {
+            guard let scopedID = path.last else {
                 return
             }
             pendingCompactCreateNavigationWorkspaceIDs = nil
-            guard store.selectedWorkspaceID != selectedWorkspaceID else {
+            guard store.scopedSelectedWorkspaceID != scopedID else {
                 return
             }
-            store.selectedWorkspaceID = selectedWorkspaceID
+            store.scopedSelectedWorkspaceID = scopedID
         }
-        .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
-            compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
+        .onChange(of: store.unifiedWorkspaces.map { ScopedWorkspaceID($0) }) { _, scopedIDs in
+            let valid = Set(scopedIDs)
+            compactNavigationPath.removeAll { !valid.contains($0) }
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onAppear {
@@ -132,9 +140,12 @@ struct WorkspaceShellView: View {
     private var splitLayout: some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             WorkspaceListView(
-                workspaces: store.workspaces,
+                workspaces: store.unifiedWorkspaces,
                 groups: store.workspaceGroups,
-                selectedWorkspaceID: store.selectedWorkspaceID,
+                selectedWorkspaceID: store.scopedSelectedWorkspaceID,
+                deviceNames: store.unifiedDeviceNames,
+                showsMacChips: store.unifiedMultiMacEnabled,
+                activatingDeviceID: store.activatingDeviceID,
                 host: store.connectedHostName,
                 connectionStatus: store.macConnectionStatus,
                 navigationStyle: .sidebar,
@@ -174,16 +185,35 @@ struct WorkspaceShellView: View {
         guard store.deeplinkWorkspaceNavigationRequest != nil else { return }
         guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
         guard usesCompactStack else { return }
-        if compactNavigationPath.last != workspaceID {
-            compactNavigationPath = [workspaceID]
+        // A deep link targets the active Mac's workspace (push notifications come
+        // from the connected Mac), so scope it with the active device id.
+        let scopedID = ScopedWorkspaceID(deviceId: store.activeDeviceID ?? "", workspaceID: workspaceID)
+        if compactNavigationPath.last != scopedID {
+            compactNavigationPath = [scopedID]
         }
     }
 
-    private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
+    private func selectWorkspace(_ scopedID: ScopedWorkspaceID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        store.selectedWorkspaceID = id
-        if usesCompactStack, compactNavigationPath.last != id {
-            compactNavigationPath = [id]
+        // Lazy heavy-attach: when the tapped workspace's Mac is not the active
+        // heavy connection, `selectScopedWorkspace` switches the heavy client to
+        // it (via `activateMac`) before landing the bare selection, so the
+        // terminal that mounts streams from the correct Mac. When the Mac is
+        // already active (single-Mac, flag off, or re-tapping the live Mac) it is
+        // just a bare selection with no connection churn.
+        //
+        // The navigation push is keyed on the SCOPED id and happens immediately so
+        // the detail screen presents without waiting on the connect round-trip;
+        // the detail container resolves the concrete workspace once the activated
+        // Mac's `workspaces` arrive. A failed activation leaves the bare selection
+        // unchanged inside the store, and the navigation push surfaces the
+        // connection status/error in the detail chrome.
+        let store = store
+        Task { @MainActor in
+            await store.selectScopedWorkspace(scopedID)
+        }
+        if usesCompactStack, compactNavigationPath.last != scopedID {
+            compactNavigationPath = [scopedID]
         }
     }
 
@@ -239,12 +269,12 @@ struct WorkspaceShellView: View {
     }
 
     private func createWorkspaceInCompactStack() {
-        let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
+        let existingWorkspaceIDs = Set(store.unifiedWorkspaces.map { ScopedWorkspaceID($0) })
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         store.createWorkspace()
         if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
             currentPath: compactNavigationPath,
-            selectedWorkspaceID: store.selectedWorkspaceID,
+            selectedWorkspaceID: store.scopedSelectedWorkspaceID,
             existingWorkspaceIDs: existingWorkspaceIDs
         ) {
             pendingCompactCreateNavigationWorkspaceIDs = nil
@@ -256,11 +286,11 @@ struct WorkspaceShellView: View {
         #if DEBUG
         guard ProcessInfo.processInfo.environment["CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE"] == "1",
               compactNavigationPath.isEmpty,
-              let selectedWorkspaceID = store.selectedWorkspaceID,
-              store.workspaces.contains(where: { $0.id == selectedWorkspaceID }) else {
+              let scopedID = store.scopedSelectedWorkspaceID,
+              store.unifiedWorkspaces.contains(where: { ScopedWorkspaceID($0) == scopedID }) else {
             return
         }
-        compactNavigationPath = [selectedWorkspaceID]
+        compactNavigationPath = [scopedID]
         #endif
     }
 

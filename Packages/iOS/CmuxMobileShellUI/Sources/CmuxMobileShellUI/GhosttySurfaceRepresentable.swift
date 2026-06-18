@@ -23,7 +23,16 @@ import UIKit
 /// field-grow pushes only the terminal up. There is no toolbar handoff and no second
 /// layout system reaching into the surface's bottom math.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
+    /// The Mac-scoped surface key (`"<deviceId>#<terminalID>"`). Drives the byte
+    /// sink, raw input, viewport/scroll/click routing, and the surface's
+    /// `hostSurfaceID`, so render-grid bytes and input never cross to another
+    /// Mac that reuses the same bare terminal id.
     let surfaceID: String
+    /// The bare, Mac-local terminal id. Used only for the per-terminal composer /
+    /// draft / autofocus store maps, which persist drafts by bare id and must not
+    /// re-key under the unified multi-Mac flag (a scoped key would orphan saved
+    /// drafts on upgrade).
+    let terminalID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
     /// Whether the mounted surface should grab the keyboard when it attaches to
@@ -38,7 +47,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var isComposerActive: Bool = false
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(surfaceID: surfaceID, store: store)
+        Coordinator(surfaceID: surfaceID, terminalID: terminalID, store: store)
     }
 
     func makeUIView(context: Context) -> UIView {
@@ -103,7 +112,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+        /// Scoped surface key for byte/input routing and surface identity.
         let surfaceID: String
+        /// Bare terminal id for the per-terminal composer/draft/autofocus maps.
+        let terminalID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         private var outputTask: Task<Void, Never>?
@@ -119,8 +131,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// the meantime.
         private var composerMountGeneration = 0
 
-        init(surfaceID: String, store: CMUXMobileShellStore) {
+        init(surfaceID: String, terminalID: String, store: CMUXMobileShellStore) {
             self.surfaceID = surfaceID
+            self.terminalID = terminalID
             self.store = store
             super.init()
         }
@@ -194,7 +207,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// sizes the surface band.
         @MainActor
         private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
-            let view = TerminalComposerView(store: store, terminalID: surfaceID) { [weak self] in
+            let view = TerminalComposerView(store: store, terminalID: terminalID) { [weak self] in
                 // Content changed (a line added/removed, or cleared after send): live
                 // grows/shrinks animate. `setComposerBandHeight` is idempotent on
                 // unchanged heights, so a no-op change is harmless.
@@ -328,8 +341,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // presents/dismisses the iMessage-style composer. The reveal-and-focus
             // case routes through `...DidRequestComposerFocus` instead, so this never
             // closes a still-presented-but-suppressed composer.
-            Task { @MainActor [weak store, surfaceID] in
-                store?.toggleComposer(forTerminalID: surfaceID)
+            Task { @MainActor [weak store, terminalID] in
+                store?.toggleComposer(forTerminalID: terminalID)
             }
         }
 
@@ -338,8 +351,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // re-focused, without dismissing it — the reveal-after-hide and
             // present-while-suppressed paths. Ensure-present + bump the focus token the
             // composer view observes, so the draft and its focus return together.
-            Task { @MainActor [weak store, surfaceID] in
-                store?.presentAndFocusComposer(forTerminalID: surfaceID)
+            Task { @MainActor [weak store, terminalID] in
+                store?.presentAndFocusComposer(forTerminalID: terminalID)
             }
         }
 

@@ -1854,6 +1854,23 @@
         }
       }
     },
+    "mobile.settings.manageDevices": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage Devices"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスを管理"
+          }
+        }
+      }
+    },
     "mobile.settings.display": {
       "extractionState": "manual",
       "localizations": {
@@ -3669,6 +3686,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースを削除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.workspace.macChip.a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上"
+          }
+        }
+      }
+    },
+    "mobile.workspace.macChip.connecting.a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中"
           }
         }
       }

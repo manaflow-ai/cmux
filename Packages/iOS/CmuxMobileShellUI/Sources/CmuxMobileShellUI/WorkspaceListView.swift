@@ -14,7 +14,22 @@ struct WorkspaceListView: View {
     /// groups; the list then renders flat. Passed as value snapshots so no
     /// `@Observable` store crosses the `List` boundary.
     var groups: [MobileWorkspaceGroupPreview] = []
-    let selectedWorkspaceID: MobileWorkspacePreview.ID?
+    let selectedWorkspaceID: ScopedWorkspaceID?
+    /// `deviceId -> Mac display name` map for resolving each row's Mac chip in the
+    /// unified multi-Mac list. Passed as an immutable value snapshot so no
+    /// `@Observable` store crosses the `List` boundary. Empty (the default) in the
+    /// single-Mac / preview case.
+    var deviceNames: [String: String] = [:]
+    /// Whether to render the per-row Mac chip and force flat (ungrouped)
+    /// presentation, i.e. the unified multi-Mac mode. `false` (the default)
+    /// preserves the single-Mac look exactly: no chips, and group sections honored.
+    var showsMacChips: Bool = false
+    /// The device id of the Mac whose heavy connection is currently being
+    /// switched to (via `activateMac`), so its rows show a per-row connecting
+    /// state in the unified list. `nil` when no cross-Mac activation is running.
+    /// Passed as a value snapshot so no `@Observable` store crosses the `List`
+    /// boundary.
+    var activatingDeviceID: String? = nil
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let navigationStyle: WorkspaceNavigationStyle
@@ -25,7 +40,7 @@ struct WorkspaceListView: View {
     /// How many lines each row's activity preview shows (1 or 2). Passed in as
     /// a value snapshot so no `@Observable` store crosses the `List` boundary.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
-    let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    let selectWorkspace: (ScopedWorkspaceID) -> Void
     let createWorkspace: () -> Void
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
@@ -62,6 +77,9 @@ struct WorkspaceListView: View {
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
+    /// Whether the flag-off top-left device-tree picker sheet is presented. Used
+    /// only in single-Mac mode (`!showsMacChips`); in unified multi-Mac mode the
+    /// device tree is demoted into Settings ("Manage Devices") instead.
     @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
@@ -86,7 +104,12 @@ struct WorkspaceListView: View {
     /// group is acceptable while filtering. An active row filter (Unread)
     /// flattens the same way, for the same reason.
     private var rendersGroupedSections: Bool {
-        !groups.isEmpty && trimmedQuery.isEmpty && !filter.isActive
+        // The unified multi-Mac list is always flat: group sections are a
+        // single-Mac sidebar concept and do not compose across Macs (two Macs can
+        // have unrelated groups), so chips replace grouping as the per-row Mac
+        // dimension. Flag off ⇒ `showsMacChips` is false and grouping is honored
+        // exactly as before.
+        !showsMacChips && !groups.isEmpty && trimmedQuery.isEmpty && !filter.isActive
     }
 
     private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {
@@ -156,7 +179,11 @@ struct WorkspaceListView: View {
             ToolbarItem(placement: .topBarLeading) {
                 settingsMenu
             }
-            if store != nil {
+            // Single-Mac (flag-off) parity: keep the prominent top-left device
+            // picker exactly as today. The unified multi-Mac list (flag on)
+            // demotes the tree into Settings ("Manage Devices") instead, since the
+            // unified workspace list is the primary navigation there.
+            if !showsMacChips, store != nil {
                 ToolbarItem(placement: .topBarLeading) {
                     devicesButton
                 }
@@ -178,19 +205,30 @@ struct WorkspaceListView: View {
             TerminalShortcutsSettingsView()
         }
         .sheet(isPresented: $showingSettings) {
+            // In unified multi-Mac mode the device tree ("Manage Devices") lives
+            // inside Settings rather than a top-left toolbar button: it is a
+            // secondary management surface, not the primary navigation (the
+            // unified workspace list is). The workspace-select closure is
+            // forwarded so opening a workspace from the tree dismisses Settings
+            // and the device sheet and reveals it. In single-Mac (flag-off) mode
+            // the tree stays a top-left toolbar button (see below), so
+            // `selectWorkspace` is NOT forwarded and the "Manage Devices" Settings
+            // entry stays hidden — Settings matches today exactly.
             MobileSettingsView(
                 connectedHostName: host,
                 rescanQR: rescanQR,
                 signOut: signOut,
-                store: store
+                store: store,
+                selectWorkspace: showsMacChips ? selectWorkspace : nil
             )
         }
-        // Present the device tree at the workspace-list level (a single sheet,
-        // not nested under Settings), so selecting a workspace dismisses straight
-        // back to the workspace shell and reveals the opened workspace rather than
-        // leaving a parent sheet covering it.
+        // Single-Mac (flag-off) parity: present the device tree at the
+        // workspace-list level (a single sheet, not nested under Settings), so
+        // selecting a workspace dismisses straight back to the workspace shell and
+        // reveals the opened workspace rather than leaving a parent sheet covering
+        // it. Suppressed in unified multi-Mac mode, where the tree is in Settings.
         .sheet(isPresented: $showingDeviceTree) {
-            if let store {
+            if let store, !showsMacChips {
                 DeviceTreeView(store: store, selectWorkspace: selectWorkspace)
             }
         }
@@ -230,7 +268,8 @@ struct WorkspaceListView: View {
                     hasUnread: hasUnread,
                     navigationStyle: navigationStyle,
                     isAnchorSelected: navigationStyle == .sidebar
-                        && selectedWorkspaceID == group.anchorWorkspaceID,
+                        && selectedWorkspaceID?.workspaceID == group.anchorWorkspaceID,
+                    anchorScopedID: anchorScopedID(for: group),
                     selectWorkspace: selectWorkspace,
                     toggleCollapsed: toggleGroupCollapsed
                 )
@@ -242,15 +281,31 @@ struct WorkspaceListView: View {
         }
     }
 
+    /// The scoped identity of a group's anchor workspace. Groups render only in
+    /// the single-Mac (flag-off) presentation, so the anchor's `deviceId` is
+    /// resolved from the matching workspace in ``workspaces`` (the active Mac),
+    /// falling back to unscoped (`""`) if the anchor is not present.
+    private func anchorScopedID(for group: MobileWorkspaceGroupPreview) -> ScopedWorkspaceID {
+        let deviceId = workspaces.first { $0.id == group.anchorWorkspaceID }?.deviceId ?? ""
+        return ScopedWorkspaceID(deviceId: deviceId, workspaceID: group.anchorWorkspaceID)
+    }
+
     @ViewBuilder
     private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool) -> some View {
         WorkspaceNavigationRow(
             workspace: workspace,
             connectionStatus: connectionStatus,
-            isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
+            isSelected: navigationStyle == .sidebar
+                && selectedWorkspaceID == ScopedWorkspaceID(workspace),
             navigationStyle: navigationStyle,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
+            macChipName: showsMacChips
+                ? WorkspaceMacChip.label(forDeviceID: workspace.deviceId, names: deviceNames)
+                : nil,
+            isConnecting: showsMacChips
+                && !workspace.deviceId.isEmpty
+                && activatingDeviceID == workspace.deviceId,
             selectWorkspace: selectWorkspace,
             renameWorkspace: renameWorkspace,
             setPinned: setPinned,

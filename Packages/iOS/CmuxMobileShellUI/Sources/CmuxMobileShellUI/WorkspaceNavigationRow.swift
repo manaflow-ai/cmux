@@ -11,7 +11,14 @@ struct WorkspaceNavigationRow: View {
     /// How many lines the activity preview shows (1 or 2), forwarded to the
     /// shared ``WorkspaceRow``.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
-    let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    /// The owning-Mac chip label, when this row is part of the unified multi-Mac
+    /// list. `nil` (the default) hides the chip, preserving the single-Mac look.
+    var macChipName: String? = nil
+    /// Whether this row's owning Mac is currently being switched to (the
+    /// destructive `activateMac` heavy-attach is in flight). Shows a small
+    /// spinner beside the chip; `false` (the default) renders the chip as-is.
+    var isConnecting: Bool = false
+    let selectWorkspace: (ScopedWorkspaceID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)? = nil
@@ -92,12 +99,12 @@ struct WorkspaceNavigationRow: View {
     private var rowTarget: some View {
         switch navigationStyle {
         case .push:
-            NavigationLink(value: workspace.id) {
+            NavigationLink(value: ScopedWorkspaceID(workspace)) {
                 rowLabel
             }
         case .sidebar:
             Button {
-                selectWorkspace(workspace.id)
+                selectWorkspace(ScopedWorkspaceID(workspace))
             } label: {
                 rowLabel
             }
@@ -111,7 +118,9 @@ struct WorkspaceNavigationRow: View {
             connectionStatus: connectionStatus,
             isSelected: navigationStyle == .sidebar && isSelected,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
-            previewLineLimit: previewLineLimit
+            previewLineLimit: previewLineLimit,
+            macChipName: macChipName,
+            isConnecting: isConnecting
         )
     }
 

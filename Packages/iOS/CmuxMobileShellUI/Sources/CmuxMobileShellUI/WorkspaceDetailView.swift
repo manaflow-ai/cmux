@@ -64,6 +64,17 @@ struct WorkspaceDetailView: View {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
+    /// The Mac-scoped surface key for the selected terminal
+    /// (`"<deviceId>#<terminalID>"`, see ``ScopedTerminalID/surfaceKey``). This is
+    /// the opaque identity the terminal surface holds and the composite keys its
+    /// byte-delivery maps on, so two Macs reporting the same bare terminal id can
+    /// never cross-route render-grid bytes or input. Flag off / single-Mac ⇒ the
+    /// terminal's `deviceId` is `""` (or the lone active Mac), so the key is still
+    /// a stable per-terminal identity and behavior is unchanged.
+    private var selectedTerminalSurfaceKey: String? {
+        selectedTerminal.map { ScopedTerminalID($0).surfaceKey }
+    }
+
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
@@ -271,9 +282,16 @@ struct WorkspaceDetailView: View {
         // dogfood iosfin no longer fight for the same screen edge.
         Group {
             #if os(iOS)
-            if let terminalID = selectedTerminal?.id.rawValue {
+            if let terminalID = selectedTerminal?.id.rawValue,
+               let surfaceKey = selectedTerminalSurfaceKey {
                 GhosttySurfaceRepresentable(
-                    surfaceID: terminalID,
+                    // `surfaceID` is the Mac-scoped surface key driving byte
+                    // delivery, input, and surface identity; `terminalID` stays
+                    // the bare id for the per-terminal composer/draft/autofocus
+                    // maps (which persist drafts by bare id and must not change
+                    // key under the flag).
+                    surfaceID: surfaceKey,
+                    terminalID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
                     // While the composer is presented the terminal input proxy
@@ -288,13 +306,15 @@ struct WorkspaceDetailView: View {
                         && !store.isComposerPresented,
                     isComposerActive: store.isComposerPresented
                 )
-                // Identity must track the selected terminal. The representable's
-                // coordinator binds its byte sink to the surfaceID at make time and
-                // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
-                // reuses the first terminal's surface and the dropdown never switches.
-                // Keying on terminalID tears down the old surface (unregistering its
-                // sink via dismantleUIView) and builds the newly-selected one.
-                .id(terminalID)
+                // Identity must track the selected terminal AND its owning Mac.
+                // The representable's coordinator binds its byte sink to the
+                // surfaceID at make time and `updateUIView` is a no-op, so without
+                // a per-surface id SwiftUI reuses the first terminal's surface and
+                // the dropdown never switches. Keying on the SCOPED surface key
+                // also tears down + rebuilds the surface when the active Mac
+                // switches to one whose bare terminal id collides, so the new
+                // Mac's sink is registered under its own scoped key.
+                .id(surfaceKey)
                 .onAppear {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
                 }
@@ -528,7 +548,10 @@ struct WorkspaceDetailView: View {
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
     private func openTextSheetFromMenu() {
-        textSheetSurfaceID = selectedTerminal?.id.rawValue
+        // The surface registers under the scoped surface key (`hostSurfaceID`),
+        // so the "View as Text" lookup must use that same key to resolve the
+        // live libghostty surface.
+        textSheetSurfaceID = selectedTerminalSurfaceKey
         isTextSheetPresented = true
     }
 

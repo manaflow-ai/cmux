@@ -63,14 +63,19 @@ extension MobileShellComposite {
     }
 
     private func performTerminalScroll(_ delivery: TerminalScrollDelivery) async {
+        // `delivery.surfaceID` is the Mac-scoped surface key. The bare wire id is
+        // resolved only when the key belongs to the active heavy Mac; a key for
+        // another Mac yields nil here so the scroll is dropped rather than routed
+        // to the wrong Mac.
         guard let client = remoteClient,
-              let workspaceID = workspaceID(forTerminalID: delivery.surfaceID) else {
+              let workspaceID = workspaceID(forTerminalID: delivery.surfaceID),
+              let wireSurfaceID = wireTerminalID(forSurfaceKey: delivery.surfaceID) else {
             return
         }
         do {
             var params: [String: Any] = [
                 "workspace_id": workspaceID.rawValue,
-                "surface_id": delivery.surfaceID,
+                "surface_id": wireSurfaceID,
                 "client_id": clientID,
                 "delta_lines": delivery.lines,
                 "col": delivery.col,
@@ -89,9 +94,11 @@ extension MobileShellComposite {
                   remoteClient === client else {
                 return
             }
+            // The Mac echoes the BARE wire surface id; compare on the wire id, and
+            // `deliverAuthoritativeTerminalRenderGrid` re-scopes for delivery.
             guard let payload = try? MobileTerminalReplayResponse.decode(data),
                   let renderGrid = payload.renderGrid,
-                  renderGrid.surfaceID == delivery.surfaceID else {
+                  renderGrid.surfaceID == wireSurfaceID else {
                 return
             }
             deliverAuthoritativeTerminalRenderGrid(

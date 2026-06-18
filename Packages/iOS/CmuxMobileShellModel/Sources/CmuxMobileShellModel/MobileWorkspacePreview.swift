@@ -27,6 +27,15 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
 
     /// The workspace's stable identifier.
     public var id: ID
+    /// The cmux device UUID of the Mac that owns this workspace, matching
+    /// ``RegistryDevice``/``CmxAttachTicket`` `macDeviceID`. Empty (`""`) means
+    /// "unscoped" — the single-Mac legacy behavior, where workspace ids are
+    /// already unambiguous because only one Mac is ever in the list. In the
+    /// unified multi-Mac list this is stamped with the owning Mac's id so two
+    /// Macs with colliding bare workspace ids are still distinguishable; the
+    /// wire id (``id``) stays Mac-local and `deviceId` selects which client a
+    /// request is routed to.
+    public var deviceId: String
     /// The Mac window that owns this workspace, when reported by the paired Mac.
     public var windowID: String?
     /// The workspace's user-facing display name.
@@ -60,6 +69,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// Creates a workspace preview.
     /// - Parameters:
     ///   - id: The workspace's stable identifier.
+    ///   - deviceId: The owning Mac's cmux device UUID. Defaults to `""`
+    ///     (unscoped / single-Mac), so existing construction and tests compile
+    ///     unchanged.
     ///   - windowID: The owning Mac window identifier, when known.
     ///   - name: The workspace's user-facing display name.
     ///   - isPinned: Whether the workspace is pinned on the Mac. Defaults to `false`.
@@ -71,6 +83,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - terminals: The terminals contained in the workspace, in display order.
     public init(
         id: ID,
+        deviceId: String = "",
         windowID: String? = nil,
         name: String,
         isPinned: Bool = false,
@@ -82,6 +95,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         terminals: [MobileTerminalPreview]
     ) {
         self.id = id
+        self.deviceId = deviceId
         self.windowID = windowID
         self.name = name
         self.isPinned = isPinned
