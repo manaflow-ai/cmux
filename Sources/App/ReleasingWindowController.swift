@@ -57,6 +57,8 @@ class ReleasingWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func installManagedWindow(_ window: NSWindow) {
+        // The controller owns the window while it is open. Keep AppKit's close-time
+        // self-release path disabled so close teardown is explicit and centralized.
         window.isReleasedWhenClosed = false
         self.window = window
         window.delegate = self

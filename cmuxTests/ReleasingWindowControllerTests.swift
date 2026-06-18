@@ -11,6 +11,27 @@ import Testing
 @Suite
 struct ReleasingWindowControllerTests {
     @Test
+    func windowCloseObserverFiresSynchronouslyOnClose() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        var observedWindow: NSWindow?
+        let observer = WindowCloseObserver(window: window) { window in
+            observedWindow = window
+        }
+
+        withExtendedLifetime(observer) {
+            window.close()
+        }
+
+        #expect(observedWindow === window)
+    }
+
+    @Test
     func closeReleasesManagedWindowAndRecreatesOnNextShow() {
         let controller = CountingReleasingWindowController()
 

@@ -1,25 +1,29 @@
 import AppKit
 
 @MainActor
-final class WindowCloseObserver {
-    private var token: NSObjectProtocol?
+final class WindowCloseObserver: NSObject {
+    private weak var window: NSWindow?
+    private let onClose: @MainActor (NSWindow) -> Void
 
     init(window: NSWindow, onClose: @escaping @MainActor (NSWindow) -> Void) {
-        token = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { notification in
-            guard let window = notification.object as? NSWindow else { return }
-            MainActor.assumeIsolated {
-                onClose(window)
-            }
-        }
+        self.window = window
+        self.onClose = onClose
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
     }
 
     deinit {
-        if let token {
-            NotificationCenter.default.removeObserver(token)
-        }
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc
+    private func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow, closingWindow === window else { return }
+        onClose(closingWindow)
     }
 }
