@@ -216,6 +216,13 @@ jobs:
           import sys
 
           family = os.environ["DEVICE_FAMILY"]
+
+          def unavailable(reason):
+              print(f"SIMULATOR_AVAILABLE=false")
+              print(f"SIMULATOR_UNAVAILABLE_REASON={reason}")
+              print(reason, file=sys.stderr)
+              raise SystemExit(0)
+
           data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
           devices = [
               device
@@ -239,7 +246,7 @@ jobs:
                   )
               ]
               if not runtimes:
-                  raise SystemExit(f"No available iOS simulator runtime for {family}")
+                  unavailable(f"No available iOS simulator runtime for {family}")
 
               def version_key(runtime):
                   return tuple(int(part) for part in runtime.get("version", "0").split(".") if part.isdigit())
@@ -254,7 +261,7 @@ jobs:
               device_type = next((d for name in preferred for d in device_types if d.get("name") == name), None)
               device_type = device_type or next(iter(device_types), None)
               if device_type is None:
-                  raise SystemExit(f"No available {prefix} simulator device type")
+                  unavailable(f"No available {prefix} simulator device type")
               udid = subprocess.check_output([
                   "xcrun",
                   "simctl",
@@ -268,6 +275,7 @@ jobs:
                   f"Created {selected['name']} ({udid}) with {runtime['identifier']}",
                   file=sys.stderr,
               )
+          print("SIMULATOR_AVAILABLE=true")
           print(f"SIMULATOR_ID={selected['udid']}")
           print(f"SIMULATOR_NAME={selected['name']}")
           PY
@@ -275,7 +283,7 @@ jobs:
           cat "$SIMULATOR_ENV" >> "$GITHUB_ENV"
 
       - name: Resolve packages
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        if: ${{ env.SIMULATOR_AVAILABLE == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
@@ -284,7 +292,7 @@ jobs:
             -resolvePackageDependencies
 
       - name: Run iOS simulator tests
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        if: ${{ env.SIMULATOR_AVAILABLE == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
         run: |
@@ -331,3 +339,12 @@ jobs:
             fi
             exit "$status"
           done
+
+      - name: Report unavailable simulator
+        if: ${{ env.SIMULATOR_AVAILABLE != 'true' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          echo "Skipping ${{ matrix.family }} simulator tests: ${SIMULATOR_UNAVAILABLE_REASON:-simulator unavailable}"
+          echo "### iOS simulator unavailable" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Family: ${{ matrix.family }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Reason: ${SIMULATOR_UNAVAILABLE_REASON:-simulator unavailable}" >> "$GITHUB_STEP_SUMMARY"
