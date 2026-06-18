@@ -4078,6 +4078,14 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+        case "cluster-ssh", "cssh":
+            try runClusterSSH(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
         case "ssh-tmux":
             try runRemoteTmux(
                 commandArgs: commandArgs,
@@ -5272,6 +5280,7 @@ struct CMUXCLI {
         "clear-notifications",
         "clear-progress",
         "clear-status",
+        "cluster-ssh",
         "close-surface",
         "close-window",
         "close-workspace",
@@ -5281,6 +5290,7 @@ struct CMUXCLI {
         "codex-teams",
         "config",
         "copy-mode",
+        "cssh",
         "current-window",
         "current-workspace",
         "debug-terminals",
@@ -6965,6 +6975,165 @@ struct CMUXCLI {
         )
         let summary = "OK steps=\(payload["steps"] ?? "?") duration_ms=\(payload["duration_ms"] ?? "?") edge=\(payload["edge"] ?? "?")"
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
+    }
+
+    /// `cmux cluster-ssh` / `cssh`: open a grid of terminal panes, SSH into each
+    /// host, and (unless `-n`) enable input broadcast — the cmux equivalent of
+    /// csshX/csshi. Builds a `--layout` grid via ``ClusterSSHLayoutBuilder`` and
+    /// creates the workspace, then issues a `set_broadcast` workspace action.
+    private func runClusterSSH(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        // Single-value flags accept both short and long spellings.
+        func option(_ args: [String], _ short: String, _ long: String) -> (String?, [String]) {
+            let (shortValue, afterShort) = parseOption(args, name: short)
+            let (longValue, afterLong) = parseOption(afterShort, name: long)
+            return (longValue ?? shortValue, afterLong)
+        }
+        let (userOpt, r1) = option(commandArgs, "-l", "--user")
+        let (portOpt, r2) = option(r1, "-p", "--port")
+        let (jumpOpt, r3) = option(r2, "-J", "--jump")
+        let (colsOpt, r4) = option(r3, "-C", "--columns")
+        let (rowsOpt, r5) = option(r4, "-R", "--rows")
+        let (nameOpt, r6) = parseOption(r5, name: "--name")
+        let (windowOpt, r7) = parseOption(r6, name: "--window")
+        let (sshOptsShort, r8) = parseRepeatedOption(r7, name: "-o")
+        let (sshOptions, r9) = {
+            let (long, rest) = parseRepeatedOption(r8, name: "--ssh-option")
+            return (sshOptsShort + long, rest)
+        }()
+        let noBroadcast = hasFlag(r9, name: "-n") || hasFlag(r9, name: "--no-broadcast")
+        let noFocus = hasFlag(r9, name: "--no-focus")
+
+        // Whatever survived the flag parsing is the host list.
+        let booleanFlags: Set<String> = ["-n", "--no-broadcast", "--no-focus", "--"]
+        let hosts = r9.filter { !booleanFlags.contains($0) }
+        if let unknown = hosts.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(message: "cluster-ssh: unknown flag '\(unknown)'")
+        }
+        guard !hosts.isEmpty else {
+            throw CLIError(message: "cluster-ssh requires at least one [user@]host[:port] (example: cmux cluster-ssh web1 web2)")
+        }
+
+        let defaultPort = try clusterSSHPort(portOpt, context: "-p/--port")
+        let columns = try clusterSSHGridDimension(colsOpt, flag: "-C/--columns")
+        let rows = try clusterSSHGridDimension(rowsOpt, flag: "-R/--rows")
+
+        let panes: [ClusterSSHLayoutBuilder.Pane] = try hosts.map { token in
+            let parsed = try parseClusterHost(token, defaultUser: userOpt, defaultPort: defaultPort)
+            let command = clusterSSHCommand(
+                destination: parsed.destination,
+                port: parsed.port,
+                jump: jumpOpt,
+                sshOptions: sshOptions
+            )
+            return ClusterSSHLayoutBuilder.Pane(command: command, name: parsed.label)
+        }
+
+        let layout = ClusterSSHLayoutBuilder.layout(panes: panes, columns: columns, rows: rows)
+        let title = nameOpt ?? "cssh: " + panes.map(\.name).joined(separator: ", ")
+
+        var params: [String: Any] = ["layout": layout, "title": title]
+        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowOverride)
+        try applyFocusOption(nil, defaultValue: !noFocus, to: &params)
+
+        let response = try client.sendV2(method: "workspace.create", params: params)
+        let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+
+        var broadcastEnabled = false
+        if !noBroadcast, !wsId.isEmpty {
+            _ = try client.sendV2(
+                method: "workspace.action",
+                params: ["action": "set_broadcast", "workspace_id": wsId, "enabled": true]
+            )
+            broadcastEnabled = true
+        }
+
+        if jsonOutput {
+            print(jsonString(formatIDs(response, mode: idFormat)))
+        } else {
+            let wsHandle = formatHandle(response, kind: "workspace", idFormat: idFormat) ?? wsId
+            print("OK cluster-ssh workspace=\(wsHandle) hosts=\(panes.count) broadcast=\(broadcastEnabled ? "on" : "off")")
+        }
+    }
+
+    private func clusterSSHPort(_ raw: String?, context: String) throws -> Int? {
+        guard let raw else { return nil }
+        guard let value = Int(raw), value > 0, value <= 65535 else {
+            throw CLIError(message: "cluster-ssh: \(context) must be 1-65535")
+        }
+        return value
+    }
+
+    private func clusterSSHGridDimension(_ raw: String?, flag: String) throws -> Int? {
+        guard let raw else { return nil }
+        guard let value = Int(raw), value > 0 else {
+            throw CLIError(message: "cluster-ssh: \(flag) must be a positive integer")
+        }
+        return value
+    }
+
+    /// Splits a `[user@]host[:port]` token. A trailing `:port` is only consumed
+    /// when numeric (so bare IPv6 literals are left intact). `defaultUser` /
+    /// `defaultPort` fill in when the token omits them.
+    private func parseClusterHost(
+        _ token: String,
+        defaultUser: String?,
+        defaultPort: Int?
+    ) throws -> (destination: String, port: Int?, label: String) {
+        var user: String?
+        var rest = token
+        if let at = token.firstIndex(of: "@") {
+            user = String(token[token.startIndex..<at])
+            rest = String(token[token.index(after: at)...])
+        }
+
+        var host = rest
+        var port = defaultPort
+        if let colon = rest.lastIndex(of: ":") {
+            let portString = String(rest[rest.index(after: colon)...])
+            if !portString.isEmpty, portString.allSatisfy(\.isNumber) {
+                guard let parsed = Int(portString), parsed > 0, parsed <= 65535 else {
+                    throw CLIError(message: "cluster-ssh: invalid port in '\(token)'")
+                }
+                host = String(rest[rest.startIndex..<colon])
+                port = parsed
+            }
+        }
+
+        guard !host.isEmpty else {
+            throw CLIError(message: "cluster-ssh: invalid host in '\(token)'")
+        }
+        let effectiveUser = (user?.isEmpty == false) ? user : defaultUser
+        let destination = effectiveUser.map { "\($0)@\(host)" } ?? host
+        return (destination, port, host)
+    }
+
+    /// Assembles a minimal `ssh …` command string for one pane. Deliberately
+    /// avoids the relay/ControlMaster defaults of `cmux ssh` so cluster panes to
+    /// the same host don't share a multiplexed control socket.
+    private func clusterSSHCommand(
+        destination: String,
+        port: Int?,
+        jump: String?,
+        sshOptions: [String]
+    ) -> String {
+        var argv = ["ssh"]
+        if let port {
+            argv += ["-p", String(port)]
+        }
+        if let jump, !jump.isEmpty {
+            argv += ["-J", jump]
+        }
+        for option in sshOptions where !option.isEmpty {
+            argv += ["-o", option]
+        }
+        argv.append(destination)
+        return argv.map(shellQuote).joined(separator: " ")
     }
 
     private func runWorkspaceAction(
@@ -14946,6 +15115,35 @@ struct CMUXCLI {
               cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
             """)
+        case "cluster-ssh", "cssh":
+            return """
+            Usage: cmux cluster-ssh [user@]host[:port] ... [flags]
+            Alias: cmux cssh ...
+
+            Open a grid of terminal panes, SSH into each host, and broadcast input
+            to every pane at once (csshX/csshi-style): type once, run everywhere.
+
+            Flags:
+              -l, --user <user>        Default SSH user for hosts with no user@
+              -p, --port <n>           Default SSH port for hosts with no :port
+              -J, --jump <host>        SSH ProxyJump (bastion) applied to every host
+              -o, --ssh-option <opt>   Extra SSH -o option (repeatable)
+              -C, --columns <n>        Force the grid to N columns
+              -R, --rows <n>           Force the grid to N rows
+              -n, --no-broadcast       Open the panes without enabling input broadcast
+                  --no-focus           Create the workspace without switching to it
+                  --name <title>       Workspace title (default: "cssh: <hosts>")
+                  --window <id|ref|index>  Target window for the new workspace
+
+            Per-host overrides win over the -l/-p defaults, e.g. admin@db1:2200.
+            Input broadcast is enabled by default (toggle later with Cmd+Shift+B).
+
+            Example:
+              cmux cluster-ssh web1 web2 web3
+              cmux cssh deploy@web1 deploy@web2 -J bastion.example.com
+              cmux cluster-ssh db1:2200 db2:2200 -l admin -C 2
+              cmux cluster-ssh host1 host2 --no-broadcast
+            """
         case "ssh-tmux":
             return String(localized: "cli.help.ssh-tmux", defaultValue: """
             Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
