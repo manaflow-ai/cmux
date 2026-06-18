@@ -3913,12 +3913,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func enqueueDeleteMutation(
         _ operation: @escaping @MainActor @Sendable () async -> Void
     ) -> Task<Void, Never> {
-        let previous = deleteMutationTask
-        let taskID = UUID()
+        let previous = deleteMutationTask, taskID = UUID(), generation = connectionGeneration
         deleteMutationTaskID = taskID
         let task = Task { @MainActor [weak self] in
             await previous?.value
-            guard let self, !Task.isCancelled else { return }
+            guard let self, connectionGeneration == generation, !Task.isCancelled else { return }
             defer { self.clearDeleteMutationTask(id: taskID) }
             await operation()
         }

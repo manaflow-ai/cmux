@@ -794,9 +794,9 @@ struct WorkspaceDetailView: View {
     /// list re-sync inside `setWorkspaceUnread` reconciles the row + back-button
     /// count.
     private func toggleWorkspaceReadStateFromMenu() {
+        isTerminalPickerPresented = false
         let store = store
-        let id = workspace.id
-        let markUnread = !workspace.hasUnread
+        let id = workspace.id, markUnread = !workspace.hasUnread
         Task { await store.setWorkspaceUnread(id: id, markUnread) }
     }
 
