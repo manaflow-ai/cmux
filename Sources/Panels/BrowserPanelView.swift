@@ -1,6 +1,8 @@
 import Bonsplit
+import CmuxBrowserImport
 import CmuxFoundation
 import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 import WebKit
 import AppKit
@@ -422,6 +424,10 @@ struct BrowserPanelView: View {
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
+    /// Held detector instance; the view detects and summarizes installed browsers
+    /// through this rather than the former `BrowserInstalledBrowserDetector` static
+    /// namespace.
+    private let installedBrowserDetector = BrowserInstalledBrowserDetector()
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettingsStore.searchEngineKey) private var searchEngineRaw = BrowserSearchSettingsStore.defaultSearchEngine.rawValue
@@ -440,6 +446,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
     @State private var suggestionTask: Task<Void, Never>?
@@ -664,7 +671,7 @@ struct BrowserPanelView: View {
     }
 
     private var browserImportHintSummary: String {
-        InstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers)
+        installedBrowserDetector.summaryText(for: emptyStateImportBrowsers)
     }
 
     private var shouldShowToolbarImportHintChip: Bool {
@@ -742,6 +749,20 @@ struct BrowserPanelView: View {
         panel.reload()
     }
 
+    private func handleReloadButtonContextMenuAction() {
+#if DEBUG
+        cmuxDebugLog("browser.reload.contextMenu panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        panel.reload()
+    }
+
+    private func handleHardRefreshButtonAction() {
+#if DEBUG
+        cmuxDebugLog("browser.hardRefresh.contextMenu panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        panel.hardReload()
+    }
+
     private func handleScreenshotPageButtonAction() {
         guard !screenshotPageCaptureInProgress else { return }
         screenshotPageCaptureInProgress = true
@@ -801,7 +822,15 @@ struct BrowserPanelView: View {
     private var shouldShowBrowserFocusModeShortcutHint: Bool {
         panel.isBrowserFocusModeActive &&
             panel.canToggleBrowserFocusMode &&
-            (ShortcutHintDebugSettings().alwaysShowHints || focusModeShortcutHintMonitor.isModifierPressed)
+            (ShortcutHintDebugSettings().alwaysShowHints || (showModifierHoldHints && focusModeShortcutHintMonitor.isModifierPressed))
+    }
+
+    private func startFocusModeShortcutHintMonitorIfNeeded() {
+        if showModifierHoldHints {
+            focusModeShortcutHintMonitor.start()
+        } else {
+            focusModeShortcutHintMonitor.stop()
+        }
     }
 
     private func handleBrowserPanelAppear() {
@@ -829,7 +858,7 @@ struct BrowserPanelView: View {
 #if DEBUG
         logBrowserFocusState(event: "view.onAppear")
 #endif
-        focusModeShortcutHintMonitor.start()
+        startFocusModeShortcutHintMonitorIfNeeded()
     }
 
     /// Runs the view-state initialization that should happen on first appearance,
@@ -1196,6 +1225,9 @@ struct BrowserPanelView: View {
         .onChange(of: panel.isOmnibarVisible) { _, isVisible in
             handleOmnibarVisibilityChange(isVisible)
         }
+        .onChange(of: showModifierHoldHints) { _, _ in
+            startFocusModeShortcutHintMonitorIfNeeded()
+        }
     }
 
     var body: some View {
@@ -1271,8 +1303,8 @@ struct BrowserPanelView: View {
             }
         }
         .background(
-            WindowAccessor { window in
-                focusModeShortcutHintMonitor.setHostWindow(window)
+            WindowAccessor(refreshID: showModifierHoldHints) { window in
+                focusModeShortcutHintMonitor.setHostWindow(showModifierHoldHints ? window : nil)
             }
         )
         .background {
@@ -1330,6 +1362,14 @@ struct BrowserPanelView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(OmnibarAddressButtonStyle())
+            .contextMenu {
+                Button(String(localized: "browser.reload", defaultValue: "Reload")) {
+                    handleReloadButtonContextMenuAction()
+                }
+                Button(String(localized: "menu.view.hardRefresh", defaultValue: "Hard Refresh")) {
+                    handleHardRefreshButtonAction()
+                }
+            }
             .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
 
             if panel.isDownloading {
@@ -2442,9 +2482,10 @@ struct BrowserPanelView: View {
             return
         }
 
+        let detector = installedBrowserDetector
         emptyStateImportBrowserRefreshTask = Task {
             let browsers = await Task.detached(priority: .utility) {
-                InstalledBrowserDetector.detectInstalledBrowsers()
+                detector.detectInstalledBrowsers()
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run {
