@@ -148,13 +148,11 @@ final class SSHPTYAttachReconnectInputFilter {
                 return
             }
 
-            if readiness.stopRequested {
+            if readiness.stopRequested, !readiness.inputReady {
                 guard stopReconnectFiltering() else {
                     return
                 }
-                if !readiness.inputReady {
-                    continue
-                }
+                continue
             }
 
             if !readiness.inputReady {
@@ -171,6 +169,11 @@ final class SSHPTYAttachReconnectInputFilter {
                 let input = reconnectInputFilter?.filter(rawInput) ?? rawInput
                 guard writeOrShutdown(input) else {
                     return
+                }
+                if readiness.stopRequested {
+                    guard stopReconnectFiltering() else {
+                        return
+                    }
                 }
             } else if count == 0 {
                 _ = shutdown(fd, SHUT_WR)
