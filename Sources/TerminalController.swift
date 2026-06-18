@@ -4992,7 +4992,8 @@ class TerminalController {
     nonisolated static func terminalTextPayload(
         from snapshot: TerminalTextRawSnapshot,
         includeScrollback: Bool,
-        lineLimit: Int?
+        lineLimit: Int?,
+        encodeBase64: Bool = true
     ) -> Result<TerminalTextPayload, TerminalTextPayloadError> {
         let output: String
         if includeScrollback {
@@ -5034,7 +5035,7 @@ class TerminalController {
             output = viewport
         }
 
-        let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
+        let base64 = encodeBase64 ? (output.data(using: .utf8)?.base64EncodedString() ?? "") : ""
         return .success(TerminalTextPayload(text: output, base64: base64))
     }
 
@@ -5098,21 +5099,16 @@ class TerminalController {
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
-        let response = readTerminalTextBase64(
-            terminalPanel: terminalPanel,
+        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readPlainTerminalTextForSnapshot") != nil else { return nil }
+        guard let snapshot = readTerminalTextRawSnapshot(terminalPanel: terminalPanel, includeScrollback: includeScrollback) else { return nil }
+        let payload = Self.terminalTextPayload(
+            from: snapshot,
             includeScrollback: includeScrollback,
-            lineLimit: lineLimit
+            lineLimit: lineLimit,
+            encodeBase64: false
         )
-        guard response.hasPrefix("OK ") else { return nil }
-        let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        if base64.isEmpty {
-            return ""
-        }
-        guard let data = Data(base64Encoded: base64),
-              let decoded = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return decoded
+        guard case .success(let textPayload) = payload else { return nil }
+        return textPayload.text
     }
 
     func readTerminalTextForSnapshot(
@@ -5162,7 +5158,6 @@ class TerminalController {
             lineLimit: lineLimit
         )
     }
-
 
     private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
         guard let email = params["email"] as? String else {

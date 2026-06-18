@@ -52,11 +52,12 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
-
 extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        claimScrollbackCapture: () -> Bool = { true },
+        usesScrollbackCaptureBudget: Bool = false,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
@@ -64,7 +65,6 @@ extension Workspace {
         if let surfaceResumeBindingIndex {
             reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
-
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
         var allPanelIds: [UUID] = []
@@ -74,7 +74,6 @@ extension Workspace {
         for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) where seen.insert(panelId).inserted {
             allPanelIds.append(panelId)
         }
-
         let panelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
@@ -82,6 +81,8 @@ extension Workspace {
                     panelId: panelId,
                     includeScrollback: includeScrollback,
                     restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
+                    claimScrollbackCapture: claimScrollbackCapture,
+                    usesScrollbackCaptureBudget: usesScrollbackCaptureBudget,
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -92,7 +93,6 @@ extension Workspace {
         let layout = prunedSessionLayoutSnapshot(rawLayout, keeping: persistedPanelIds) ?? .pane(
             SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
         )
-
         let statusSnapshots = statusEntries.values
             .sorted { lhs, rhs in lhs.key < rhs.key }
             .map { entry in
@@ -112,7 +112,6 @@ extension Workspace {
                 timestamp: entry.timestamp.timeIntervalSince1970
             )
         }
-
         let progressSnapshot = progress.map { progress in
             SessionProgressSnapshot(value: progress.value, label: progress.label)
         }
@@ -372,10 +371,11 @@ extension Workspace {
         panelId: UUID,
         includeScrollback: Bool,
         restorableAgent: SessionRestorableAgentSnapshot?,
+        claimScrollbackCapture: () -> Bool = { true },
+        usesScrollbackCaptureBudget: Bool = false,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
-
         if let restorableAgent {
             let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restorableAgent)
             if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
@@ -392,7 +392,6 @@ extension Workspace {
         }
         let hibernationState = (panel as? TerminalPanel)?.agentHibernationState
         let effectiveRestorableAgent = hibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId]
-
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]
         let customTitleSource: CustomTitleSource? = customTitle != nil
@@ -492,8 +491,9 @@ extension Workspace {
 #else
             let allowDebugFallbackScrollback = false
 #endif
-            let capturedScrollback = includeScrollback && shouldPersistScrollback && hibernationState == nil
-                ? TerminalController.shared.readTerminalTextForSnapshot(
+            let shouldCaptureScrollback = includeScrollback && shouldPersistScrollback && hibernationState == nil && claimScrollbackCapture()
+            let capturedScrollback = shouldCaptureScrollback
+                ? TerminalController.shared.readTerminalTextForSessionSnapshot(
                     terminalPanel: terminalPanel,
                     includeScrollback: true,
                     lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
@@ -504,7 +504,7 @@ extension Workspace {
                 panelId: panelId,
                 capturedScrollback: capturedScrollback,
                 includeScrollback: includeScrollback,
-                allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
+                allowFallbackScrollback: shouldCaptureScrollback || allowDebugFallbackScrollback || (!usesScrollbackCaptureBudget && hasRestoredScrollbackFallback)
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
