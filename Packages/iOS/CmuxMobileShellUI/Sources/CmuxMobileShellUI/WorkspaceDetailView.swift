@@ -551,43 +551,33 @@ struct WorkspaceDetailView: View {
     }
 
     private var terminalPickerList: some View {
-        let canDeleteTerminals = store.supportsDeleteActions
-        let selectedTerminalID = selectedTerminal?.id
+        let snapshots = terminalPickerRowSnapshots
         return List {
-            ForEach(workspace.terminals) { terminal in
-                Button {
-                    selectTerminalFromPicker(terminal.id)
-                } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == selectedTerminalID && activeBrowser == nil
-                            ? "checkmark.circle.fill"
-                            : "terminal"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .padding(.vertical, 10)
-                }
-                .buttonStyle(.plain)
-                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                .listRowSeparator(.hidden)
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    if canDeleteTerminals {
-                        Button(role: .destructive) {
-                            deleteTerminalFromPicker(terminal.id)
-                        } label: {
-                            Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
-                        }
-                        .tint(.red)
-                        .accessibilityIdentifier("MobileTerminalDeleteButton-\(terminal.id.rawValue)")
-                    }
-                }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
+            ForEach(snapshots) { snapshot in
+                TerminalPickerRow(
+                    snapshot: snapshot,
+                    selectTerminal: selectTerminalFromPicker,
+                    deleteTerminal: deleteTerminalFromPicker
+                )
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .frame(height: terminalPickerListHeight)
+    }
+
+    private var terminalPickerRowSnapshots: [TerminalPickerRowSnapshot] {
+        let selectedTerminalID = selectedTerminal?.id
+        let isTerminalSelected = activeBrowser == nil
+        let canDelete = store.supportsDeleteActions
+        return workspace.terminals.map { terminal in
+            TerminalPickerRowSnapshot(
+                id: terminal.id,
+                name: terminal.name,
+                isSelected: terminal.id == selectedTerminalID && isTerminalSelected,
+                canDelete: canDelete
+            )
+        }
     }
 
     private var terminalPickerListHeight: CGFloat {

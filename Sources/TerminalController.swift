@@ -13571,6 +13571,19 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
+        let windowID = v2ResolveWindowId(tabManager: resolved.tabManager)
+        if MobileHostService.shared.surfaceCloseTicketAuthorizationError(
+            auth: request.auth,
+            workspaceID: resolved.workspace.id.uuidString,
+            surfaceID: surfaceId.uuidString
+        ) != nil {
+            return mobileSurfaceCloseProtectedResult(
+                workspaceID: resolved.workspace.id,
+                surfaceID: surfaceId,
+                windowID: windowID
+            )
+        }
+
         if resolved.workspace.panels.count <= 1 {
             var closeWorkspaceParams = params
             closeWorkspaceParams["workspace_id"] = resolved.workspace.id.uuidString
@@ -13588,7 +13601,6 @@ class TerminalController {
         // The generic `surface.close` handler now lives in the control-socket
         // coordinator; force past close-confirmation gating since the socket API
         // is non-interactive.
-        let windowID = v2ResolveWindowId(tabManager: resolved.tabManager)
         guard closeSurfaceRecordingHistory(in: resolved.workspace, surfaceId: surfaceId, force: true) else {
             return .err(code: "internal_error", message: "Failed to close surface", data: ["surface_id": surfaceId.uuidString])
         }
@@ -13600,6 +13612,28 @@ class TerminalController {
             "window_id": v2OrNull(windowID?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowID),
         ])
+    }
+
+    private func mobileSurfaceCloseProtectedResult(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        windowID: UUID?
+    ) -> V2CallResult {
+        .err(
+            code: "protected",
+            message: String(
+                localized: "workspace.closeBlocked.message",
+                defaultValue: "This workspace can't be closed right now."
+            ),
+            data: [
+                "workspace_id": workspaceID.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
+                "surface_id": surfaceID.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceID),
+                "window_id": v2OrNull(windowID?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowID),
+            ]
+        )
     }
 
     func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
