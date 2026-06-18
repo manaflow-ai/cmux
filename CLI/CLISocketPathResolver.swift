@@ -144,8 +144,18 @@ enum CLISocketPathResolver {
         currentUserID: uid_t = getuid(),
         inspectSocketPathEntry: (String) -> SocketPathEntry = inspectSocketPathEntry
     ) -> String {
-        guard source == .implicitDefault else {
+        if source == .explicitFlag {
             return requestedPath
+        }
+
+        if source == .environment {
+            return resolveEnvironmentPath(
+                requestedPath: requestedPath,
+                environment: environment,
+                bundleIdentifier: bundleIdentifier,
+                currentUserID: currentUserID,
+                inspectSocketPathEntry: inspectSocketPathEntry
+            )
         }
 
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
@@ -179,6 +189,54 @@ enum CLISocketPathResolver {
         }
 
         return candidates.first ?? requestedPath
+    }
+
+    private static func resolveEnvironmentPath(
+        requestedPath: String,
+        environment: [String: String],
+        bundleIdentifier: String?,
+        currentUserID: uid_t,
+        inspectSocketPathEntry: (String) -> SocketPathEntry
+    ) -> String {
+        guard hasCallerIdentity(environment) else {
+            return requestedPath
+        }
+        guard !canConnect(
+            to: requestedPath,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) else {
+            return requestedPath
+        }
+
+        let candidates = dedupe(candidatePaths(
+            requestedPath: requestedPath,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )).filter { !pathsMatch($0, requestedPath) }
+
+        for path in candidates where canConnect(
+            to: path,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) {
+            return path
+        }
+
+        for path in candidates where isOwnedSocketFile(
+            path,
+            currentUserID: currentUserID,
+            inspectSocketPathEntry: inspectSocketPathEntry
+        ) {
+            return path
+        }
+
+        return requestedPath
+    }
+
+    private static func hasCallerIdentity(_ environment: [String: String]) -> Bool {
+        normalized(environment["CMUX_WORKSPACE_ID"]) != nil
+            || normalized(environment["CMUX_SURFACE_ID"]) != nil
     }
 
     private static func candidatePaths(
