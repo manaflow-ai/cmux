@@ -8,6 +8,7 @@ import Testing
     let first = TerminalOutputDelivery(bytes: Data("first".utf8), replaceable: false)
 
     #expect(queue.enqueue(first) == first)
+    #expect(first.preservesProducerGrid)
     #expect(queue.pendingCount == 0)
 }
 
@@ -35,10 +36,13 @@ import Testing
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: oldChunk.streamToken)
 
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 1)
+    #expect(oldChunk.preservesProducerGrid)
+    #expect(currentChunk.preservesProducerGrid)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: currentChunk.streamToken)
     let secondChunk = try #require(await currentIterator.next())
     #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
+    #expect(secondChunk.preservesProducerGrid)
 }
 
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
@@ -88,6 +92,7 @@ import Testing
     let vt = try #require(String(data: delivered.bytes, encoding: .utf8))
     #expect(vt.contains("latest"))
     #expect(!vt.contains("old"))
+    #expect(!delivered.preservesProducerGrid)
 }
 
 @Test func terminalOutputQueuePreservesNonreplaceableBarriers() {

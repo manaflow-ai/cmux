@@ -6,7 +6,7 @@ import GhosttyKit
 import OSLog
 import UIKit
 
-private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
+nonisolated private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
 // lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
 enum TerminalInputDebugLog {
@@ -92,11 +92,10 @@ protocol TerminalSurfaceHosting: AnyObject {
     var currentGridSize: TerminalGridSize { get }
     func processOutput(_ data: Data)
     func focusInput()
-    /// Apply the daemon's authoritative rendering grid. Unconditional —
-    /// implementations render at exactly cols × rows and letterbox any
-    /// remaining container area. The daemon broadcasts this on every
-    /// attach/resize/detach/open, plus inlined in RPC responses, so
-    /// every attached device converges on the same grid.
+    /// Apply the daemon's effective grid response for diagnostics and viewport
+    /// convergence. Render-grid output still renders at the full local
+    /// container; legacy raw-byte output may temporarily preserve this grid so
+    /// the local emulator matches the producer.
     func applyViewSize(cols: Int, rows: Int)
     #if DEBUG
     var onOutputProcessedForTesting: (() -> Void)? { get set }
@@ -546,13 +545,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// per-frame render drains them — the wedge that froze zoom.
     private var pendingFontSize: Float32?
     /// Countdown of quiet frames before the post-zoom geometry resync fires.
-    /// A zoom step changes the cell size, which (when letterbox-pinned to the
-    /// Mac's grid) changes `renderRect` and so reallocates the IOSurface render
-    /// target. Doing that every step thrashed the GPU and wedged
-    /// `render_now`'s synchronous frame wait. Instead each step only applies
-    /// the font (the grid reflows inside the current surface) and arms this
-    /// counter; the display link runs ONE `setNeedsGeometrySync` once zoom goes
-    /// quiet, so the letterbox re-pins a single time. nil = nothing pending.
+    /// A zoom step changes the cell size, which changes the natural rows/cols
+    /// for the same container. Resizing the IOSurface render target on every
+    /// step thrashed the GPU and wedged `render_now`'s synchronous frame wait.
+    /// Instead each step only applies the font and arms this counter; the
+    /// display link runs ONE `setNeedsGeometrySync` once zoom goes quiet, so
+    /// the surface refills the container at the settled font size. nil =
+    /// nothing pending.
     private var zoomSettleFrames: Int?
     private static let zoomSettleFrameThreshold = 6
     /// The transient zoom-control HUD (reset/save/restore-built-in), created
@@ -615,14 +614,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Last time the display-link heartbeat logged (DEBUG diagnostic). The
     /// per-frame callback runs on the main thread, so a steady heartbeat proves
     /// main is alive; if it stops while the screen looks frozen, the main
-    /// thread wedged (vs. an idle terminal or a stuck letterbox pin, where the
+    /// thread wedged (vs. an idle terminal or a stale viewport report, where the
     /// heartbeat keeps ticking). Distinguishes the three on the next dogfood.
     private var lastHeartbeatTime: CFTimeInterval = 0
     /// Time of the most recent applied render-grid output, for the heartbeat's
     /// `sinceOutput` field (ties an idle blank to a stream gap).
     private var lastOutputAppliedTime: CFTimeInterval = 0
     #endif
-    /// Set by any geometry trigger (resize/zoom/keyboard/effective-grid pin);
+    /// Set by any geometry trigger (resize/zoom/keyboard/viewport response);
     /// the display link applies geometry at most once per frame. Coalescing
     /// prevents the fast-zoom geometry storm that thrashed the grid (jumbled
     /// rendering) and saturated the renderer.
@@ -787,12 +786,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingViewportReport: TerminalGridSize?
     private var viewportReportSettleFrames = 0
     /// Bounded retries for the viewport report round-trip. The report goes to
-    /// the Mac, which echoes back the effective grid via `applyViewSize`. If the
-    /// round-trip yields no effective grid (RPC timeout / lost reply), the
-    /// render stays pinned to the prior `effectiveGrid` and looks frozen even
-    /// though the main thread is fine. On a no-effective result we re-arm the
-    /// report (display-link driven, no timers) up to `maxViewportReportRetries`
-    /// so a transient drop self-heals; a confirmed result resets the count.
+    /// the Mac, which echoes back the effective grid via `applyViewSize`. On a
+    /// no-effective result (RPC timeout / lost reply), re-arm the report
+    /// (display-link driven, no timers) up to `maxViewportReportRetries` so a
+    /// transient drop self-heals; a confirmed result resets the count.
     private var viewportReportRetries = 0
     private static let maxViewportReportRetries = 3
     /// Frames of "no zoom in progress" required before the natural grid is
@@ -805,19 +802,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// 120Hz / 0.13s at 60Hz.
     private static let viewportReportSettleThreshold = 8
     private var lastSnapshotFallbackHTML: String?
-    /// Daemon-authoritative effective grid (min across attached devices). When
-    /// set, the Ghostty surface is pinned to this cols×rows inside the
-    /// container so every attached device renders at the same grid. When
-    /// nil, the surface fills the container's natural capacity.
+    /// Last daemon-authoritative effective grid. Diagnostic for render-grid
+    /// output; a temporary sizing constraint for legacy raw bytes.
     private var effectiveGrid: (cols: Int, rows: Int)?
+    /// True while legacy raw bytes need the local emulator to match the
+    /// producer grid instead of the full local container.
+    private var rawByteProducerGridPinningEnabled = false
     /// Cached cell metrics derived from the most recent
-    /// `ghostty_surface_size` measurement. Used to translate an effective
-    /// cols×rows pin into a pixel box without re-round-tripping through
-    /// Ghostty. Zero until the first layout has measured.
+    /// `ghostty_surface_size` measurement. Used for cursor, hit testing, and
+    /// scroll gesture mapping. Zero until the first layout has measured.
     private var cellPixelSize: CGSize = .zero
-    /// 1 px separator stroke drawn around the pinned surface rect when the
-    /// container is larger than the render target (i.e., this device is
-    /// not the smallest). Added lazily on first letterbox.
+    /// Legacy 1 px separator stroke for the removed letterbox mode. Kept only
+    /// so an already-created layer can be hidden on upgrade/reload.
     private var letterboxBorderLayer: CAShapeLayer?
     /// Last render rect used for the Ghostty surface inside the host view's
     /// coordinate space. Kept so the border layer can match it without a
@@ -1712,12 +1708,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The toolbar's button row is bottom-pinned inside its container (see
     /// `TerminalInputTextView.dockedButtonRowHeight`), so the controls always hug the
     /// band's bottom no matter how tall the container is — the round-6 fix for "toolbar
-    /// rides up off the keyboard on a letterbox/resize", kept for free because the
-    /// toolbar never leaves the surface. When there is no composer band, the toolbar's
-    /// TOP floats up to the rendered terminal's bottom (`lastRenderRect.maxY`) to
-    /// absorb the sub-cell remainder (no terminal-background gap above the bar). When
-    /// the composer band is open, the toolbar is exactly its button band and the
-    /// composer below absorbs the layout.
+    /// rides up off the keyboard on resize", kept for free because the toolbar never
+    /// leaves the surface. When there is no composer band, the toolbar's
+    /// TOP floats up only far enough to absorb the rendered grid's sub-cell remainder
+    /// (no terminal-background gap above the bar). When the composer band is open,
+    /// the toolbar is exactly its button band and the composer below absorbs the
+    /// layout.
     ///
     /// While the HIDE button has suppressed the chrome (``chromeHidden``) the dock is
     /// off screen (both frames `.zero`); the grid reservation matches (it reserves 0),
@@ -1747,10 +1743,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // Toolbar top: with a composer band below, the toolbar container is exactly its
         // button band (no slack to absorb — the composer owns the space below). Without
         // a composer, let the top float up to the rendered terminal's bottom so the
-        // container's background fills the sub-cell remainder (libghostty floors the
-        // grid to whole cells and top-anchors the render, so `lastRenderRect.maxY` is at
-        // or above `toolbarReservedTop`). Never drop below `toolbarReservedTop` (that
-        // would re-open the gap) and never go negative.
+        // container's background fills only the sub-cell remainder (libghostty floors
+        // the grid to whole cells and top-anchors the render, so `lastRenderRect.maxY`
+        // is just above `toolbarReservedTop`). Never drop below `toolbarReservedTop`
+        // (that would re-open the gap) and never go negative.
         let toolbarTop: CGFloat
         if effectiveComposerHeight > 0 {
             toolbarTop = max(0, toolbarReservedTop)
@@ -1845,8 +1841,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
 
-    /// Map a touch point to a grid cell (shared effective grid with the Mac), so
-    /// alt-screen mouse-wheel reports at the cell under the finger.
+    /// Map a touch point to the local grid cell under the finger, so alt-screen
+    /// mouse-wheel reports land at the visible position.
     private func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
         let scale = max(preferredScreenScale, 1)
         let cellW = max(cellPixelSize.width / scale, 1)
@@ -2173,6 +2169,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 continuation.resume()
             }
         }
+    }
+
+    /// Process terminal output using the geometry policy required by its
+    /// transport.
+    public func processOutputAndWait(_ data: Data, preservesProducerGrid: Bool) async {
+        setProducerGridPinningEnabled(preservesProducerGrid)
+        await processOutputAndWait(data)
+    }
+
+    private func setProducerGridPinningEnabled(_ enabled: Bool) {
+        guard rawByteProducerGridPinningEnabled != enabled else { return }
+        rawByteProducerGridPinningEnabled = enabled
+        MobileDebugLog.anchormux("sync.output_grid_mode=\(enabled ? "raw_bytes" : "render_grid")")
+        guard surface != nil else { return }
+        needsGeometrySync = false
+        pendingGeometryReassert = false
+        syncSurfaceGeometry(shouldReassertNaturalSize: !enabled)
     }
 
     private func processOutput(
@@ -2599,10 +2612,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // font; the geometry resync is deferred until zoom settles.
         let appliedZoom = applyPendingFontSizeIfNeeded()
         // Post-zoom geometry resync: once no new zoom target has landed for a
-        // few quiet frames, do ONE resize to re-pin the letterbox at the
-        // settled font. This is the single geometry change per zoom gesture
-        // instead of one per step (which thrashed the IOSurface and wedged the
-        // render queue).
+        // few quiet frames, do ONE resize at the settled font. This is the
+        // single geometry change per zoom gesture instead of one per step
+        // (which thrashed the IOSurface and wedged the render queue).
         if !appliedZoom, var frames = zoomSettleFrames {
             frames -= 1
             if frames <= 0 {
@@ -2612,8 +2624,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 zoomSettleFrames = frames
             }
         }
-        // Apply geometry at most once per frame. Every trigger (resize, zoom,
-        // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
+        // Apply geometry at most once per frame. Every local trigger (resize,
+        // zoom, keyboard) only marks `needsGeometrySync`, so a
         // fast pinch can no longer drive a synchronous per-event storm of
         // set_size calls (the source of the jumbled grid + renderer overload).
         if needsGeometrySync {
@@ -2864,11 +2876,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Re-arm the debounced viewport report after a round-trip returned no
-    /// effective grid, so a transient RPC drop does not leave the render pinned
-    /// to a stale effective grid (the "stuck letterbox" freeze). Bounded and
-    /// display-link driven (the existing settle machinery re-fires it); a
-    /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
+    /// Re-arm a dropped viewport-report round trip. Bounded and display-link
+    /// driven; a confirmed `applyViewSize` resets the counter.
     public func retryViewportReport() {
         guard viewportReportRetries < Self.maxViewportReportRetries,
               let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
@@ -2888,37 +2897,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
         MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
         effectiveGrid = (cols, rows)
-        // Mark dirty instead of recomputing synchronously. This breaks the
-        // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
-        // → syncSurfaceGeometry → didResize …) that, under fast zoom, drove a
-        // storm of set_size calls + viewport RPCs. Geometry now settles once
-        // per frame, and reassert=false avoids re-reporting the unchanged
-        // natural grid back through the round trip.
-        setNeedsGeometrySync(reassertNaturalSize: false)
+        // Only raw-byte fallback resizes to the producer grid. Render-grid
+        // output uses the effective grid for diagnostics/convergence only.
+        if rawByteProducerGridPinningEnabled {
+            setNeedsGeometrySync(reassertNaturalSize: false)
+        }
     }
 
-    /// Pure libghostty resize refinement; `nonisolated` so it runs on the
-    /// off-main surface queue (it touches only the passed surface pointer).
     nonisolated private static func fitSurfaceToGrid(
         _ surface: ghostty_surface_t,
         cols: Int,
         rows: Int,
         cellPixelSize: CGSize
     ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s) {
-        var requestedW = UInt32(max(1, Int((CGFloat(cols) * cellPixelSize.width).rounded(.down))))
-        var requestedH = UInt32(max(1, Int((CGFloat(rows) * cellPixelSize.height).rounded(.down))))
+        let requested = TerminalLetterboxGeometry.gridRequestPixelSize(
+            cols: cols,
+            rows: rows,
+            cellPixelSize: cellPixelSize
+        )
+        var requestedW = requested.width
+        var requestedH = requested.height
 
         ghostty_surface_set_size(surface, requestedW, requestedH)
         var actual = ghostty_surface_size(surface)
 
-        // Ghostty's grid calculation subtracts padding and floors partial cells,
-        // so the reverse mapping has to be confirmed against Ghostty itself.
-        // This keeps the iOS mirror on the exact daemon grid instead of
-        // occasionally rendering one column short.
+        // Confirm the reverse pixel mapping against Ghostty; padding/flooring
+        // can otherwise leave the raw-byte fallback one column short.
         var steps = 0
-        // Bounded refinement: a few single-pixel nudges are enough to land on
-        // the exact grid. A high cap let a fast-zoom storm run this loop tens
-        // of thousands of times across frames and burn the main thread.
         while steps < 8,
               Int(actual.columns) < cols || Int(actual.rows) < rows {
             if Int(actual.columns) < cols {
@@ -2935,12 +2940,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return (requestedW, requestedH, actual)
     }
 
-    /// Result of an off-main geometry pass, handed back to the main actor.
     private struct GeometryResult: Sendable {
         let cellPixelSize: CGSize
         let naturalSize: TerminalGridSize
-        /// Pinned render size in points when letterboxed to an effective
-        /// grid; nil means fill the container.
         let pinnedSize: CGSize?
     }
 
@@ -2988,7 +2990,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let containerH = container.height
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
-        let eff = effectiveGrid
+        let pinToProducerGrid = rawByteProducerGridPinningEnabled
+        let eff = pinToProducerGrid ? effectiveGrid : nil
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
 
@@ -3008,20 +3011,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
 
             var pinnedSize: CGSize?
-            if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
-                let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
-                let pinnedW = CGFloat(eff.cols) * cell.width / scale
-                let pinnedH = CGFloat(eff.rows) * cell.height / scale
-                if !fillsNaturalGrid, !withinOneCell, pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
-                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
-                    let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
-                    let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
-                    pinnedSize = CGSize(
-                        width: min(CGFloat(aw) / scale, containerW),
-                        height: min(CGFloat(ah) / scale, containerH)
-                    )
-                }
+            if let eff,
+               TerminalLetterboxGeometry.producerGridPinnedPointSize(
+                   preservesProducerGrid: pinToProducerGrid,
+                   effective: eff,
+                   measuredColumns: Int(measured.columns),
+                   measuredRows: Int(measured.rows),
+                   cell: cell,
+                   scale: scale,
+                   container: container
+               ) != nil {
+                let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
+                let aw = fitted.actual.width_px > 0 ? CGFloat(fitted.actual.width_px) : CGFloat(fitted.requestedW)
+                let ah = fitted.actual.height_px > 0 ? CGFloat(fitted.actual.height_px) : CGFloat(fitted.requestedH)
+                let refined = TerminalLetterboxGeometry.clampPinnedSize(
+                    actualWidthPx: aw,
+                    actualHeightPx: ah,
+                    scale: scale,
+                    container: container
+                )
+                pinnedSize = refined
             }
 
             let natural = TerminalGridSize(
@@ -3056,15 +3065,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if result.cellPixelSize.width > 0, result.cellPixelSize.height > 0 {
             cellPixelSize = result.cellPixelSize
         }
-        // Size the render layer to the EXACT pixel size libghostty rendered
-        // (grid-aligned: cols×cellW × rows×cellH), not the raw container. The
-        // present path discards any surface whose size != layer.bounds×scale,
-        // and ghostty floors the grid to whole cells, so a container-sized
-        // layer is up to ~one cell larger than the surface and EVERY frame is
-        // discarded (blank terminal). Using the measured surface size makes
-        // them match so frames present. Pinned (letterboxed) sizes are already
-        // derived from the fitted surface px. Left-align + top-anchor either
-        // way; any leftover container space is the letterbox margin.
+        // Size the render layer to libghostty's exact grid-aligned pixel size,
+        // not the raw container. The present path discards mismatched surface /
+        // layer sizes; raw-byte pins are already derived from fitted pixels.
         let naturalRenderSize = CGSize(
             width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
             height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
@@ -3082,13 +3085,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
             + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
+            + "rawPin=\(rawByteProducerGridPinningEnabled) "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
             + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))"
         )
         syncRendererLayerFrame(scale: scale, renderRect: renderRect)
         updateLetterboxBorder(
             renderRect: renderRect,
-            isLetterboxed: renderRect.width + 0.5 < containerW || renderRect.height + 0.5 < containerH
+            isLetterboxed: rawByteProducerGridPinningEnabled &&
+                (renderRect.width + 0.5 < containerW || renderRect.height + 0.5 < containerH)
         )
         updateCursorOverlay()
         needsDraw = true
@@ -3127,9 +3132,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // next input forces a redraw after the animation finally settled (the
         // "blanked out, typing brought it back" symptom). Disabling implicit
         // actions makes the bounds change land in one step, so a single redraw
-        // presents at the final size immediately. The host layer and letterbox
-        // border already suppress implicit actions; this keeps the render
-        // sublayer consistent.
+        // presents at the final size immediately. The host layer already
+        // suppresses implicit actions; this keeps the render sublayer
+        // consistent.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.contentsScale = scale
@@ -3145,11 +3150,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.commit()
     }
 
-    /// Add / update a 1-pixel separator border around the pinned surface
-    /// rect when the container is larger (this device is not the smallest
-    /// attached to the shared PTY). Smallest-device layouts have
-    /// `isLetterboxed == false` and the border layer is hidden. Uses a
-    /// CAShapeLayer so the stroke doesn't intercept touches / key events.
+    /// Draw the 1-pixel separator for raw-byte compatibility pinning only.
     private func updateLetterboxBorder(renderRect: CGRect, isLetterboxed: Bool) {
         guard isLetterboxed else {
             letterboxBorderLayer?.isHidden = true
@@ -3161,7 +3162,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             b.name = "cmux.letterboxBorder"
             b.fillColor = UIColor.clear.cgColor
             b.lineWidth = 1.0
-            b.zPosition = 1000 // above the Ghostty renderer layer
+            b.zPosition = 1000
             b.isHidden = false
             b.actions = [
                 "bounds": NSNull(),
@@ -3172,7 +3173,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 "position": NSNull(),
                 "strokeColor": NSNull(),
             ]
-            // Decorative only; let pointer / key events pass through.
             b.isGeometryFlipped = false
             layer.addSublayer(b)
             letterboxBorderLayer = b
@@ -3181,9 +3181,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         border.isHidden = false
         border.strokeColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
         border.contentsScale = layer.contentsScale
-        if border.frame != layer.bounds {
-            border.frame = layer.bounds
-        }
+        if border.frame != layer.bounds { border.frame = layer.bounds }
 
         let scale = max(border.contentsScale, 1)
         let lineWidth = border.lineWidth
@@ -3196,9 +3194,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let pathInset = max(lineWidth / 2, 0.5 / scale)
         let outline = alignedRect.insetBy(dx: pathInset, dy: pathInset)
         let path = UIBezierPath(rect: outline).cgPath
-        if border.path != path {
-            border.path = path
-        }
+        if border.path != path { border.path = path }
     }
 
     private func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {

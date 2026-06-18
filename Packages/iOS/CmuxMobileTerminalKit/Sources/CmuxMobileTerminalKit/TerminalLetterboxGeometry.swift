@@ -1,14 +1,12 @@
 public import CoreGraphics
 import Foundation
 
-/// Pure letterbox-fit math for the terminal surface.
+/// Pure viewport math for the iOS terminal surface.
 ///
 /// Absorbs the pixel arithmetic previously inlined in the iOS surface view's
-/// `syncSurfaceGeometry` and `fitSurfaceToGrid` (the parts that do not call
-/// libghostty): the container pixel size, the request box for an effective
-/// grid pin, and the decision of whether to letterbox and at what point size.
-/// The arithmetic is byte-for-byte identical to the legacy path so the surface
-/// converges on the exact same grid; this layer just makes it testable.
+/// `syncSurfaceGeometry` (the parts that do not call libghostty): the bottom
+/// chrome reservation, keyboard/safe-area occupancy, pixel/point conversion,
+/// and the raw-byte compatibility pinning decision.
 public struct TerminalLetterboxGeometry {
     private init() {}
 
@@ -133,11 +131,11 @@ public struct TerminalLetterboxGeometry {
         return (w, h)
     }
 
-    /// The initial requested pixel box to fit a `cols × rows` grid.
+    /// Legacy requested pixel box to fit a `cols × rows` grid.
     ///
     /// Floors `cols * cellWidth` / `rows * cellHeight` and clamps to at least 1
-    /// pixel each, matching the start of the legacy `fitSurfaceToGrid` before
-    /// its libghostty refinement loop.
+    /// pixel each, matching the removed effective-grid pinning path. Kept as
+    /// pure arithmetic coverage for callers that need the same conversion.
     ///
     /// - Parameters:
     ///   - cols: The target column count.
@@ -150,13 +148,13 @@ public struct TerminalLetterboxGeometry {
         return (w, h)
     }
 
-    /// Whether the surface should be letterbox-pinned to `effective` inside the
-    /// container, and the candidate pinned point size when it should.
+    /// Effective-grid pinning decision for the iOS render box.
     ///
-    /// Reproduces the legacy guard exactly: skip pinning when the effective grid
-    /// already fills (or is within one cell of) the measured natural grid, or
-    /// when the pinned box would not be meaningfully smaller than the container
-    /// (the `+ 0.5` point tolerance on either axis).
+    /// Render-grid output should not use this because it can fill the local
+    /// container independently. Legacy raw-byte output still needs it: those
+    /// bytes were produced by the Mac PTY at the negotiated effective grid, so
+    /// the local emulator must temporarily match that grid to keep wrapping,
+    /// cursor addressing, and mouse-cell coordinates aligned.
     ///
     /// - Parameters:
     ///   - effective: The daemon-authoritative `(cols, rows)` grid.
@@ -187,10 +185,42 @@ public struct TerminalLetterboxGeometry {
         return CGSize(width: pinnedW, height: pinnedH)
     }
 
-    /// Clamps a libghostty-refined pixel box back into point space, bounded by
-    /// the container.
+    /// Effective-grid pinning decision gated by the output transport.
     ///
-    /// Matches the legacy final `pinnedSize` assignment:
+    /// - Parameters:
+    ///   - preservesProducerGrid: Pass `true` for raw-byte fallback output and
+    ///     `false` for render-grid output.
+    ///   - effective: The daemon-authoritative `(cols, rows)` grid.
+    ///   - measuredColumns: The surface's measured natural columns.
+    ///   - measuredRows: The surface's measured natural rows.
+    ///   - cell: The measured cell size in device pixels.
+    ///   - scale: The screen scale factor.
+    ///   - container: The drawable container size in points.
+    /// - Returns: `nil` for render-grid output or when no pin is required,
+    ///   otherwise the raw-byte compatibility pinned size.
+    public static func producerGridPinnedPointSize(
+        preservesProducerGrid: Bool,
+        effective: (cols: Int, rows: Int),
+        measuredColumns: Int,
+        measuredRows: Int,
+        cell: CGSize,
+        scale: CGFloat,
+        container: CGSize
+    ) -> CGSize? {
+        guard preservesProducerGrid else { return nil }
+        return pinnedPointSize(
+            effective: effective,
+            measuredColumns: measuredColumns,
+            measuredRows: measuredRows,
+            cell: cell,
+            scale: scale,
+            container: container
+        )
+    }
+
+    /// Clamps a pixel box back into point space, bounded by the container.
+    ///
+    /// Matches the raw-byte compatibility pinning path's final point conversion:
     /// `min(actualPx / scale, containerPoints)` per axis.
     ///
     /// - Parameters:

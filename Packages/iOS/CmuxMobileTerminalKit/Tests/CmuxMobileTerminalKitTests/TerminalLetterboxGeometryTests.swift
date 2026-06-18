@@ -73,10 +73,11 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.cellPixelSize(columns: 80, rows: 24, widthPx: 0, heightPx: 480) == .zero)
     }
 
-    @Test("no pin when effective grid fills the natural grid")
-    func noPinWhenFills() {
-        let pinned = TerminalLetterboxGeometry.pinnedPointSize(
-            effective: (cols: 100, rows: 40),
+    @Test("render-grid output does not pin to the producer grid")
+    func renderGridOutputDoesNotPinProducerGrid() {
+        let pinned = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: false,
+            effective: (cols: 60, rows: 30),
             measuredColumns: 100,
             measuredRows: 40,
             cell: CGSize(width: 9, height: 18),
@@ -86,24 +87,10 @@ struct TerminalLetterboxGeometryTests {
         #expect(pinned == nil)
     }
 
-    @Test("no pin when effective grid is within one cell of natural")
-    func noPinWithinOneCell() {
-        let pinned = TerminalLetterboxGeometry.pinnedPointSize(
-            effective: (cols: 99, rows: 39),
-            measuredColumns: 100,
-            measuredRows: 40,
-            cell: CGSize(width: 9, height: 18),
-            scale: 3,
-            container: CGSize(width: 402, height: 700)
-        )
-        #expect(pinned == nil)
-    }
-
-    @Test("pins to a smaller effective grid producing a point-size box")
-    func pinsSmallerGrid() {
-        // effective 60x30, natural 100x40, cell 9x18 px at scale 3.
-        // pinnedW = 60 * 9 / 3 = 180, pinnedH = 30 * 18 / 3 = 180.
-        let pinned = TerminalLetterboxGeometry.pinnedPointSize(
+    @Test("raw-byte output pins to a smaller producer grid")
+    func rawByteOutputPinsProducerGrid() {
+        let pinned = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
             effective: (cols: 60, rows: 30),
             measuredColumns: 100,
             measuredRows: 40,
@@ -114,18 +101,68 @@ struct TerminalLetterboxGeometryTests {
         #expect(pinned == CGSize(width: 180, height: 180))
     }
 
-    @Test("no pin when the pinned box is not meaningfully smaller than the container")
-    func noPinWhenNotSmaller() {
-        // pinnedW = 134*9/3 = 402 == container width, pinnedH = 233*18/3 ≈ 1398 > container.
-        // Both axes fail the (pinned + 0.5 < container) test on width and natural
-        // fills, so confirm a near-equal box does not pin.
-        let pinned = TerminalLetterboxGeometry.pinnedPointSize(
-            effective: (cols: 134, rows: 116),
-            measuredColumns: 134,
-            measuredRows: 116,
+    @Test("raw-byte producer-grid pin is nil for invalid metrics")
+    func rawBytePinNilForInvalidMetrics() {
+        let invalidGrid = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 0, rows: 30),
+            measuredColumns: 100,
+            measuredRows: 40,
             cell: CGSize(width: 9, height: 18),
             scale: 3,
             container: CGSize(width: 402, height: 700)
+        )
+        let invalidCell = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 60, rows: 30),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: .zero,
+            scale: 3,
+            container: CGSize(width: 402, height: 700)
+        )
+        #expect(invalidGrid == nil)
+        #expect(invalidCell == nil)
+    }
+
+    @Test("raw-byte producer-grid pin is nil when the producer grid already fits")
+    func rawBytePinNilWhenProducerGridFitsNaturalGrid() {
+        let pinned = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 100, rows: 40),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: CGSize(width: 9, height: 18),
+            scale: 3,
+            container: CGSize(width: 402, height: 700)
+        )
+        #expect(pinned == nil)
+    }
+
+    @Test("raw-byte producer-grid pin is nil for one-cell drift")
+    func rawBytePinNilForOneCellDrift() {
+        let pinned = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 99, rows: 39),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: CGSize(width: 9, height: 18),
+            scale: 3,
+            container: CGSize(width: 402, height: 700)
+        )
+        #expect(pinned == nil)
+    }
+
+    @Test("raw-byte producer-grid pin is nil when the candidate cannot shrink the container")
+    func rawBytePinNilWhenCandidateDoesNotShrinkContainer() {
+        let pinned = TerminalLetterboxGeometry.producerGridPinnedPointSize(
+            preservesProducerGrid: true,
+            effective: (cols: 60, rows: 30),
+            measuredColumns: 100,
+            measuredRows: 40,
+            cell: CGSize(width: 9, height: 18),
+            scale: 3,
+            container: CGSize(width: 100, height: 100)
         )
         #expect(pinned == nil)
     }

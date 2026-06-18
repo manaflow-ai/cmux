@@ -3,7 +3,7 @@ import SwiftUI
 /// The fixed Monokai-derived color palette for the mobile terminal surface.
 ///
 /// These match the colors libghostty renders the terminal background/foreground
-/// with, so the SwiftUI chrome around the surface (toolbars, letterbox fill)
+/// with, so the SwiftUI chrome around the surface (toolbars, dock fill)
 /// blends with the live terminal instead of flashing a system color.
 struct TerminalPalette {
     private init() {}

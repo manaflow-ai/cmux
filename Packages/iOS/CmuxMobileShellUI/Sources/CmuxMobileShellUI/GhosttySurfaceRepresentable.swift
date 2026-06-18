@@ -137,7 +137,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let surfaceView else { return }
-                    await surfaceView.processOutputAndWait(chunk.data)
+                    await surfaceView.processOutputAndWait(
+                        chunk.data,
+                        preservesProducerGrid: chunk.preservesProducerGrid
+                    )
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken
@@ -265,11 +268,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
-            // Report our natural grid to the Mac and pin our render to the
-            // effective grid it returns (the smallest across every attached
-            // device, capped to the Mac pane). This is the tmux-style shared
-            // resize: the smallest viewport wins and each device letterboxes
-            // its render to match, drawing a border around the live area.
+            // Report our natural grid to the Mac and record the effective grid
+            // it returns (the smallest across every attached device, capped to
+            // the Mac pane). The iOS render area remains full-height locally;
+            // pinch zoom and viewport negotiation only change font/grid
+            // semantics, never the phone view's available height.
             guard size.columns > 0, size.rows > 0 else { return }
             Task { @MainActor [weak self, weak surfaceView] in
                 guard let self, let store = self.store else { return }
@@ -279,12 +282,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     rows: size.rows
                 ) else {
                     // No effective grid came back (RPC timed out or returned
-                    // nil). Left unhandled, the render stays pinned to the prior
-                    // effective grid and looks like a frozen / letterboxed
-                    // terminal even though the main thread is fine. Re-arm the
-                    // report so a transient drop self-heals (bounded inside the
-                    // surface). Logged so the dogfood log still distinguishes
-                    // this from a true main-thread wedge.
+                    // nil). Re-arm the report so a transient drop self-heals
+                    // (bounded inside the surface). Logged so the dogfood log
+                    // still distinguishes this from a true main-thread wedge.
                     MobileDebugLog.anchormux("zoom.viewport.noEffective grid=\(size.columns)x\(size.rows)")
                     surfaceView?.retryViewportReport()
                     return

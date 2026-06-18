@@ -29,6 +29,15 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.vtPatchBytes()
         }
     }
+
+    var preservesProducerGrid: Bool {
+        switch payload {
+        case .bytes:
+            true
+        case .renderGrid:
+            false
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.
