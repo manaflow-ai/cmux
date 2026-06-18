@@ -936,30 +936,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Close a workspace through the Mac's existing workspace-close path.
     ///
-    /// The phone moves selection to the same-order neighbor before the remote
-    /// mutation completes so deleting the visible workspace never leaves the
-    /// detail column pointing at a removed id. The authoritative workspace list
-    /// is then refreshed from the Mac after the close RPC.
+    /// The phone removes the row locally and moves selection to the same-order
+    /// neighbor before the remote mutation completes, so a full-swipe delete
+    /// feels committed immediately. If the close RPC fails, the removed row is
+    /// restored and selection rolls back; after success, the authoritative
+    /// workspace list refresh reconciles the final Mac state.
     public func deleteWorkspace(id: MobileWorkspacePreview.ID) {
         guard workspaces.count > 1,
-              workspaces.contains(where: { $0.id == id }) else {
+              let deletedWorkspaceIndex = workspaces.firstIndex(where: { $0.id == id }) else {
             return
         }
+        let deletedWorkspace = workspaces[deletedWorkspaceIndex]
         let previousWorkspaceID = selectedWorkspaceID
         let previousTerminalID = selectedTerminalID
         let neighborID = neighboringWorkspaceID(afterDeleting: id)
-        if selectedWorkspaceID == id {
-            setSelectedWorkspaceID(neighborID)
-        }
+        let usesRemoteClient = remoteClient != nil
+        deleteLocalWorkspace(id: id, neighborID: neighborID)
 
-        guard remoteClient != nil else {
-            deleteLocalWorkspace(id: id, neighborID: neighborID)
-            return
-        }
+        guard usesRemoteClient else { return }
 
         enqueueDeleteMutation { [weak self] in
             await self?.deleteRemoteWorkspace(
                 id: id,
+                deletedWorkspace: deletedWorkspace,
+                deletedWorkspaceIndex: deletedWorkspaceIndex,
                 previousWorkspaceID: previousWorkspaceID,
                 previousTerminalID: previousTerminalID
             )
@@ -985,26 +985,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let previousWorkspaceID = selectedWorkspaceID
         let previousTerminalID = selectedTerminalID
-        let terminalNeighborID = neighboringTerminalID(
-            afterDeleting: terminalID,
-            in: workspaceID
-        )
-        if selectedWorkspaceID == workspaceID, selectedTerminalID == terminalID {
-            selectedTerminalID = terminalNeighborID
-        }
-        if !usesRemoteClient, removesLastKnownTerminal, selectedWorkspaceID == workspaceID {
-            setSelectedWorkspaceID(neighboringWorkspaceID(afterDeleting: workspaceID))
-        }
-
-        guard usesRemoteClient else {
-            deleteLocalTerminal(id: terminalID, in: workspaceID)
+        let deletedWorkspace = workspace
+        let deletedWorkspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }) ?? 0
+        guard let deletedTerminalIndex = workspace.terminals.firstIndex(where: { $0.id == terminalID }) else {
             return
         }
+        let deletedTerminal = workspace.terminals[deletedTerminalIndex]
+        deleteLocalTerminal(id: terminalID, in: workspaceID)
+
+        guard usesRemoteClient else { return }
 
         enqueueDeleteMutation { [weak self] in
             await self?.deleteRemoteTerminal(
                 id: terminalID,
                 in: workspaceID,
+                deletedWorkspace: deletedWorkspace,
+                deletedWorkspaceIndex: deletedWorkspaceIndex,
+                deletedTerminal: deletedTerminal,
+                deletedTerminalIndex: deletedTerminalIndex,
                 previousWorkspaceID: previousWorkspaceID,
                 previousTerminalID: previousTerminalID
             )
@@ -4188,6 +4186,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func deleteRemoteWorkspace(
         id: MobileWorkspacePreview.ID,
+        deletedWorkspace: MobileWorkspacePreview,
+        deletedWorkspaceIndex: Int,
         previousWorkspaceID: MobileWorkspacePreview.ID?,
         previousTerminalID: MobileTerminalPreview.ID?
     ) async {
@@ -4204,20 +4204,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = try await client.sendRequest(request)
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
-            try await refreshRemoteWorkspaceListAfterMutation(client: client, generation: generation)
         } catch {
             handleRemoteDeleteError(
                 error,
                 generation: generation,
+                rollback: {
+                    restoreLocalWorkspace(deletedWorkspace, at: deletedWorkspaceIndex)
+                },
                 previousWorkspaceID: previousWorkspaceID,
                 previousTerminalID: previousTerminalID
             )
+            return
         }
+        await refreshRemoteWorkspaceListAfterSuccessfulMutation(client: client, generation: generation)
     }
 
     private func deleteRemoteTerminal(
         id terminalID: MobileTerminalPreview.ID,
         in workspaceID: MobileWorkspacePreview.ID,
+        deletedWorkspace: MobileWorkspacePreview,
+        deletedWorkspaceIndex: Int,
+        deletedTerminal: MobileTerminalPreview,
+        deletedTerminalIndex: Int,
         previousWorkspaceID: MobileWorkspacePreview.ID?,
         previousTerminalID: MobileTerminalPreview.ID?
     ) async {
@@ -4235,37 +4243,57 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = try await client.sendRequest(request)
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
-            try await refreshRemoteWorkspaceListAfterMutation(client: client, generation: generation)
         } catch {
             handleRemoteDeleteError(
                 error,
                 generation: generation,
+                rollback: {
+                    restoreLocalTerminal(
+                        deletedTerminal,
+                        in: workspaceID,
+                        at: deletedTerminalIndex,
+                        deletedWorkspace: deletedWorkspace,
+                        deletedWorkspaceIndex: deletedWorkspaceIndex
+                    )
+                },
                 previousWorkspaceID: previousWorkspaceID,
                 previousTerminalID: previousTerminalID
             )
+            return
         }
+        await refreshRemoteWorkspaceListAfterSuccessfulMutation(client: client, generation: generation)
     }
 
-    private func refreshRemoteWorkspaceListAfterMutation(
+    private func refreshRemoteWorkspaceListAfterSuccessfulMutation(
         client: MobileCoreRPCClient,
         generation: UUID
-    ) async throws {
-        let resultData = try await client.sendRequest(
-            MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
-        )
-        let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-        guard isCurrentRemoteOperation(client: client, generation: generation),
-              !Task.isCancelled else { return }
-        applyRemoteWorkspaceList(response)
+    ) async {
+        do {
+            let resultData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
+            )
+            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            guard isCurrentRemoteOperation(client: client, generation: generation),
+                  !Task.isCancelled else { return }
+            applyRemoteWorkspaceList(response)
+        } catch {
+            guard isCurrentRemoteConnection(client: client, generation: generation),
+                  !Task.isCancelled else { return }
+            if disconnectForAuthorizationFailureIfNeeded(error) { return }
+            markMacConnectionUnavailableIfNeeded(after: error)
+            mobileShellLog.info("workspace list refresh after remote delete failed: \(String(describing: error), privacy: .private)")
+        }
     }
 
     private func handleRemoteDeleteError(
         _ error: any Error,
         generation: UUID,
+        rollback: () -> Void,
         previousWorkspaceID: MobileWorkspacePreview.ID?,
         previousTerminalID: MobileTerminalPreview.ID?
     ) {
         guard generation == connectionGeneration, !Task.isCancelled else { return }
+        rollback()
         restoreSelection(
             workspaceID: previousWorkspaceID,
             terminalID: previousTerminalID
@@ -4317,6 +4345,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             syncSelectedTerminalForWorkspace()
         }
+    }
+
+    private func restoreLocalWorkspace(
+        _ workspace: MobileWorkspacePreview,
+        at index: Int
+    ) {
+        guard !workspaces.contains(where: { $0.id == workspace.id }) else {
+            return
+        }
+        workspaces.insert(workspace, at: min(index, workspaces.count))
+    }
+
+    private func restoreLocalTerminal(
+        _ terminal: MobileTerminalPreview,
+        in workspaceID: MobileWorkspacePreview.ID,
+        at terminalIndex: Int,
+        deletedWorkspace: MobileWorkspacePreview,
+        deletedWorkspaceIndex: Int
+    ) {
+        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }) else {
+            restoreLocalWorkspace(deletedWorkspace, at: deletedWorkspaceIndex)
+            return
+        }
+        guard !workspaces[workspaceIndex].terminals.contains(where: { $0.id == terminal.id }) else {
+            return
+        }
+        workspaces[workspaceIndex].terminals.insert(
+            terminal,
+            at: min(terminalIndex, workspaces[workspaceIndex].terminals.count)
+        )
     }
 
     private func deleteLocalWorkspace(

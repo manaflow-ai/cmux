@@ -21,15 +21,20 @@ struct WorkspaceNavigationRow: View {
     /// Mark the workspace read or unread on the Mac. When `nil` the read-state
     /// affordance is hidden.
     var setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
-    /// Close the workspace on the Mac. When `nil` the delete affordance is
-    /// hidden.
+    /// Close the workspace on the Mac. Swipe actions call this directly so a
+    /// full trailing swipe commits the optimistic delete without first arming
+    /// the confirmation dialog. When `nil` the delete affordance is hidden.
     var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
+    /// Request confirmation for non-swipe destructive actions. When `nil`,
+    /// those actions fall back to ``closeWorkspace``.
+    var requestCloseWorkspaceConfirmation: ((MobileWorkspacePreview.ID) -> Void)? = nil
     /// Whether this row's destructive close action is awaiting confirmation.
     /// The binding is owned by the list so recycled rows do not own presentation
     /// state, but the presenter stays attached to the swiped row.
     var isConfirmingClose: Binding<Bool> = .constant(false)
-    /// Performs the confirmed close. Separate from ``closeWorkspace`` so a
-    /// full-swipe can request confirmation without directly closing the row.
+    /// Performs the confirmed close. Separate from ``closeWorkspace`` so
+    /// confirmation-only entrypoints can keep their dialog while swipe commits
+    /// immediately.
     var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
@@ -50,7 +55,7 @@ struct WorkspaceNavigationRow: View {
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if let closeWorkspace {
-                Button {
+                Button(role: .destructive) {
                     closeWorkspace(workspace.id)
                 } label: {
                     Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
@@ -147,7 +152,11 @@ struct WorkspaceNavigationRow: View {
         }
         if let closeWorkspace {
             Button(role: .destructive) {
-                closeWorkspace(workspace.id)
+                if let requestCloseWorkspaceConfirmation {
+                    requestCloseWorkspaceConfirmation(workspace.id)
+                } else {
+                    closeWorkspace(workspace.id)
+                }
             } label: {
                 Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
             }
