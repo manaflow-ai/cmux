@@ -363,14 +363,13 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 
     func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
+        guard isAgentHookBinding else { return self }
         let normalizedCwd = Self.normalized(workingDirectory)
-        let retargetedCommand = source == "agent-hook"
-            ? TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
-                in: command,
-                previousWorkingDirectory: cwd,
-                workingDirectory: normalizedCwd
-            )
-            : command
+        let retargetedCommand = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+            in: command,
+            previousWorkingDirectory: cwd,
+            workingDirectory: normalizedCwd
+        )
         return SurfaceResumeBindingSnapshot(
             name: name,
             kind: kind,
