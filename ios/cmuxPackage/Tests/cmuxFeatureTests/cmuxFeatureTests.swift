@@ -383,6 +383,7 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
+        reachability: OnlineReachability(),
         feedbackStampProvider: {
             MobileFeedbackStamp(
                 buildType: .dev,
@@ -442,6 +443,7 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
+        reachability: OnlineReachability(),
         feedbackStampProvider: {
             MobileFeedbackStamp(
                 buildType: .dev,
@@ -1376,7 +1378,8 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
-        pairedMacStore: pairedMacStore
+        pairedMacStore: pairedMacStore,
+        reachability: OnlineReachability()
     )
 
     store.signIn()
@@ -1494,7 +1497,8 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
-        pairedMacStore: pairedMacStore
+        pairedMacStore: pairedMacStore,
+        reachability: OnlineReachability()
     )
 
     store.signIn()
@@ -1545,6 +1549,7 @@ final class TerminalOutputCollector {
             currentUserIDValue: "phone-user",
             currentUserEmailValue: "phone@example.com"
         ),
+        reachability: OnlineReachability(),
         analytics: analytics
     )
 
@@ -1578,7 +1583,8 @@ final class TerminalOutputCollector {
         identityProvider: TestIdentityProvider(
             currentUserIDValue: nil,
             currentUserEmailValue: nil
-        )
+        ),
+        reachability: OnlineReachability()
     )
 
     store.signIn()
@@ -1615,6 +1621,7 @@ final class TerminalOutputCollector {
             currentUserIDValue: "phone-user",
             currentUserEmailValue: "user@example.com"
         ),
+        reachability: OnlineReachability(),
         analytics: analytics,
         feedbackStampProvider: {
             MobileFeedbackStamp(
@@ -1667,6 +1674,7 @@ final class TerminalOutputCollector {
             currentUserIDValue: "phone-user",
             currentUserEmailValue: "user@example.com"
         ),
+        reachability: OnlineReachability(),
         feedbackStampProvider: {
             MobileFeedbackStamp(
                 buildType: .dev,
@@ -1712,6 +1720,7 @@ final class TerminalOutputCollector {
             currentUserIDValue: "phone-user",
             currentUserEmailValue: "user@example.com"
         ),
+        reachability: OnlineReachability(),
         feedbackStampProvider: {
             MobileFeedbackStamp(
                 buildType: .dev,
@@ -1763,7 +1772,8 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
-        pairedMacStore: pairedMacStore
+        pairedMacStore: pairedMacStore,
+        reachability: OnlineReachability()
     )
 
     store.signIn()
@@ -3818,6 +3828,15 @@ private struct HangingTransportFactory: CmxByteTransportFactory {
 /// the pairing reachability preflight short-circuits before any connect.
 private struct OfflineReachability: ReachabilityProviding {
     var isOnline: Bool { false }
+    func pathChanges() -> AsyncStream<Void> {
+        AsyncStream { $0.finish() }
+    }
+}
+
+/// A ``ReachabilityProviding`` double reporting a stable online path, so tests
+/// that exercise scripted transports do not inherit CI runner network state.
+private struct OnlineReachability: ReachabilityProviding {
+    var isOnline: Bool { true }
     func pathChanges() -> AsyncStream<Void> {
         AsyncStream { $0.finish() }
     }
