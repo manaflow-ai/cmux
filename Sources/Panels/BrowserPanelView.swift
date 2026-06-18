@@ -7359,9 +7359,17 @@ struct WebViewRepresentable: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
-        coordinator.desiredShowsActivePaneBoundary = false
-        coordinator.desiredActivePaneBoundaryColor = .clear
+        coordinator.desiredShowsActivePaneBoundary = showsActivePaneBoundary
+        coordinator.desiredActivePaneBoundaryColor = activePaneBoundaryColor
         coordinator.attachGeneration += 1
+        let shouldShowLocalInlineActivePaneBoundary =
+            showsActivePaneBoundary && !shouldPreserveExternalFullscreenHost
+        let applyLocalInlineActivePaneBoundary = {
+            slotView.setActivePaneBoundary(
+                visible: shouldShowLocalInlineActivePaneBoundary && !slotView.isHidden,
+                color: activePaneBoundaryColor
+            )
+        }
 
         if panel.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(host),
@@ -7383,6 +7391,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             // Never let that off-window host steal the live page + inspector hierarchy away
             // from the currently visible local host.
             host.setLocalInlineSlotHidden(true)
+            slotView.setActivePaneBoundary(visible: false, color: activePaneBoundaryColor)
             coordinator.lastPortalHostId = nil
             coordinator.lastSynchronizedHostGeometryRevision = 0
 #if DEBUG
@@ -7441,6 +7450,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             } else {
                 slotView.addSubview(webView, positioned: .above, relativeTo: nil)
             }
+            applyLocalInlineActivePaneBoundary()
         }
 
         slotView.isHidden = false
@@ -7448,6 +7458,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             webView,
             in: host.currentHostedWebViewContainer(preferredSlotView: slotView)
         )
+        applyLocalInlineActivePaneBoundary()
         // Local-inline hosting takes ownership of the live WKWebView hierarchy.
         // Drop any stale portal entry once local-inline hosting owns the live
         // WKWebView hierarchy so deferred portal recovery cannot mutate the
@@ -7473,6 +7484,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                         ? "localInline.reconcile.immediate"
                         : "localInline.reconcile.existingHost"
                 )
+                applyLocalInlineActivePaneBoundary()
             }
             host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
             let didRevealDeveloperToolsAfterAttach =
@@ -7520,6 +7532,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                         primaryWebView: webView,
                         reason: "localInline.reconcile.async"
                     )
+                    applyLocalInlineActivePaneBoundary()
                 }
                 host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
                 host.refreshHostedWebKitPresentation(

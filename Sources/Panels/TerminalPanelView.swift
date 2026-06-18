@@ -85,7 +85,7 @@ struct TerminalPanelView: View {
                 isVisibleInUI: isVisibleInUI,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
-                showsActivePaneBoundary: isFocused && isVisibleInUI,
+                showsActivePaneBoundary: isFocused && isVisibleInUI && !panel.isTextBoxActive,
                 activePaneBoundaryColor: appearance.dividerNSColor,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
@@ -144,8 +144,20 @@ struct TerminalPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            terminalTextBoxActivePaneBoundaryOverlay
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load().fontSize
+        }
+    }
+
+    @ViewBuilder
+    private var terminalTextBoxActivePaneBoundaryOverlay: some View {
+        if panel.isTextBoxActive && isFocused && isVisibleInUI {
+            Rectangle()
+                .strokeBorder(appearance.dividerColor, lineWidth: 2)
+                .allowsHitTesting(false)
         }
     }
 }
