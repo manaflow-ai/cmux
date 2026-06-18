@@ -123,6 +123,7 @@ struct FishShellIntegrationTests {
             printf 'FUNCTION_RESULT=%s\\n' (cmux_test_function)
             printf 'CLAUDE_RESULT=%s\\n' (claude test)
             printf 'GROK_RESULT=%s\\n' (grok test)
+            printf 'OPENCODE_RESULT=%s\\n' (opencode test)
             printf 'UNIVERSAL=%s\\n' "$CMUX_UNIVERSAL_TEST"
             cat "$CMUX_TEST_LOG"
             """,
@@ -143,6 +144,7 @@ struct FishShellIntegrationTests {
         expectTrue(result.stdout.contains("FUNCTION_RESULT=function-loaded"), result.stdout)
         expectTrue(result.stdout.contains("CLAUDE_RESULT=user-claude test"), result.stdout)
         expectTrue(result.stdout.contains("GROK_RESULT=user-grok test"), result.stdout)
+        expectTrue(result.stdout.contains("OPENCODE_RESULT=cmux-opencode-wrapper test"), result.stdout)
         expectTrue(result.stdout.contains("UNIVERSAL=universal-loaded"), result.stdout)
         expectTrue(
             result.stdout.contains("report_tty ttys777 --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222"),
@@ -297,6 +299,7 @@ struct FishShellIntegrationTests {
         try fileManager.createDirectory(at: testBinDir, withIntermediateDirectories: true)
         try writeExecutableShellFile(at: testBinDir.appendingPathComponent("cmux-claude-wrapper"), body: "#!/bin/sh\necho cmux-claude-wrapper \"$@\"\n")
         try writeExecutableShellFile(at: testBinDir.appendingPathComponent("grok"), body: "#!/bin/sh\necho cmux-grok-wrapper \"$@\"\n")
+        try writeExecutableShellFile(at: testBinDir.appendingPathComponent("cmux-opencode-wrapper"), body: "#!/bin/sh\necho cmux-opencode-wrapper \"$@\"\n")
         let integrationFile = testIntegrationDir.appendingPathComponent("fish/config.fish", isDirectory: false)
 
         var environment: [String: String] = [
