@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 import CmuxSidebar
 
@@ -10,8 +10,8 @@ import CmuxSidebar
 #endif
 
 @MainActor
-final class WorkspaceSidebarObservationTests: XCTestCase {
-    func testSidebarObservationPublisherEmitsForLateStatusSubscriber() {
+@Suite struct WorkspaceSidebarObservationTests {
+    @Test func testSidebarObservationPublisherEmitsForLateStatusSubscriber() {
         let workspace = Workspace()
         workspace.statusEntries["test_probe"] = SidebarStatusEntry(
             key: "test_probe",
@@ -27,14 +27,13 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         }
         defer { cancellable.cancel() }
 
-        XCTAssertGreaterThan(
-            publishCount,
-            0,
+        #expect(
+            publishCount > 0,
             "A sidebar row that subscribes after status metadata already exists must still refresh from the current workspace state."
         )
     }
 
-    func testSidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
+    @Test func testSidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
         let workspace = Workspace()
         workspace.title = "Restored Workspace"
 
@@ -44,14 +43,13 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         }
         defer { cancellable.cancel() }
 
-        XCTAssertGreaterThan(
-            publishCount,
-            0,
+        #expect(
+            publishCount > 0,
             "A sidebar row that subscribes after immediate workspace fields already exist must still refresh from the current workspace state."
         )
     }
 
-    func testSidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
+    @Test func testSidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -64,9 +62,8 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         workspace.remoteHeartbeatCount = 1
         workspace.remoteLastHeartbeatAt = Date()
 
-        XCTAssertEqual(
-            publishCount,
-            0,
+        #expect(
+            publishCount == 0,
             "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
         )
     }
@@ -80,7 +77,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // `sidebarStatusEntriesInDisplayOrder()` sort that feed the sidebar view
     // graph progressively more expensive on the main thread. They must stay
     // bounded like `logEntries` already is.
-    func testStatusEntriesStayBoundedUnderUnboundedDistinctKeys() {
+    @Test func testStatusEntriesStayBoundedUnderUnboundedDistinctKeys() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
 
@@ -93,24 +90,23 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             )
         }
 
-        XCTAssertLessThanOrEqual(
-            workspace.statusEntries.count,
-            cap,
+        #expect(
+            workspace.statusEntries.count <= cap,
             "statusEntries must stay bounded so unbounded agent telemetry cannot grow the sidebar view-graph inputs without limit"
         )
         // Eviction keeps the most recent entries (highest timestamp) and drops
         // the oldest, so the newest key survives and the oldest is gone.
-        XCTAssertNotNil(
-            workspace.statusEntries["key_\(cap * 3 - 1)"],
+        #expect(
+            workspace.statusEntries["key_\(cap * 3 - 1)"] != nil,
             "The most recent status entry must be retained after trimming"
         )
-        XCTAssertNil(
-            workspace.statusEntries["key_0"],
+        #expect(
+            workspace.statusEntries["key_0"] == nil,
             "The oldest status entry must be evicted once the cap is exceeded"
         )
     }
 
-    func testMetadataBlocksStayBoundedUnderUnboundedDistinctKeys() {
+    @Test func testMetadataBlocksStayBoundedUnderUnboundedDistinctKeys() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarMetadataBlocks
 
@@ -123,17 +119,16 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             )
         }
 
-        XCTAssertLessThanOrEqual(
-            workspace.metadataBlocks.count,
-            cap,
+        #expect(
+            workspace.metadataBlocks.count <= cap,
             "metadataBlocks must stay bounded so unbounded agent telemetry cannot grow the sidebar view-graph inputs without limit"
         )
-        XCTAssertNotNil(
-            workspace.metadataBlocks["key_\(cap * 3 - 1)"],
+        #expect(
+            workspace.metadataBlocks["key_\(cap * 3 - 1)"] != nil,
             "The most recent metadata block must be retained after trimming"
         )
-        XCTAssertNil(
-            workspace.metadataBlocks["key_0"],
+        #expect(
+            workspace.metadataBlocks["key_0"] == nil,
             "The oldest metadata block must be evicted once the cap is exceeded"
         )
     }
@@ -142,7 +137,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // retention signal: a newer low-priority flood must not displace an existing
     // high-priority block at the cap (#5845 follow-up — the original change gave
     // metadata an unwarranted just-inserted grace tier).
-    func testMetadataCapRetainsHighPriorityOverNewerLowPriorityFlood() {
+    @Test func testMetadataCapRetainsHighPriorityOverNewerLowPriorityFlood() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarMetadataBlocks
 
@@ -161,9 +156,9 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             )
         }
 
-        XCTAssertLessThanOrEqual(workspace.metadataBlocks.count, cap)
-        XCTAssertNotNil(
-            workspace.metadataBlocks["important"],
+        #expect(workspace.metadataBlocks.count <= cap)
+        #expect(
+            workspace.metadataBlocks["important"] != nil,
             "A high-priority metadata block must survive a newer low-priority flood"
         )
     }
@@ -172,7 +167,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // (agentPIDs / ownership maps / port-scan tags). When the cap evicts the
     // status key, that coupled state must be torn down too, otherwise the same
     // ever-distinct-key workload keeps those maps growing without bound (#5845).
-    func testStatusCapEvictionClearsCoupledAgentPIDState() {
+    @Test func testStatusCapEvictionClearsCoupledAgentPIDState() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
 
@@ -195,13 +190,13 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             )
         }
 
-        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
-        XCTAssertNil(
-            workspace.statusEntries["key_0"],
+        #expect(workspace.statusEntries.count <= cap)
+        #expect(
+            workspace.statusEntries["key_0"] == nil,
             "The oldest status entry must be evicted once the cap is exceeded"
         )
-        XCTAssertNil(
-            workspace.agentPIDs["key_0"],
+        #expect(
+            workspace.agentPIDs["key_0"] == nil,
             "Evicting a status key must also clear its coupled agent PID runtime state"
         )
     }
@@ -211,7 +206,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // workspace is already at cap with higher-priority plain telemetry — the
     // just-inserted grace tier outranks plain telemetry, so the follow-up PID can
     // still be tracked instead of lost to a self-eviction (#5845).
-    func testNewStatusSurvivesOwnTrimOverPlainTelemetry() {
+    @Test func testNewStatusSurvivesOwnTrimOverPlainTelemetry() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
 
@@ -224,7 +219,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
                 timestamp: Date(timeIntervalSince1970: TimeInterval(index))
             )
         }
-        XCTAssertEqual(workspace.statusEntries.count, cap)
+        #expect(workspace.statusEntries.count == cap)
 
         // Insert a lower-priority, newest agent status; the grace tier keeps it.
         workspace.statusEntries["agent"] = SidebarStatusEntry(
@@ -233,9 +228,9 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             priority: 0,
             timestamp: Date(timeIntervalSince1970: TimeInterval(cap + 1))
         )
-        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
-        XCTAssertNotNil(
-            workspace.statusEntries["agent"],
+        #expect(workspace.statusEntries.count <= cap)
+        #expect(
+            workspace.statusEntries["agent"] != nil,
             "A just-inserted status must survive its own trim over plain telemetry"
         )
     }
@@ -243,7 +238,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // When every cap slot is held by a live agent status, a new non-live status
     // can't displace a live one and self-evicts on insert — the precondition that
     // makes the command path skip recording its coupled PID (#5845).
-    func testNewNonLiveStatusSelfEvictsAgainstFullLiveStatuses() {
+    @Test func testNewNonLiveStatusSelfEvictsAgainstFullLiveStatuses() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
 
@@ -258,7 +253,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
                 timestamp: Date(timeIntervalSince1970: TimeInterval(index))
             )
         }
-        XCTAssertEqual(workspace.statusEntries.count, cap)
+        #expect(workspace.statusEntries.count == cap)
 
         workspace.statusEntries["victim"] = SidebarStatusEntry(
             key: "victim",
@@ -266,8 +261,8 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             priority: 0,
             timestamp: Date(timeIntervalSince1970: TimeInterval(cap + 1))
         )
-        XCTAssertNil(
-            workspace.statusEntries["victim"],
+        #expect(
+            workspace.statusEntries["victim"] == nil,
             "A new non-live status can't displace a full set of live agent statuses"
         )
     }
@@ -276,7 +271,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // agent status keeps its original (old) insertion timestamp. A pure
     // timestamp cap would evict it under a flood of newer distinct keys, hiding a
     // live agent. Statuses backed by a coupled agent PID must be retained (#5845).
-    func testStatusCapRetainsLiveAgentBackedStatusOverNewerKeys() {
+    @Test func testStatusCapRetainsLiveAgentBackedStatusOverNewerKeys() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
 
@@ -297,14 +292,13 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             )
         }
 
-        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
-        XCTAssertNotNil(
-            workspace.statusEntries["claude_code"],
+        #expect(workspace.statusEntries.count <= cap)
+        #expect(
+            workspace.statusEntries["claude_code"] != nil,
             "A live agent-backed status must survive the cap even with an older timestamp"
         )
-        XCTAssertEqual(
-            workspace.agentPIDs["claude_code"],
-            9001,
+        #expect(
+            workspace.agentPIDs["claude_code"] == 9001,
             "The retained live status must keep its coupled agent PID"
         )
     }
@@ -313,7 +307,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // FeedCoordinator needs-input badge recorded via setAgentLifecycle. These
     // must also survive the cap; evicting one would hide a pending agent
     // decision (#5845).
-    func testStatusCapRetainsLifecycleBackedStatusWithoutPID() {
+    @Test func testStatusCapRetainsLifecycleBackedStatusWithoutPID() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
         let panelId = UUID()
@@ -334,9 +328,9 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             )
         }
 
-        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
-        XCTAssertNotNil(
-            workspace.statusEntries["claude_code"],
+        #expect(workspace.statusEntries.count <= cap)
+        #expect(
+            workspace.statusEntries["claude_code"] != nil,
             "A lifecycle-backed needs-input status must survive the cap even without a PID"
         )
     }
@@ -345,7 +339,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // application state and must never be evicted, even with the worst-case
     // ranking inputs (oldest timestamp, lowest priority, no agent runtime),
     // because remote-connection handling reads them back (#5845).
-    func testStatusCapNeverEvictsReservedCmuxOwnedKeys() {
+    @Test func testStatusCapNeverEvictsReservedCmuxOwnedKeys() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
         // Literal values of the cmux-owned reserved status keys.
@@ -369,10 +363,10 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             )
         }
 
-        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
+        #expect(workspace.statusEntries.count <= cap)
         for reservedKey in reservedKeys {
-            XCTAssertNotNil(
-                workspace.statusEntries[reservedKey],
+            #expect(
+                workspace.statusEntries[reservedKey] != nil,
                 "cmux-owned reserved status key \(reservedKey) must never be evicted by the cap"
             )
         }
@@ -382,7 +376,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // the evicted ones must also have their lifecycle state cleared — otherwise
     // agentLifecycleStatesByPanelId grows unbounded and is re-traversed on every
     // trim, reintroducing the memory/CPU growth class (#5845).
-    func testStatusCapClearsLifecycleStateForEvictedKeys() {
+    @Test func testStatusCapClearsLifecycleStateForEvictedKeys() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
         let panelId = UUID()
@@ -398,16 +392,15 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             )
         }
 
-        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
+        #expect(workspace.statusEntries.count <= cap)
         let retainedLifecycleKeys = workspace.agentLifecycleStatesByPanelId.values
             .reduce(0) { $0 + $1.count }
-        XCTAssertLessThanOrEqual(
-            retainedLifecycleKeys,
-            cap,
+        #expect(
+            retainedLifecycleKeys <= cap,
             "Lifecycle state for evicted status keys must be cleared so it stays bounded"
         )
-        XCTAssertNil(
-            workspace.agentLifecycleStatesByPanelId[panelId]?["lc_0"],
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["lc_0"] == nil,
             "The oldest evicted lifecycle-backed status must have its lifecycle state cleared"
         )
     }
@@ -415,7 +408,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // Detached-surface adoption also writes the status before recording the
     // transferred PID. If the destination is full of live statuses the adopted
     // status self-evicts, and its PID must not be recreated as an orphan (#5845).
-    func testDetachedAdoptionSkipsPIDWhenAdoptedStatusEvicted() {
+    @Test func testDetachedAdoptionSkipsPIDWhenAdoptedStatusEvicted() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
 
@@ -429,7 +422,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
                 timestamp: Date(timeIntervalSince1970: TimeInterval(index))
             )
         }
-        XCTAssertEqual(workspace.statusEntries.count, cap)
+        #expect(workspace.statusEntries.count == cap)
 
         let runtime = Workspace.DetachedAgentRuntimeState(
             panelId: UUID(),
@@ -446,17 +439,17 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         )
         workspace.adoptDetachedAgentRuntimeState(runtime)
 
-        XCTAssertNil(
-            workspace.statusEntries["adopted"],
+        #expect(
+            workspace.statusEntries["adopted"] == nil,
             "The adopted status self-evicts when the destination is full of live statuses"
         )
-        XCTAssertNil(
-            workspace.agentPIDs["adopted"],
+        #expect(
+            workspace.agentPIDs["adopted"] == nil,
             "The adopted PID must not be recorded when its status self-evicted"
         )
     }
 
-    func testDetachedAdoptionSkipsDottedPIDWhenExactDottedStatusEvicted() {
+    @Test func testDetachedAdoptionSkipsDottedPIDWhenExactDottedStatusEvicted() {
         let workspace = Workspace()
         let cap = Workspace.maxSidebarStatusEntries
 
@@ -470,7 +463,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
                 timestamp: Date(timeIntervalSince1970: TimeInterval(index))
             )
         }
-        XCTAssertEqual(workspace.statusEntries.count, cap)
+        #expect(workspace.statusEntries.count == cap)
 
         let runtime = Workspace.DetachedAgentRuntimeState(
             panelId: UUID(),
@@ -487,17 +480,17 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         )
         workspace.adoptDetachedAgentRuntimeState(runtime)
 
-        XCTAssertNil(
-            workspace.statusEntries["adopted.session"],
+        #expect(
+            workspace.statusEntries["adopted.session"] == nil,
             "The exact dotted adopted status self-evicts when the destination is full of live statuses"
         )
-        XCTAssertNil(
-            workspace.agentPIDs["adopted.session"],
+        #expect(
+            workspace.agentPIDs["adopted.session"] == nil,
             "The exact dotted adopted PID must not be recorded when its status self-evicted"
         )
     }
 
-    func testDetachedAdoptionRecordsPIDWhenStatusSurvives() {
+    @Test func testDetachedAdoptionRecordsPIDWhenStatusSurvives() {
         let workspace = Workspace()
         let runtime = Workspace.DetachedAgentRuntimeState(
             panelId: UUID(),
@@ -513,7 +506,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         )
         workspace.adoptDetachedAgentRuntimeState(runtime)
 
-        XCTAssertNotNil(workspace.statusEntries["adopted"])
-        XCTAssertEqual(workspace.agentPIDs["adopted"], 8888)
+        #expect(workspace.statusEntries["adopted"] != nil)
+        #expect(workspace.agentPIDs["adopted"] == 8888)
     }
 }

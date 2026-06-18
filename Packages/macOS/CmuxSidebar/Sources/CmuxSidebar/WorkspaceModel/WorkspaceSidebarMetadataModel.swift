@@ -35,7 +35,7 @@ public final class WorkspaceSidebarMetadataModel {
     public var metadataBlocks: [String: SidebarMetadataBlock] = [:] {
         didSet {
             if metadataBlocks.count > Self.maxMetadataBlocks {
-                metadataBlocks = Self.cappedMetadataBlocksForDisplay(metadataBlocks)
+                metadataBlocks = cappedMetadataBlocksForDisplay(metadataBlocks)
             }
             metadataBlocksSubject.send(metadataBlocks)
         }
@@ -215,7 +215,7 @@ public final class WorkspaceSidebarMetadataModel {
         }
     }
 
-    private static func cappedMetadataBlocksForDisplay(
+    private func cappedMetadataBlocksForDisplay(
         _ blocks: [String: SidebarMetadataBlock]
     ) -> [String: SidebarMetadataBlock] {
         let keptKeys = Set(
