@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -46,7 +47,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
         panel.hostedView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        let surfaceView = try #require(surfaceView(in: panel.hostedView), "Expected terminal surface view")
+        let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
 
         window.makeFirstResponder(nil)
         panel.surface.setFocus(false)
@@ -112,7 +113,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
         panel.hostedView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        let surfaceView = try #require(surfaceView(in: panel.hostedView), "Expected terminal surface view")
+        let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
 
         window.makeFirstResponder(nil)
         panel.surface.setFocus(false)
@@ -179,7 +180,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
         panel.hostedView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        let surfaceView = try #require(surfaceView(in: panel.hostedView), "Expected terminal surface view")
+        let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
 
         window.makeFirstResponder(nil)
         panel.surface.setFocus(false)
@@ -215,7 +216,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
         )
     }
 
-    private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> GhosttyNSView? {
+    private func findSurfaceView(in hostedView: GhosttySurfaceScrollView) -> GhosttyNSView? {
         var stack: [NSView] = [hostedView]
         while let current = stack.popLast() {
             if let surfaceView = current as? GhosttyNSView {
