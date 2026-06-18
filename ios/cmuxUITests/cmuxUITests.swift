@@ -78,6 +78,57 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
+    @MainActor
+    func testFullSwipeDeletesWorkspaceWithoutConfirmation() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let attachURL = try attachURL(port: port)
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+        ])
+        waitForWorkspaceShell(in: app)
+        let statusAdvertised = await server.waitForHostStatusRequest()
+        XCTAssertTrue(
+            statusAdvertised,
+            "Mock host should advertise workspace-close capability before swiping"
+        )
+
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        XCTAssertTrue(docsRow.waitForExistence(timeout: 8))
+        let confirmButton = app.buttons["MobileWorkspaceDeleteConfirmButton-workspace-docs"]
+
+        for _ in 0..<3 where docsRow.exists {
+            let start = docsRow.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5))
+            let end = docsRow.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: end)
+
+            let deadline = Date().addingTimeInterval(2)
+            while Date() < deadline,
+                  docsRow.exists || confirmButton.exists {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            if !docsRow.exists && !confirmButton.exists {
+                break
+            }
+        }
+
+        XCTAssertFalse(
+            confirmButton.exists,
+            "A full trailing swipe should bypass the Delete Workspace confirmation"
+        )
+        XCTAssertFalse(
+            docsRow.exists,
+            "A full trailing swipe should optimistically remove the workspace row"
+        )
+        let workspaceClosed = await server.waitForWorkspaceClosed("workspace-docs")
+        XCTAssertTrue(
+            workspaceClosed,
+            "Full swipe should still send workspace.close in the background"
+        )
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not
@@ -1537,6 +1588,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var selectedWorkspaceID = "workspace-main"
     private var selectedTerminalID = "terminal-build"
     private var replayCounts: [String: Int] = [:]
+    private var hostStatusRequestCount = 0
     private var streamOffset: UInt64 = 1
     private var workspaces: [Workspace] = [
         Workspace(
@@ -1684,6 +1736,48 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
     }
 
+    func waitForHostStatusRequest(timeout: TimeInterval = 8) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let count = await hostStatusRequests()
+            if count > 0 {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        return await hostStatusRequests() > 0
+    }
+
+    private func hostStatusRequests() async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.hostStatusRequestCount)
+            }
+        }
+    }
+
+    func waitForWorkspaceClosed(_ workspaceID: String, timeout: TimeInterval = 8) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let exists = await workspaceExists(workspaceID)
+            if !exists {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        return !(await workspaceExists(workspaceID))
+    }
+
+    private func workspaceExists(_ workspaceID: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.workspaces.contains { $0.id == workspaceID })
+            }
+        }
+    }
+
     private func replayCount(for terminalID: String) async -> Int {
         await withCheckedContinuation { continuation in
             queue.async {
@@ -1781,8 +1875,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let result: [String: Any]
 
         switch method {
-        case "workspace.list":
+        case "mobile.host.status":
+            result = hostStatusResult()
+        case "workspace.list", "mobile.workspace.list":
             result = workspaceListResult()
+        case "workspace.close":
+            result = closeWorkspaceResult(params: params)
         case "workspace.create":
             result = createWorkspaceResult()
         case "terminal.create":
@@ -1807,6 +1905,35 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ]
         let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
         return Self.frame(responsePayload)
+    }
+
+    private func hostStatusResult() -> [String: Any] {
+        hostStatusRequestCount += 1
+        return [
+            "mac_device_id": "ui-test-mac",
+            "mac_display_name": "UI Test Mac",
+            "terminal_fidelity": "render_grid",
+            "capabilities": [
+                "events.v1",
+                "terminal.render_grid.v1",
+                "terminal.replay.v1",
+                "workspace.close.v1",
+                "mobile.delete.v1",
+            ],
+        ]
+    }
+
+    private func closeWorkspaceResult(params: [String: Any]) -> [String: Any] {
+        guard let workspaceID = params["workspace_id"] as? String,
+              let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else {
+            return workspaceListResult()
+        }
+        let removed = workspaces.remove(at: index)
+        if selectedWorkspaceID == removed.id {
+            selectedWorkspaceID = workspaces.first?.id ?? ""
+            selectedTerminalID = workspaces.first?.terminals.first?.id ?? ""
+        }
+        return workspaceListResult()
     }
 
     private func createWorkspaceResult() -> [String: Any] {
