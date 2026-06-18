@@ -24186,12 +24186,22 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> ClaudeHookResolvedSurface {
         if fallbackIsExplicit, let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveSurfaceAllowingFallbackDetailed(
-                fallback,
-                workspaceId: workspaceId,
-                client: client,
-                preferCallerTTYOverRaw: false
-            )
+            do {
+                return try resolveStrictSurfaceForClaudeHookDetailed(
+                    fallback,
+                    workspaceId: workspaceId,
+                    client: client
+                )
+            } catch {
+                guard let preferred = nonEmptyClaudeHookIdentifier(preferred) else {
+                    throw error
+                }
+                return try resolveStrictSurfaceForClaudeHookDetailed(
+                    preferred,
+                    workspaceId: workspaceId,
+                    client: client
+                )
+            }
         }
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
             return try resolveSurfaceAllowingFallbackDetailed(
@@ -24210,6 +24220,25 @@ struct CMUXCLI {
             )
         }
         return try resolveSurfaceAllowingFallbackDetailed(nil, workspaceId: workspaceId, client: client)
+    }
+
+    private func resolveStrictSurfaceForClaudeHookDetailed(
+        _ raw: String,
+        workspaceId: String,
+        client: SocketClient
+    ) throws -> ClaudeHookResolvedSurface {
+        let candidate: String
+        if isUUID(raw) {
+            candidate = raw
+        } else if isHandleRef(raw) || Int(raw) != nil {
+            candidate = try resolveSurfaceId(raw, workspaceId: workspaceId, client: client)
+        } else {
+            throw CLIError(message: "Invalid surface handle: \(raw)")
+        }
+        guard claudeHookSurfaceIsListed(candidate, workspaceId: workspaceId, client: client) else {
+            throw CLIError(message: "Surface not found: \(raw)")
+        }
+        return ClaudeHookResolvedSurface(surfaceId: candidate, isAuthoritative: true)
     }
 
     private func nonEmptyClaudeHookIdentifier(_ value: String?) -> String? {
