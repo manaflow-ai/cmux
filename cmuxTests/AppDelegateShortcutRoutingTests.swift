@@ -168,16 +168,40 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         "testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping",
     ]
 
+    /// Whether this environment's window server actually honors
+    /// `makeKeyAndOrderFront`. Probed once. Detected at runtime (not via a CI
+    /// env var) because the xcodebuild test-host process does NOT inherit the
+    /// job's environment, so `GITHUB_ACTIONS`/`CI` are invisible inside tests.
+    /// On headless CI runners no test window ever becomes key, so the
+    /// focus-dependent routing tests cannot be deterministic there.
+    private static let keyWindowFocusIsReliable: Bool = {
+        let probe = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 60, height: 60),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        probe.isReleasedWhenClosed = false
+        probe.makeKeyAndOrderFront(nil)
+        let deadline = Date(timeIntervalSinceNow: 0.75)
+        while Date() < deadline, NSApp.keyWindow !== probe {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
+        let reliable = NSApp.keyWindow === probe
+        probe.orderOut(nil)
+        probe.close()
+        return reliable
+    }()
+
     private static func skipFocusRoutingTestInCI(testName: String) throws {
-        let env = ProcessInfo.processInfo.environment
-        guard env["GITHUB_ACTIONS"] != nil || env["CI"] != nil else { return }
+        guard !keyWindowFocusIsReliable else { return }
         // testName is like "-[AppDelegateShortcutRoutingTests testFoo]".
         guard let method = testName.split(separator: " ").last.map({ String($0.dropLast()) }) else { return }
         if focusRoutingTestsFlakyOnHeadlessCI.contains(method) {
             throw XCTSkip(
-                "Focus/key-window routing is nondeterministic on headless CI runners "
-                + "(makeKeyAndOrderFront not honored); skipped in CI, runs locally. "
-                + "Tracked: DEBUG key-window routing seam."
+                "Window server does not honor makeKeyAndOrderFront in this environment "
+                + "(headless CI runner); focus/key-window routing is nondeterministic here. "
+                + "Skipped here, runs on real machines. Tracked: DEBUG key-window routing seam."
             )
         }
     }
