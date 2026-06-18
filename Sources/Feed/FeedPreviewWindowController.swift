@@ -8,10 +8,6 @@ import SwiftUI
 final class FeedPreviewWindowController: ReleasingWindowController {
     static let shared = FeedPreviewWindowController()
 
-    override init() {
-        super.init()
-    }
-
     override func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 820),
@@ -29,7 +25,6 @@ final class FeedPreviewWindowController: ReleasingWindowController {
 
     func show() {
         showManagedWindow(activateApplication: true)
-        NSApp.activate(ignoringOtherApps: true)
     }
 }
 

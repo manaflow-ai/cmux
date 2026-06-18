@@ -159,10 +159,6 @@ struct TabBarBackdropLabVariant: Identifiable {
 final class BonsplitTabBarDebugWindowController: ReleasingWindowController {
     static let shared = BonsplitTabBarDebugWindowController()
 
-    private override init() {
-        super.init()
-    }
-
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
@@ -183,9 +179,6 @@ final class BonsplitTabBarDebugWindowController: ReleasingWindowController {
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
 
     func show() {
         showManagedWindow()

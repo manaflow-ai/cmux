@@ -2935,10 +2935,6 @@ private struct MenuBarExtraDebugView: View {
 private final class SplitButtonLayoutDebugWindowController: ReleasingWindowController {
     static let shared = SplitButtonLayoutDebugWindowController()
 
-    private override init() {
-        super.init()
-    }
-
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -2956,9 +2952,6 @@ private final class SplitButtonLayoutDebugWindowController: ReleasingWindowContr
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
 
     func show() {
         showManagedWindow()
@@ -3010,10 +3003,6 @@ private struct SplitButtonLayoutDebugView: View {
 private final class TabBarBackdropLabWindowController: ReleasingWindowController {
     static let shared = TabBarBackdropLabWindowController()
 
-    private override init() {
-        super.init()
-    }
-
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1040),
@@ -3039,9 +3028,6 @@ private final class TabBarBackdropLabWindowController: ReleasingWindowController
 
         return window
     }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
 
     func show() {
         showManagedWindow(orderFrontRegardless: true)
