@@ -185,6 +185,7 @@ public struct TerminalLetterboxGeometry {
     ///   - scale: The screen scale factor.
     ///   - container: The drawable container size in points.
     /// - Returns: The final pinned point size.
+    @available(*, deprecated, message: "iOS no longer letterboxes to the daemon effective grid; this only preserves legacy pixel conversion.")
     public static func clampPinnedSize(
         actualWidthPx: CGFloat,
         actualHeightPx: CGFloat,

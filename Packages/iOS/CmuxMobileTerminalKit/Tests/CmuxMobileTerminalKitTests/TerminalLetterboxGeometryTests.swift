@@ -278,6 +278,7 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 0) == 0)
     }
 
+    @available(*, deprecated, message: "Exercises deprecated compatibility API.")
     @Test("clampPinnedSize bounds refined pixels by the container")
     func clampPinned() {
         // refined 540x540 px at scale 3 = 180x180 points, within container.
