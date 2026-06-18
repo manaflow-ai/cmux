@@ -7,21 +7,22 @@ struct DesktopNotificationSettingsRowActions {
 
     func performPrimaryAction(
         for authorizationState: DesktopNotificationAuthorizationState
-    ) async {
+    ) async -> DesktopNotificationAuthorizationState? {
         let presentation = DesktopNotificationSettingsRowPresentation(
             authorizationState: authorizationState
         )
         guard let primaryAction = presentation.primaryAction else {
-            return
+            return nil
         }
         switch primaryAction {
         case .requestAuthorization:
-            _ = await hostActions.requestNotificationAuthorization()
+            return await hostActions.requestNotificationAuthorization()
         case .openSystemSettings:
             hostActions.openSystemNotificationSettings()
-            _ = await hostActions.refreshDesktopNotificationAuthorizationState()
+            return await hostActions.refreshDesktopNotificationAuthorizationState()
         case .sendTest:
             hostActions.sendTestNotification()
+            return authorizationState
         }
     }
 }

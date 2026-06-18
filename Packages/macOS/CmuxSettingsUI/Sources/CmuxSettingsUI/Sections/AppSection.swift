@@ -693,7 +693,7 @@ public struct AppSection: View {
     }
 
     private func refreshDesktopNotificationAuthorization() async {
-        _ = await hostActions.refreshDesktopNotificationAuthorizationState()
+        desktopNotificationAuthorization = await hostActions.refreshDesktopNotificationAuthorizationState()
     }
 
     private func performDesktopNotificationPrimaryAction() {
@@ -707,8 +707,11 @@ public struct AppSection: View {
                     desktopNotificationPrimaryActionTask = nil
                 }
             }
-            await DesktopNotificationSettingsRowActions(hostActions: hostActions)
+            let refreshedAuthorization = await DesktopNotificationSettingsRowActions(hostActions: hostActions)
                 .performPrimaryAction(for: desktopNotificationAuthorization)
+            if let refreshedAuthorization {
+                desktopNotificationAuthorization = refreshedAuthorization
+            }
         }
     }
 
