@@ -162,6 +162,7 @@ public struct TerminalLetterboxGeometry {
     ///   - scale: The screen scale factor.
     ///   - container: The drawable container size in points.
     /// - Returns: Always `nil`; the surface should fill the container.
+    @available(*, deprecated, message: "iOS no longer letterboxes to the daemon effective grid; this always returns nil.")
     public static func pinnedPointSize(
         effective: (cols: Int, rows: Int),
         measuredColumns: Int,

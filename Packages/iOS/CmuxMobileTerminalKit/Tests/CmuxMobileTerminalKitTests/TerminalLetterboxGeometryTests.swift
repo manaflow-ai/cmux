@@ -73,63 +73,66 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.cellPixelSize(columns: 80, rows: 24, widthPx: 0, heightPx: 480) == .zero)
     }
 
-    @Test("no pin when effective grid fills the natural grid")
-    func noPinWhenFills() {
-        let pinned = TerminalLetterboxGeometry.pinnedPointSize(
-            effective: (cols: 100, rows: 40),
-            measuredColumns: 100,
-            measuredRows: 40,
-            cell: CGSize(width: 9, height: 18),
-            scale: 3,
-            container: CGSize(width: 402, height: 700)
-        )
-        #expect(pinned == nil)
-    }
-
-    @Test("no pin when effective grid is within one cell of natural")
-    func noPinWithinOneCell() {
-        let pinned = TerminalLetterboxGeometry.pinnedPointSize(
-            effective: (cols: 99, rows: 39),
-            measuredColumns: 100,
-            measuredRows: 40,
-            cell: CGSize(width: 9, height: 18),
-            scale: 3,
-            container: CGSize(width: 402, height: 700)
-        )
-        #expect(pinned == nil)
-    }
-
-    @Test("smaller effective grid does not pin the iOS render box")
-    func smallerEffectiveGridDoesNotPin() {
+    @available(*, deprecated, message: "Exercises deprecated compatibility API.")
+    @Test("effective grid never pins the iOS render box")
+    func effectiveGridNeverPinsIOSRenderBox() {
         // The remote effective grid is a viewport negotiation result, not a
         // sizing constraint for the iOS view. The local render surface must keep
-        // filling the available container so a smaller response cannot leave a
-        // dead band between the terminal and keyboard toolbar.
-        let pinned = TerminalLetterboxGeometry.pinnedPointSize(
-            effective: (cols: 60, rows: 30),
-            measuredColumns: 100,
-            measuredRows: 40,
-            cell: CGSize(width: 9, height: 18),
-            scale: 3,
-            container: CGSize(width: 402, height: 700)
-        )
-        #expect(pinned == nil)
-    }
+        // filling the available container so no response shape can leave a dead
+        // band between the terminal and keyboard toolbar.
+        let cases: [(
+            effective: (cols: Int, rows: Int),
+            measuredColumns: Int,
+            measuredRows: Int,
+            cell: CGSize,
+            scale: CGFloat,
+            container: CGSize
+        )] = [
+            (
+                effective: (cols: 60, rows: 30),
+                measuredColumns: 100,
+                measuredRows: 40,
+                cell: CGSize(width: 9, height: 18),
+                scale: 3,
+                container: CGSize(width: 402, height: 700)
+            ),
+            (
+                effective: (cols: 100, rows: 40),
+                measuredColumns: 100,
+                measuredRows: 40,
+                cell: CGSize(width: 9, height: 18),
+                scale: 3,
+                container: CGSize(width: 402, height: 700)
+            ),
+            (
+                effective: (cols: 99, rows: 39),
+                measuredColumns: 100,
+                measuredRows: 40,
+                cell: CGSize(width: 9, height: 18),
+                scale: 3,
+                container: CGSize(width: 402, height: 700)
+            ),
+            (
+                effective: (cols: 134, rows: 116),
+                measuredColumns: 134,
+                measuredRows: 116,
+                cell: CGSize(width: 9, height: 18),
+                scale: 3,
+                container: CGSize(width: 402, height: 700)
+            ),
+        ]
 
-    @Test("no pin when the pinned box is not meaningfully smaller than the container")
-    func noPinWhenNotSmaller() {
-        // pinnedW = 134*9/3 = 402 == container width, pinnedH = 233*18/3 ≈ 1398 > container.
-        // Both axes fail the (pinned + 0.5 < container) test on width and natural
-        // fills, so confirm a near-equal box does not pin.
-        let pinned = TerminalLetterboxGeometry.pinnedPointSize(
-            effective: (cols: 134, rows: 116),
-            measuredColumns: 134,
-            measuredRows: 116,
-            cell: CGSize(width: 9, height: 18),
-            scale: 3,
-            container: CGSize(width: 402, height: 700)
-        )
-        #expect(pinned == nil)
+        for testCase in cases {
+            let pinned = TerminalLetterboxGeometry.pinnedPointSize(
+                effective: testCase.effective,
+                measuredColumns: testCase.measuredColumns,
+                measuredRows: testCase.measuredRows,
+                cell: testCase.cell,
+                scale: testCase.scale,
+                container: testCase.container
+            )
+            #expect(pinned == nil)
+        }
     }
 
     // MARK: - Keyboard open/closed full-height contract
