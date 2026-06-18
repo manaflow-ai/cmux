@@ -1570,7 +1570,8 @@ class TerminalController {
             // commands) answer here; everything else falls through to the legacy
             // switch below.
             if let coordinatorV1 = controlCommandCoordinator.handleSidebarV1(command: cmd, args: args)
-                ?? controlCommandCoordinator.handleBrowserPanelV1(command: cmd, args: args) {
+                ?? controlCommandCoordinator.handleBrowserPanelV1(command: cmd, args: args)
+                ?? controlCommandCoordinator.handleDebugV1(command: cmd, args: args) {
                 return coordinatorV1
             }
             switch cmd {
@@ -1675,12 +1676,6 @@ class TerminalController {
         case "send_workspace":
             return sendInputToWorkspace(args)
 
-        case "set_shortcut":
-            return setShortcut(args)
-
-        case "simulate_shortcut":
-            return simulateShortcut(args)
-
         case "simulate_type":
             return simulateType(args)
 
@@ -1722,54 +1717,6 @@ class TerminalController {
 
         case "terminal_drop_overlay_probe":
             return terminalDropOverlayProbe(args)
-
-        case "activate_app":
-            return activateApp()
-
-        case "is_terminal_focused":
-            return isTerminalFocused(args)
-
-        case "read_terminal_text":
-            return readTerminalText(args)
-
-        case "render_stats":
-            return renderStats(args)
-
-        case "layout_debug":
-            return layoutDebug()
-
-        case "bonsplit_underflow_count":
-            return bonsplitUnderflowCount()
-
-        case "reset_bonsplit_underflow_count":
-            return resetBonsplitUnderflowCount()
-
-        case "empty_panel_count":
-            return emptyPanelCount()
-
-        case "reset_empty_panel_count":
-            return resetEmptyPanelCount()
-
-        case "focus_notification":
-            return focusFromNotification(args)
-
-        case "debug_right_sidebar_focus":
-            return debugRightSidebarFocus(args)
-
-        case "flash_count":
-            return flashCount(args)
-
-        case "reset_flash_counts":
-            return resetFlashCounts()
-
-        case "panel_snapshot":
-            return panelSnapshot(args)
-
-        case "panel_snapshot_reset":
-            return panelSnapshotReset(args)
-
-        case "screenshot":
-            return captureScreenshot(args)
 #endif
 
         case "help":
@@ -5575,12 +5522,6 @@ class TerminalController {
         case failure(String)
     }
 
-    /// WKError's localizedDescription for JS exceptions is the useless generic
-    /// "A JavaScript exception occurred"; the real exception text lives in userInfo.
-    private static func v2DescribeJavaScriptError(_ error: Error) -> String {
-        BrowserControlService().describeJavaScriptError(error)
-    }
-
     /// True when a page-world JS failure looks like a CSP block of eval/function
     /// construction (script-src without 'unsafe-eval'). That is the only failure
     /// the isolated-world retry is meant to recover from; gating on it keeps the
@@ -5588,8 +5529,8 @@ class TerminalController {
     /// (a thrown exception, a timeout), which would duplicate any side effect the
     /// script performed before throwing and could return a value from the wrong
     /// JS context.
-    private nonisolated static func v2BrowserFailureLooksLikeCSPEvalBlock(_ message: String) -> Bool {
-        BrowserControlService().failureLooksLikeCSPEvalBlock(message)
+    private nonisolated func v2BrowserFailureLooksLikeCSPEvalBlock(_ message: String) -> Bool {
+        v2BrowserControl.failureLooksLikeCSPEvalBlock(message)
     }
 
     /// Sendable stand-in for `WKContentWorld` so nonisolated callers can pick a world without
@@ -5605,6 +5546,9 @@ class TerminalController {
         world: V2JSContentWorld
     ) -> V2JavaScriptResult {
         let timeoutSeconds = max(0.01, timeout)
+        // Capture the held browser-control service (a Sendable value) rather than
+        // `self`, reusing the already-initialized instance for error description.
+        let browserControl = v2BrowserControl
         // The evaluator only ever runs on the main actor (Thread.isMainThread branch or
         // DispatchQueue.main.async below), so assumeIsolated is safe and lets us touch the
         // main-actor WKWebView APIs and WKContentWorld statics without spurious isolation warnings.
@@ -5617,13 +5561,13 @@ class TerminalController {
                         case .success(let value):
                             finish(value, nil)
                         case .failure(let error):
-                            finish(nil, Self.v2DescribeJavaScriptError(error))
+                            finish(nil, browserControl.describeJavaScriptError(error))
                         }
                     }
                 } else {
                     webView.evaluateJavaScript(script) { value, error in
                         if let error {
-                            finish(nil, Self.v2DescribeJavaScriptError(error))
+                            finish(nil, browserControl.describeJavaScriptError(error))
                         } else {
                             finish(value, nil)
                         }
@@ -6022,7 +5966,7 @@ class TerminalController {
         // user-supplied browser.eval (useEval == true) it matters, so we invoke
         // onIsolatedWorldFallback to let browser.eval annotate the result with the content world.
         if case .failure(let pageMessage) = rawResult,
-           Self.v2BrowserFailureLooksLikeCSPEvalBlock(pageMessage),
+           v2BrowserFailureLooksLikeCSPEvalBlock(pageMessage),
            #available(macOS 11.0, *) {
             let isolatedResult = v2RunJavaScript(
                 webView,
@@ -9882,41 +9826,6 @@ class TerminalController {
 
 #if DEBUG
 
-    private func debugRightSidebarFocus(_ args: String) -> String {
-        let modeName = args.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? RightSidebarMode.dock.rawValue
-            : args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let mode = RightSidebarMode(rawValue: modeName) else {
-            return "ERROR: Invalid right sidebar mode: \(modeName)"
-        }
-
-        var revealed = false
-        var focusApplied = false
-        var contextFound = false
-        var stateFound = false
-        var visible = false
-        var activeMode = ""
-
-        let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
-            mode: mode,
-            focusFirstItem: false,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-        )
-        revealed = result?.revealed ?? false
-        focusApplied = result?.focusApplied ?? false
-        contextFound = result?.contextFound ?? false
-        stateFound = result?.stateFound ?? false
-        visible = result?.visible ?? false
-        activeMode = result?.activeMode ?? ""
-
-        let details = "mode=\(mode.rawValue) active=\(activeMode) visible=\(visible ? 1 : 0) " +
-            "context=\(contextFound ? 1 : 0) state=\(stateFound ? 1 : 0) focus=\(focusApplied ? 1 : 0)"
-        return revealed ? "OK: \(details)" : "ERROR: \(details)"
-    }
-#endif
-
-#if DEBUG
-
     /// Drives `SidebarDragState.draggedTabId` and `dropIndicator` mutations
     /// across N steps from a starting workspace toward a target neighbor.
     /// External profilers (e.g. the `profile-pr` skill driving `xctrace`)
@@ -12772,28 +12681,15 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == selectedId })
     }
 
-    private enum SidebarMutationTabTarget {
-        case selected
-        case workspace(UUID)
-        case index(Int)
-    }
-
     private func parseSidebarMutationTabTarget(
         options: [String: String]
     ) -> (target: SidebarMutationTabTarget?, error: String?) {
+        // `SidebarMetadataArgumentParser.parseMutationTabTarget` already returns the
+        // `CmuxSidebar.SidebarMutationTabTarget` cases this controller resolves, so
+        // forward the parsed target verbatim instead of re-mapping it case-for-case
+        // onto a duplicate local enum.
         let resolution = sidebarMetadataArgumentParser.parseMutationTabTarget(options: options)
-        let target: SidebarMutationTabTarget?
-        switch resolution.target {
-        case nil:
-            target = nil
-        case .selected:
-            target = .selected
-        case .workspace(let id):
-            target = .workspace(id)
-        case .index(let index):
-            target = .index(index)
-        }
-        return (target, resolution.error)
+        return (resolution.target, resolution.error)
     }
 
     private func resolveSidebarMutationTab(_ target: SidebarMutationTabTarget) -> Tab? {

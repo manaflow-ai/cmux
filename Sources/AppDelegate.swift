@@ -871,10 +871,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Process-wide identity of the workspace currently being sidebar-dragged in
     /// any window. Owned here (the composition root) and injected into every
     /// window's `SidebarDragState` so cross-window drops resolve a single drag.
+    // TODO(de-singletonize): move SidebarWorkspaceDragRegistry off AppDelegate.shared when AppDelegate is decomposed.
     let sidebarWorkspaceDragRegistry = SidebarWorkspaceDragRegistry()
     #if DEBUG
     /// Debug-only registry mapping each mounted sidebar's window id to its live
     /// `SidebarDragState`, read by the `debug.sidebar.simulate_drag` handler.
+    // TODO(de-singletonize): move SidebarDragStateRegistry off AppDelegate.shared when AppDelegate is decomposed.
     let sidebarDragStateRegistry = SidebarDragStateRegistry()
     #endif
     private lazy var updateController = UpdateController(log: updateLog)
@@ -12360,7 +12362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tag: tag,
             modifiers: GhosttyModifierMask(rawValue: trigger.mods.rawValue)
         )
-        guard let shortcut = Self.ghosttyTriggerShortcutDecoder.decode(input) else { return nil }
+        guard let shortcut = GhosttyTriggerShortcut(decoding: input) else { return nil }
         return StoredShortcut(
             key: shortcut.key,
             command: shortcut.command,
@@ -12369,8 +12371,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             control: shortcut.control
         )
     }
-
-    private static let ghosttyTriggerShortcutDecoder = GhosttyTriggerShortcutDecoder()
 
     private func handleQuitShortcutWarning() -> Bool {
         if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
@@ -13179,6 +13179,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
+        if matchConfiguredShortcut(event: event, action: .clearScreenKeepScrollback) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            let handled = routedManager?.clearFocusedTerminalKeepingScrollback() ?? false
+#if DEBUG
+            cmuxDebugLog(
+                "shortcut.action name=clearScreenKeepScrollback handled=\(handled ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
+            // Only consume when a focused terminal actually performed the clear.
+            return handled
+        }
+
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
 #if DEBUG
@@ -13545,6 +13558,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             reloadBrowserPanelForShortcut(focusedBrowserPanel)
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .browserHardReload) {
+            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
+                return false
+            }
+            hardReloadBrowserPanelForShortcut(focusedBrowserPanel)
             return true
         }
 
@@ -15093,7 +15114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows && action != .globalSearch
+        action != .showHideAllWindows && action != .globalSearch && action != .clearScreenKeepScrollback
     }
 
     private func isCloseShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {

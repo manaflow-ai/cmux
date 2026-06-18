@@ -154,8 +154,9 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Chat toggle stays top-level next to the picker (where New
+                // Workspace was); New Workspace moved into the picker menu.
                 chatToggleButton
-                newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
         }
@@ -251,8 +252,9 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Chat toggle stays top-level next to the picker (where New
+                // Workspace was); New Workspace moved into the picker menu.
                 chatToggleButton
-                newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
         }
@@ -364,8 +366,9 @@ struct WorkspaceDetailView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Chat toggle stays top-level next to the picker (where New
+                // Workspace was); New Workspace moved into the picker menu.
                 chatToggleButton
-                newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
             #else
@@ -467,6 +470,23 @@ struct WorkspaceDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
+
+            if store.supportsWorkspaceReadStateActions {
+                Button(action: toggleWorkspaceReadStateFromMenu) {
+                    Label(
+                        workspace.hasUnread
+                            ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
+                            : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
+                        systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .accessibilityIdentifier("MobileWorkspaceMarkReadStateMenuItem")
+            }
 
             if closeWorkspace != nil {
                 Button(role: .destructive, action: requestCloseWorkspaceFromMenu) {
@@ -767,6 +787,17 @@ struct WorkspaceDetailView: View {
 
     private func confirmCloseWorkspaceFromMenu() {
         closeWorkspace?(workspace.id)
+    }
+
+    /// Toggle the current workspace's read state on the Mac from the picker menu.
+    /// Flips relative to the workspace's current `hasUnread`; the authoritative
+    /// list re-sync inside `setWorkspaceUnread` reconciles the row + back-button
+    /// count.
+    private func toggleWorkspaceReadStateFromMenu() {
+        let store = store
+        let id = workspace.id
+        let markUnread = !workspace.hasUnread
+        Task { await store.setWorkspaceUnread(id: id, markUnread) }
     }
 
     private func createTerminalFromToolbar() {

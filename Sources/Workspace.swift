@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Foundation
 import CmuxCore
@@ -1424,6 +1425,18 @@ extension Workspace {
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
+        // The bonsplit tab header only refreshes when `updateTab` is called; the writes
+        // above never reach it (`setPanelCustomTitle` skips the sync when there is no
+        // custom title), so push the restored title to the tab now, mirroring
+        // `updatePanelTitle`, instead of waiting for the next OSC title update.
+        if let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) {
+            bonsplitController.updateTab(
+                tabId,
+                title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
+                hasCustomTitle: panelCustomTitles[panelId] != nil
+            )
+        }
+
         if snapshot.isManuallyUnread {
             markPanelUnread(panelId)
         } else {
@@ -2682,8 +2695,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        let borderHex = WindowChromeSeparatorColor
-            .color(forChromeBackground: backgroundColor)
+        let borderHex = WindowChromeColorResolver()
+            .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
 
         if sharesWindowBackdrop {
@@ -2719,8 +2732,8 @@ final class Workspace: Identifiable, ObservableObject {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
         let backgroundHex = backgroundColor.hexString()
-        let borderHex = WindowChromeSeparatorColor
-            .color(forChromeBackground: backgroundColor)
+        let borderHex = WindowChromeColorResolver()
+            .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
 
         if sharesWindowBackdrop {

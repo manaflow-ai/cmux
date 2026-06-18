@@ -52,6 +52,11 @@ final class ComposerDictationController {
     /// so partials append rather than overwrite.
     private var baseText: String = ""
 
+    /// Whether THIS controller activated the shared `AVAudioSession` (`setActive`
+    /// in `beginRecognition()`). Gates teardown so a send/blur/cancel with no
+    /// dictation in flight never pokes the audio system. See ``stopEngineAndSession()``.
+    private var didActivateSession = false
+
     /// The callback that writes merged text back into the composer. Held while
     /// listening AND through a graceful stop (so the final result can refine the
     /// committed text); cleared on cleanup so a late callback cannot mutate the
@@ -339,6 +344,8 @@ final class ComposerDictationController {
             // that enforce the documented restrictions.
             try session.setCategory(.record, mode: .measurement)
             try session.setActive(true)
+            // Set before later setup so a failure still deactivates on failStart.
+            didActivateSession = true
         } catch {
             failStart()
             return
@@ -456,6 +463,12 @@ final class ComposerDictationController {
     /// session. Shared by the graceful stop (which keeps the recognition task and
     /// callback alive) and the hard `teardown()`. Safe to call repeatedly.
     private func stopEngineAndSession() {
+        // No-op unless we activated the session. Otherwise this would touch the
+        // audio system on every send/blur/cancel: accessing `audioEngine.inputNode`
+        // powers up the mic route and `setActive(false, .notifyOthersOnDeactivation)`
+        // interrupts other apps' playback (music pausing/resuming on every submit).
+        guard didActivateSession else { return }
+        didActivateSession = false
         if audioEngine.isRunning {
             audioEngine.stop()
         }
