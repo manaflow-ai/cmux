@@ -84,6 +84,8 @@ extension ContentView {
             return .attachTextBoxFile
         case "palette.terminalSendCtrlF":
             return .sendCtrlFToTerminal
+        case "palette.terminalClearScreenKeepScrollback":
+            return .clearScreenKeepScrollback
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":
