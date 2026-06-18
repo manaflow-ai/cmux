@@ -12618,7 +12618,7 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
-        case SurfaceKind.codeEditor, "codeEditor", "code_editor":
+        case SurfaceKind.codeEditor.rawValue, "codeEditor", "code_editor":
             _ = openCodeEditorFromPane(pane)
         default:
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
