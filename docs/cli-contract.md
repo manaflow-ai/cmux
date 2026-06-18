@@ -290,7 +290,7 @@ VM subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `vm ls`, `vm list` | List VMs. |
+| `vm ls`, `vm list` | List VMs. Alias `list` is preserved; prefer `ls` in docs and scripts. |
 | `cloud domains [list]`, `vm domains [list]` | List the account's VM-port publications (`vm.publication_list`). `--json` returns `{publications: [...]}`. |
 | `cloud domains zones`, `vm domains zones` | List custom domains owned by the account (`vm.domain_list`); `--json` returns `{domains: [...]}`. |
 | `cloud domains verify <domain>`, `vm domains verify <domain>` | Start or complete ownership/certificate verification for a custom zone (`vm.domain_verify`). The first call prints the DNS checklist; add the records and rerun it. A publication hostname resolves to its zone; generated cmux names need no verification. |
@@ -310,15 +310,16 @@ VM subcommands:
 | `vm terminal read <machine> <terminal-id> [--json]` (alias `screen`) | `vm.terminal_read {id, terminal_id}`: the terminal's visible screen (`text`; `--json` adds `rows`, `cols`, `cursor_row`, `cursor_col`, `cursor_visible`) — cmux-tui `terminal <id> screen read`. |
 | `vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>] [--json]` | `vm.terminal_wait {id, terminal_id, pattern, timeout_ms?}`: blocks until the screen text matches (default 30 s) — cmux-tui `terminal <id> screen wait`. Prints `OK matched …`; exits 1 with a bounded timeout diagnostic that does not include terminal text. |
 | `vm terminal rename <machine> <terminal-id> <name> [--json]` | `vm.terminal_rename`: names the terminal's daemon tab view(s) (the sidebar's Rename…) through the same machine-scoped rename lane; every client shows the name in place of the PTY title, and the daemon persists it. Pass `""` to clear the custom label on every placement. A zero-view pool terminal has no tab to name. |
-| `vm new`, `vm create` | Create a VM: the devbox with devtools, the coding agents and a screen (TigerVNC + openbox + noVNC on 6901). The CLI always sends the machine **kind** `desktop` and the backend maps kind and size to the image its deployment supports (one snapshot ladder serves both kinds, so a request that names `base` gets the same machine); `--desktop` / `--base` / `--no-desktop` are accepted for older scripts and change nothing. `--image <id>` is the explicit override and is the only way an image id leaves the client. Supports `--size <4g\|8g\|16g\|24g\|32g\|64g>`, `--name <label>` (display label, applied via `vm.rename` after create), `--provider`, `--workspace`, `--detach`, and `-d`. Without `--detach`, opens a plain terminal on the machine through the shared open path (see `vm shell`). The Machines panel's ＋ opens the New Machine sheet (size, plan meter) whose Create runs this same command. |
+| `vm new`, `vm create` | Create a VM. Alias `create` is preserved; prefer `new` in docs and scripts. the devbox with devtools, the coding agents and a screen (TigerVNC + openbox + noVNC on 6901). The CLI always sends the machine **kind** `desktop` and the backend maps kind and size to the image its deployment supports (one snapshot ladder serves both kinds, so a request that names `base` gets the same machine); `--desktop` / `--base` / `--no-desktop` are accepted for older scripts and change nothing. `--image <id>` is the explicit override and is the only way an image id leaves the client. Supports `--size <4g\|8g\|16g\|24g\|32g\|64g>`, `--name <label>` (display label, applied via `vm.rename` after create), `--provider`, `--workspace`, `--detach`, and `-d`. Without `--detach`, opens a plain terminal on the machine through the shared open path (see `vm shell`). The Machines panel's ＋ opens the New Machine sheet (size, plan meter) whose Create runs this same command. |
 | `vm base open`, `vm base reset` | Open (creating on first use) or reset the persistent Base machine, the same devbox with a screen; `--base` / `--desktop` are accepted for older scripts and change nothing, and an existing Base keeps its image. The app's Cloud VM button shows the Set Up Base sheet only when no Base exists yet. |
-| `vm shell`, `vm attach` | Open an interactive shell for an existing VM. Every cloud open (`vm shell` / `vm new` / `vm fork` / `vm restore` / `vm base open` / `vm base reset`, the Machines panel, the sidebar cloud button) uses the machine's private cmux-tui route through the app's user-space WireGuard hub. The first open gets one enrollment invitation from `vm.cmux_remote_info`; a known device reconnects with its pinned daemon fingerprint and cached private route, without a connection-time control-plane request. The app then uses `workspace.create` or `workspace.cloud_vm_terminal_ready`, `workspace.cloud_vm_bind`, and `surface.new_terminal {machine, open: true, workspace_id, focus: true, name: "shell"}`. There is no public WebSocket or automatic SSH fallback. `cmux vm ssh` remains an explicit diagnostic command. |
+| `vm shell`, `vm attach`, `vm connect` | Open an interactive shell for an existing VM. Every cloud open (`vm shell` / `vm new` / `vm fork` / `vm restore` / `vm base open` / `vm base reset`, the Machines panel, the sidebar cloud button) uses the machine's private cmux-tui route through the app's user-space WireGuard hub. The first open gets one enrollment invitation from `vm.cmux_remote_info`; a known device reconnects with its pinned daemon fingerprint and cached private route, without a connection-time control-plane request. The app then uses `workspace.create` or `workspace.cloud_vm_terminal_ready`, `workspace.cloud_vm_bind`, and `surface.new_terminal {machine, open: true, workspace_id, focus: true, name: "shell"}`. There is no public WebSocket or automatic SSH fallback. `cmux vm ssh` remains an explicit diagnostic command. |
 | `vm stats <id>`, `vm top <id>` | Print CPU, memory, and disk for the machine right now; a sleeping machine reports `asleep` and is not woken. |
 | `vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]` | Grow an existing machine in place. CPU is 1–32 vCPUs, memory is 4–64 GiB in whole GiB, and disk is 4–256 GiB in 4 GiB steps. The server enforces account plan ceilings and returns provider-confirmed resources. |
 | `vm desktop <id>`, `vm vnc <id>` | Open the private VM desktop through the authenticated userspace hub in a browser pane. noVNC and websockify use one loopback forward; no system VPN setup is required. |
 | `vm rename <id> <label>`, `vm rename <id> --clear` | Set or clear a display label; the machine id stays its address. |
-| `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
+| `vm rm`, `vm remove`, `vm destroy`, `vm delete` | Destroy a VM. Aliases are preserved; prefer `rm`. |
 | `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. |
+
 | `vm ssh-info` | Print SSH connection info. |
 | `vm ssh-attach` | Internal attach helper. |
 | `vm exec` | Run a shell command inside a VM. |
@@ -739,6 +740,7 @@ the expected text without connecting to a cmux socket.
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
+<<<<<<< HEAD
 - `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
@@ -760,6 +762,7 @@ the expected text without connecting to a cmux socket.
 - `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
 - `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
 - `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
+
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude|agent> [options]`

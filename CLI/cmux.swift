@@ -6094,11 +6094,11 @@ struct CMUXCLI {
                     idFormat: idFormat
                 )
 
-            case "shell", "attach":
+            case "shell", "attach", "connect":
                 let (windowOpt, vmArgs) = parseOption(rest, name: "--window")
                 guard let vmId = vmArgs.first else {
                     throw CLIError(message: """
-                        Usage: cmux \(command) shell <id>
+                        Usage: cmux vm ssh <id>
 
                         Find an id:
                           cmux vm ls
@@ -6113,6 +6113,7 @@ struct CMUXCLI {
                     idFormat: idFormat
                 )
 
+<<<<<<< HEAD
             case "tui":
                 let (windowOpt, vmArgs) = parseOption(rest, name: "--window")
                 try runVMTuiCommand(rest: vmArgs, windowRaw: windowOpt ?? windowId, client: client, jsonOutput: jsonOutput)
@@ -6147,6 +6148,9 @@ struct CMUXCLI {
                 }
 
             case "rm", "destroy", "delete":
+=======
+            case "rm", "remove", "destroy", "delete":
+>>>>>>> 59e9dbcd4ff (Add cmux vm command aliases)
                 guard let vmId = rest.first else {
                     throw CLIError(message: """
                         Usage: cmux vm rm <id>
@@ -6355,6 +6359,8 @@ struct CMUXCLI {
                 throw CLIError(message: """
                     Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
+                    Aliases: create -> new, list -> ls, shell/attach/connect -> ssh, remove/delete/destroy -> rm.
+
                     Common commands:
                       cmux vm ls
                       cmux vm new
@@ -6371,6 +6377,12 @@ struct CMUXCLI {
                       cmux vm ssh <id>
                       cmux vm shell <id>
                       cmux vm rm <id>
+
+                    Aliases are available for familiar spelling:
+                      create -> new
+                      list -> ls
+                      shell, attach, connect -> ssh
+                      remove, delete, destroy -> rm
                     """)
             }
 
@@ -18232,6 +18244,8 @@ struct CMUXCLI {
 
             `cmux vm <verb> --help` prints that verb's own usage.
 
+            Aliases: create -> new, list -> ls, shell/attach/connect -> ssh, remove/delete/destroy -> rm.
+
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
             Machines live on your private network with no public ports. Terminal
             and metadata access starts a user-space WireGuard tunnel automatically.
@@ -18408,6 +18422,12 @@ struct CMUXCLI {
               ports <id>                Show listening TCP ports inside the VM.
               handoff <id>              Print a short attach handoff block.
               promote-template <id>     Snapshot a VM with a template-oriented name.
+
+            Aliases:
+              create                     Alias for `new`; prefer `new` in docs and scripts.
+              list                       Alias for `ls`; prefer `ls` in docs and scripts.
+              shell, attach, connect     Aliases for `ssh`; prefer `ssh` in docs and scripts.
+              remove, delete, destroy    Aliases for `rm`; prefer `rm` in docs and scripts.
 
             Env:
               CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).
@@ -41161,7 +41181,7 @@ export default CMUXSessionRestore;
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
           \(localizedCoderouterCommands())
-          vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
+          vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud; accepts create/list/connect/remove aliases)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]
