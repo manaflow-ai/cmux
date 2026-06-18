@@ -10037,9 +10037,9 @@ final class GhosttySurfaceScrollView: NSView {
     /// Respects `searchFocusTarget` so Escape-to-terminal intent is preserved across window switches.
     private func restoreSearchFocus(window: NSWindow) {
         let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
-        pendingSuppressedFirstResponderFocusReapply = false
         switch searchFocusTarget {
         case .searchField:
+            pendingSuppressedFirstResponderFocusReapply = false
             if let firstResponder = window.firstResponder,
                isCurrentSurfaceSearchFieldResponder(firstResponder) {
                 surfaceView.terminalSurface?.setFocus(false)
@@ -10082,6 +10082,9 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         case .terminal:
             let result = requestSurfaceFirstResponder(in: window, reason: "restoreSearchFocus.terminal")
+            if result, isSurfaceViewFirstResponder() {
+                reassertTerminalSurfaceFocus(reason: "restoreSearchFocus.terminal")
+            }
 #if DEBUG
             cmuxDebugLog(
                 "find.restoreSearchFocus surface=\(surfaceShort) target=terminal " +
