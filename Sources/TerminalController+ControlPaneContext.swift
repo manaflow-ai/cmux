@@ -213,6 +213,20 @@ extension TerminalController: ControlPaneContext {
             return .noSourceSurface
         }
 
+        if ws.isRemoteTmuxMirror, panelType == .terminal {
+            let unsupported = mirrorRoutedUnsupportedOptions(
+                insertFirst: insertFirst,
+                workingDirectory: inputs.workingDirectory,
+                initialCommand: inputs.initialCommand,
+                tmuxStartCommand: inputs.tmuxStartCommand,
+                startupEnvironment: inputs.startupEnvironment,
+                initialDividerPosition: initialDividerPosition
+            )
+            if !unsupported.isEmpty {
+                return .mirrorUnsupportedOptions(unsupported)
+            }
+        }
+
         let newPanelId: UUID?
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         if panelType == .browser {
@@ -226,7 +240,7 @@ extension TerminalController: ControlPaneContext {
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
             )?.id
         } else {
-            newPanelId = ws.newTerminalSplit(
+            switch ws.newTerminalSplitOutcome(
                 from: sourcePanelId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -236,7 +250,18 @@ extension TerminalController: ControlPaneContext {
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
-            )?.id
+            ) {
+            case .created(let panel):
+                newPanelId = panel.id
+            case .routedToRemote:
+                return .routedToRemote(
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: ws.id,
+                    typeRawValue: panelType.rawValue
+                )
+            case .failed:
+                newPanelId = nil
+            }
         }
 
         guard let newPanelId else {

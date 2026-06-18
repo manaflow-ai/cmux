@@ -130,6 +130,14 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                 localized: "canvas.commandScrollHint",
                 defaultValue: "Command+scroll pans the canvas from anywhere"
             ),
+            minimapAccessibilityLabel: String(
+                localized: "canvas.minimap.accessibilityLabel",
+                defaultValue: "Canvas minimap"
+            ),
+            minimapAccessibilityHelp: String(
+                localized: "canvas.minimap.accessibilityHelp",
+                defaultValue: "Click or drag to move the canvas viewport"
+            ),
             callbacks: CanvasHostCallbacks(
                 onFocusPanel: { [weak workspace] panelId in
                     guard let workspace else { return }
