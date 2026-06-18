@@ -10,6 +10,11 @@ import {
   withApiRouteSpan,
 } from "@/services/telemetry";
 
+import {
+  DEFAULT_FROM_EMAIL,
+  buildFoundersWelcomeEmail,
+} from "./welcome-email";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -17,14 +22,6 @@ export const dynamic = "force-dynamic";
 // carry this metadata key (copied automatically onto each session). We only send
 // the welcome email when it is present and truthy.
 const FOUNDERS_METADATA_KEY = "founders_edition";
-
-// Default sender/recipients. Sender is overridable via env so the verified Resend
-// domain can change without a code edit; the founders are always copied so both
-// see exactly what the customer received.
-const DEFAULT_FROM_EMAIL = "austin@manaflow.ai";
-const FOUNDER_CC = ["austin@manaflow.ai", "lawrence@manaflow.ai"];
-const REPLY_TO = "austin@manaflow.ai";
-const EMAIL_SUBJECT = "cmux Founder's Edition";
 
 // Stripe signs webhooks with a 5-minute default tolerance; reject older payloads
 // to blunt replay attempts.
@@ -99,30 +96,6 @@ function isValidStripeSignature(
   });
 }
 
-function firstName(fullName: string | null | undefined): string {
-  const trimmed = (fullName ?? "").trim();
-  if (!trimmed) {
-    return "there";
-  }
-  return trimmed.split(/\s+/)[0];
-}
-
-function buildBody(name: string): string {
-  return [
-    `Hi ${name}!`,
-    "",
-    "Thank you for being one of the first ever customers of cmux :)",
-    "",
-    "My number is +1(714) 699-0169 and Lawrence's number is +1(949) 302-0749. " +
-      "Our emails are austin@manaflow.ai and lawrence@manaflow.ai. Feel free to " +
-      "text me on iMessage or WhatsApp, or we can just continue talking here. " +
-      "I've CC'd my cofounder as well.",
-    "",
-    "Best,",
-    "Austin",
-  ].join("\n");
-}
-
 export async function POST(request: Request) {
   return withApiRouteSpan(
     request,
@@ -180,13 +153,16 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, skipped: "no_customer_email" });
       }
 
-      const name = firstName(session?.customer_details?.name);
       // Stripe delivers webhooks at least once and retries after a transient
       // failure (including one observed after Resend already accepted the
-      // message), so key the send by the checkout session id. Resend
-      // deduplicates identical sends for 24h, so redelivery of the same
-      // purchase will not send a second welcome email.
-      const idempotencyKey = `founders-welcome/${session?.id ?? event.id ?? customerEmail}`;
+      // message), so key the send by the checkout session id. This same ref
+      // both deduplicates the send (via the Resend idempotency key, which
+      // dedupes identical sends for 24h) and threads the email (via the
+      // X-Entity-Ref-ID header inside buildFoundersWelcomeEmail): redelivery of
+      // the same purchase neither sends a second welcome nor spawns a second
+      // Gmail thread, while a new subscription gets its own thread.
+      const sessionRef = session?.id ?? event.id ?? customerEmail;
+      const idempotencyKey = `founders-welcome/${sessionRef}`;
       // Only attach the personal display name to the default sender. If the
       // address is overridden to a shared/team inbox, send from the bare
       // address rather than a mismatched "Austin Wang" identity.
@@ -196,14 +172,12 @@ export async function POST(request: Request) {
           : config.fromEmail;
       const resend = new Resend(config.resendApiKey);
       const { error } = await resend.emails.send(
-        {
+        buildFoundersWelcomeEmail({
           from: fromAddress,
-          to: [customerEmail],
-          cc: FOUNDER_CC,
-          replyTo: REPLY_TO,
-          subject: EMAIL_SUBJECT,
-          text: buildBody(name),
-        },
+          to: customerEmail,
+          customerName: session?.customer_details?.name,
+          sessionRef,
+        }),
         { idempotencyKey },
       );
 
