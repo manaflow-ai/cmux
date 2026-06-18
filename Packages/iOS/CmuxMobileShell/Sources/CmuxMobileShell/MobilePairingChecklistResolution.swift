@@ -6,7 +6,7 @@ extension MobilePairingFailureCategory {
         switch self {
         case .offline, .hostUnreachable, .listenerNotRunning, .localNetworkBlocked,
              .dnsFailed, .handshakeTimedOut, .connectionDropped, .invalidCode,
-             .loopbackRejected, .noSupportedRoute, .unknown:
+             .unrecognizedVersion, .loopbackRejected, .noSupportedRoute, .unknown:
             return .network
         case .authFailed, .ticketExpired:
             return .authentication
