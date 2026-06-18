@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import plistlib
+import re
 import secrets
 import shlex
 import shutil
@@ -138,6 +139,9 @@ const stage = document.getElementById("stage");
 const statusBox = document.getElementById("status");
 const statusText = document.getElementById("statusText");
 let metadata = {};
+let inputQueue = Promise.resolve();
+let pendingScrollEvent = null;
+let scrollFlushQueued = false;
 
 function withAuth(path) {
   const auth = window.location.search || "";
@@ -186,7 +190,7 @@ function pointForEvent(event) {
   return { x, y, width: screen.naturalWidth, height: screen.naturalHeight };
 }
 
-async function sendInput(event) {
+async function postInput(event) {
   try {
     const response = await fetch(withAuth("/input"), {
       method: "POST",
@@ -204,6 +208,41 @@ async function sendInput(event) {
   }
 }
 
+function queueInput(event) {
+  inputQueue = inputQueue.catch(() => {}).then(() => postInput(event));
+}
+
+async function flushScrollInput() {
+  const event = pendingScrollEvent;
+  pendingScrollEvent = null;
+  if (event) {
+    await postInput(event);
+  }
+  if (pendingScrollEvent) {
+    await flushScrollInput();
+    return;
+  }
+  scrollFlushQueued = false;
+}
+
+function queueScrollInput(event) {
+  if (pendingScrollEvent) {
+    pendingScrollEvent.deltaX += event.deltaX;
+    pendingScrollEvent.deltaY += event.deltaY;
+    pendingScrollEvent.x = event.x;
+    pendingScrollEvent.y = event.y;
+    pendingScrollEvent.width = event.width;
+    pendingScrollEvent.height = event.height;
+  } else {
+    pendingScrollEvent = event;
+  }
+  if (scrollFlushQueued) {
+    return;
+  }
+  scrollFlushQueued = true;
+  inputQueue = inputQueue.catch(() => {}).then(flushScrollInput);
+}
+
 let pointerDown = null;
 screen.addEventListener("pointerdown", event => {
   stage.focus();
@@ -216,7 +255,7 @@ screen.addEventListener("pointerup", event => {
   }
   const moved = Math.hypot(point.x - pointerDown.x, point.y - pointerDown.y);
   if (moved < 12) {
-    sendInput({ type: "tap", ...point });
+    queueInput({ type: "tap", ...point });
   }
   pointerDown = null;
 });
@@ -226,7 +265,7 @@ screen.addEventListener("wheel", event => {
     return;
   }
   event.preventDefault();
-  sendInput({ type: "scroll", deltaX: event.deltaX, deltaY: event.deltaY, ...point });
+  queueScrollInput({ type: "scroll", deltaX: event.deltaX, deltaY: event.deltaY, ...point });
 }, { passive: false });
 
 stage.addEventListener("keydown", event => {
@@ -234,9 +273,9 @@ stage.addEventListener("keydown", event => {
     return;
   }
   if (event.key.length === 1) {
-    sendInput({ type: "text", text: event.key });
+    queueInput({ type: "text", text: event.key });
   } else {
-    sendInput({ type: "key", key: event.key });
+    queueInput({ type: "key", key: event.key });
   }
 });
 
@@ -264,6 +303,10 @@ def timeout_output(value):
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
+
+
+def redact_token(value):
+    return re.sub(r"([?&]token=)[^\s&]+", r"\1<redacted>", value)
 
 
 def log(message):
@@ -560,6 +603,7 @@ class SimulatorState:
         self.auth_token = auth_token
         self.idb_path = shutil.which("idb")
         self.frame_lock = threading.Lock()
+        self.input_lock = threading.Lock()
         self.last_frame = None
         self.last_frame_error = None
 
@@ -607,15 +651,16 @@ class SimulatorState:
             self.frame_lock.release()
 
     def handle_input(self, event):
-        if self.input_command:
-            return self.run_input_command(event)
-        if self.idb_path:
-            return self.run_idb(event)
-        return {
-            "ok": False,
-            "unsupported": True,
-            "code": "input_bridge_unavailable",
-        }
+        with self.input_lock:
+            if self.input_command:
+                return self.run_input_command(event)
+            if self.idb_path:
+                return self.run_idb(event)
+            return {
+                "ok": False,
+                "unsupported": True,
+                "code": "input_bridge_unavailable",
+            }
 
     def run_input_command(self, event):
         command = shlex.split(self.input_command)
@@ -811,7 +856,7 @@ class SimulatorRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def log_message(self, fmt, *args):
-        log("%s - %s" % (self.address_string(), fmt % args))
+        log("%s - %s" % (self.address_string(), redact_token(fmt % args)))
 
 
 def parse_args(argv):
@@ -885,7 +930,7 @@ def serve(args):
         "input_available": state.input_available,
     }
     print(json.dumps(ready, ensure_ascii=False), flush=True)
-    log(f"serving simulator stream at {url}")
+    log(f"serving simulator stream at {redact_token(url)}")
     server.serve_forever()
 
 
