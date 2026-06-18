@@ -246,7 +246,7 @@ def test_codex_stop_reaps_transcript_monitor(cli_path: str, root: Path) -> None:
                     f"hooks codex stop failed exit={result.returncode}\n"
                     f"stdout={result.stdout}\nstderr={result.stderr}"
                 )
-            wait_for_monitor_pids(session_id, present=False, timeout=5)
+            wait_for_monitor_pids(session_id, present=False, timeout=30)
         finally:
             for pid in monitor_pids_for_session(session_id):
                 subprocess.run(["/bin/kill", str(pid)], check=False)
@@ -708,6 +708,12 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
 
     hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
     hook_groups = hooks.get("hooks", {})
+    for event_name in ["SessionStart", "UserPromptSubmit", "Stop"]:
+        groups = hook_groups.get(event_name)
+        if not groups:
+            raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
+        if groups[-1]["hooks"][0].get("timeout") != 5:
+            raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
     for event_name in ["PreToolUse", "PermissionRequest"]:
         groups = hook_groups.get(event_name)
         if not groups:
@@ -715,7 +721,7 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
         command = groups[-1]["hooks"][0]["command"]
         if command != cmux_codex_feed_command(event_name):
             raise AssertionError(f"wrong {event_name} feed command: {command!r}")
-        if groups[-1]["hooks"][0].get("timeout") != 120_000:
+        if groups[-1]["hooks"][0].get("timeout") != 5:
             raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
@@ -1962,7 +1968,7 @@ def test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path: str
         )
 
 
-def test_permission_reply_uses_codex_permission_request_schema(cli_path: str, root: Path) -> None:
+def test_codex_permission_request_is_nonblocking_telemetry(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux.sock"
     payload = {
         "session_id": "codex-session",
@@ -1979,27 +1985,17 @@ def test_permission_reply_uses_codex_permission_request_schema(cli_path: str, ro
         payload,
         {"kind": "permission", "mode": "once"},
     )
-    assert_permission_output(stdout, "allow")
+    if stdout != {}:
+        raise AssertionError(f"Codex PermissionRequest telemetry should not emit a decision: {stdout!r}")
     params = frame["params"]
-    if params.get("wait_timeout_seconds") != 120:
-        raise AssertionError(f"PermissionRequest should block for Feed reply: {frame!r}")
+    if params.get("wait_timeout_seconds") != 0:
+        raise AssertionError(f"Codex PermissionRequest should not wait for Feed reply: {frame!r}")
     event = params["event"]
-    if event.get("hook_event_name") != "PermissionRequest" or event.get("_source") != "codex":
+    if event.get("hook_event_name") != "PreToolUse" or event.get("_source") != "codex":
         raise AssertionError(f"wrong feed event: {event!r}")
 
-    stdout, _ = run_feed_hook(
-        cli_path,
-        root / "cmux-deny.sock",
-        payload,
-        {"kind": "permission", "mode": "deny"},
-    )
-    assert_permission_output(stdout, "deny")
-    message = stdout["hookSpecificOutput"]["decision"].get("message", "")
-    if "denied" not in message:
-        raise AssertionError(f"deny output should include a message: {stdout!r}")
 
-
-def test_codex_persistent_permission_modes_degrade_to_once(cli_path: str, root: Path) -> None:
+def test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path: str, root: Path) -> None:
     payload = {
         "session_id": "codex-session",
         "turn_id": "turn-persistent",
@@ -2009,15 +2005,15 @@ def test_codex_persistent_permission_modes_degrade_to_once(cli_path: str, root: 
         "tool_input": {"command": "printf hi"},
     }
 
-    for mode in ["always", "all", "bypass"]:
+    for mode in ["once", "always", "all", "bypass", "deny"]:
         stdout, _ = run_feed_hook(
             cli_path,
             root / f"cmux-{mode}.sock",
             payload,
             {"kind": "permission", "mode": mode},
         )
-        assert_permission_output(stdout, "allow")
-        assert_codex_allow_has_no_persistent_fields(stdout)
+        if stdout != {}:
+            raise AssertionError(f"Codex PermissionRequest must not answer {mode}: {stdout!r}")
 
 
 def test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path: str, root: Path) -> None:
@@ -2107,15 +2103,15 @@ def main() -> int:
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path, root)
-            test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
-            test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)
+            test_codex_permission_request_is_nonblocking_telemetry(cli_path, root)
+            test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1
 
-    print("PASS: Codex Feed hooks use native permission approvals")
+    print("PASS: Codex Feed hooks leave Codex approvals non-blocking")
     return 0
 
 

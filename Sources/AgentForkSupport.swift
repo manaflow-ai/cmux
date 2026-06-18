@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import CMUXAgentLaunch
 import Darwin
@@ -110,7 +111,7 @@ enum AgentForkSupport {
             process.standardOutput = pipe
             process.standardError = pipe
             pipe.fileHandleForReading.readabilityHandler = { [outputBuffer] handle in
-                switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+                switch handle.readAvailableDataOrEndOfFile() {
                 case .data(let data):
                     outputBuffer.append(data)
                 case .wouldBlock:
@@ -278,7 +279,7 @@ enum AgentForkSupport {
             process?.terminationHandler = nil
             pipe?.fileHandleForReading.readabilityHandler = nil
             if let readHandle = pipe?.fileHandleForReading {
-                let remainingData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: readHandle)
+                let remainingData = readHandle.readDataToEndOfFileOrEmpty()
                 outputBuffer.append(remainingData)
             }
             guard !timedOut else {

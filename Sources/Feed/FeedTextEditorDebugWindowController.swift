@@ -2,10 +2,14 @@
 import AppKit
 import SwiftUI
 
-final class FeedTextEditorDebugWindowController: NSWindowController, NSWindowDelegate {
+final class FeedTextEditorDebugWindowController: ReleasingWindowController {
     static let shared = FeedTextEditorDebugWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 920, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -19,8 +23,7 @@ final class FeedTextEditorDebugWindowController: NSWindowController, NSWindowDel
         window.identifier = NSUserInterfaceItemIdentifier("cmux.feedTextEditorDebug")
         window.center()
         window.contentView = NSHostingView(rootView: FeedTextEditorDebugView())
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -29,13 +32,7 @@ final class FeedTextEditorDebugWindowController: NSWindowController, NSWindowDel
     }
 
     func show() {
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-    }
-
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        sender.orderOut(nil)
-        return false
+        showManagedWindow()
     }
 }
 

@@ -5,7 +5,13 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxAppKitSupportUI
+import CmuxFoundation
+import CmuxSettings
 import UserNotifications
+import Testing
+
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -57,7 +63,7 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.branchVerticalLayout))
     }
 
     func testStoredPreferenceOverridesDefault() {
@@ -68,11 +74,11 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(false, forKey: SidebarBranchLayoutSettings.key)
-        XCTAssertFalse(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+        defaults.set(false, forKey: SettingCatalog().sidebar.branchVerticalLayout.userDefaultsKey)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.branchVerticalLayout))
 
-        defaults.set(true, forKey: SidebarBranchLayoutSettings.key)
-        XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+        defaults.set(true, forKey: SettingCatalog().sidebar.branchVerticalLayout.userDefaultsKey)
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.branchVerticalLayout))
     }
 }
 
@@ -86,10 +92,10 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.removeObject(forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        defaults.removeObject(forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
         XCTAssertEqual(
-            SidebarActiveTabIndicatorSettings.current(defaults: defaults),
-            SidebarActiveTabIndicatorSettings.defaultStyle
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle),
+            SettingCatalog().workspaceColors.indicatorStyle.defaultValue
         )
     }
 
@@ -101,17 +107,50 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(SidebarActiveTabIndicatorStyle.leftRail.rawValue, forKey: SidebarActiveTabIndicatorSettings.styleKey)
-        XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
+        defaults.set(WorkspaceIndicatorStyle.leftRail.rawValue, forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle), .leftRail)
 
-        defaults.set("rail", forKey: SidebarActiveTabIndicatorSettings.styleKey)
-        XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
+        defaults.set("rail", forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle), .leftRail)
 
-        defaults.set("not-a-style", forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        defaults.set("not-a-style", forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
         XCTAssertEqual(
-            SidebarActiveTabIndicatorSettings.current(defaults: defaults),
-            SidebarActiveTabIndicatorSettings.defaultStyle
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle),
+            SettingCatalog().workspaceColors.indicatorStyle.defaultValue
         )
+    }
+}
+
+@Suite
+struct SidebarTabItemFontScaleTests {
+    @Test func defaultSidebarFontScaleIsUnitScale() {
+        let scale = SidebarTabItemFontScale.scale(for: GhosttyConfig.defaultSidebarFontSize)
+
+        #expect(abs(scale - 1) <= 0.0001)
+    }
+
+    @Test func sidebarFontScaleIsProportionalToDefaultSidebarSize() {
+        let scale = SidebarTabItemFontScale.scale(for: 18)
+
+        #expect(abs(scale - (18 / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
+    }
+
+    @Test func sidebarFontScaleClampsSmallSizes() {
+        let scale = SidebarTabItemFontScale.scale(for: 4)
+
+        #expect(abs(scale - (GhosttyConfig.minSidebarFontSize / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
+    }
+
+    @Test func sidebarFontScaleClampsLargeSizes() {
+        let scale = SidebarTabItemFontScale.scale(for: 48)
+
+        #expect(abs(scale - (GhosttyConfig.maxSidebarFontSize / GhosttyConfig.defaultSidebarFontSize)) <= 0.0001)
+    }
+
+    @Test func sidebarFontScaleFallsBackToDefaultForNonFiniteValue() {
+        let scale = SidebarTabItemFontScale.scale(for: CGFloat.nan)
+
+        #expect(abs(scale - 1) <= 0.0001)
     }
 }
 
@@ -183,7 +222,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let second = UUID()
         let third = UUID()
 
-        let branches = SidebarBranchOrdering.orderedUniqueBranches(
+        let branches = SidebarBranchOrdering().orderedUniqueBranches(
             orderedPanelIds: [first, second, third],
             panelBranches: [
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
@@ -203,7 +242,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
     }
 
     func testOrderedUniqueBranchesUsesFallbackWhenNoPanelBranchesExist() {
-        let branches = SidebarBranchOrdering.orderedUniqueBranches(
+        let branches = SidebarBranchOrdering().orderedUniqueBranches(
             orderedPanelIds: [],
             panelBranches: [:],
             fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: true)
@@ -222,7 +261,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let fourth = UUID()
         let fifth = UUID()
 
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [first, second, third, fourth, fifth],
             panelBranches: [
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
@@ -257,7 +296,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [first, second],
             panelBranches: [:],
             panelDirectories: [
@@ -279,7 +318,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
     }
 
     func testOrderedUniqueBranchDirectoryEntriesFallsBackWhenNoPanelsExist() {
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [],
             panelBranches: [:],
             panelDirectories: [:],
@@ -298,7 +337,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let rows = SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: [first, second],
             panelBranches: [
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
@@ -331,7 +370,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let third = UUID()
         let fourth = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second, third, fourth],
             panelPullRequests: [
                 first: pullRequestState(
@@ -381,7 +420,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second],
             panelPullRequests: [
                 first: pullRequestState(
@@ -411,7 +450,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second],
             panelPullRequests: [
                 first: pullRequestState(
@@ -444,7 +483,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         let first = UUID()
         let second = UUID()
 
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [first, second],
             panelPullRequests: [
                 first: pullRequestState(
@@ -504,7 +543,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             url: "https://github.com/manaflow-ai/cmux/pull/11",
             status: .open
         )
-        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+        let pullRequests = SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: [],
             panelPullRequests: [:],
             fallbackPullRequest: fallback
@@ -586,7 +625,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [first, second, third]
 
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: first,
                 targetTabId: first,
                 tabIds: tabIds,
@@ -594,7 +633,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             )
         )
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: third,
                 targetTabId: nil,
                 tabIds: tabIds,
@@ -606,7 +645,7 @@ final class SidebarDropPlannerTests: XCTestCase {
     func testNoIndicatorWhenOnlyOneTabExists() {
         let only = UUID()
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: only,
                 targetTabId: nil,
                 tabIds: [only],
@@ -614,7 +653,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             )
         )
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: only,
                 targetTabId: only,
                 tabIds: [only],
@@ -629,7 +668,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let third = UUID()
         let tabIds = [first, second, third]
 
-        let indicator = SidebarDropPlanner.indicator(
+        let indicator = SidebarDropPlanner().indicator(
             draggedTabId: second,
             targetTabId: nil,
             tabIds: tabIds,
@@ -645,7 +684,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let third = UUID()
         let tabIds = [first, second, third]
 
-        let index = SidebarDropPlanner.targetIndex(
+        let index = SidebarDropPlanner().targetIndex(
             draggedTabId: second,
             targetTabId: nil,
             indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
@@ -662,7 +701,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [first, second, third]
 
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: second,
                 targetTabId: second,
                 tabIds: tabIds,
@@ -678,7 +717,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [first, second, third]
 
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: first,
                 targetTabId: second,
                 tabIds: tabIds,
@@ -695,7 +734,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let third = UUID()
         let tabIds = [first, second, third]
 
-        let indicator = SidebarDropPlanner.indicator(
+        let indicator = SidebarDropPlanner().indicator(
             draggedTabId: first,
             targetTabId: second,
             tabIds: tabIds,
@@ -706,7 +745,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         XCTAssertEqual(indicator?.tabId, third)
         XCTAssertEqual(indicator?.edge, .top)
         XCTAssertEqual(
-            SidebarDropPlanner.targetIndex(
+            SidebarDropPlanner().targetIndex(
                 draggedTabId: first,
                 targetTabId: second,
                 indicator: indicator,
@@ -723,7 +762,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let third = UUID()
         let tabIds = [first, second, third]
 
-        let fromBottomOfFirst = SidebarDropPlanner.indicator(
+        let fromBottomOfFirst = SidebarDropPlanner().indicator(
             draggedTabId: third,
             targetTabId: first,
             tabIds: tabIds,
@@ -731,7 +770,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             pointerY: 38,
             targetHeight: 40
         )
-        let fromTopOfSecond = SidebarDropPlanner.indicator(
+        let fromTopOfSecond = SidebarDropPlanner().indicator(
             draggedTabId: third,
             targetTabId: second,
             tabIds: tabIds,
@@ -753,7 +792,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [first, second, third]
 
         XCTAssertNil(
-            SidebarDropPlanner.indicator(
+            SidebarDropPlanner().indicator(
                 draggedTabId: third,
                 targetTabId: second,
                 tabIds: tabIds,
@@ -772,7 +811,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
         let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
 
-        let indicator = SidebarDropPlanner.indicator(
+        let indicator = SidebarDropPlanner().indicator(
             draggedTabId: unpinnedB,
             targetTabId: pinnedA,
             tabIds: tabIds,
@@ -793,7 +832,7 @@ final class SidebarDropPlannerTests: XCTestCase {
         let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
         let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
 
-        let targetIndex = SidebarDropPlanner.targetIndex(
+        let targetIndex = SidebarDropPlanner().targetIndex(
             draggedTabId: unpinnedB,
             targetTabId: pinnedA,
             indicator: SidebarDropIndicator(tabId: pinnedA, edge: .top),
@@ -804,27 +843,148 @@ final class SidebarDropPlannerTests: XCTestCase {
         XCTAssertEqual(targetIndex, 2)
     }
 
+    // MARK: - Cross-window insertion (drag a workspace into another window)
+
+    func testCrossWindowInsertionAppendsWhenDroppingOnEmptyArea() {
+        let a = UUID()
+        let b = UUID()
+        let result = SidebarDropPlanner().crossWindowInsertion(
+            targetTabId: nil,
+            draggedIsPinned: false,
+            indicator: nil,
+            tabIds: [a, b],
+            pinnedTabIds: []
+        )
+
+        XCTAssertEqual(result.insertionIndex, 2)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: nil, edge: .bottom))
+    }
+
+    func testCrossWindowInsertionTopEdgeInsertsBeforeTarget() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let result = SidebarDropPlanner().crossWindowInsertion(
+            targetTabId: b,
+            draggedIsPinned: false,
+            indicator: nil,
+            tabIds: [a, b, c],
+            pinnedTabIds: [],
+            pointerY: 2,
+            targetHeight: 40
+        )
+
+        XCTAssertEqual(result.insertionIndex, 1)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: b, edge: .top))
+    }
+
+    func testCrossWindowInsertionBottomEdgeInsertsAfterTarget() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let result = SidebarDropPlanner().crossWindowInsertion(
+            targetTabId: b,
+            draggedIsPinned: false,
+            indicator: nil,
+            tabIds: [a, b, c],
+            pinnedTabIds: [],
+            pointerY: 38,
+            targetHeight: 40
+        )
+
+        XCTAssertEqual(result.insertionIndex, 2)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: c, edge: .top))
+    }
+
+    func testCrossWindowInsertionClampsUnpinnedWorkspaceBelowPinnedRegion() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let unpinned = UUID()
+        let result = SidebarDropPlanner().crossWindowInsertion(
+            targetTabId: pinnedA,
+            draggedIsPinned: false,
+            indicator: SidebarDropIndicator(tabId: pinnedA, edge: .top),
+            tabIds: [pinnedA, pinnedB, unpinned],
+            pinnedTabIds: [pinnedA, pinnedB]
+        )
+
+        // An unpinned workspace cannot land above the two pinned rows.
+        XCTAssertEqual(result.insertionIndex, 2)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: unpinned, edge: .top))
+    }
+
+    func testCrossWindowInsertionClampsPinnedWorkspaceToFrontWhenNoExistingPins() {
+        let a = UUID()
+        let b = UUID()
+        // Drop a pinned workspace into the empty area of a window with no pins.
+        let result = SidebarDropPlanner().crossWindowInsertion(
+            targetTabId: nil,
+            draggedIsPinned: true,
+            indicator: nil,
+            tabIds: [a, b],
+            pinnedTabIds: []
+        )
+
+        // It cannot sit below the unpinned rows — clamp to the front.
+        XCTAssertEqual(result.insertionIndex, 0)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: a, edge: .top))
+    }
+
+    func testCrossWindowInsertionClampsPinnedWorkspaceIntoPinnedRegion() {
+        let pinnedA = UUID()
+        let unpinnedA = UUID()
+        let unpinnedB = UUID()
+        let result = SidebarDropPlanner().crossWindowInsertion(
+            targetTabId: unpinnedB,
+            draggedIsPinned: true,
+            indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
+            tabIds: [pinnedA, unpinnedA, unpinnedB],
+            pinnedTabIds: [pinnedA]
+        )
+
+        // A pinned workspace cannot land below the single pinned row.
+        XCTAssertEqual(result.insertionIndex, 1)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: unpinnedA, edge: .top))
+    }
+
+    func testCrossWindowInsertionRecoversIndicatorPositionAtDropTime() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        // At drop time the delegate replays the indicator it already showed.
+        let result = SidebarDropPlanner().crossWindowInsertion(
+            targetTabId: b,
+            draggedIsPinned: false,
+            indicator: SidebarDropIndicator(tabId: c, edge: .top),
+            tabIds: [a, b, c],
+            pinnedTabIds: []
+        )
+
+        XCTAssertEqual(result.insertionIndex, 2)
+        XCTAssertEqual(result.indicator, SidebarDropIndicator(tabId: c, edge: .top))
+    }
+
 }
 
 
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
     func testAutoScrollPlanTriggersNearTopAndBottomOnly() {
-        let topPlan = SidebarDragAutoScrollPlanner.plan(distanceToTop: 4, distanceToBottom: 96, edgeInset: 44, minStep: 2, maxStep: 12)
+        let topPlan = SidebarDragAutoScrollPlanner(distanceToTop: 4, distanceToBottom: 96, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(topPlan?.direction, .up)
         XCTAssertNotNil(topPlan)
 
-        let bottomPlan = SidebarDragAutoScrollPlanner.plan(distanceToTop: 96, distanceToBottom: 4, edgeInset: 44, minStep: 2, maxStep: 12)
+        let bottomPlan = SidebarDragAutoScrollPlanner(distanceToTop: 96, distanceToBottom: 4, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(bottomPlan?.direction, .down)
         XCTAssertNotNil(bottomPlan)
 
         XCTAssertNil(
-            SidebarDragAutoScrollPlanner.plan(distanceToTop: 60, distanceToBottom: 60, edgeInset: 44, minStep: 2, maxStep: 12)
+            SidebarDragAutoScrollPlanner(distanceToTop: 60, distanceToBottom: 60, edgeInset: 44, minStep: 2, maxStep: 12).plan
         )
     }
 
     func testAutoScrollPlanSpeedsUpCloserToEdge() {
-        let nearTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: 1, distanceToBottom: 99, edgeInset: 44, minStep: 2, maxStep: 12)
-        let midTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: 22, distanceToBottom: 78, edgeInset: 44, minStep: 2, maxStep: 12)
+        let nearTop = SidebarDragAutoScrollPlanner(distanceToTop: 1, distanceToBottom: 99, edgeInset: 44, minStep: 2, maxStep: 12).plan
+        let midTop = SidebarDragAutoScrollPlanner(distanceToTop: 22, distanceToBottom: 78, edgeInset: 44, minStep: 2, maxStep: 12).plan
 
         XCTAssertNotNil(nearTop)
         XCTAssertNotNil(midTop)
@@ -832,11 +992,11 @@ final class SidebarDragAutoScrollPlannerTests: XCTestCase {
     }
 
     func testAutoScrollPlanStillTriggersWhenPointerIsPastEdge() {
-        let aboveTop = SidebarDragAutoScrollPlanner.plan(distanceToTop: -500, distanceToBottom: 600, edgeInset: 44, minStep: 2, maxStep: 12)
+        let aboveTop = SidebarDragAutoScrollPlanner(distanceToTop: -500, distanceToBottom: 600, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(aboveTop?.direction, .up)
         XCTAssertEqual(aboveTop?.pointsPerTick, 12)
 
-        let belowBottom = SidebarDragAutoScrollPlanner.plan(distanceToTop: 600, distanceToBottom: -500, edgeInset: 44, minStep: 2, maxStep: 12)
+        let belowBottom = SidebarDragAutoScrollPlanner(distanceToTop: 600, distanceToBottom: -500, edgeInset: 44, minStep: 2, maxStep: 12).plan
         XCTAssertEqual(belowBottom?.direction, .down)
         XCTAssertEqual(belowBottom?.pointsPerTick, 12)
     }

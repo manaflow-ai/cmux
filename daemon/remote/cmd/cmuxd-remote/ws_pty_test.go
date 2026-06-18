@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -41,6 +43,56 @@ func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server
 		}
 	})
 	return server, hub
+}
+
+// TestAttachRPCSurfacesPTYAllocationFailure pins the contract that a remote PTY
+// allocation failure (e.g. a hardened devpts mounted ptmxmode=000 where
+// /dev/ptmx cannot be opened) is reported loudly: the error returned to the
+// client names the failing device and explains the devpts cause, and the daemon
+// records the failure instead of leaving a 0-byte log. This is the regression
+// for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
+// collapsed into a generic "remote PTY attach failed" with an empty daemon log.
+func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, stderr)
+	t.Cleanup(hub.closeAll)
+
+	denied := &os.PathError{Op: "open", Path: "/dev/ptmx", Err: syscall.EACCES}
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		return nil, nil, denied
+	}
+
+	_, _, _, err := hub.attachRPC(context.Background(), "sess-1", "att-1", 80, 24, "", "", false)
+	if err == nil {
+		t.Fatalf("expected attachRPC to fail when PTY allocation is denied")
+	}
+
+	msg := err.Error()
+	lowered := strings.ToLower(msg)
+	// Pin the stable marker the Swift clients key their passthrough off of: a
+	// daemon wording change that dropped it would silently break client-side
+	// preservation of this diagnostic without failing any other assertion. Match
+	// case-insensitively, exactly as Sources/Workspace.swift does.
+	if !strings.Contains(lowered, "could not allocate a remote pty") {
+		t.Fatalf("error must preserve the stable PTY-allocation marker the clients key off: %q", msg)
+	}
+	if !strings.Contains(msg, "/dev/ptmx") {
+		t.Fatalf("error should name the device that could not be opened: %q", msg)
+	}
+	// The EACCES remediation hint is appended for any permission-denied failure
+	// independent of /proc/self/mountinfo, so these assertions hold even in a
+	// container/sandbox without a real devpts mount (describeDevPTS may add
+	// nothing there). Key off the hint, not the optional mount summary.
+	if !strings.Contains(lowered, "ptmxmode") || !strings.Contains(lowered, "remount") {
+		t.Fatalf("error should explain the hardened devpts cause and remediation: %q", msg)
+	}
+
+	if stderr.Len() == 0 {
+		t.Fatalf("PTY allocation failure must be logged to the daemon log, not swallowed")
+	}
+	if !strings.Contains(stderr.String(), "/dev/ptmx") {
+		t.Fatalf("daemon log should include the allocation failure detail: %q", stderr.String())
+	}
 }
 
 func TestServeWSRequiresExplicitLeaseFile(t *testing.T) {
@@ -639,9 +691,17 @@ func TestWebSocketPTYWriteFailureClosesConnectionAndReapsAttachment(t *testing.T
 	}
 
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
-	_, _, err := conn.Read(ctx)
-	if err == nil {
-		t.Fatal("client connection stayed open after server write failure")
+	closeCtx, cancelClose := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelClose()
+	for {
+		_, _, err := conn.Read(closeCtx)
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("client connection stayed open after server write failure")
+		}
+		break
 	}
 }
 

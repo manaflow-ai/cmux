@@ -229,7 +229,7 @@ private struct PDFPreviewChromeDebugSample: View {
     }
 }
 
-final class PDFPreviewChromeDebugWindowController: NSWindowController, NSWindowDelegate {
+final class PDFPreviewChromeDebugWindowController: ReleasingWindowController {
     static let shared = PDFPreviewChromeDebugWindowController()
     private static let zoomOutItemID = NSToolbarItem.Identifier("cmux.pdfPreviewChromeDebug.zoomOut")
     private static let actualSizeItemID = NSToolbarItem.Identifier("cmux.pdfPreviewChromeDebug.actualSize")
@@ -240,7 +240,11 @@ final class PDFPreviewChromeDebugWindowController: NSWindowController, NSWindowD
 
     private let model = PDFPreviewChromeDebugModel()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 660),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -251,14 +255,12 @@ final class PDFPreviewChromeDebugWindowController: NSWindowController, NSWindowD
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.pdfPreviewChromeDebug")
         window.center()
         window.contentView = NSHostingView(rootView: PDFPreviewChromeDebugView(model: model))
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
         installToolbar(on: window)
+        return window
     }
 
     @available(*, unavailable)
@@ -267,8 +269,7 @@ final class PDFPreviewChromeDebugWindowController: NSWindowController, NSWindowD
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 
     private func installToolbar(on window: NSWindow) {

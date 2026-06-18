@@ -53,10 +53,14 @@ enum TitlebarLayoutDebugSettingsSnapshot {
     }
 }
 
-final class TitlebarLayoutDebugWindowController: NSWindowController, NSWindowDelegate {
+final class TitlebarLayoutDebugWindowController: ReleasingWindowController {
     static let shared = TitlebarLayoutDebugWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 640),
             styleMask: [.titled, .closable, .resizable, .utilityWindow],
@@ -67,13 +71,11 @@ final class TitlebarLayoutDebugWindowController: NSWindowController, NSWindowDel
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.titlebarLayoutDebug")
         window.center()
         window.contentView = NSHostingView(rootView: TitlebarLayoutDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -83,8 +85,7 @@ final class TitlebarLayoutDebugWindowController: NSWindowController, NSWindowDel
 
     @MainActor
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
         TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
     }
 }

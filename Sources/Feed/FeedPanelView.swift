@@ -793,7 +793,7 @@ final class FeedKeyboardFocusView: NSView {
             "fr=\(feedDebugResponderSummary(window?.firstResponder))"
         )
 #endif
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,
@@ -1447,19 +1447,38 @@ private struct PermissionActionArea: View {
                         onApprove(.deny)
                     }
                         .accessibilityIdentifier("FeedPermissionDenyButton")
-                    FeedButton(label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
-                               kind: .light, size: .medium, fullWidth: true) {
-                        onActionRow()
-                        onApprove(.once)
+                    if FeedPermissionActionPolicy.supportsOncePermissionMode(
+                        source: source,
+                        toolInputJSON: toolInputJSON
+                    ) {
+                        FeedButton(label: String(localized: "feed.permission.once", defaultValue: "Allow Once"),
+                                   kind: .light, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.once)
+                        }
+                            .accessibilityIdentifier("FeedPermissionAllowOnceButton")
                     }
-                        .accessibilityIdentifier("FeedPermissionAllowOnceButton")
-                    if FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: source) {
+                    if FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+                        source: source,
+                        toolInputJSON: toolInputJSON
+                    ) {
                         FeedButton(label: String(localized: "feed.permission.always", defaultValue: "Always Allow"),
                                    kind: .primary, size: .medium, fullWidth: true) {
                             onActionRow()
                             onApprove(.always)
                         }
                             .accessibilityIdentifier("FeedPermissionAlwaysAllowButton")
+                    }
+                    if FeedPermissionActionPolicy.supportsAllPermissionMode(
+                        source: source,
+                        toolInputJSON: toolInputJSON
+                    ) {
+                        FeedButton(label: String(localized: "feed.permission.all", defaultValue: "All tools"),
+                                   kind: .primary, size: .medium, fullWidth: true) {
+                            onActionRow()
+                            onApprove(.all)
+                        }
+                            .accessibilityIdentifier("FeedPermissionAllToolsButton")
                     }
                     if FeedPermissionActionPolicy.supportsBypassPermissions(source: source) {
                         FeedButton(label: String(localized: "feed.permission.bypass", defaultValue: "Bypass"),

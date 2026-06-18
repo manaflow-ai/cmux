@@ -156,10 +156,10 @@ struct TabBarBackdropLabVariant: Identifiable {
 }
 
 #if DEBUG
-final class BonsplitTabBarDebugWindowController: NSWindowController, NSWindowDelegate {
+final class BonsplitTabBarDebugWindowController: ReleasingWindowController {
     static let shared = BonsplitTabBarDebugWindowController()
 
-    private init() {
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -173,21 +173,15 @@ final class BonsplitTabBarDebugWindowController: NSWindowController, NSWindowDel
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.bonsplitTabBarDebug")
         window.center()
         window.contentView = NSHostingView(rootView: BonsplitTabBarDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 

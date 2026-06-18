@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaceNavigation
 import SwiftUI
 
 extension cmuxApp {
@@ -128,7 +129,7 @@ extension cmuxApp {
         let _ = focusHistoryMenuInvalidator.revision
         let back = manager.focusHistoryMenuSnapshot(direction: .back)
         let forward = manager.focusHistoryMenuSnapshot(direction: .forward)
-        return FocusHistoryMenuSnapshotBuilder.recentlyFocused(
+        return FocusHistoryMenuSnapshot.recentlyFocused(
             back: back,
             forward: forward,
             maxItemCount: 10

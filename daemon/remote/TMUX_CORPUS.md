@@ -2,7 +2,7 @@
 
 Pinned upstream tmux commit: `a9ba7b8ecbe1d107aa716f52d53c99ea1a00cf11`.
 
-This map records how each selected upstream tmux regression or fuzz target is represented in cmux. It is documentation only; CI confidence comes from executable Go tests, Go fuzz targets, and the macOS terminal-renderer tests in `.github/workflows/tmux-corpus.yml`.
+This map records how each selected upstream tmux regression or fuzz target is represented in cmux. It is documentation only; CI confidence comes from executable Go tests, Go fuzz targets, and the macOS terminal-renderer tests in `.github/workflows/tmux-corpus.yml`. The daemon and tmux-compat rows marked `pr` run on pull requests touching `daemon/remote/**`; the terminal-renderer rows remain nightly because they need the macOS app and GhosttyKit.
 
 | Upstream source | cmux layer | Status | CI lane | Port note |
 | --- | --- | --- | --- | --- |

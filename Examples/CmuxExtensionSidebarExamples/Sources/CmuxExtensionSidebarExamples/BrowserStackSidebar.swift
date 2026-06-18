@@ -1,10 +1,10 @@
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 import Foundation
 
-public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
+public struct BrowserStackSidebar: CmuxMutableSidebarProvider {
     public static let stateDidLoadNotification = Notification.Name("CmuxBrowserStackSidebarStateDidLoad")
 
-    public let descriptor = CmuxExtensionSidebarProviderDescriptor(
+    public let descriptor = CmuxSidebarProviderDescriptor(
         id: "com.example.cmux.sidebar.browser-stack",
         title: localized("example.sidebar.browserStack.title", "Browser Stack"),
         subtitle: localized("example.sidebar.browserStack.subtitle", "User extension"),
@@ -29,7 +29,7 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
         NotificationCenter.default.post(name: stateDidLoadNotification, object: nil)
     }
 
-    public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
+    public func render(snapshot: CmuxSidebarProviderSnapshot) -> CmuxSidebarProviderRenderModel {
         let state = stateCache.state(for: snapshot)
         let workspacesById = Dictionary(
             snapshot.workspaces.map { ($0.id, $0) },
@@ -62,25 +62,25 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
     }
 
     public func handle(
-        _ mutation: CmuxExtensionSidebarMutation,
-        snapshot: CmuxExtensionSidebarSnapshot
-    ) throws -> CmuxExtensionCommandResult {
+        _ mutation: CmuxSidebarProviderMutation,
+        snapshot: CmuxSidebarProviderSnapshot
+    ) throws -> CmuxSidebarProviderCommandResult {
         guard case .moveWorkspace(let move) = mutation else {
-            return CmuxExtensionCommandResult(ok: false)
+            return CmuxSidebarProviderCommandResult(ok: false)
         }
         stateCache.moveWorkspace(move, snapshot: snapshot)
-        return CmuxExtensionCommandResult(ok: true)
+        return CmuxSidebarProviderCommandResult(ok: true)
     }
 
-    private func recentActivityText(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? {
+    private func recentActivityText(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
         workspace.latestSubmittedAt.map { .relativeDate($0, style: .compact) }
     }
 
-    private func browserIcon(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderIcon? {
+    private func browserIcon(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderIcon? {
         let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let titleTokens = Set(title.split { !$0.isLetter && !$0.isNumber }.map(String.init))
         if title.contains("google") {
-            return CmuxExtensionSidebarRenderIcon(
+            return CmuxSidebarProviderIcon(
                 text: "G",
                 foregroundColorHex: "#4285F4",
                 backgroundColorHex: "#FFFFFF"
@@ -90,7 +90,7 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
             || title.contains("ycombinator")
             || title.contains("y combinator")
             || titleTokens.contains("yc") {
-            return CmuxExtensionSidebarRenderIcon(
+            return CmuxSidebarProviderIcon(
                 text: "Y",
                 foregroundColorHex: "#FFFFFF",
                 backgroundColorHex: "#FF6600",
@@ -98,7 +98,7 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
             )
         }
         if title == "x" || title.hasPrefix("x.") || title.contains("twitter") || title.contains("what's happening") {
-            return CmuxExtensionSidebarRenderIcon(
+            return CmuxSidebarProviderIcon(
                 text: "X",
                 foregroundColorHex: "#FFFFFF",
                 backgroundColorHex: "#000000",
@@ -109,13 +109,13 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
             || titleTokens.contains("dia")
             || title.contains("dia browser")
         if isDiaBrowser {
-            return CmuxExtensionSidebarRenderIcon(
+            return CmuxSidebarProviderIcon(
                 systemImageName: "bubble.left.fill",
                 foregroundColorHex: "#D8D8D8",
                 backgroundColorHex: "#000000"
             )
         }
-        return CmuxExtensionSidebarRenderIcon(
+        return CmuxSidebarProviderIcon(
             systemImageName: "bubble.left.fill",
             foregroundColorHex: "#D0D0D0",
             backgroundColorHex: "#5A5A5A"
@@ -156,7 +156,7 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
         }
     }
 
-    func state(for snapshot: CmuxExtensionSidebarSnapshot) -> BrowserStackSidebarState {
+    func state(for snapshot: CmuxSidebarProviderSnapshot) -> BrowserStackSidebarState {
         let scopeKey = Self.scopeKey(for: snapshot)
         startLoadIfNeeded(scopeKey: scopeKey, snapshot: snapshot)
         lock.lock()
@@ -170,8 +170,8 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
     }
 
     func moveWorkspace(
-        _ move: CmuxExtensionSidebarWorkspaceMove,
-        snapshot: CmuxExtensionSidebarSnapshot
+        _ move: CmuxSidebarProviderWorkspaceMove,
+        snapshot: CmuxSidebarProviderSnapshot
     ) {
         let scopeKey = Self.scopeKey(for: snapshot)
         let updated: BrowserStackSidebarState
@@ -188,7 +188,7 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
         persist(updated, scopeKey: scopeKey)
     }
 
-    private func startLoadIfNeeded(scopeKey: String, snapshot: CmuxExtensionSidebarSnapshot) {
+    private func startLoadIfNeeded(scopeKey: String, snapshot: CmuxSidebarProviderSnapshot) {
         let generation: UInt64
         lock.lock()
         var scopedState = scopedState(for: scopeKey)
@@ -239,7 +239,7 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
         )
     }
 
-    private static func scopeKey(for snapshot: CmuxExtensionSidebarSnapshot) -> String {
+    private static func scopeKey(for snapshot: CmuxSidebarProviderSnapshot) -> String {
         if let windowId = snapshot.windowId {
             return "window-\(windowId.uuidString.lowercased())"
         }
@@ -275,7 +275,7 @@ public struct BrowserStackSidebarStore: Sendable {
         return try load()
     }
 
-    public func load(scopeKey: String, snapshot: CmuxExtensionSidebarSnapshot) throws -> BrowserStackSidebarState {
+    public func load(scopeKey: String, snapshot: CmuxSidebarProviderSnapshot) throws -> BrowserStackSidebarState {
         let url = scopedStateURL(scopeKey: scopeKey)
         if url != stateURL, FileManager.default.fileExists(atPath: url.path) {
             return try load(from: url)
@@ -320,7 +320,7 @@ public struct BrowserStackSidebarStore: Sendable {
     }
 
     private func loadBestScopedFallback(
-        matching snapshot: CmuxExtensionSidebarSnapshot,
+        matching snapshot: CmuxSidebarProviderSnapshot,
         excluding excludedURL: URL
     ) throws -> BrowserStackSidebarState? {
         let liveIds = Set(snapshot.workspaceIds)
@@ -364,14 +364,14 @@ public struct BrowserStackSidebarStore: Sendable {
         return best?.state
     }
 
-    public func reconciledState(for snapshot: CmuxExtensionSidebarSnapshot) throws -> BrowserStackSidebarState {
+    public func reconciledState(for snapshot: CmuxSidebarProviderSnapshot) throws -> BrowserStackSidebarState {
         let loaded = (try? load()) ?? BrowserStackSidebarState.initial(snapshot: snapshot)
         return loaded.reconciled(with: snapshot)
     }
 
     public func moveWorkspace(
-        _ move: CmuxExtensionSidebarWorkspaceMove,
-        snapshot: CmuxExtensionSidebarSnapshot
+        _ move: CmuxSidebarProviderWorkspaceMove,
+        snapshot: CmuxSidebarProviderSnapshot
     ) throws -> BrowserStackSidebarState {
         var state = try reconciledState(for: snapshot)
         state.moveWorkspace(move)
@@ -388,7 +388,7 @@ public struct BrowserStackSidebarState: Codable, Equatable, Sendable {
         self.sections = sections
     }
 
-    public static func initial(snapshot: CmuxExtensionSidebarSnapshot) -> BrowserStackSidebarState {
+    public static func initial(snapshot: CmuxSidebarProviderSnapshot) -> BrowserStackSidebarState {
         let ids = snapshot.workspaceIds
         return BrowserStackSidebarState(sections: [
             BrowserStackSidebarSectionState(
@@ -412,7 +412,7 @@ public struct BrowserStackSidebarState: Codable, Equatable, Sendable {
         ])
     }
 
-    public func reconciled(with snapshot: CmuxExtensionSidebarSnapshot) -> BrowserStackSidebarState {
+    public func reconciled(with snapshot: CmuxSidebarProviderSnapshot) -> BrowserStackSidebarState {
         let liveIds = Set(snapshot.workspaceIds)
         var seen = Set<UUID>()
         var nextSections = sections.map { section -> BrowserStackSidebarSectionState in
@@ -436,7 +436,7 @@ public struct BrowserStackSidebarState: Codable, Equatable, Sendable {
         return BrowserStackSidebarState(sections: nextSections)
     }
 
-    public mutating func moveWorkspace(_ move: CmuxExtensionSidebarWorkspaceMove) {
+    public mutating func moveWorkspace(_ move: CmuxSidebarProviderWorkspaceMove) {
         for index in sections.indices {
             sections[index].workspaceIds.removeAll { $0 == move.workspaceId }
         }

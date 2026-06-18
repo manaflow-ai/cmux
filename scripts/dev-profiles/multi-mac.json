@@ -1,0 +1,13 @@
+{
+  "description": "Partial seed for the multi-Mac host switcher. The switcher lists Macs the phone has actually paired with (iOS-side MobilePairedMacStore state), which no socket verb can fabricate, so a second Mac cannot be seeded from here. This profile seeds the CURRENT Mac with a couple of clearly-named workspaces so it shows realistic content when selected in the switcher; pair a second real Mac (run dev-setup.sh --tag <other> on another machine and pair the phone to both) to exercise the switch itself. See README.md.",
+  "steps": [
+    {
+      "args": ["--id-format", "uuids", "workspace", "create", "--name", "This Mac - A", "--cwd", "${cwd}", "--json"],
+      "capture": { "wsA": "workspace_id" }
+    },
+    {
+      "args": ["--id-format", "uuids", "workspace", "create", "--name", "This Mac - B", "--cwd", "${cwd}", "--json"],
+      "capture": { "wsB": "workspace_id" }
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Testing"
+  short_description: "Use Swift Testing and validate cmux test targets correctly."
+  default_prompt: "Use this skill when adding or changing tests, touching package or refactor code that can break test targets, or deciding whether reload.sh is enough validation."

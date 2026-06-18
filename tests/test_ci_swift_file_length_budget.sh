@@ -25,6 +25,7 @@ write_lines(root / "Sources" / "Small.swift", 4)
 write_lines(root / "Sources" / "vendor" / "Ignored.swift", 100)
 write_lines(root / "CLI" / "Tool.swift", 6)
 write_lines(root / "Packages" / "Fixture" / "Sources" / "Fixture.swift", 7)
+write_lines(root / "Packages" / "Fixture" / ".build" / "checkouts" / "Ignored.swift", 100)
 PY
 
 python3 scripts/swift_file_length_budget.py \
@@ -55,6 +56,11 @@ fi
 
 if grep -Fq 'vendor' "$BUDGET"; then
   echo "ignored source should not be included" >&2
+  exit 1
+fi
+
+if grep -Fq '.build' "$BUDGET"; then
+  echo "SwiftPM build output should not be included" >&2
   exit 1
 fi
 

@@ -1,5 +1,13 @@
 export const blogPosts = [
   {
+    slug: "cmux-history",
+    key: "cmuxHistory",
+    title: "cmux history",
+    date: "2026-06-02",
+    summary:
+      "Reopen closed terminals, browsers, workspaces, and agent sessions with Cmd+Shift+T, and retrace your focus with Cmd+[ and Cmd+].",
+  },
+  {
     slug: "cmux-finder",
     key: "cmuxFinder",
     title: "Introducing cmux Finder",

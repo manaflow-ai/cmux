@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { shortcutCategories, type LocalizedText, type Shortcut } from "../../data/cmux-shortcuts";
 
 function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
+  return text[locale as keyof LocalizedText] ?? (locale.startsWith("ja") ? text.ja : text.en);
 }
 
 function normalize(s: string) {

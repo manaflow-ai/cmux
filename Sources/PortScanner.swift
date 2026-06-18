@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Batched port scanner that replaces per-shell `ps + lsof` scanning.
@@ -482,7 +483,7 @@ final class PortScanner: @unchecked Sendable {
             // safety net for the error path (process.run() throws), not a
             // substitute for this explicit close.
             try? stdoutWriteHandle.close()
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutReadHandle)
+            let data = stdoutReadHandle.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
 
             guard let output = String(data: data, encoding: .utf8) else {

@@ -1,10 +1,12 @@
 import AppKit
+import CmuxSettings
 import Foundation
 
 enum CommandClickFileOpenRouter {
     nonisolated static func shouldRouteInCmux(path: String) -> Bool {
-        CmdClickMarkdownRouteSettings.shouldRoute(path: path)
-            || CmdClickSupportedFileRouteSettings.shouldRoute(path: path)
+        let store = FileRouteSettingsStore(defaults: .standard)
+        return store.shouldRouteMarkdown(path: path)
+            || store.shouldRouteSupportedFile(path: path)
     }
 
     @MainActor
@@ -13,12 +15,13 @@ enum CommandClickFileOpenRouter {
         sourcePanelId: UUID,
         filePath: String
     ) -> Bool {
-        if CmdClickMarkdownRouteSettings.shouldRoute(path: filePath),
+        let store = FileRouteSettingsStore(defaults: .standard)
+        if store.shouldRouteMarkdown(path: filePath),
            workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
             return true
         }
 
-        guard CmdClickSupportedFileRouteSettings.shouldRoute(path: filePath) else {
+        guard store.shouldRouteSupportedFile(path: filePath) else {
             return false
         }
         return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil

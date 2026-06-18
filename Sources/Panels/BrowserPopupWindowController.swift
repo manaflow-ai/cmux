@@ -105,8 +105,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
-            websiteDataStore: browserContext.websiteDataStore,
-            processPool: browserContext.processPool
+            websiteDataStore: browserContext.websiteDataStore
         )
 
         // Create popup web view with WebKit's supplied configuration after
@@ -351,6 +350,14 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         } else if let url = request.url {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    fileprivate func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
+        guard terminatedWebView === webView else { return }
+#if DEBUG
+        cmuxDebugLog("popup.webcontent.terminated depth=\(nestingDepth)")
+#endif
+        closePopup()
     }
 
     fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
@@ -621,6 +628,11 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
+            return
+        }
+
         decisionHandler(.allow)
     }
 
@@ -640,15 +652,10 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        if let response = navigationResponse.response as? HTTPURLResponse {
-            let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition") ?? ""
-            if contentDisposition.lowercased().hasPrefix("attachment") {
-                decisionHandler(.download)
-                return
-            }
-        }
-
-        if !navigationResponse.canShowMIMEType {
+        let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
+        if BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+            mimeType: navigationResponse.response.mimeType, canShowMIMEType: navigationResponse.canShowMIMEType, contentDisposition: contentDisposition
+        ) != nil {
             decisionHandler(.download)
             return
         }
@@ -664,6 +671,10 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         // Parity with main browser: performDefaultHandling enables system keychain
         // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
         completionHandler(.performDefaultHandling, nil)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        controller?.handleWebContentProcessTermination(for: webView)
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

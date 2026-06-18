@@ -349,7 +349,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         )
     }
 
-    func testOmnibarAutocompleteCandidateIsCommittedOnEnter() {
+    func testOmnibarArrowSelectedSuggestionIsCommittedOnEnter() {
         seedBrowserHistoryForTest(
             seedEntries: [
                 SeedEntry(url: "https://news.ycombinator.com/", title: "News Y Combinator", visitCount: 12, typedCount: 1),
@@ -400,16 +400,23 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             return
         }
 
+        // Only an explicitly arrow-selected suggestion commits on Enter
+        // (https://github.com/manaflow-ai/cmux/issues/5913). Reach the Gmail
+        // row with Ctrl+N; when it is already auto-highlighted at row 0, make
+        // the selection explicit with a Ctrl+N / Ctrl+P round trip.
+        let gmailRow = rows[gmailRowIndex]
         if gmailRowIndex > 0 {
-            let gmailRow = rows[gmailRowIndex]
             for _ in 0..<gmailRowIndex {
                 app.typeKey("n", modifierFlags: [.control])
             }
-            XCTAssertTrue(
-                waitForSuggestionRowToBeSelected(gmailRow, timeout: 3.0),
-                "Expected Ctrl+N to select Gmail row \(gmailRowIndex). value=\(String(describing: gmailRow.value))"
-            )
+        } else {
+            app.typeKey("n", modifierFlags: [.control])
+            app.typeKey("p", modifierFlags: [.control])
         }
+        XCTAssertTrue(
+            waitForSuggestionRowToBeSelected(gmailRow, timeout: 3.0),
+            "Expected keyboard navigation to select Gmail row \(gmailRowIndex). value=\(String(describing: gmailRow.value))"
+        )
 
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
@@ -418,6 +425,73 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             return value.localizedCaseInsensitiveContains("example.com/gmail")
         }
         XCTAssertTrue(committedToGmail, "Expected Enter to commit Gmail history target. value=\(String(describing: omnibar.value))")
+    }
+
+    func testOmnibarReturnWithoutArrowSelectionNavigatesTypedText() {
+        // Regression for https://github.com/manaflow-ai/cmux/issues/5913: a
+        // row that was auto-highlighted for the popup (here the Gmail history
+        // entry matched by title) must not hijack plain Return. Without an
+        // explicit arrow selection, Return submits the typed text.
+        seedBrowserHistoryForTest(
+            seedEntries: [
+                SeedEntry(url: "https://news.ycombinator.com/", title: "News Y Combinator", visitCount: 12, typedCount: 1),
+                SeedEntry(url: "https://example.com/gmail", title: "Gmail", visitCount: 10, typedCount: 2),
+            ]
+        )
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
+        launchAndEnsureForeground(app)
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+
+        omnibar.typeText("gm")
+
+        let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
+        XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
+
+        // Wait until the Gmail row exists and carries the automatic highlight
+        // so Return is pressed in exactly the state the bug used to hijack.
+        let rows: [XCUIElement] = (0...4).map {
+            app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions.Row.\($0)").firstMatch
+        }
+        var autoHighlightedGmailRow: XCUIElement?
+        _ = waitForCondition(timeout: 6.0) {
+            for row in rows where row.exists {
+                let rowValue = (row.value as? String) ?? ""
+                if rowValue.localizedCaseInsensitiveContains("gmail"),
+                   self.isSuggestionRowSelected(row) {
+                    autoHighlightedGmailRow = row
+                    return true
+                }
+            }
+            return false
+        }
+        XCTAssertNotNil(
+            autoHighlightedGmailRow,
+            "Expected the Gmail row to be auto-highlighted for query 'gm' before pressing Return."
+        )
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        let navigatedTypedText = waitForCondition(timeout: 8.0) {
+            let value = ((omnibar.value as? String) ?? "").lowercased()
+            return value.contains("q=gm")
+        }
+        XCTAssertTrue(
+            navigatedTypedText,
+            "Expected plain Return to search the typed text 'gm'. value=\(String(describing: omnibar.value))"
+        )
+        XCTAssertFalse(
+            ((omnibar.value as? String) ?? "").localizedCaseInsensitiveContains("example.com/gmail"),
+            "Auto-highlighted suggestion must not commit without an explicit arrow selection. value=\(String(describing: omnibar.value))"
+        )
     }
 
     func testOmnibarSingleRowPopupUsesMinimumHeight() {

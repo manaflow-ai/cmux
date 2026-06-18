@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import SwiftUI
 
 enum HeaderChromeIconStyle {
@@ -11,6 +12,11 @@ enum HeaderChromeIconStyle {
 
     static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
         HeaderChromeControlMetrics.iconFrameSize(forIconSize: iconSize)
+    }
+
+    static func symbol(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .cmuxSymbolRasterSize(RightSidebarChromeMetrics.headerIconSize, weight: weight)
     }
 
     static func foregroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool = true) -> Double {
@@ -139,7 +145,12 @@ struct RightSidebarChromePillModifier: ViewModifier {
 struct RightSidebarChromeBottomBorderModifier: ViewModifier {
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
-            WindowChromeBorder(orientation: .horizontal, ignoresSafeArea: false)
+            WindowChromeBorder(
+                orientation: .horizontal,
+                ignoresSafeArea: false,
+                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
+                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+            )
         }
     }
 }
@@ -164,7 +175,6 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
     var body: some View {
         configuration.label
             .symbolRenderingMode(.monochrome)
-            .font(.system(size: RightSidebarChromeMetrics.headerIconSize, weight: HeaderChromeIconStyle.weight))
             .frame(
                 width: RightSidebarChromeMetrics.headerIconFrameSize,
                 height: RightSidebarChromeMetrics.headerIconFrameSize

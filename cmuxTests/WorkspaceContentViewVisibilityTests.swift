@@ -11,7 +11,7 @@ import Bonsplit
 final class WorkspaceContentViewVisibilityTests: XCTestCase {
     func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
         XCTAssertEqual(
-            MountedWorkspacePresentationPolicy.resolve(
+            MountedWorkspacePresentation.resolve(
                 isSelectedWorkspace: false,
                 isRetiringWorkspace: false
             ),
@@ -25,7 +25,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
 
     func testRetiringWorkspaceStaysPanelVisibleDuringHandoff() {
         XCTAssertEqual(
-            MountedWorkspacePresentationPolicy.resolve(
+            MountedWorkspacePresentation.resolve(
                 isSelectedWorkspace: false,
                 isRetiringWorkspace: true
             ),

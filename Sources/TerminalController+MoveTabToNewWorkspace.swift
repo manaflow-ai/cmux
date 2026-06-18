@@ -116,10 +116,6 @@ extension TerminalController {
 }
 
 extension TerminalController {
-    func v2SurfaceDragToSplit(params: [String: Any]) -> V2CallResult {
-        return v2SurfaceSplitOff(params: params)
-    }
-
     func v2SurfaceSplitOff(params: [String: Any]) -> V2CallResult {
         let requestedWorkspaceId = v2UUID(params, "workspace_id")
         let requestedWindowId = v2UUID(params, "window_id")

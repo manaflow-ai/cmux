@@ -1,0 +1,44 @@
+{
+  "name": "@cmux/webviews",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run verify:tanstack-router && bun run typecheck && vite build",
+    "lint": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin",
+    "lint:ci": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin --deny-warnings",
+    "lint:fix": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin --fix",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "verify:tanstack-router": "node scripts/verify-tanstack-router-security.mjs",
+    "react-doctor": "react-doctor . --full --no-score --fail-on none",
+    "react-doctor:ci": "react-doctor . --full --no-score --fail-on none"
+  },
+  "dependencies": {
+    "@pierre/diffs": "1.2.7",
+    "@pierre/trees": "1.0.0-beta.4",
+    "@tanstack/react-router": "1.170.11",
+    "@vitejs/plugin-react": "^5.1.2",
+    "prosemirror-commands": "^1.7.1",
+    "prosemirror-model": "^1.25.7",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-view": "^1.41.8",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "solid-js": "^1.9.13",
+    "vite": "^7.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/bun": "^1.3.14",
+    "@types/jsdom": "^28.0.3",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "jsdom": "^29.1.1",
+    "oxlint": "^1.68.0",
+    "react-doctor": "^0.2.4",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.9.3"
+  }
+}

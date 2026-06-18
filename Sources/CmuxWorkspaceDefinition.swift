@@ -4,12 +4,22 @@ struct CmuxWorkspaceDefinition: Codable, Sendable {
     var name: String?
     var cwd: String?
     var color: String?
+    /// User-defined environment variables inherited by every shell spawned in the
+    /// workspace (issue #5995). Managed `CMUX_*` variables always win.
+    var env: [String: String]?
     var layout: CmuxLayoutNode?
 
-    init(name: String? = nil, cwd: String? = nil, color: String? = nil, layout: CmuxLayoutNode? = nil) {
+    init(
+        name: String? = nil,
+        cwd: String? = nil,
+        color: String? = nil,
+        env: [String: String]? = nil,
+        layout: CmuxLayoutNode? = nil
+    ) {
         self.name = name
         self.cwd = cwd
         self.color = color
+        self.env = env
         self.layout = layout
     }
 
@@ -17,6 +27,7 @@ struct CmuxWorkspaceDefinition: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decodeIfPresent(String.self, forKey: .name)
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        env = try container.decodeIfPresent([String: String].self, forKey: .env)
         layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
 
         if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {

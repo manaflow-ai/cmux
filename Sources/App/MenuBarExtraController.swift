@@ -62,14 +62,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         super.init()
 
         buildMenu()
+        statusItem.menu = menu
         if let button = statusItem.button {
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyDown
             button.image = MenuBarIconRenderer.makeImage(unreadCount: 0)
             button.toolTip = "cmux"
-            button.target = self
-            button.action = #selector(statusItemButtonAction(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         notificationMenuSnapshotCancellable = notificationStore.$notificationMenuSnapshot
@@ -239,21 +237,6 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     @objc private func openNotificationItemAction(_ sender: NSMenuItem) {
         guard let payload = sender.representedObject as? NotificationMenuItemPayload else { return }
         onOpenNotification(payload.notification)
-    }
-
-    @objc private func statusItemButtonAction(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else {
-            onShowGlobalSearch(sender, nil)
-            return
-        }
-
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.type == .rightMouseUp || flags.contains(.control) {
-            refreshUI()
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
-        } else {
-            onShowGlobalSearch(sender, nil)
-        }
     }
 
     @discardableResult
@@ -536,13 +519,20 @@ enum MenuBarExtraSettings {
 
 enum MenuBarOnlySettings {
     static let menuBarOnlyKey = "menuBarOnly"
+    static let explicitEnableKey = "menuBarOnlyExplicitlyEnabled.v1"
     static let defaultMenuBarOnly = false
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: menuBarOnlyKey) == nil {
-            return defaultMenuBarOnly
+        guard defaults.object(forKey: menuBarOnlyKey) != nil, defaults.bool(forKey: menuBarOnlyKey) else { return defaultMenuBarOnly }
+        if defaults.object(forKey: explicitEnableKey) != nil {
+            return defaults.bool(forKey: explicitEnableKey)
         }
-        return defaults.bool(forKey: menuBarOnlyKey)
+        return !legacyCommandPaletteOneShotLikelyEnabledMenuBarOnly(defaults: defaults)
+    }
+
+    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: menuBarOnlyKey)
+        defaults.set(enabled, forKey: explicitEnableKey)
     }
 
     static func activationPolicy(defaults: UserDefaults = .standard) -> NSApplication.ActivationPolicy {

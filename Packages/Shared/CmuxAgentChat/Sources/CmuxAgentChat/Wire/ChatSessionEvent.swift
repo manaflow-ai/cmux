@@ -1,0 +1,95 @@
+/// A live update to one session's conversation, pushed by the host.
+public enum ChatSessionEvent: Sendable, Equatable {
+    /// New messages were appended to the transcript tail.
+    case appended([ChatMessage])
+    /// Previously-delivered messages changed in place (a tool result
+    /// arrived, a permission request was resolved). Receivers replace by
+    /// ``ChatMessage/id``.
+    case updated([ChatMessage])
+    /// The session's live activity state changed.
+    case stateChanged(ChatAgentState)
+    /// The session's descriptor changed (title, terminal binding, ...).
+    case descriptorChanged(ChatSessionDescriptor)
+
+    /// Terminal command-blocks were appended or updated (terminal-kind
+    /// sessions). Receivers upsert by ``TerminalCommandBlock/id``; the
+    /// producer sends the whole current block value, so a replayed block on
+    /// reconnect is idempotent.
+    case terminalBlocks([TerminalCommandBlock])
+
+    /// The producing transcript was truncated or replaced; the session's
+    /// seq space restarted and clients must re-anchor from history.
+    case reset
+
+    /// An event name this client predates; carried (not dropped) so
+    /// consumers can ignore it explicitly.
+    case unknown(String)
+}
+
+extension ChatSessionEvent: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case event
+        case messages
+        case state
+        case descriptor
+        case blocks
+    }
+
+    private enum EventName: String {
+        case appended
+        case updated
+        case stateChanged = "state_changed"
+        case descriptorChanged = "descriptor_changed"
+        case terminalBlocks = "terminal_blocks"
+        case reset
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try container.decode(String.self, forKey: .event)
+        switch EventName(rawValue: raw) {
+        case .appended:
+            self = .appended(try container.decode([ChatMessage].self, forKey: .messages))
+        case .updated:
+            self = .updated(try container.decode([ChatMessage].self, forKey: .messages))
+        case .stateChanged:
+            self = .stateChanged(try container.decode(ChatAgentState.self, forKey: .state))
+        case .descriptorChanged:
+            self = .descriptorChanged(try container.decode(ChatSessionDescriptor.self, forKey: .descriptor))
+        case .terminalBlocks:
+            self = .terminalBlocks(try container.decode([TerminalCommandBlock].self, forKey: .blocks))
+        case .reset:
+            self = .reset
+        case .none:
+            // A newer Mac may push event names this client predates; an
+            // explicit ignorable case beats silently dropping the frame at
+            // the transport layer.
+            self = .unknown(raw)
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .appended(let messages):
+            try container.encode(EventName.appended.rawValue, forKey: .event)
+            try container.encode(messages, forKey: .messages)
+        case .updated(let messages):
+            try container.encode(EventName.updated.rawValue, forKey: .event)
+            try container.encode(messages, forKey: .messages)
+        case .stateChanged(let state):
+            try container.encode(EventName.stateChanged.rawValue, forKey: .event)
+            try container.encode(state, forKey: .state)
+        case .descriptorChanged(let descriptor):
+            try container.encode(EventName.descriptorChanged.rawValue, forKey: .event)
+            try container.encode(descriptor, forKey: .descriptor)
+        case .terminalBlocks(let blocks):
+            try container.encode(EventName.terminalBlocks.rawValue, forKey: .event)
+            try container.encode(blocks, forKey: .blocks)
+        case .reset:
+            try container.encode(EventName.reset.rawValue, forKey: .event)
+        case .unknown(let raw):
+            try container.encode(raw, forKey: .event)
+        }
+    }
+}

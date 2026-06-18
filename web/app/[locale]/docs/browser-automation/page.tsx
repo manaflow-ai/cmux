@@ -37,7 +37,8 @@ export default function BrowserAutomationPage() {
               <code>identify</code>, <code>open</code>, <code>open-split</code>,{" "}
               <code>navigate</code>, <code>back</code>, <code>forward</code>,{" "}
               <code>reload</code>, <code>url</code>, <code>focus-webview</code>,{" "}
-              <code>is-webview-focused</code>
+              <code>is-webview-focused</code>, <code>zoom</code>,{" "}
+              <code>focus-mode</code>, <code>react-grab</code>, <code>devtools</code>
             </td>
           </tr>
           <tr>
@@ -79,7 +80,8 @@ export default function BrowserAutomationPage() {
           <tr>
             <td>{t("stateAndSession")}</td>
             <td>
-              <code>cookies</code>, <code>storage</code>, <code>state</code>
+              <code>cookies</code>, <code>storage</code>, <code>state</code>,{" "}
+              <code>history</code>
             </td>
           </tr>
           <tr>
@@ -115,7 +117,15 @@ cmux browser surface:2 reload --snapshot-after
 cmux browser surface:2 url
 
 cmux browser surface:2 focus-webview
-cmux browser surface:2 is-webview-focused`}</CodeBlock>
+cmux browser surface:2 is-webview-focused
+
+cmux browser react-grab toggle
+cmux browser devtools toggle
+cmux browser devtools console
+cmux browser focus-mode toggle
+cmux browser zoom in
+cmux browser zoom reset
+cmux browser history clear --force`}</CodeBlock>
 
       <DocsHeading level={2} id="waiting-section">{t("waitingSection")}</DocsHeading>
       <p>{t("waitingDesc")}</p>

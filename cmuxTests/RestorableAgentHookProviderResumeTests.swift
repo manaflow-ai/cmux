@@ -275,6 +275,33 @@ extension SocketListenerAcceptPolicyTests {
                 source: "process"
             )
         )
+        let kiro = SessionRestorableAgentSnapshot(
+            kind: .kiro,
+            sessionId: "kiro-session-123",
+            workingDirectory: "/tmp/kiro repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "kiro",
+                executablePath: "/Users/example/.cargo/bin/kiro-cli",
+                arguments: [
+                    "/Users/example/.cargo/bin/kiro-cli",
+                    "chat",
+                    "--agent",
+                    "cmux",
+                    "--resume-id",
+                    "old-session",
+                    "--trust-tools",
+                    "fs_read,fs_write",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/kiro repo",
+                environment: [
+                    "KIRO_HOME": "/tmp/kiro home",
+                    "AWS_SECRET_ACCESS_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
         let grok = SessionRestorableAgentSnapshot(
             kind: .grok,
             sessionId: "grok-session-123",
@@ -356,6 +383,10 @@ extension SocketListenerAcceptPolicyTests {
         XCTAssertEqual(
             qoder.resumeCommand,
             "{ cd -- '/tmp/qoder repo' 2>/dev/null || [ ! -d '/tmp/qoder repo' ]; } && 'env' 'QODER_CONFIG_DIR=/tmp/qoder config' '/Users/example/.npm/bin/qodercli' '--resume' 'qoder-session-123' '--model' 'gemini-2.5-pro' '--permission-mode' 'plan'"
+        )
+        XCTAssertEqual(
+            kiro.resumeCommand,
+            "{ cd -- '/tmp/kiro repo' 2>/dev/null || [ ! -d '/tmp/kiro repo' ]; } && 'env' 'KIRO_HOME=/tmp/kiro home' '/Users/example/.cargo/bin/kiro-cli' 'chat' '--resume-id' 'kiro-session-123' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
         )
         XCTAssertEqual(
             grok.resumeCommand,
@@ -639,5 +670,84 @@ extension SocketListenerAcceptPolicyTests {
                 "/tmp/qoder repo"
             ]
         )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.cargo/bin/kiro-cli",
+                    "chat",
+                    "--agent",
+                    "cmux",
+                    "--resume-id",
+                    "old-session",
+                    "--trust-tools",
+                    "fs_read,fs_write",
+                    "initial prompt should not replay"
+                ],
+                launcher: "kiro",
+                fallbackKind: "kiro"
+            ),
+            [
+                "/Users/example/.cargo/bin/kiro-cli",
+                "--agent",
+                "cmux",
+                "--trust-tools",
+                "fs_read,fs_write"
+            ]
+        )
+    }
+
+    func testCustomAgentForkCommandUsesForkTemplate() {
+        let registration = CmuxVaultAgentRegistration(
+            id: "my-agent",
+            name: "My Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "my-agent", argvContains: ["my-agent"]),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            forkCommand: "{{executable}} --session {{sessionId}} --fork"
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("my-agent"),
+            sessionId: "abc-123",
+            workingDirectory: "/tmp/proj",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "my-agent",
+                executablePath: "/usr/local/bin/my-agent",
+                arguments: ["/usr/local/bin/my-agent"],
+                workingDirectory: "/tmp/proj",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            ),
+            registration: registration
+        )
+        let fork = snapshot.forkCommand
+        XCTAssertNotNil(fork)
+        XCTAssertTrue(fork?.contains("abc-123") == true && fork?.contains("--fork") == true, fork ?? "nil")
+    }
+
+    func testCustomAgentWithoutForkTemplateIsNotForkable() {
+        let registration = CmuxVaultAgentRegistration(
+            id: "no-fork",
+            name: "No Fork",
+            detect: CmuxVaultAgentDetectRule(processName: "no-fork", argvContains: ["no-fork"]),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}"
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("no-fork"),
+            sessionId: "abc-123",
+            workingDirectory: "/tmp/proj",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "no-fork",
+                executablePath: "/usr/local/bin/no-fork",
+                arguments: ["/usr/local/bin/no-fork"],
+                workingDirectory: "/tmp/proj",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            ),
+            registration: registration
+        )
+        XCTAssertNil(snapshot.forkCommand)
     }
 }

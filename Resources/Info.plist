@@ -12,6 +12,8 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CMUXSidebarExtensionPointIdentifier</key>
+	<string>$(CMUX_SIDEBAR_EXTENSION_POINT_ID)</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -24,6 +26,30 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.folder</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Terminal shell script</string>
+			<key>CFBundleTypeRole</key>
+			<string>Shell</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.apple.terminal.shell-script</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>UNIX executable</string>
+			<key>CFBundleTypeRole</key>
+			<string>Shell</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.unix-executable</string>
 			</array>
 		</dict>
 	</array>
@@ -39,6 +65,11 @@
 	<string>CmuxDockTilePlugin.plugin</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
+	<key>LSArchitecturePriority</key>
+	<array>
+		<string>arm64</string>
+		<string>x86_64</string>
+	</array>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>NSMainStoryboardFile</key>
@@ -76,6 +107,18 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>$(CMUX_AUTH_CALLBACK_SCHEME)</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>SSH URL</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ssh</string>
 			</array>
 		</dict>
 	</array>
@@ -124,6 +167,27 @@
 				<string>NSFilenamesPboardType</string>
 				<string>public.plain-text</string>
 			</array>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.apple.terminal.shell-script</string>
+			<key>UTTypeDescription</key>
+			<string>Terminal shell script</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.shell-script</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>command</string>
+					<string>tool</string>
+				</array>
+			</dict>
 		</dict>
 	</array>
 	<key>UTExportedTypeDeclarations</key>

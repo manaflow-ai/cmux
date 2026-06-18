@@ -1,0 +1,42 @@
+# cmux device presence service — Cloudflare Worker + Durable Objects.
+#
+# One TeamPresence Durable Object per team holds the team's ephemeral presence
+# map. Durable device identity lives in the Aurora `devices` /
+# `device_app_instances` registry (web/db/schema.ts); this service is the
+# realtime layer on top and stores nothing durable beyond a 24h "last seen"
+# window in DO storage.
+#
+# Deploys run from .github/workflows/presence.yml on push to main. The
+# [[migrations]] block below is the service's schema migration story: wrangler
+# applies Durable Object class migrations atomically with every deploy, so the
+# code and its storage classes can never drift the way lagging SQL migrations
+# can. Never hand-edit past migration tags; append a new one.
+#
+# Stack Auth configuration is intentionally NOT in [vars]: values set here
+# overwrite dashboard-set values on every deploy. They are provisioned once as
+# Worker secrets (see README.md) and survive deploys:
+#   wrangler secret put STACK_PROJECT_ID
+#   wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
+# Optional plain var STACK_API_URL defaults to https://api.stack-auth.com.
+
+name = "cmux-presence"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "TEAM_PRESENCE"
+class_name = "TeamPresence"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TeamPresence"]
+
+# Production custom domain on the cmux.dev zone (same Cloudflare account).
+# `custom_domain = true` provisions the DNS record + TLS cert with the deploy;
+# the workers.dev URL stays as the dev/staging entrypoint.
+[[routes]]
+pattern = "presence.cmux.dev"
+custom_domain = true
