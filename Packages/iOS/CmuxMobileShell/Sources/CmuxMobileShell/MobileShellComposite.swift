@@ -5457,19 +5457,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 }
 
-private struct MobileTerminalViewportKey: Hashable, Sendable {
-    var workspaceID: MobileWorkspacePreview.ID
-    var terminalID: MobileTerminalPreview.ID
-}
-
-private struct PreviewReachability: ReachabilityProviding {
-    var isOnline: Bool { true }
-
-    func pathChanges() -> AsyncStream<Void> {
-        AsyncStream { $0.finish() }
-    }
-}
-
 private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
     var ticket: CmxAttachTicket
 
