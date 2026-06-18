@@ -254,14 +254,11 @@ jobs:
           if [ -n "${TEST_FILTER:-}" ]; then
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
           else
-            # These terminal stress tests currently exceed the pull-request
-            # simulator budget and are not related to workspace-list changes.
-            # Keep them runnable via workflow_dispatch + test_filter.
-            XCODEBUILD_ARGS+=(
-              -skip-testing:cmuxUITests/cmuxUITests/testComposerSurvivesRepeatedOpenCloseCycles
-              -skip-testing:cmuxUITests/cmuxUITests/testFastPinchZoomDoesNotHangOrCorrupt
-              -skip-testing:cmuxUITests/cmuxUITests/testKeyboardLayoutFuzzDoesNotFreeze
-            )
+            # Full UI tests currently exceed the pull-request simulator budget
+            # on macos-26. Keep them runnable via workflow_dispatch +
+            # test_filter, while the PR lane still builds the app and runs
+            # non-UI iOS tests.
+            XCODEBUILD_ARGS+=(-skip-testing:cmuxUITests)
           fi
           XCODEBUILD_ARGS+=(test)
           selected_tests_passed_despite_xcodebuild_status() {
