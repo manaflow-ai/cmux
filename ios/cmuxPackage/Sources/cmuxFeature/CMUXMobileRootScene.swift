@@ -174,6 +174,30 @@ public struct CMUXMobileRootScene: View {
         )
     }
 
+    /// Wrap the local paired-Mac store with the DO-backup decorator when the
+    /// `mobilePairedMacBackup` flag is on and a presence service URL resolves, so
+    /// saved hosts/IPs are mirrored to the per-team DO and restored on sign-in.
+    /// Falls back to the bare local store when the flag is off, presence has no
+    /// URL (Release without an override), or the store failed to open. Auth
+    /// mirrors `makePresenceClient()`.
+    @MainActor
+    private func makeBackedUpPairedMacStore() -> (any MobilePairedMacStoring)? {
+        guard let store = pairedMacStore else { return nil }
+        guard MobilePairedMacBackup.resolved().isEnabled,
+              let baseURL = PresenceClient.resolvedServiceBaseURL() else {
+            return store
+        }
+        let coordinator = auth.coordinator
+        let client = PairedMacBackupClient(
+            serviceBaseURL: baseURL,
+            tokenSource: PresenceTokenSource(
+                accessToken: { try? await coordinator.accessToken() }
+            ),
+            teamIDProvider: { await coordinator.resolvedTeamID }
+        )
+        return BackingUpPairedMacStore(inner: store, backup: client)
+    }
+
     public var body: some View {
         content
             .environment(auth.coordinator)
@@ -206,6 +230,7 @@ public struct CMUXMobileRootScene: View {
     private func makeStore() -> CMUXMobileShellStore {
         let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
         let deviceRegistry = makeDeviceRegistry()
+        let backedUpPairedMacStore = makeBackedUpPairedMacStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
@@ -213,7 +238,7 @@ public struct CMUXMobileRootScene: View {
         #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
-            pairedMacStore: pairedMacStore,
+            pairedMacStore: backedUpPairedMacStore,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
@@ -227,7 +252,7 @@ public struct CMUXMobileRootScene: View {
         #else
         return CMUXMobileShellStore(
             runtime: runtime,
-            pairedMacStore: pairedMacStore,
+            pairedMacStore: backedUpPairedMacStore,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
