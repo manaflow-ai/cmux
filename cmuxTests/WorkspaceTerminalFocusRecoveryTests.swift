@@ -76,6 +76,68 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             "Deferred focus reconciliation should reapply Ghostty focus once geometry becomes usable"
         )
     }
+
+    @Test
+    func automaticApplyDoesNotBypassHiddenTinyFirstResponderDeferral() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = originalAppDelegate ?? AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let originalTabManager = appDelegate.tabManager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
+        let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
+        let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
+        workspace.focusPanel(panelId, trigger: .terminalFirstResponder)
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView, "Expected content view")
+
+        panel.hostedView.frame = contentView.bounds
+        contentView.addSubview(panel.hostedView)
+        panel.hostedView.setVisibleInUI(false)
+        panel.hostedView.setActive(true)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        panel.hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let surfaceView = try #require(surfaceView(in: panel.hostedView), "Expected terminal surface view")
+
+        window.makeFirstResponder(nil)
+        panel.surface.setFocus(false)
+        surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+
+        panel.hostedView.setVisibleInUI(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        #expect(panel.hostedView.isSurfaceViewFirstResponder())
+        #expect(panel.hostedView.debugRenderStats().desiredFocus)
+        #expect(
+            !panel.surface.debugDesiredFocusState(),
+            "Automatic first-responder apply must not mark Ghostty focused while hidden/tiny deferral is pending"
+        )
+
+        surfaceView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        surfaceView.layoutSubtreeIfNeeded()
+        panel.hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        #expect(
+            panel.surface.debugDesiredFocusState(),
+            "Pending automatic deferral should reapply Ghostty focus once the surface geometry is usable"
+        )
+    }
 #endif
 
     private func makeWindow() -> NSWindow {

@@ -9889,7 +9889,32 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    private func canReassertTerminalSurfaceFocus(reason: String) -> Bool {
+        guard pendingSuppressedFirstResponderFocusReapply else { return true }
+
+        let portalSize = bounds.size
+        let surfaceSize = surfaceView.bounds.size
+        let hasUsablePortalGeometry = portalSize.width > 1 && portalSize.height > 1
+        let hasUsableSurfaceGeometry = surfaceSize.width > 1 && surfaceSize.height > 1
+        let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+        guard !isHiddenForFocus, hasUsablePortalGeometry, hasUsableSurfaceGeometry else {
+#if DEBUG
+            let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+            cmuxDebugLog(
+                "focus.surface.reassert.skip surface=\(surfaceShort) reason=\(reason).hidden_or_tiny " +
+                "hidden=\(isHiddenForFocus ? 1 : 0) " +
+                "frame=\(String(format: "%.1fx%.1f", portalSize.width, portalSize.height)) " +
+                "surfaceFrame=\(String(format: "%.1fx%.1f", surfaceSize.width, surfaceSize.height))"
+            )
+#endif
+            return false
+        }
+
+        return true
+    }
+
     private func reassertTerminalSurfaceFocus(reason: String, force: Bool = false) {
+        guard canReassertTerminalSurfaceFocus(reason: reason) else { return }
         guard let terminalSurface = surfaceView.terminalSurface else { return }
         if terminalSurface.surface == nil {
             terminalSurface.requestBackgroundSurfaceStartIfNeeded()
