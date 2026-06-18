@@ -128,6 +128,9 @@ jobs:
       - name: Validate Swift file length budget
         run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
+      - name: Validate fork PR artifact workflow guards
+        run: ./tests/test_ci_fork_pr_artifact.sh
+
   remote-daemon-tests:
     runs-on: ubuntu-latest
     steps:
