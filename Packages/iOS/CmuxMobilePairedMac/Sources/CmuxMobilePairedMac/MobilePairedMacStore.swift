@@ -100,12 +100,24 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         case 0:
             try migrateToV1()
             try setUserVersion(1)
-            fallthrough
         case 1:
             break
         default:
-            // Future schema; fail closed so we don't corrupt on downgrade.
-            throw MobilePairedMacStoreError.unknownSchemaVersion(Int(version))
+            // A newer build wrote a higher schema version. Schema migrations are
+            // additive by contract — older builds keep reading the columns and
+            // tables they already know (see
+            // plans/feat-ios-paired-mac-backup/DESIGN.md §4 and the same
+            // discipline in docs/presence-service.md). Throwing here would make
+            // `ensureReady` fail and every read surface as a TOTAL loss of the
+            // user's paired Macs across an upgrade-then-older-build open, even
+            // though the v1 rows are intact on disk. Degrade gracefully instead:
+            // leave `user_version` untouched (never write a destructive downgrade
+            // marker) and read what this build understands. The DO backup is the
+            // safety net if a future non-additive change ever makes the local
+            // read genuinely fail.
+            pairedMacStoreLog.warning(
+                "paired-mac store schema v\(version) is newer than this build (v\(Self.currentSchemaVersion)); reading known columns only"
+            )
         }
     }
 
