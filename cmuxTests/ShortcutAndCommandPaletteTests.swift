@@ -1,6 +1,6 @@
 import CmuxCommandPalette
 import CmuxFoundation
-import XCTest
+@preconcurrency import XCTest
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers

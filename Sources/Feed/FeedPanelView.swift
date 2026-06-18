@@ -51,20 +51,6 @@ private extension WorkstreamExitPlanMode {
 /// user flips the Actionable / All filter. Rows receive immutable
 /// snapshots + closure action bundles only (snapshot-boundary rule).
 struct FeedPanelView: View {
-    enum Placement {
-        case rightSidebar
-        case pane
-
-        var registersWithKeyboardFocusCoordinator: Bool {
-            switch self {
-            case .rightSidebar:
-                return true
-            case .pane:
-                return false
-            }
-        }
-    }
-
     enum Filter: String, CaseIterable, Identifiable {
         case actionable
         case activity
@@ -182,10 +168,6 @@ private struct FeedSecondaryFilterButton: View {
         .onHover { isHovered = $0 }
         .help(filter.label)
     }
-}
-
-private final class FeedFocusHostBox {
-    weak var view: FeedKeyboardFocusView?
 }
 
 /// Feed content surface. Isolated so the outer panel's `@State`
@@ -818,8 +800,9 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
     let onFocusChanged: (Bool) -> Void
     let onFocusSnapshotChanged: (FeedFocusSnapshot) -> Void
 
-    func makeNSView(context: Context) -> FeedKeyboardFocusView {
+    func makeNSView(context _: Context) -> FeedKeyboardFocusView {
         let view = FeedKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        view.onViewChange = onViewChange
         view.registersWithKeyboardFocusCoordinator = registersWithKeyboardFocusCoordinator
         view.focusOwnershipId = focusOwnershipId
         view.onEscape = onEscape
@@ -828,12 +811,12 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
         view.onFocusFirstItemRequested = onFocusFirstItemRequested
         view.onFocusChanged = onFocusChanged
         view.onFocusSnapshotChanged = onFocusSnapshotChanged
-        context.coordinator.attach(view)
+        onViewChange(view)
         return view
     }
 
-    func updateNSView(_ nsView: FeedKeyboardFocusView, context: Context) {
-        context.coordinator.onViewChange = onViewChange
+    func updateNSView(_ nsView: FeedKeyboardFocusView, context _: Context) {
+        nsView.onViewChange = onViewChange
         nsView.registersWithKeyboardFocusCoordinator = registersWithKeyboardFocusCoordinator
         nsView.focusOwnershipId = focusOwnershipId
         nsView.onEscape = onEscape
@@ -842,43 +825,20 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
         nsView.onFocusFirstItemRequested = onFocusFirstItemRequested
         nsView.onFocusChanged = onFocusChanged
         nsView.onFocusSnapshotChanged = onFocusSnapshotChanged
-        context.coordinator.attach(nsView)
+        onViewChange(nsView)
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 
-    static func dismantleNSView(_ nsView: FeedKeyboardFocusView, coordinator: Coordinator) {
-        coordinator.detach(nsView)
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onViewChange: onViewChange)
-    }
-
-    final class Coordinator {
-        var onViewChange: (FeedKeyboardFocusView?) -> Void
-        private weak var attachedView: FeedKeyboardFocusView?
-
-        init(onViewChange: @escaping (FeedKeyboardFocusView?) -> Void) {
-            self.onViewChange = onViewChange
-        }
-
-        func attach(_ view: FeedKeyboardFocusView) {
-            guard attachedView !== view else { return }
-            attachedView = view
-            onViewChange(view)
-        }
-
-        func detach(_ view: FeedKeyboardFocusView) {
-            guard attachedView === view else { return }
-            attachedView = nil
-            onViewChange(nil)
-        }
+    static func dismantleNSView(_ nsView: FeedKeyboardFocusView, coordinator: ()) {
+        nsView.onViewChange?(nil)
+        nsView.onViewChange = nil
     }
 }
 
 final class FeedKeyboardFocusView: NSView {
     var registersWithKeyboardFocusCoordinator = true
     var focusOwnershipId: UUID?
+    var onViewChange: ((FeedKeyboardFocusView?) -> Void)?
     var onEscape: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onActivateSelection: (() -> Void)?
