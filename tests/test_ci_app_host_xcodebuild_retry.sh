@@ -32,6 +32,12 @@ if ! grep -Fq "Retrying app-host xcodebuild after 0.1s idle timeout (attempt 1/2
   exit 1
 fi
 
+if ! grep -Fq "Starting app-host xcodebuild attempt 2/2; log:" "$TMP_DIR/output.log"; then
+  cat "$TMP_DIR/output.log"
+  echo "FAIL: wrapper did not print the second attempt boundary"
+  exit 1
+fi
+
 timeout_count="$(grep -Fc "Idle timed out after 0.1s" "$TMP_DIR/output.log")"
 if [ "$timeout_count" -ne 2 ]; then
   cat "$TMP_DIR/output.log"

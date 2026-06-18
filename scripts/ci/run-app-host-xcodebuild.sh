@@ -131,6 +131,7 @@ attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
   : >"$log_path"
+  echo "Starting app-host xcodebuild attempt ${attempt}/${max_attempts}; log: ${log_path}" >&2
   set +e
   CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
     scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@"

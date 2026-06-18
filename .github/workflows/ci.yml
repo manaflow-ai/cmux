@@ -515,6 +515,21 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Run TerminalCore split-theme package regression
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="${RUNNER_TEMP:-/tmp}/cmux-terminal-core-split-theme-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          (
+            cd Packages/macOS/CmuxTerminalCore
+            xcodebuild \
+              -scheme CmuxTerminalCore-Package \
+              -destination "platform=macOS" \
+              -derivedDataPath "$DERIVED_DATA_PATH" \
+              build-for-testing
+          )
+          xcrun xctest "$DERIVED_DATA_PATH/Build/Products/Debug/CmuxTerminalCoreTests.xctest"
+
       - name: Download shared test products
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -575,12 +590,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard_index: [0, 1, 2, 3]
+        shard_index: [0, 1, 2, 3, 4, 5, 6, 7]
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_ALLOW_SOCKET_OVERRIDE: "1"
       CMUX_SOCKET_PATH: "/tmp/cmux-debug-ci-xctest-${{ matrix.shard_index }}-${{ github.run_id }}-${{ github.run_attempt }}.sock"
-      CMUX_XCTEST_SHARD_COUNT: "4"
+      CMUX_XCTEST_SHARD_COUNT: "8"
       CMUX_XCTEST_SHARD_INDEX: ${{ matrix.shard_index }}
       CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "360"
       CMUX_APP_HOST_XCODEBUILD_ATTEMPTS: "3"
@@ -1217,7 +1232,10 @@ jobs:
     # mistakes before they reach main.
     # Keep the app build on macOS 26 so SDK-gated SwiftUI Liquid Glass code
     # compiles into the same artifact shape as nightly and stable releases.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+    # Release builds need enough disk for a universal Release build plus the
+    # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
+    # of the generic persistent macOS 26 pool.
+    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -1253,6 +1271,15 @@ jobs:
         id: ghostty-revision
         run: |
           echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Reclaim release runner disk
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:"
+          df -h /
+          rm -rf build-universal .spm-cache
+          echo "Disk after cleanup:"
+          df -h /
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-release

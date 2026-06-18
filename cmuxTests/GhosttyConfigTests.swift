@@ -6002,7 +6002,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
                 return nil
             },
             applicationSearchDirectories: []
-        
+
         ).detectInstalledBrowsers()
 
         guard let chrome = detected.first(where: { $0.descriptor.id == "google-chrome" }) else {
@@ -6027,7 +6027,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        
+
         ).detectInstalledBrowsers()
 
         XCTAssertTrue(detected.isEmpty)
@@ -6047,7 +6047,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        
+
         ).detectInstalledBrowsers()
 
         XCTAssertTrue(detected.contains(where: { $0.descriptor.id == "chromium" }))
@@ -6091,7 +6091,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        
+
         ).detectInstalledBrowsers()
 
         guard let helium = detected.first(where: { $0.descriptor.id == "helium" }) else {
@@ -6132,7 +6132,7 @@ final class BrowserInstallDetectorTests: XCTestCase {
             homeDirectoryURL: home,
             bundleLookup: { _ in nil },
             applicationSearchDirectories: []
-        
+
         ).detectInstalledBrowsers()
 
         guard let safari = detected.first(where: { $0.descriptor.id == "safari" }) else {
