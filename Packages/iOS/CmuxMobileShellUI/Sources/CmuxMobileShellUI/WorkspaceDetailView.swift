@@ -46,6 +46,9 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State private var isRenamePresented = false
     @State private var renameText = ""
+    /// Live pane width, used to width-cap the centered glass title pill so a long
+    /// workspace name truncates instead of underlapping the toolbar buttons.
+    @State private var contentWidth: CGFloat = 0
     /// Captured at the moment the "View as Text" action is tapped so the
     /// sheet keeps showing the terminal the user asked about even if the
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
@@ -267,6 +270,7 @@ struct WorkspaceDetailView: View {
         // Key on the surface id so switching/reopening rebuilds the WKWebView.
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         .navigationTitle(browser.title ?? workspace.name)
         .mobileTerminalNavigationChrome()
         .toolbar {
@@ -352,6 +356,9 @@ struct WorkspaceDetailView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        #if os(iOS)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+        #endif
         .overlay(alignment: .topLeading) {
             MobileMacConnectionStatusPill(host: host, status: connectionStatus)
                 .padding(.top, 10)
@@ -448,7 +455,14 @@ struct WorkspaceDetailView: View {
         Text(text)
             .font(.headline)
             .lineLimit(1)
+            .truncationMode(.tail)
             .foregroundStyle(TerminalPalette.foreground)
+            // The principal item is screen-centered and reserves no space for the
+            // back button + trailing controls, so an unbounded long title pill can
+            // extend under them. Cap it to the clear center gap (reserve ~300pt for
+            // both bar-button clusters + margins) so the name truncates instead,
+            // matching `WorkspaceChatPane`'s header.
+            .frame(maxWidth: contentWidth > 0 ? max(96, contentWidth - 300) : 180)
             .mobileGlassNavigationTitle()
     }
     #endif

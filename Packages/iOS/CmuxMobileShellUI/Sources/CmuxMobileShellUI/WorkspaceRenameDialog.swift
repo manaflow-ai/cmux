@@ -22,6 +22,11 @@ extension View {
             .autocorrectionDisabled()
             .accessibilityIdentifier("WorkspaceRenameField")
             Button(L10n.string("mobile.common.save", defaultValue: "Save"), action: onSave)
+                // Disable Save for whitespace-only names (matching the list's
+                // rename sheet) so it never dismisses on empty input with no
+                // rename and no feedback. The alert content re-evaluates as the
+                // bound text changes, so this tracks the field live.
+                .disabled(text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("WorkspaceRenameSaveButton")
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
                 isPresented.wrappedValue = false
