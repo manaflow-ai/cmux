@@ -4920,6 +4920,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
             // the old view from stealing focus and creating model/surface divergence.
             if suppressingReparentFocus {
+                let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
+                if isVisibleInUI && (!hasUsableFocusGeometry || hiddenInHierarchy) {
+                    terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapply(
+                        reason: "becomeFirstResponder.reparent.hiddenOrTiny"
+                    )
+                }
 #if DEBUG
                 cmuxDebugLog("focus.firstResponder SUPPRESSED (reparent) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif
@@ -9754,7 +9760,6 @@ final class GhosttySurfaceScrollView: NSView {
 
         guard surfaceView.desiredFocus || surfaceOwnsFirstResponder else { return }
         guard surfaceView.isVisibleInUI else { return }
-        surfaceView.terminalSurface?.recordExternalFocusState(true)
         guard let window = uiWindow, window.isKeyWindow else { return }
         guard !isHiddenForFocus, hasUsablePortalGeometry else {
 #if DEBUG

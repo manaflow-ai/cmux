@@ -118,12 +118,13 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
         window.makeFirstResponder(nil)
         panel.surface.setFocus(false)
         surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+        panel.hostedView.suppressReparentFocus()
+        #expect(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
         #expect(window.makeFirstResponder(surfaceView))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         #expect(!panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting())
         #expect(!panel.surface.debugDesiredFocusState())
 
-        panel.hostedView.suppressReparentFocus()
         panel.hostedView.clearSuppressReparentFocus()
 
         #expect(
