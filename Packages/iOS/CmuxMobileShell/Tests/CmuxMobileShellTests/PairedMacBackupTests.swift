@@ -166,7 +166,7 @@ private actor FakeBackup: PairedMacBackingUp {
             try backupRecord("mac-remote", host: "10.0.0.3", lastSeenMs: 9_000_000_000, active: true),
         ])
 
-        let restored = await PairedMacRestore.run(into: inner, from: backup, accountID: "user-1")
+        let restored = await PairedMacRestore(store: inner, backup: backup).run(accountID: "user-1")
         #expect(restored == 1) // only mac-remote written
 
         // Local active selection preserved.
@@ -180,7 +180,7 @@ private actor FakeBackup: PairedMacBackingUp {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         try await inner.upsert(macDeviceID: "mac-x", displayName: nil, routes: [try route("10.0.0.1", 22)], markActive: true, stackUserID: "user-1", now: Date())
-        let restored = await PairedMacRestore.run(into: inner, from: FakeBackup(records: []), accountID: "user-1")
+        let restored = await PairedMacRestore(store: inner, backup: FakeBackup(records: [])).run(accountID: "user-1")
         #expect(restored == 0)
         #expect(try await inner.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-x"])
     }

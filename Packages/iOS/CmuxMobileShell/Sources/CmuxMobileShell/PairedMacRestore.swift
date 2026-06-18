@@ -17,14 +17,20 @@ private let pairedMacRestoreLog = Logger(subsystem: "com.cmuxterm.app", category
 /// written. The active selection is only honored from the backup when the local
 /// store has NO active host (the fresh-install case), so restoring never hijacks
 /// a host the user is actively using on this device.
-public enum PairedMacRestore {
-    /// Merge the user's backup into `store`. Best-effort: a fetch failure leaves
-    /// the local store untouched (it returns 0). Returns the number of records
-    /// written, for logging/tests.
+public struct PairedMacRestore: Sendable {
+    private let store: any MobilePairedMacStoring
+    private let backup: any PairedMacBackingUp
+
+    public init(store: any MobilePairedMacStoring, backup: any PairedMacBackingUp) {
+        self.store = store
+        self.backup = backup
+    }
+
+    /// Merge the user's backup into the local store. Best-effort: a fetch failure
+    /// leaves the local store untouched (it returns 0). Returns the number of
+    /// records written, for logging/tests.
     @discardableResult
-    public static func run(
-        into store: any MobilePairedMacStoring,
-        from backup: any PairedMacBackingUp,
+    public func run(
         accountID: String,
         now: Date = Date()
     ) async -> Int {

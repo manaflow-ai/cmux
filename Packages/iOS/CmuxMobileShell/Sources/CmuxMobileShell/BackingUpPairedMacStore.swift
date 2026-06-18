@@ -94,6 +94,6 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring {
             return
         }
         restoredAccounts.insert(account)
-        await PairedMacRestore.run(into: inner, from: backup, accountID: account)
+        await PairedMacRestore(store: inner, backup: backup).run(accountID: account)
     }
 }
