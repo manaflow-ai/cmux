@@ -19,7 +19,7 @@ echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TI
 # util-linux flock dependency on macOS). The lock dir lives on local disk, so
 # different machines use different locks and cross-machine parallelism is kept.
 lock_dir="${CMUX_APP_HOST_TEST_LOCK_DIR:-${TMPDIR:-/tmp}/cmux-app-host-test.lock}"
-lock_wait_seconds="${CMUX_APP_HOST_TEST_LOCK_WAIT_SECONDS:-2400}"
+lock_wait_seconds="${CMUX_APP_HOST_TEST_LOCK_WAIT_SECONDS:-3600}"
 # Fallback only: break a lock whose owner pid is missing/unreadable once it is
 # older than this. The PRIMARY staleness signal is owner-process liveness below,
 # so an actively-running test of ANY duration is never broken.
@@ -59,28 +59,37 @@ while :; do
       ;;
   esac
   if [ "$waited" -ge "$lock_wait_seconds" ]; then
-    echo "WARN: app-host test lock not acquired in ${lock_wait_seconds}s; proceeding without exclusivity" >&2
-    break
+    # Never run a second GUI test host on this Mac. A live owner held the lock
+    # past the cap, so fail loudly (re-runnable) rather than run unlocked and
+    # recreate the testmanagerd contention this lock exists to prevent.
+    echo "FAIL: app-host test lock ${lock_dir} still held by live owner pid ${owner_pid:-unknown} after ${lock_wait_seconds}s; refusing to run a second GUI test host on this Mac (re-run the job)" >&2
+    exit 1
   fi
   [ "$waited" = "0" ] && echo "Waiting for app-host test lock ${lock_dir} (owner pid ${owner_pid:-unknown} holds this Mac)..."
   sleep 5
   waited=$(( waited + 5 ))
 done
 
-# Resolve our own DerivedData path from the xcodebuild args so app-host cleanup
-# targets ONLY the host this script launched, never an unrelated tagged dev
-# build a human or another job is running on the same Mac.
+# Resolve a CI-scoped root so app-host cleanup targets every CI app-host on this
+# Mac (this run AND orphans left by previous runs, which live under a different
+# per-run DerivedData path), while never matching a human's tagged dev build
+# outside the runner work area. Prefer RUNNER_TEMP (all CI DerivedData lives
+# under it); fall back to this run's -derivedDataPath from the xcodebuild args.
 derived_data_path=""
 prev_arg=""
 for arg in "$@"; do
   if [ "$prev_arg" = "-derivedDataPath" ]; then derived_data_path="$arg"; break; fi
   prev_arg="$arg"
 done
-app_host_products="${derived_data_path:+${derived_data_path%/}/Build/Products/}"
+ci_app_host_root="${RUNNER_TEMP:-${derived_data_path}}"
 kill_stale_app_host() {
-  # Only kill app-host processes launched from our own build products. If we
-  # cannot identify them, do nothing rather than risk an unrelated cmux DEV.
-  [ -n "$app_host_products" ] && pkill -f "$app_host_products" 2>/dev/null || true
+  # Kill app-host executables (matched by their .../Build/Products/.../cmux DEV
+  # path) under the CI work root only. This catches a stale host orphaned by a
+  # previous run under a different DerivedData path, without touching an
+  # unrelated dev build outside the runner work area. If we cannot identify the
+  # root, do nothing rather than risk an unrelated process.
+  [ -n "$ci_app_host_root" ] && \
+    pkill -f "${ci_app_host_root%/}/.*Build/Products/.*cmux DEV" 2>/dev/null || true
 }
 
 attempt=1
