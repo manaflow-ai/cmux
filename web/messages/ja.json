@@ -590,6 +590,59 @@
     }
   },
   "docs": {
+    "remoteTmux": {
+      "title": "リモート tmux",
+      "metaTitle": "リモート tmux（ベータ）",
+      "metaDescription": "tmux のコントロールモードを使い、SSH 経由でリモートの tmux セッションを cmux から操作します。セッションはワークスペースに、ウィンドウはタブに、ウィンドウ内のペインはネイティブな cmux の分割になります。",
+      "intro": "リモート tmux は、リモートマシンで動作している tmux セッションを、tmux のコントロールモード（tmux -CC）を使って SSH 経由で cmux にミラーリングします。単なる SSH ターミナルではなく、リモートセッションを cmux のネイティブな UI（ワークスペース・タブ・分割・スクロールバック・コピー）として再投影し、その裏で cmux が実際の tmux サーバーを操作します。ベータ機能フラグであり、ローカルのターミナルには影響しません。",
+      "betaNote": "ベータ機能です。オプトインで、まだ安定化の途中です。下記の制限事項を参照してください。",
+      "mappingTitle": "tmux と cmux の対応",
+      "mappingIntro": "cmux と tmux はレイアウトの入れ子が逆向きです。cmux ではペインがタブの列を持ちます（各タブが 1 つのターミナル）。tmux ではウィンドウがペインの分割を持ちます。リモート tmux は、tmux の構造を cmux の構造へ投影することで両者を橋渡しします。",
+      "mapTmux": "tmux",
+      "mapCmux": "cmux",
+      "rowSession": "サイドバーの専用ワークスペース。",
+      "rowWindow": "そのワークスペース内のタブ。",
+      "rowPane": "そのタブ内の、ネイティブな分割の中のペイン。",
+      "mappingPanes": "新しく追加された機能は「タブの中のペイン」です。これまで cmux のタブは 1 つのターミナルだけを保持していましたが、複数のペインを持つ tmux ウィンドウは、1 つのタブの中でネイティブな cmux の分割レイアウトとして描画されるようになりました（各リモートペインは通常のクロムを備えたネイティブな cmux のターミナルペインです）。橋渡しは双方向で、そのタブ内でペインを分割・クローズすると tmux の split-window が実行され、タブを並べ替えると swap-window で tmux のウィンドウが並べ替えられます。",
+      "requirementsTitle": "必要なもの",
+      "requirementsDesc": "到達可能な SSH ホスト（cmux は ~/.ssh/config を読み込みます）と、tmux がインストールされていること。コントロールモード（tmux -CC）は tmux の標準機能なので、特別なビルドは不要です（全機能を使うには新しめの tmux を推奨）。cmux は SSH の ControlMaster 接続で接続し、デタッチしてもリモートの tmux サーバーは動作し続けます。",
+      "enableTitle": "有効にする",
+      "enableDesc": "設定 → ベータ機能 を開き、「リモート tmux」をオンにします。デフォルトはオフなので、オプトインするまでローカルのターミナルには何も影響しません。",
+      "attachTitle": "接続する",
+      "attachIntro": "ターミナルで cmux ssh-tmux <宛先>（~/.ssh/config のエイリアスまたは user@host）を実行します。cmux はそのホストの tmux セッションをミラーリングする新しいウィンドウを開きます。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはタブ内の分割になります。",
+      "attachSockets": "remote.tmux.* のソケットコマンド（下記）でより細かく制御できます。たとえば remote.tmux.mirror は、専用ウィンドウを開く代わりに、ホストのセッションを現在のウィンドウのサイドバーにミラーリングします。",
+      "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後 cmux がミラーウィンドウを開きます。--port と --identity を指定できます。",
+      "troubleshootTitle": "「Permission denied」が出る場合",
+      "troubleshootDesc": "宛先はそのまま ssh に渡されるため、エイリアスにはログインに必要な設定をすべて含める必要があります。特に User（未指定だと ssh はローカルのユーザー名を使います）と IdentityFile です:",
+      "troubleshootFallback": "または cmux ssh-tmux dev@my-ssh-alias のようにユーザーを明示指定してください。素の ssh <宛先> でログインできない場合は、cmux ssh-tmux <宛先> でも接続できません。",
+      "howTitle": "仕組み",
+      "howDesc": "cmux は ssh … tmux -CC attach を起動し、組み込みの tmux ビューアーに頼らずコントロールモードのストリームを自前で解析します。そのためプロトコルや %begin/%end のコマンド対応付けは完全に cmux が管理します。各リモートペインは tmux の %output を流し込む専用のターミナルサーフェスに描画され、キー入力やマウスなどの入力は tmux の send-keys でリモートへ送られます。ペインのサイズやリフローはリモートの tmux サーバーが管理し、cmux はそれに追従してローカルではリフローしません。",
+      "behaviorTitle": "サポートしている機能",
+      "behaviorSize": "サイズ調整: リモートクライアントを描画中のグリッドに合わせてリサイズします（refresh-client -C）。TUI が tmux のデフォルトの 80×24 のままになりません。",
+      "behaviorSplit": "分割: ミラーされたウィンドウでペインを分割・クローズすると tmux の split-window に伝播し、cmux と tmux のレイアウトが同期します。プログラムからの分割（cmux new-split やソケット経由の surface.split）は accepted を返し、surface id は含まれません。新しいペインは tmux がレイアウト変更を確定した後に非同期で追加されます。ルーティングされる分割が適用できないオプション（起動コマンド、作業ディレクトリ、分割位置、左/上への配置）を含むリクエストは、リモートセッションを変更する前に拒否されます。",
+      "behaviorReorder": "並べ替え: ミラーされたタブをドラッグで並べ替えると、swap-window で tmux のウィンドウが並べ替えられます。",
+      "behaviorCwd": "作業ディレクトリ: リモートペインの現在のフォルダーを追跡し、タブに表示します。",
+      "behaviorPaste": "貼り付けとドロップ: 貼り付けたテキストやドロップした画像・ファイルは tmux の paste-buffer -p 経由で渡されるため、リモートのアプリ（コーディングエージェントなど）は本物のブラケットペーストを受け取ります。画像はローカルパスではなく [Image #N] として届きます。",
+      "behaviorMouse": "マウス: リモートアプリがマウスモードのとき、クリック・スクロール・ドラッグがリモートアプリに届きます。ネイティブな cmux のテキスト選択・コピーには、Shift を押しながらドラッグしてください（マウスモードのアプリを実行している通常のターミナルと同じ挙動です）。",
+      "behaviorUnicode": "Unicode に正しい出力: tmux が更新の途中でマルチバイト文字を分割しても文字は保持されるため、罫線素片などの幅広な内容も乱れずに描画されます。",
+      "socketTitle": "ソケットコマンド",
+      "socketDesc": "この機能はソケットコマンドからも操作できます（ベータ機能フラグでゲートされます）。host は SSH の宛先または ~/.ssh/config のエイリアス、session は tmux のセッション名です。",
+      "socketMethod": "メソッド",
+      "socketParams": "パラメータ",
+      "socketMeaning": "説明",
+      "methodSessions": "ホスト上の tmux セッションを一覧表示します。",
+      "methodAttach": "セッションにコントロールクライアントで接続します（create で「接続または作成」）。",
+      "methodMirror": "ホスト上のすべてのセッションを、それぞれワークスペースとしてミラーリングします（ウィンドウがタブになります）。",
+      "methodWindow": "ホスト上のすべてのセッションをミラーリングする専用ウィンドウを開きます（cmux ssh-tmux のエントリポイント）。ホストが必要とする場合は、対話的認証のために実行すべき ssh コマンドを返します。",
+      "methodDetach": "コントロールクライアントをデタッチします。リモートセッションは動作し続けます。",
+      "methodState": "コントロールクライアントの観測状態を報告します（診断用）。",
+      "socketSafetyDesc": "ダッシュで始まる host や identity ファイルは、SSH オプションインジェクション対策として境界で拒否されます。",
+      "limitationsTitle": "制限事項",
+      "limitReconnect": "一時的な SSH の切断は自動的に再接続されます: セッション中に接続が途切れると、ミラーは固まり、cmux は上限付きの指数バックオフで再試行し、再開時にペインを再シードします。ミラーが完全に閉じるのは、リモートセッション自体が終了したとき、またはミラーウィンドウを閉じたり cmux を終了したときだけで、再起動時には復元されません（cmux ssh-tmux で再接続してください）。",
+      "limitPaste": "ブラケットペーストとして paste-buffer -p で渡されるのは単一行の貼り付け・ドロップ（ファイルや画像のパスなど）のみです。複数行のテキストは通常のキー入力として送られるため、リモートアプリは 1 回の貼り付けとして扱いません。",
+      "limitCwd": "作業ディレクトリのライブ更新はコントロールモードのサブスクリプション（tmux 3.2 以降）を使用します。それより古い tmux では初期フォルダーは表示されますが、cd しても更新されません。",
+      "limitReflow": "プライマリスクリーンのスクロールバックはリサイズ時に折り返し直されません。cmux はリフローを tmux に任せるため、古い行はアプリが再描画するまで以前の幅のままになることがあります。リサイズ時に再描画するフルスクリーンの TUI は影響を受けません。"
+    },
     "layoutTitle": "cmux docs",
     "search": {
       "placeholder": "ドキュメントを検索...",
@@ -820,7 +873,9 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Amp の cmux 連携フックを有効にします。無効にすると、バンドルされたプラグインは削除せずに非アクティブのままになります。",
-          "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。"
+          "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。",
+          "workspaceAutoNaming": "エージェントの会話内容からワークスペースとタブの名前を自動生成するオプトイン機能です。有効にすると、cmux は対応エージェントの各バイナリを使ってセッションを短いタイトルに要約します。手動の名前変更が常に優先されます。",
+          "autoNamingAgent": "すべてのセッションの自動命名を行うエージェントを指定します。\"auto\"（既定）は各セッションをそのセッション自身のエージェントで命名します。任意のエージェントのスラッグ（claude、codex、grok、opencode、pi、omp など）を指定すると、他のエージェントのセッションも含めてすべての命名をそのエージェントが行います。実行できない、または未インストールのエージェントは各セッション自身のエージェントにフォールバックするため、命名が壊れることはありません。"
         },
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
@@ -858,11 +913,19 @@
         "fileEditor": {
           "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
         },
+        "sidebar": {
+          "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
+        },
+        "fileExplorer": {
+          "description": "右サイドバーのファイルエクスプローラー（ファイルツリー）設定。",
+          "doubleClickAction": "ファイルエクスプローラーでファイルをダブルクリックした（または検索結果で Return を押した）ときの動作です。`preview` は組み込みの cmux ファイルプレビューを開きます（既定かつ従来の動作）。`defaultEditor` はそのファイル形式の macOS 既定アプリで開きます。`preferredEditor` は `app.preferredEditor` コマンドで開き、未設定の場合は既定アプリにフォールバックします。ファイルにのみ適用され、ディレクトリは常に展開・折りたたみされ、非ローカル（リモート）のファイルエクスプローラーは常に cmux プレビューを開きます。"
+        },
         "diffViewer": {
           "defaultLayout": "新しく開く diff ビューアの既定レイアウトです。ツールバーのレイアウト切り替えはユーザーの最後の選択を保持し、明示的な `cmux diff --layout` オプションはその両方を上書きします。"
         },
         "shortcuts": {
-          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。"
+          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
+          "showModifierHoldHints": "Cmd または Control を押し続けている間、ショートカットヒントのチップを表示します。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
@@ -870,6 +933,7 @@
       "exampleMarkdownFontFamily": "本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
       "exampleMarkdownMaxWidth": "読み取りカラム最大幅の既定値（CSS ピクセル単位）です。",
       "exampleFileEditorWordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。",
+      "exampleFileExplorerDoubleClickAction": "ファイルをダブルクリックしたときの動作: preview（既定）、defaultEditor（macOS の既定アプリ）、preferredEditor（app.preferredEditor コマンド）。",
       "shortcutsWhenIntro": "アクションごとの任意のコンテキスト述語（VS Code スタイルの when 句）で、cmux のアクション ID をキーにします。バインディングは、その句が成立するときだけ発火し、同じキーストロークの他のバインディングともそのときだけ競合します。句を省略すると、アクションの組み込みコンテキストが維持されます。句で使える語彙:",
       "shortcutsWhenBooleanKeys": "boolean キー。未知または存在しないキーは false として扱われ、リテラル true / false も使えます。",
       "shortcutsWhenTypedKeys": "比較用の型付きキー。右サイドバーのアクティブモード（文字列）と、ペイン数・ワークスペース数（整数）です。",
@@ -1507,6 +1571,7 @@
       "browserAutomation": "ブラウザ自動化",
       "skills": "スキル",
       "notifications": "通知",
+      "remoteTmux": "リモート tmux",
       "agentIntegrations": "エージェント連携",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",

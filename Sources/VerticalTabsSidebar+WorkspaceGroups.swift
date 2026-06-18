@@ -10,7 +10,8 @@ extension VerticalTabsSidebar {
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
-        shouldCollectWorkspaceDropTargets: Bool
+        shouldCollectWorkspaceDropTargets: Bool,
+        showModifierHoldHints: Bool
     ) -> some View {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
@@ -37,8 +38,8 @@ extension VerticalTabsSidebar {
             workspaceCount: renderContext.workspaceCount
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
-        let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
-        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
+        let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
+        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
