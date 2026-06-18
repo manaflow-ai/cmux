@@ -94,6 +94,9 @@ from the base branch, then check out the PR merge tree and scan the git range
 from the PR base to `HEAD`; a secret added in one PR commit and removed before
 merge is still caught. After the initial bootstrap PR, pull requests enforce
 with the base branch's `.gitleaks.toml` so a PR cannot hide a committed secret by
-relaxing its own allowlist. CI also ignores inline `gitleaks:allow` comments and
-points `.gitleaksignore` at an empty file, so suppressions must live in the
-reviewed config. Pushes to `main` scan the pushed commit range.
+relaxing its own allowlist. When a PR changes `.gitleaks.toml`, CI also runs the
+same scan with the candidate config to catch syntax or semantic breakage before
+merge; that candidate validation is additional and does not replace the blocking
+base-config scan. CI also ignores inline `gitleaks:allow` comments and points
+`.gitleaksignore` at an empty file, so suppressions must live in the reviewed
+config. Pushes to `main` scan the pushed commit range.
