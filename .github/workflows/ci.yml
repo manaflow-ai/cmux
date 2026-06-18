@@ -259,6 +259,19 @@ jobs:
       # and cheap so xcodebuild can restart/finish the suite.
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
+      # Self-hosted runners reuse the workspace between jobs. A prior job whose
+      # git process was killed (e.g. an XCTest app-host crash mid-checkout)
+      # leaves a stale .git/modules/<submodule>/index.lock that makes the next
+      # job's `submodules: recursive` checkout fail with "index.lock: File
+      # exists". No git process is running at job start, so any lock here is
+      # stale and safe to remove.
+      - name: Clear stale git locks (self-hosted workspace reuse)
+        run: |
+          ws="${{ github.workspace }}"
+          if [ -d "$ws/.git" ]; then
+            find "$ws/.git" -name '*.lock' -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -668,6 +681,16 @@ jobs:
               ;;
           esac
 
+      # Self-hosted runners reuse the workspace; clear any stale
+      # .git/<submodule>/index.lock left by a killed prior job so the
+      # submodules: recursive checkout does not fail with "index.lock: File exists".
+      - name: Clear stale git locks (self-hosted workspace reuse)
+        run: |
+          ws="${{ github.workspace }}"
+          if [ -d "$ws/.git" ]; then
+            find "$ws/.git" -name '*.lock' -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -946,6 +969,16 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
+      # Self-hosted runners reuse the workspace; clear any stale
+      # .git/<submodule>/index.lock left by a killed prior job so the
+      # submodules: recursive checkout does not fail with "index.lock: File exists".
+      - name: Clear stale git locks (self-hosted workspace reuse)
+        run: |
+          ws="${{ github.workspace }}"
+          if [ -d "$ws/.git" ]; then
+            find "$ws/.git" -name '*.lock' -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -996,6 +1029,16 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 45
     steps:
+      # Self-hosted runners reuse the workspace; clear any stale
+      # .git/<submodule>/index.lock left by a killed prior job so the
+      # submodules: recursive checkout does not fail with "index.lock: File exists".
+      - name: Clear stale git locks (self-hosted workspace reuse)
+        run: |
+          ws="${{ github.workspace }}"
+          if [ -d "$ws/.git" ]; then
+            find "$ws/.git" -name '*.lock' -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1134,6 +1177,16 @@ jobs:
               echo "Display runner is not Depot; skipping Depot identity guard"
               ;;
           esac
+
+      # Self-hosted runners reuse the workspace; clear any stale
+      # .git/<submodule>/index.lock left by a killed prior job so the
+      # submodules: recursive checkout does not fail with "index.lock: File exists".
+      - name: Clear stale git locks (self-hosted workspace reuse)
+        run: |
+          ws="${{ github.workspace }}"
+          if [ -d "$ws/.git" ]; then
+            find "$ws/.git" -name '*.lock' -delete 2>/dev/null || true
+          fi
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
