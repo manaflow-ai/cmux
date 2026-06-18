@@ -98,6 +98,7 @@ extension ShortcutAction {
         case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
         case .sendCtrlFToTerminal: return nil
+        case .clearScreenKeepScrollback: return ShortcutStroke(key: "k", command: true, shift: true)
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
         case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
         case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
@@ -106,6 +107,7 @@ extension ShortcutAction {
         case .browserBack: return ShortcutStroke(key: "[", command: true)
         case .browserForward: return ShortcutStroke(key: "]", command: true)
         case .browserReload: return ShortcutStroke(key: "r", command: true)
+        case .browserHardReload: return ShortcutStroke(key: "r", command: true, shift: true)
         case .browserZoomIn: return ShortcutStroke(key: "=", command: true)
         case .browserZoomOut: return ShortcutStroke(key: "-", command: true)
         case .browserZoomReset: return ShortcutStroke(key: "0", command: true)
