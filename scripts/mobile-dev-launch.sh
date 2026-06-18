@@ -54,6 +54,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$TAG" ]] || { echo "error: --tag is required" >&2; usage >&2; exit 2; }
+if [[ "$DETACH" -eq 1 && "$TARGET" != "simulator" ]]; then
+  echo "error: --detach is supported only with simulator launches" >&2
+  usage >&2
+  exit 2
+fi
 
 # --- credentials ------------------------------------------------------------
 # Dogfood account wins over the agent account so iOS dev builds sign in as the
