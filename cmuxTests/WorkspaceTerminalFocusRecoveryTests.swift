@@ -79,6 +79,69 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
     }
 
     @Test
+    func forcedReparentFocusClearRetriesWhenSurfaceGeometryIsStillTiny() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = originalAppDelegate ?? AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let originalTabManager = appDelegate.tabManager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
+        let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
+        let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
+        workspace.focusPanel(panelId, trigger: .terminalFirstResponder)
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView, "Expected content view")
+
+        panel.hostedView.frame = contentView.bounds
+        contentView.addSubview(panel.hostedView)
+        panel.hostedView.setVisibleInUI(true)
+        panel.hostedView.setActive(true)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        panel.hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
+
+        window.makeFirstResponder(nil)
+        panel.surface.setFocus(false)
+        surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+        #expect(window.makeFirstResponder(surfaceView))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        #expect(!panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting())
+        #expect(!panel.surface.debugDesiredFocusState())
+
+        panel.hostedView.suppressReparentFocus()
+        panel.hostedView.clearSuppressReparentFocus()
+
+        #expect(
+            panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting(),
+            "Forced reparent focus reassert should keep a deferred retry queued while surface geometry is tiny"
+        )
+        #expect(!panel.surface.debugDesiredFocusState())
+
+        surfaceView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        #expect(
+            panel.surface.debugDesiredFocusState(),
+            "Forced reparent focus reassert should recover once the queued retry sees usable surface geometry"
+        )
+    }
+
+    @Test
     func automaticApplyDoesNotBypassHiddenTinyFirstResponderDeferral() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = originalAppDelegate ?? AppDelegate()

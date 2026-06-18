@@ -9828,6 +9828,10 @@ final class GhosttySurfaceScrollView: NSView {
     func debugIsSuppressingReparentFocusForTesting() -> Bool {
         surfaceView.suppressingReparentFocus
     }
+
+    func debugHasPendingAutomaticFirstResponderApplyForTesting() -> Bool {
+        pendingAutomaticFirstResponderApply
+    }
 #endif
 
     private func currentTerminalSurfaceOwnsFirstResponder() -> Bool {
@@ -9909,6 +9913,7 @@ final class GhosttySurfaceScrollView: NSView {
                 "surfaceFrame=\(String(format: "%.1fx%.1f", surfaceSize.width, surfaceSize.height))"
             )
 #endif
+            scheduleAutomaticFirstResponderApply(reason: "\(reason).hiddenOrTiny")
             return false
         }
 
