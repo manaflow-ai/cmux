@@ -188,6 +188,53 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Ensure iOS simulator runtime
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          has_ios_runtime() {
+            python3 - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          try:
+              data = json.loads(subprocess.check_output([
+                  "xcrun", "simctl", "list", "runtimes", "available", "-j"
+              ], stderr=subprocess.DEVNULL))
+          except Exception:
+              sys.exit(1)
+
+          def is_ios_runtime(runtime):
+              platform = runtime.get("platform", "")
+              identifier = runtime.get("identifier", "")
+              name = runtime.get("name", "")
+              return (
+                  platform in {"iOS", "com.apple.platform.iphonesimulator"}
+                  or identifier.startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+                  or name.startswith("iOS ")
+              )
+
+          sys.exit(0 if any(
+              runtime.get("isAvailable", True) and is_ios_runtime(runtime)
+              for runtime in data.get("runtimes", [])
+          ) else 1)
+          PY
+          }
+
+          if has_ios_runtime; then
+            echo "iOS simulator runtime already available"
+            exit 0
+          fi
+
+          echo "No installed iOS simulator runtime; downloading iOS platform for ${DEVELOPER_DIR}"
+          xcodebuild -downloadPlatform iOS
+          if ! has_ios_runtime; then
+            echo "No available iOS simulator runtime after xcodebuild -downloadPlatform iOS" >&2
+            xcrun simctl list runtimes -j >&2 || true
+            exit 1
+          fi
+
       - name: Install zig
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: ./scripts/install-zig-ci.sh
