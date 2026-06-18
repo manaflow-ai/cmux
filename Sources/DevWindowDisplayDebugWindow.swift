@@ -8,10 +8,14 @@ import SwiftUI
 /// `cmux.json` via ``CmuxSettings``, not `@AppStorage`, so the value applies to
 /// every tagged dev build, not just this one). The same value is also settable
 /// from `cmux window default-display`.
-final class DevWindowDisplayDebugWindowController: NSWindowController, NSWindowDelegate {
+final class DevWindowDisplayDebugWindowController: ReleasingWindowController {
     static let shared = DevWindowDisplayDebugWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 360),
             styleMask: [.titled, .closable, .resizable, .utilityWindow],
@@ -22,13 +26,11 @@ final class DevWindowDisplayDebugWindowController: NSWindowController, NSWindowD
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.devWindowDisplay")
         window.center()
         window.contentView = NSHostingView(rootView: DevWindowDisplayDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -38,8 +40,7 @@ final class DevWindowDisplayDebugWindowController: NSWindowController, NSWindowD
 
     @MainActor
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
