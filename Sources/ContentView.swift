@@ -982,10 +982,11 @@ struct ContentView: View {
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+    // The titlebar debug-inset keys contain dots, which breaks @AppStorage's
+    // per-key KVO and makes SwiftUI invalidate the holder on EVERY UserDefaults
+    // write. They are owned by TitlebarDebugChromeSentinel (a leaf in the
+    // background) instead of this window-root view; imperative readers use
+    // MinimalModeTitlebarDebugSettings.snapshot(). (#5732)
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
@@ -1712,21 +1713,6 @@ struct ContentView: View {
     /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
     /// main windows use MainWindowHostingView and report zero.
     @State private var hostingSafeAreaTop: CGFloat = 0
-    @AppStorage(WorkspacePresentationModeSettings.modeKey)
-    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
-
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
-
-    private var effectiveTitlebarPadding: CGFloat {
-        Self.effectiveTitlebarPadding(
-            isMinimalMode: isMinimalMode,
-            isFullScreen: isFullScreen,
-            titlebarPadding: titlebarPadding,
-            hostingSafeAreaTop: hostingSafeAreaTop
-        )
-    }
 
     static func effectiveTitlebarPadding(
         isMinimalMode: Bool,
@@ -1792,7 +1778,28 @@ struct ContentView: View {
         let selectedWorkspaceId = tabManager.selectedTabId
         let retiringWorkspaceId = self.retiringWorkspaceId
 
-        return ZStack {
+        // The bridge owns the presentation-mode subscription and applies the
+        // mode-dependent top padding, so a toggle re-layouts this subtree
+        // without re-evaluating ContentView or the workspace bodies (#5732).
+        return MinimalModeContentTopPaddingBridge(
+            isFullScreen: isFullScreen,
+            titlebarPadding: titlebarPadding,
+            hostingSafeAreaTop: hostingSafeAreaTop
+        ) {
+            terminalContentStack(
+                mountedWorkspaces: mountedWorkspaces,
+                selectedWorkspaceId: selectedWorkspaceId,
+                retiringWorkspaceId: retiringWorkspaceId
+            )
+        }
+    }
+
+    private func terminalContentStack(
+        mountedWorkspaces: [Workspace],
+        selectedWorkspaceId: UUID?,
+        retiringWorkspaceId: UUID?
+    ) -> some View {
+        ZStack {
             ZStack {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
@@ -1823,6 +1830,10 @@ struct ContentView: View {
                             )
                         }
                     )
+                    // Skip re-evaluating the Bonsplit tree when this window-root
+                    // body re-runs for chrome-only changes (e.g. the minimal-mode
+                    // toggle, #5732). See WorkspaceContentView's `==`.
+                    .equatable()
                     .opacity(presentation.renderOpacity)
                     .allowsHitTesting(isSelectedWorkspace)
                     .accessibilityHidden(!presentation.isRenderedVisible)
@@ -1838,7 +1849,6 @@ struct ContentView: View {
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
-        .padding(.top, effectiveTitlebarPadding)
     }
 
     private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {
@@ -2057,24 +2067,10 @@ struct ContentView: View {
     }
 
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
-        MinimalModeTitlebarDebugSnapshot(
-            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarLeftControlsLeadingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-            ),
-            leftControlsTopInset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarLeftControlsTopInset,
-                range: MinimalModeTitlebarDebugSettings.topInsetRange
-            ),
-            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarTrafficLightTabBarInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-            ),
-            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarTrafficLightTitlebarLeadingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-            )
-        )
+        // Imperative defaults read (same clamping); the reactive subscription
+        // lives in TitlebarDebugChromeSentinel. See the note on the removed
+        // @AppStorage block above.
+        MinimalModeTitlebarDebugSettings.snapshot()
     }
 
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
@@ -2191,10 +2187,39 @@ struct ContentView: View {
     }
 
     private func syncTrafficLightInset() {
-        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen)
+        let inset: CGFloat = (WorkspacePresentationModeSettings.isMinimal() && !sidebarState.isVisible && !isFullScreen)
             ? CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset)
             : 0
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
+    }
+
+    /// AppKit side effects of a presentation-mode flip. Invoked by
+    /// `MinimalModeTitlebarBandHost.onModeChange` so `ContentView` itself never
+    /// observes the mode (#5732).
+    private func applyPresentationModeChange() {
+        #if DEBUG
+        let sideEffectsStart = CACurrentMediaTime()
+        #endif
+        if let observedWindow {
+            windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
+                isFullScreen,
+                in: observedWindow,
+                isMinimalMode: WorkspacePresentationModeSettings.isMinimal()
+            )
+            AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
+            refreshWindowChromeMetrics(for: observedWindow)
+            observedWindow.contentView?.needsLayout = true
+            observedWindow.contentView?.superview?.needsLayout = true
+            observedWindow.invalidateShadow()
+        }
+        schedulePortalGeometrySynchronize()
+        updateSidebarResizerBandState()
+        syncTrafficLightInset()
+        #if DEBUG
+        cmuxDebugLog(
+            "presentationMode.onChange sideEffectsMs=\(String(format: "%.1f", (CACurrentMediaTime() - sideEffectsStart) * 1000))"
+        )
+        #endif
     }
 
     private func applyTitlebarDebugChromeChange() {
@@ -2498,16 +2523,19 @@ struct ContentView: View {
 
                 contentAndSidebarLayout(appearance: appearance)
 
-                if !isMinimalMode {
+                // The host owns the presentation-mode subscription (and the
+                // AppKit side effects of a mode flip) so toggling minimal mode
+                // never re-evaluates this window-root body (#5732).
+                MinimalModeTitlebarBandHost(onModeChange: { applyPresentationModeChange() }) {
                     workspaceTitlebarBand(appearance: appearance)
-                        .zIndex(100)
                 }
+                .zIndex(100)
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
                 .background(
-                    MinimalModeTitlebarEventSurfaceView(isEnabled: isMinimalMode && !isFullScreen)
+                    MinimalModeTitlebarEventSurfaceHost(isFullScreen: isFullScreen)
                 )
         )
 
@@ -2988,7 +3016,7 @@ struct ContentView: View {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 true,
                 in: window,
-                isMinimalMode: isMinimalMode
+                isMinimalMode: WorkspacePresentationModeSettings.isMinimal()
             )
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
             syncTrafficLightInset()
@@ -3001,7 +3029,7 @@ struct ContentView: View {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 false,
                 in: window,
-                isMinimalMode: isMinimalMode
+                isMinimalMode: WorkspacePresentationModeSettings.isMinimal()
             )
             AppDelegate.shared?.fullscreenControlsViewModel = nil
             syncTrafficLightInset()
@@ -3082,27 +3110,9 @@ struct ContentView: View {
             schedulePortalGeometrySynchronize()
         })
 
-        view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
-            if let observedWindow {
-                windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
-                    isFullScreen,
-                    in: observedWindow,
-                    isMinimalMode: isMinimalMode
-                )
-                AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
-                refreshWindowChromeMetrics(for: observedWindow)
-                observedWindow.contentView?.needsLayout = true
-                observedWindow.contentView?.superview?.needsLayout = true
-                observedWindow.invalidateShadow()
-            }
-            schedulePortalGeometrySynchronize()
-            updateSidebarResizerBandState()
-            syncTrafficLightInset()
-        })
-
-        view = AnyView(view.onChange(of: titlebarDebugChromeSnapshot) { _, _ in
-            applyTitlebarDebugChromeChange()
-        })
+        view = AnyView(view.background(
+            TitlebarDebugChromeSentinel(onDebugChromeChange: { applyTitlebarDebugChromeChange() })
+        ))
 
         view = AnyView(view.onChange(of: tabManager.tabs.map(\.id)) { _ in
             syncTrafficLightInset()
@@ -6135,7 +6145,7 @@ struct ContentView: View {
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil
     ) -> CommandPaletteContextSnapshot {
         var snapshot = CommandPaletteContextSnapshot()
-        snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
+        snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, WorkspacePresentationModeSettings.isMinimal())
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
         if let auth = AppDelegate.shared?.auth {
@@ -7667,10 +7677,16 @@ struct ContentView: View {
             sidebarMatchTerminalBackground.toggle()
         }
         registry.register(commandId: "palette.enableMinimalMode") {
-            workspacePresentationMode = WorkspacePresentationModeSettings.Mode.minimal.rawValue
+            UserDefaults.standard.set(
+                WorkspacePresentationModeSettings.Mode.minimal.rawValue,
+                forKey: WorkspacePresentationModeSettings.modeKey
+            )
         }
         registry.register(commandId: "palette.disableMinimalMode") {
-            workspacePresentationMode = WorkspacePresentationModeSettings.Mode.standard.rawValue
+            UserDefaults.standard.set(
+                WorkspacePresentationModeSettings.Mode.standard.rawValue,
+                forKey: WorkspacePresentationModeSettings.modeKey
+            )
         }
         registerViewCommandHandlers(&registry)
         registerCanvasCommandHandlers(&registry)
@@ -9981,10 +9997,10 @@ struct VerticalTabsSidebar: View {
     /// has no TabItemView, so no implicit per-row publisher subscription
     /// would otherwise fire on `cd` while it's not selected.
     @State private var anchorCwdRevision: Int = 0
-    @AppStorage(WorkspacePresentationModeSettings.modeKey)
-    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
-    @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
-    private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
+    // Not @AppStorage: the dotted key would coarse-invalidate this whole
+    // sidebar body on every UserDefaults write (#5732). The @Observable model
+    // mutates only on real provider changes, so body reads re-render precisely.
+    @State private var extensionProviderSelection = ExtensionSidebarProviderSelectionModel()
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
@@ -10000,7 +10016,7 @@ struct VerticalTabsSidebar: View {
     // re-enabled. Reading `extensionsExperimentalEnabled` here keeps the view
     // reactive to the flag toggling.
     private var effectiveExtensionSidebarProviderId: String {
-        let selected = selectedExtensionSidebarProviderId
+        let selected = extensionProviderSelection.providerId
         if selected.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix) {
             // Touch the @LiveSetting so toggling the flag in Settings still
             // re-renders, but decide with the synchronous UserDefaults read:
@@ -10013,7 +10029,7 @@ struct VerticalTabsSidebar: View {
                 : CmuxExtensionSidebarSelection.defaultProviderId
         }
         return CmuxExtensionSidebarSelection.effectiveProviderId(
-            selectedExtensionSidebarProviderId,
+            selected,
             extensionsEnabled: extensionsExperimentalEnabled
         )
     }
@@ -10107,10 +10123,6 @@ struct VerticalTabsSidebar: View {
     }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
-    private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
-    private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
 
     let tabRowSpacing: CGFloat = 2
     private static let extensionSidebarObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
@@ -10189,30 +10201,27 @@ struct VerticalTabsSidebar: View {
         SidebarWorkspaceListMetrics.bottomScrimHeight
     }
 
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
-
-    private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
-        MinimalModeTitlebarDebugSnapshot(
-            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarLeftControlsLeadingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-            ),
-            leftControlsTopInset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarLeftControlsTopInset,
-                range: MinimalModeTitlebarDebugSettings.topInsetRange
-            ),
-            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
-            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+    /// One shared construction path for both sidebar variants (workspace list
+    /// and extension sidebar). The overlay owns the presentation-mode and
+    /// titlebar debug-inset subscriptions, so toggling minimal mode does not
+    /// invalidate this sidebar body (#5732).
+    private var minimalModeTitlebarControlsOverlay: SidebarMinimalModeTitlebarControlsOverlay {
+        SidebarMinimalModeTitlebarControlsOverlay(
+            observedWindow: observedWindow,
+            notificationStore: notificationStore,
+            onToggleSidebar: onToggleSidebar,
+            onNewTab: onNewTab,
+            onFocusHistoryBack: {
+                if !tabManager.navigateBack() {
+                    NSSound.beep()
+                }
+            },
+            onFocusHistoryForward: {
+                if !tabManager.navigateForward() {
+                    NSSound.beep()
+                }
+            }
         )
-    }
-
-    private var minimalModeSidebarTitlebarControlsTopPadding: CGFloat {
-        guard let observedWindow else {
-            return MinimalModeSidebarTitlebarControlsMetrics.topInset
-        }
-        return minimalModeSidebarTitlebarControlsTopInset(in: observedWindow)
     }
 
     private var showsSidebarNotificationMessage: Bool {
@@ -10544,37 +10553,7 @@ struct VerticalTabsSidebar: View {
                     }
                 }
                 .overlay(alignment: .topLeading) {
-                    if isMinimalMode {
-                        HiddenTitlebarSidebarControlsView(
-                            notificationStore: notificationStore,
-                            onToggleSidebar: onToggleSidebar,
-                            onToggleNotifications: { anchorView in
-                                AppDelegate.shared?.toggleNotificationsPopover(
-                                    animated: true,
-                                    anchorView: anchorView
-                                )
-                            },
-                            onNewTab: onNewTab,
-                            onFocusHistoryBack: {
-                                if !tabManager.navigateBack() {
-                                    NSSound.beep()
-                                }
-                            },
-                            onFocusHistoryForward: {
-                                if !tabManager.navigateForward() {
-                                    NSSound.beep()
-                                }
-                            }
-                        )
-                            .padding(
-                                .leading,
-                                CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset)
-                            )
-                            .padding(
-                                .top,
-                                minimalModeSidebarTitlebarControlsTopPadding
-                            )
-                    }
+                    minimalModeTitlebarControlsOverlay
                 }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
@@ -10806,37 +10785,7 @@ struct VerticalTabsSidebar: View {
                     .background(TitlebarDoubleClickMonitorView())
             }
             .overlay(alignment: .topLeading) {
-                if isMinimalMode {
-                    HiddenTitlebarSidebarControlsView(
-                        notificationStore: notificationStore,
-                        onToggleSidebar: onToggleSidebar,
-                        onToggleNotifications: { anchorView in
-                            AppDelegate.shared?.toggleNotificationsPopover(
-                                animated: true,
-                                anchorView: anchorView
-                            )
-                        },
-                        onNewTab: onNewTab,
-                        onFocusHistoryBack: {
-                            if !tabManager.navigateBack() {
-                                NSSound.beep()
-                            }
-                        },
-                        onFocusHistoryForward: {
-                            if !tabManager.navigateForward() {
-                                NSSound.beep()
-                            }
-                        }
-                    )
-                    .padding(
-                        .leading,
-                        CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset)
-                    )
-                    .padding(
-                        .top,
-                        minimalModeSidebarTitlebarControlsTopPadding
-                    )
-                }
+                minimalModeTitlebarControlsOverlay
             }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
