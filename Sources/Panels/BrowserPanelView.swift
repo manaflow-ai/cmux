@@ -424,6 +424,10 @@ struct BrowserPanelView: View {
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
+    /// Held detector instance; the view detects and summarizes installed browsers
+    /// through this rather than the former `BrowserInstalledBrowserDetector` static
+    /// namespace.
+    private let installedBrowserDetector = BrowserInstalledBrowserDetector()
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettingsStore.searchEngineKey) private var searchEngineRaw = BrowserSearchSettingsStore.defaultSearchEngine.rawValue
@@ -667,7 +671,7 @@ struct BrowserPanelView: View {
     }
 
     private var browserImportHintSummary: String {
-        BrowserInstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers)
+        installedBrowserDetector.summaryText(for: emptyStateImportBrowsers)
     }
 
     private var shouldShowToolbarImportHintChip: Bool {
@@ -743,6 +747,20 @@ struct BrowserPanelView: View {
         cmuxDebugLog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
 #endif
         panel.reload()
+    }
+
+    private func handleReloadButtonContextMenuAction() {
+#if DEBUG
+        cmuxDebugLog("browser.reload.contextMenu panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        panel.reload()
+    }
+
+    private func handleHardRefreshButtonAction() {
+#if DEBUG
+        cmuxDebugLog("browser.hardRefresh.contextMenu panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        panel.hardReload()
     }
 
     private func handleScreenshotPageButtonAction() {
@@ -1344,6 +1362,14 @@ struct BrowserPanelView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(OmnibarAddressButtonStyle())
+            .contextMenu {
+                Button(String(localized: "browser.reload", defaultValue: "Reload")) {
+                    handleReloadButtonContextMenuAction()
+                }
+                Button(String(localized: "menu.view.hardRefresh", defaultValue: "Hard Refresh")) {
+                    handleHardRefreshButtonAction()
+                }
+            }
             .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
 
             if panel.isDownloading {
@@ -2456,9 +2482,10 @@ struct BrowserPanelView: View {
             return
         }
 
+        let detector = installedBrowserDetector
         emptyStateImportBrowserRefreshTask = Task {
             let browsers = await Task.detached(priority: .utility) {
-                BrowserInstalledBrowserDetector.detectInstalledBrowsers()
+                detector.detectInstalledBrowsers()
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run {

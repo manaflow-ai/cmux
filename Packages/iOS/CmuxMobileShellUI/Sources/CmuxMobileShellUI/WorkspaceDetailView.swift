@@ -160,34 +160,32 @@ struct WorkspaceDetailView: View {
         .safeAreaPadding(.top, terminalTopPadding)
         .mobileTerminalNavigationChrome()
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                // Chat toggle stays top-level next to the picker (lets you flip
+                // back to the terminal); New Workspace lives in the picker menu.
+                chatToggleButton
                 terminalPickerToolbarButton
             }
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
     }
 
-    /// Toolbar toggle between terminal and chat. Shown only when the
-    /// currently visible tab has an agent session (or chat is already on), so
-    /// the toggle tracks the tab the user is looking at. Surface ids are
-    /// stable across relaunch/restore, so this per-tab match survives a
-    /// restart.
-    /// The agent-chat toggle as a menu row, so chat is reached "internally" from
-    /// the terminal picker menu instead of a dedicated top-bar button (which
-    /// freed the middle of the bar for the workspace title). Shown only when the
-    /// visible tab has a session (or chat is already on).
+    /// Top-level toolbar toggle between terminal and chat. Shown only when the
+    /// currently visible tab has an agent session (or chat is already on), so the
+    /// toggle tracks the tab the user is looking at. Surface ids are stable across
+    /// relaunch/restore, so this per-tab match survives a restart. It sits next to
+    /// the terminal picker (where New Workspace used to be); the glass title pill
+    /// keeps the center readable even with the button present.
     @ViewBuilder
-    private var chatToggleMenuItem: some View {
+    private var chatToggleButton: some View {
         if isChatMode || sessionForSelectedTerminal != nil {
             Button(action: toggleChatMode) {
-                Label(
-                    L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"),
-                    systemImage: isChatMode
-                        ? "checkmark.circle.fill"
-                        : "bubble.left.and.bubble.right"
-                )
+                Image(systemName: isChatMode
+                    ? "bubble.left.and.bubble.right.fill"
+                    : "bubble.left.and.bubble.right")
             }
-            .accessibilityIdentifier("MobileAgentChatMenuItem")
+            .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
+            .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
             .disabled(!isChatMode && chosenChatSession == nil)
         }
     }
@@ -266,7 +264,8 @@ struct WorkspaceDetailView: View {
             ToolbarItem(placement: .principal) {
                 glassTitle(browser.title ?? workspace.name)
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                chatToggleButton
                 terminalPickerToolbarButton
             }
         }
@@ -391,7 +390,8 @@ struct WorkspaceDetailView: View {
             ToolbarItem(placement: .principal) {
                 glassTitle(workspace.name)
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                chatToggleButton
                 terminalPickerToolbarButton
             }
             #else
@@ -486,13 +486,6 @@ struct WorkspaceDetailView: View {
             }
         }
 
-        // Agent chat lives here (not a dedicated top-bar button) so the bar's
-        // middle stays free for the workspace title. Only present when the
-        // visible tab has a session (or chat is already on).
-        Section {
-            chatToggleMenuItem
-        }
-
         Section {
             Button(action: createWorkspaceFromToolbar) {
                 Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
@@ -511,6 +504,23 @@ struct WorkspaceDetailView: View {
                 )
             }
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
+        }
+
+        // Mark the current workspace read/unread from the terminal-icon menu,
+        // mirroring the workspace list's swipe action. Only when the Mac supports
+        // read-state actions, so it stays hidden on older Macs.
+        if store.supportsWorkspaceReadStateActions {
+            Section {
+                Button(action: toggleWorkspaceReadStateFromMenu) {
+                    Label(
+                        workspace.hasUnread
+                            ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
+                            : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
+                        systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceMarkReadStateMenuItem")
+            }
         }
 
         if closeWorkspace != nil {
@@ -733,6 +743,17 @@ struct WorkspaceDetailView: View {
 
     private func confirmCloseWorkspaceFromMenu() {
         closeWorkspace?(workspace.id)
+    }
+
+    /// Toggle the current workspace's read state on the Mac from the picker menu.
+    /// Flips relative to the workspace's current `hasUnread`; the authoritative
+    /// list re-sync inside `setWorkspaceUnread` reconciles the row + back-button
+    /// count.
+    private func toggleWorkspaceReadStateFromMenu() {
+        let store = store
+        let id = workspace.id
+        let markUnread = !workspace.hasUnread
+        Task { await store.setWorkspaceUnread(id: id, markUnread) }
     }
 
     private func createTerminalFromToolbar() {

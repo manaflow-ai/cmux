@@ -42,31 +42,6 @@ public struct BrowserInstalledBrowserDetector {
         self.fileManager = fileManager
     }
 
-    /// Detects installed browsers with default (production) discovery seams.
-    ///
-    /// Mirrors the original static entry point so existing call sites keep the
-    /// same shape.
-    ///
-    /// - Parameters:
-    ///   - homeDirectoryURL: The home directory to scan.
-    ///   - bundleLookup: Optional bundle-lookup seam.
-    ///   - applicationSearchDirectories: Optional application search directories.
-    ///   - fileManager: File manager used for filesystem checks.
-    /// - Returns: Ranked detected-browser candidates.
-    public static func detectInstalledBrowsers(
-        homeDirectoryURL: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
-        bundleLookup: BundleLookup? = nil,
-        applicationSearchDirectories: [URL]? = nil,
-        fileManager: FileManager = .default
-    ) -> [InstalledBrowserCandidate] {
-        BrowserInstalledBrowserDetector(
-            homeDirectoryURL: homeDirectoryURL,
-            bundleLookup: bundleLookup,
-            applicationSearchDirectories: applicationSearchDirectories,
-            fileManager: fileManager
-        ).detectInstalledBrowsers()
-    }
-
     /// Scans for installed browsers using this detector's configured seams.
     ///
     /// - Returns: Detected-browser candidates ranked by detection score, then
@@ -135,28 +110,17 @@ public struct BrowserInstalledBrowserDetector {
         }
     }
 
-    /// Snapshots the resolved application URLs for every known browser bundle
-    /// identifier, using `NSWorkspace` on the main actor.
-    ///
-    /// - Returns: A map from bundle identifier to its resolved application URL.
-    @MainActor
-    public static func applicationBundleLookupSnapshot() -> [String: URL] {
-        var result: [String: URL] = [:]
-        for descriptor in BrowserImportBrowserDescriptor.allBrowserDescriptors {
-            for bundleIdentifier in descriptor.bundleIdentifiers where result[bundleIdentifier] == nil {
-                result[bundleIdentifier] = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
-            }
-        }
-        return result
-    }
-
     /// Builds a localized one-line summary of detected browsers for hint UI.
+    ///
+    /// An instance method (not a static namespace member) so call sites invoke it
+    /// on a held detector. It does not read this detector's seams; it formats the
+    /// candidates passed in.
     ///
     /// - Parameters:
     ///   - browsers: The detected browser candidates.
     ///   - limit: Maximum number of names to list before summarizing the rest.
     /// - Returns: A localized summary string.
-    public static func summaryText(for browsers: [InstalledBrowserCandidate], limit: Int = 4) -> String {
+    public func summaryText(for browsers: [InstalledBrowserCandidate], limit: Int = 4) -> String {
         guard !browsers.isEmpty else {
             return String(
                 localized: "browser.import.detected.none",
