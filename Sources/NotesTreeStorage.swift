@@ -255,6 +255,7 @@ enum NotesTreeStorage {
     static let workspaceMarkerName = "_workspace.json"
     /// Marker filename tagging a directory as a Claude session folder.
     static let sessionMarkerName = "_session.json"
+    private static let markerDataReader = CmuxNoteIndexDataReader(maxBytes: 256 * 1024)
 
     // MARK: Workspace root resolution
 
@@ -905,7 +906,9 @@ enum NotesTreeStorage {
     }
 
     private static func readJSON<T: Decodable>(fromPath path: String) throws -> T {
-        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        guard let data = try markerDataReader.readIfPresent(atPath: path) else {
+            throw POSIXError(.ENOENT)
+        }
         return try JSONDecoder().decode(T.self, from: data)
     }
 }

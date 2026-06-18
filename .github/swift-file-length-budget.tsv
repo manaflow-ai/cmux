@@ -71,8 +71,8 @@
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1358	Sources/NotesTreeStore.swift
+1323	cmuxTests/NotesTreeStorageTests.swift
 1292	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
-1285	cmuxTests/NotesTreeStorageTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1276	cmuxTests/MobileHostAuthorizationTests.swift
 1258	Sources/Feed/FeedCoordinator.swift
@@ -91,8 +91,8 @@
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
+949	Sources/NotesTreeStorage.swift
 947	Sources/TerminalNotificationPolicy.swift
-946	Sources/NotesTreeStorage.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift

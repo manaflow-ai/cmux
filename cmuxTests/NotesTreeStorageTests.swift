@@ -1231,6 +1231,44 @@ import Testing
         #expect(Set(markers.map(\.sessionId)) == ["shared-id"])
     }
 
+    @Test func markerReadsRejectSymlinks() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
+        )
+        let sessionDir = (root as NSString).appendingPathComponent("linked-marker")
+        try fm.createDirectory(atPath: sessionDir, withIntermediateDirectories: true)
+        let target = (projectRoot as NSString).appendingPathComponent("outside-marker.json")
+        try write(
+            #"{"agent":"claude","sessionId":"s-link","cwd":"/work","title":"Linked","modified":1}"#,
+            to: target
+        )
+        try fm.createSymbolicLink(
+            atPath: (sessionDir as NSString).appendingPathComponent(NotesTreeStorage.sessionMarkerName),
+            withDestinationPath: target
+        )
+        #expect(NotesTreeStorage.sessionMarker(inDirectory: sessionDir) == nil)
+        #expect(!NotesTreeStorage.listEntries(inDirectory: root).contains { entry in
+            entry.kind.sessionMarker?.sessionId == "s-link"
+        })
+    }
+
+    @Test func markerReadsRejectOversizedFiles() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
+        )
+        let markerPath = (root as NSString).appendingPathComponent(NotesTreeStorage.workspaceMarkerName)
+        try String(repeating: "x", count: 256 * 1024 + 1)
+            .write(toFile: markerPath, atomically: true, encoding: .utf8)
+        #expect(NotesTreeStorage.readWorkspaceSessions(inRoot: root).isEmpty)
+
+        let sessionDir = (root as NSString).appendingPathComponent("oversized-marker")
+        try fm.createDirectory(atPath: sessionDir, withIntermediateDirectories: true)
+        let sessionMarkerPath = (sessionDir as NSString).appendingPathComponent(NotesTreeStorage.sessionMarkerName)
+        try String(repeating: "x", count: 256 * 1024 + 1)
+            .write(toFile: sessionMarkerPath, atomically: true, encoding: .utf8)
+        #expect(NotesTreeStorage.sessionMarker(inDirectory: sessionDir) == nil)
+    }
+
     /// An open markdown panel must follow a Notes-tree relocation (exact file
     /// move, or a folder move above it) instead of flipping to
     /// "File unavailable" — regression for moved notes orphaning open viewers.
