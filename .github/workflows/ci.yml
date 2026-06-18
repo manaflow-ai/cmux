@@ -369,19 +369,17 @@ jobs:
       - name: Run Ghostty split-theme appearance regression
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          scripts/ci/run-app-host-xcodebuild.sh \
-            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark \
-            -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
-            test
+          DERIVED_DATA_PATH="${RUNNER_TEMP:-/tmp}/cmux-terminal-core-split-theme"
+          rm -rf "$DERIVED_DATA_PATH"
+          (
+            cd Packages/macOS/CmuxTerminalCore
+            xcodebuild \
+              -scheme CmuxTerminalCore-Package \
+              -destination "platform=macOS" \
+              -derivedDataPath "$DERIVED_DATA_PATH" \
+              build-for-testing
+          )
+          xcrun xctest "$DERIVED_DATA_PATH/Build/Products/Debug/CmuxTerminalCoreTests.xctest"
 
       - name: Run browser system proxy mirror regression
         run: |
@@ -993,7 +991,10 @@ jobs:
     # mistakes before they reach main.
     # Keep the app build on macOS 26 so SDK-gated SwiftUI Liquid Glass code
     # compiles into the same artifact shape as nightly and stable releases.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+    # Release builds need enough disk for a universal Release build plus the
+    # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
+    # of the generic persistent macOS 26 pool.
+    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -1029,6 +1030,15 @@ jobs:
         id: ghostty-revision
         run: |
           echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Reclaim release runner disk
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:"
+          df -h /
+          rm -rf build-universal .spm-cache
+          echo "Disk after cleanup:"
+          df -h /
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-release

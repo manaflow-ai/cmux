@@ -29,6 +29,7 @@ public final class JSONValueModel<Value: SettingCodable> {
     private let store: JSONConfigStore
     private let key: JSONKey<Value>
     private let errorLog: SettingsErrorLog
+    @ObservationIgnored private let makeStream: () -> AsyncStream<Value>
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
@@ -75,7 +76,16 @@ public final class JSONValueModel<Value: SettingCodable> {
         self.store = store
         self.key = key
         self.errorLog = errorLog
+        self.makeStream = makeStream
         self.current = key.defaultValue
+    }
+
+    /// Starts the JSON change stream for the retained model.
+    ///
+    /// Idempotent: the first call starts observation and later calls are
+    /// ignored by ``SettingReadDriver``. Views should call this from a mounted
+    /// lifecycle hook such as `.task`, not from their initializer.
+    public func startObserving() {
         observation.activate(makeStream) { [weak self] value in
             self?.current = value
         }
