@@ -8085,7 +8085,7 @@ final class Workspace: Identifiable, ObservableObject {
         mode: RightSidebarMode,
         focus: Bool = true
     ) -> RightSidebarToolPanel? {
-        guard mode.canOpenAsPane else { return nil }
+        guard mode.canOpenAsPane, mode.isAvailable() else { return nil }
         for (existingId, panel) in panels {
             guard let toolPanel = panel as? RightSidebarToolPanel,
                   toolPanel.mode == mode else {
@@ -8106,7 +8106,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> RightSidebarToolPanel? {
-        guard mode.canOpenAsPane else { return nil }
+        guard mode.canOpenAsPane, mode.isAvailable() else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView

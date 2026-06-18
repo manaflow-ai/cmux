@@ -1,6 +1,6 @@
 import CmuxCommandPalette
 import CmuxFoundation
-import XCTest
+@preconcurrency import XCTest
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -1337,6 +1337,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
 
 final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     private final class TestRightSidebarResponder: NSView, FeedKeyboardFocusResponder {
+        var feedKeyboardFocusOwnerId: UUID?
         override var acceptsFirstResponder: Bool { true }
     }
 
@@ -1408,7 +1409,12 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             tabManager: TabManager(),
             fileExplorerState: FileExplorerState()
         )
+        let feedOwnerId = UUID()
+        let feedHost = FeedKeyboardFocusView(frame: .zero)
+        feedHost.focusOwnershipId = feedOwnerId
+        controller.registerFeedHost(feedHost)
         let responder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        responder.feedKeyboardFocusOwnerId = feedOwnerId
 
         let workspaceId = UUID()
         let panelId = UUID()
@@ -1427,7 +1433,12 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
             tabManager: TabManager(),
             fileExplorerState: fileExplorerState
         )
+        let feedOwnerId = UUID()
+        let feedHost = FeedKeyboardFocusView(frame: .zero)
+        feedHost.focusOwnershipId = feedOwnerId
+        controller.registerFeedHost(feedHost)
         let staleFeedResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        staleFeedResponder.feedKeyboardFocusOwnerId = feedOwnerId
 
         XCTAssertTrue(controller.selectFeedItem(UUID(), focusFeed: false))
         XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))

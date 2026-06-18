@@ -1,6 +1,7 @@
+import AppKit
 import CmuxCommandPalette
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,8 +9,10 @@ import XCTest
 @testable import cmux
 #endif
 
-final class RightSidebarCommandPaletteTests: XCTestCase {
-    func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
+@Suite(.serialized)
+struct RightSidebarCommandPaletteTests {
+    @Test
+    func commandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
@@ -20,54 +23,172 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
             for mode in RightSidebarMode.availableModes() {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
-                let contribution = try XCTUnwrap(
+                let contribution = try #require(
                     contributionsByID[commandID],
                     "Expected command palette contribution for \(mode.rawValue)"
                 )
 
-                XCTAssertEqual(contribution.title(context), mode.shortcutAction?.label ?? mode.label)
-                XCTAssertEqual(
-                    contribution.subtitle(context),
-                    String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
+                #expect(contribution.title(context) == (mode.shortcutAction?.label ?? mode.label))
+                #expect(
+                    contribution.subtitle(context) ==
+                        String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
                 )
-                XCTAssertTrue(contribution.keywords.contains("right"))
-                XCTAssertTrue(contribution.keywords.contains("sidebar"))
-                XCTAssertTrue(contribution.keywords.contains(mode.rawValue))
-                XCTAssertTrue(contribution.when(context))
-                XCTAssertTrue(contribution.enablement(context))
+                #expect(contribution.keywords.contains("right"))
+                #expect(contribution.keywords.contains("sidebar"))
+                #expect(contribution.keywords.contains(mode.rawValue))
+                #expect(contribution.when(context))
+                #expect(contribution.enablement(context))
             }
 
-            XCTAssertEqual(contributions.count, 3)
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
+            #expect(contributions.count == 3)
+            #expect(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)] == nil)
+            #expect(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)] == nil)
         }
     }
 
-    func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
+    @Test
+    func feedModeCanOpenAsPane() {
+        #expect(
+            RightSidebarMode.feed.canOpenAsPane,
+            "Feed mode should be openable as a pane so the header 'Open as Pane' button is visible, matching Files/Find/Vault"
+        )
+        #expect(RightSidebarMode.paneModes.contains(.feed))
+        // Dock is a beta feature and intentionally stays excluded.
+        #expect(!RightSidebarMode.dock.canOpenAsPane)
+        #expect(!RightSidebarMode.paneModes.contains(.dock))
+    }
+
+    @Test
+    func commandPaletteOffersOpenFeedAsPane() {
+        withSavedBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+            #expect(
+                descriptors.contains { $0.mode == .feed },
+                "Command palette should expose an 'Open Feed as Pane' command when Feed is enabled, consistent with the header button"
+            )
+            #expect(
+                !descriptors.contains { $0.mode == .dock },
+                "Dock stays excluded from open-as-pane entrypoints"
+            )
+        }
+    }
+
+    @Test
+    func commandPaletteHidesOpenFeedPaneWhenFeedDisabled() {
+        withSavedBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+            #expect(
+                !descriptors.contains { $0.mode == .feed },
+                "Command palette should not expose Feed pane commands while the Feed beta feature is disabled"
+            )
+            #expect(
+                !descriptors.contains { $0.mode == .dock },
+                "Dock stays excluded from open-as-pane entrypoints"
+            )
+        }
+    }
+
+    @Test
+    func feedPanePlacementDoesNotRegisterAsRightSidebarFocusHost() {
+        #expect(FeedPanelView.Placement.rightSidebar.registersWithKeyboardFocusCoordinator)
+        #expect(!FeedPanelView.Placement.pane.registersWithKeyboardFocusCoordinator)
+    }
+
+    @MainActor
+    @Test
+    func feedKeyboardFocusHostOwnsOnlyMatchingFeedResponders() {
+        let ownerId = UUID()
+        let otherOwnerId = UUID()
+        let host = FeedKeyboardFocusView(frame: .zero)
+        host.focusOwnershipId = ownerId
+
+        let matchingResponder = StubFeedKeyboardFocusResponder(ownerId: ownerId)
+        let otherResponder = StubFeedKeyboardFocusResponder(ownerId: otherOwnerId)
+        let unownedResponder = StubFeedKeyboardFocusResponder(ownerId: nil)
+
+        #expect(host.ownsKeyboardFocus(host))
+        #expect(host.ownsKeyboardFocus(matchingResponder))
+        #expect(!host.ownsKeyboardFocus(otherResponder))
+        #expect(!host.ownsKeyboardFocus(unownedResponder))
+        #expect(!host.ownsKeyboardFocus(NSResponder()))
+    }
+
+    @MainActor
+    @Test
+    func workspaceRightSidebarToolCreationHonorsFeedAvailability() throws {
+        try withSavedBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+
+            let disabledWorkspace = Workspace()
+            let disabledPaneId = try #require(disabledWorkspace.bonsplitController.focusedPaneId)
+            #expect(
+                disabledWorkspace.newRightSidebarToolSurface(
+                    inPane: disabledPaneId,
+                    mode: .feed,
+                    focus: false
+                ) == nil,
+                "Workspace restore/create paths must not recreate Feed pane surfaces while Feed is disabled"
+            )
+            #expect(
+                disabledWorkspace.openOrFocusRightSidebarToolSurface(
+                    inPane: disabledPaneId,
+                    mode: .feed,
+                    focus: false
+                ) == nil,
+                "Programmatic open/focus paths should share the same Feed availability gate"
+            )
+
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+
+            let enabledWorkspace = Workspace()
+            let enabledPaneId = try #require(enabledWorkspace.bonsplitController.focusedPaneId)
+            let enabledPanel = try #require(
+                enabledWorkspace.newRightSidebarToolSurface(
+                    inPane: enabledPaneId,
+                    mode: .feed,
+                    focus: false
+                )
+            )
+            #expect(enabledPanel.mode == .feed)
+        }
+    }
+
+    @Test
+    func commandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
 
             for mode in RightSidebarMode.allCases {
-                XCTAssertEqual(
+                #expect(
                     ContentView.commandPaletteShortcutAction(
                         forCommandID: ContentView.commandPaletteRightSidebarModeCommandID(mode)
-                    ),
-                    mode.shortcutAction
+                    ) == mode.shortcutAction
                 )
             }
         }
     }
 
-    func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
-        XCTAssertEqual(
-            ContentView.commandPaletteShortcutAction(forCommandID: "palette.toggleUnread"),
-            .toggleUnread
+    @Test
+    func commandPaletteUnreadActionsUseConfigurableShortcutActions() {
+        #expect(
+            ContentView.commandPaletteShortcutAction(forCommandID: "palette.toggleUnread") ==
+                .toggleUnread
         )
-        XCTAssertEqual(
-            ContentView.commandPaletteShortcutAction(forCommandID: "palette.markOldestUnreadAndJumpNext"),
-            .markOldestUnreadAndJumpNext
+        #expect(
+            ContentView.commandPaletteShortcutAction(forCommandID: "palette.markOldestUnreadAndJumpNext") ==
+                .markOldestUnreadAndJumpNext
         )
     }
 
@@ -89,5 +210,18 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+}
+
+private final class StubFeedKeyboardFocusResponder: NSResponder, FeedKeyboardFocusResponder {
+    var feedKeyboardFocusOwnerId: UUID?
+
+    init(ownerId: UUID?) {
+        self.feedKeyboardFocusOwnerId = ownerId
+        super.init()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }

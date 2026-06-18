@@ -25,6 +25,10 @@ extension RightSidebarMode {
         )
     }
 
+    static func availablePaneModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
+        availableModes(defaults: defaults).filter(\.canOpenAsPane)
+    }
+
     static func availableModes(feedEnabled: Bool, dockEnabled: Bool) -> [RightSidebarMode] {
         allCases.filter { $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) }
     }

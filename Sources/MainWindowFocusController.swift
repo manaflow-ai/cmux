@@ -192,9 +192,6 @@ final class MainWindowFocusController {
         if let host = rightSidebarHost, responder === host {
             return true
         }
-        if responder is FeedKeyboardFocusResponder {
-            return true
-        }
         if fileExplorerHost?.ownsKeyboardFocus(responder) == true ||
             fileSearchHost?.ownsKeyboardFocus(responder) == true {
             return true
@@ -745,7 +742,7 @@ final class MainWindowFocusController {
         if fileSearchHost?.ownsKeyboardFocus(responder) == true {
             return .find
         }
-        if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
+        if feedHost?.ownsKeyboardFocus(responder) == true {
             return .feed
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
