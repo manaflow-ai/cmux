@@ -1079,6 +1079,78 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 525252)
     }
 
+    func testGrokFeedDenyUsesGrokDecisionShape() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("grok-feed-deny")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-feed-deny-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "status": "resolved",
+                    "decision": [
+                        "kind": "permission",
+                        "mode": "deny",
+                    ],
+                ]
+            )
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "grok", "--event", "PreToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_GROK_PID": "424242",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"hook_event_name":"PreToolUse","session_id":"grok-session-123","cwd":"\#(root.path)","toolName":"write","tool_input":{"path":"\#(root.appendingPathComponent("README.md").path)"}}"#,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), #"{"decision":"deny","reason":"User denied permission via cmux Feed."}"#)
+
+        let feedEvents = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event
+        }
+        XCTAssertEqual(feedEvents.count, 1, "Expected one Grok Feed event, saw \(state.commands)")
+        XCTAssertEqual(feedEvents.first?["hook_event_name"] as? String, "PermissionRequest")
+        XCTAssertEqual(feedEvents.first?["_source"] as? String, "grok")
+        XCTAssertEqual(feedEvents.first?["tool_name"] as? String, "write")
+    }
+
     /// The Feed permission modes that allow a tool (`once` / `always` / `all`
     /// / `bypass`, the WorkstreamPermissionMode raw values) must exit 0 so
     /// Kiro proceeds; an unrecognized/malformed mode must fail closed with
@@ -2867,6 +2939,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertEqual(notificationTimeouts, [5])
         XCTAssertEqual(preToolUseTimeouts, [120])
+        let preToolUseCommands = preToolUseGroups
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+            .compactMap { $0["command"] as? String }
+        XCTAssertTrue(
+            preToolUseCommands.contains { $0.hasSuffix("/bin/cmux-grok-pretooluse.sh") },
+            "Expected Grok PreToolUse to use the fast-path pretool script, saw \(preToolUseCommands)"
+        )
+        XCTAssertFalse(
+            preToolUseCommands.contains { $0.contains("hooks feed --source grok --event PreToolUse") },
+            "Grok PreToolUse must not use the pinned feed one-liner, saw \(preToolUseCommands)"
+        )
+        let pretoolScript = root
+            .appendingPathComponent(".grok", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("cmux-grok-pretooluse.sh", isDirectory: false)
+        let ensureScript = root
+            .appendingPathComponent(".grok", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("cmux-grok-hooks-ensure.sh", isDirectory: false)
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: pretoolScript.path))
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: ensureScript.path))
         XCTAssertFalse(
             allCommands.contains { $0.contains("[ -n \"$CMUX_SURFACE_ID\" ]") },
             "Grok strips CMUX_* from hook subprocesses, so installed commands must not gate on CMUX_SURFACE_ID. Saw \(allCommands)"
@@ -2923,17 +3017,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["command"] as? String }
 
         XCTAssertFalse(allCommands.isEmpty)
+        let pinnedDispatchCommands = allCommands.filter {
+            !$0.hasSuffix("/bin/cmux-grok-pretooluse.sh")
+        }
+        XCTAssertFalse(pinnedDispatchCommands.isEmpty)
         XCTAssertTrue(
-            allCommands.allSatisfy { $0.contains("cmux-grok-hook-v2") },
-            "Expected installed Grok hooks to carry the owned-hook marker, saw \(allCommands)"
+            pinnedDispatchCommands.allSatisfy { $0.contains("cmux-grok-hook-v2") },
+            "Expected pinned Grok hooks to carry the owned-hook marker, saw \(pinnedDispatchCommands)"
         )
         XCTAssertTrue(
-            allCommands.allSatisfy { $0.contains("'\(pinnedCLI.path)'") },
-            "Expected installed Grok hooks to pin the installing CLI path, saw \(allCommands)"
+            pinnedDispatchCommands.allSatisfy { $0.contains("'\(pinnedCLI.path)'") },
+            "Expected pinned Grok hooks to pin the installing CLI path, saw \(pinnedDispatchCommands)"
         )
         XCTAssertTrue(
-            allCommands.allSatisfy { $0.contains("--socket '\(socketPath)'") },
-            "Expected installed Grok hooks to pin the installing socket path, saw \(allCommands)"
+            pinnedDispatchCommands.allSatisfy { $0.contains("--socket '\(socketPath)'") },
+            "Expected pinned Grok hooks to pin the installing socket path, saw \(pinnedDispatchCommands)"
         )
         XCTAssertFalse(
             allCommands.contains { $0.contains("$CMUX_") },

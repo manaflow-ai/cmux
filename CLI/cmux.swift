@@ -27129,6 +27129,26 @@ struct CMUXCLI {
         // approval reviewer. Most nested agents use milliseconds. Codex, Grok,
         // and Antigravity hook schemas use seconds, so normalize before writing.
         for agentEvent in def.feedHookEvents {
+            if def.name == "grok", agentEvent == "PreToolUse" {
+                let pretoolPath = Self.grokPreToolUseHookScriptPath(for: def)
+                let feedTimeoutMs = feedHookTimeoutMs(for: def, agentEvent: agentEvent)
+                switch def.format {
+                case .nested:
+                    var groups = result[agentEvent] as? [[String: Any]] ?? []
+                    let timeout = nestedFeedHookTimeout(feedTimeoutMs, for: def)
+                    groups.insert([
+                        "hooks": [[
+                            "type": "command",
+                            "command": pretoolPath,
+                            "timeout": timeout,
+                        ] as [String: Any]]
+                    ] as [String: Any], at: 0)
+                    result[agentEvent] = groups
+                default:
+                    break
+                }
+                continue
+            }
             let feedCmd = feedHookCommand(for: def, agentEvent: agentEvent)
             let feedTimeoutMs = feedHookTimeoutMs(for: def, agentEvent: agentEvent)
             switch def.format {
@@ -28421,6 +28441,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         try pruneLegacyGrokHookFileIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
 
+        if def.name == "grok" {
+            try installGrokPreToolHookScripts(configDir: configDir)
+        }
+
         // Post-install actions
         if let action = def.postInstallAction {
             switch action {
@@ -28469,6 +28493,83 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
             }
         }
+    }
+
+    private static func grokPreToolUseHookScriptPath(for def: AgentHookDef) -> String {
+        let hooksRoot = def.resolvedConfigDir()
+        let grokHome = URL(fileURLWithPath: hooksRoot, isDirectory: true)
+            .deletingLastPathComponent()
+            .path
+        return "\(grokHome)/bin/cmux-grok-pretooluse.sh"
+    }
+
+    private func installGrokPreToolHookScripts(configDir: String) throws {
+        let grokHome = URL(fileURLWithPath: configDir, isDirectory: true)
+            .deletingLastPathComponent()
+        let binDir = grokHome.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+
+        let scriptNames = ["cmux-grok-pretooluse.sh", "cmux-grok-hooks-ensure.sh"]
+        for scriptName in scriptNames {
+            guard let bundledURL = Self.bundledGrokHookScriptURL(named: scriptName) else { continue }
+            let destination = binDir.appendingPathComponent(scriptName, isDirectory: false)
+            if !FileManager.default.fileExists(atPath: destination.path)
+                || (try? bundledURL.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate)
+                    .map({ bundledDate in
+                        (try? destination.resourceValues(forKeys: [.contentModificationDateKey])
+                            .contentModificationDate)
+                            .map { $0 < bundledDate } ?? true
+                    }) ?? true
+            {
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    try FileManager.default.removeItem(at: destination)
+                }
+                try FileManager.default.copyItem(at: bundledURL, to: destination)
+            }
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
+        }
+
+        let ensureScript = binDir.appendingPathComponent("cmux-grok-hooks-ensure.sh", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: ensureScript.path) else { return }
+        let result = try runHookMaintenanceScript(at: ensureScript)
+        if result != 0 {
+            print("Warning: cmux-grok-hooks-ensure.sh exited with status \(result)")
+        }
+    }
+
+    private func runHookMaintenanceScript(at url: URL) throws -> Int32 {
+        let process = Process()
+        process.executableURL = url
+        process.arguments = []
+        var env = ProcessInfo.processInfo.environment
+        env["GROK_HOME"] = url.deletingLastPathComponent().deletingLastPathComponent().path
+        process.environment = env
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
+    private static func bundledGrokHookScriptURL(named scriptName: String) -> URL? {
+        let candidates: [URL?] = [
+            Bundle.main.url(
+                forResource: scriptName.replacingOccurrences(of: ".sh", with: ""),
+                withExtension: "sh",
+                subdirectory: "bin"
+            ),
+            Bundle.main.resourceURL?
+                .appendingPathComponent("bin/\(scriptName)", isDirectory: false),
+            URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Resources/bin/\(scriptName)", isDirectory: false),
+        ]
+        for candidate in candidates {
+            guard let url = candidate,
+                  FileManager.default.isReadableFile(atPath: url.path) else { continue }
+            return url
+        }
+        return nil
     }
 
     private func pruneLegacyGrokHookFileIfNeeded(
@@ -33373,6 +33474,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return "{}"
             }
             if source == "antigravity" {
+                let reason = mode == "deny"
+                    ? "User denied permission via cmux Feed."
+                    : "User approved via cmux Feed."
+                return encode([
+                    "decision": mode == "deny" ? "deny" : "allow",
+                    "reason": reason,
+                ])
+            }
+            if source == "grok" {
                 let reason = mode == "deny"
                     ? "User denied permission via cmux Feed."
                     : "User approved via cmux Feed."

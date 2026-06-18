@@ -261,6 +261,23 @@ struct FeedEventClassifier {
         "generate_image",
     ]
 
+    /// Grok Build emits lowercase native names (`write`, `search_replace`, …)
+    /// and Cursor-compat names (`Write`, `Shell`). Match case-insensitively
+    /// only for the `grok` source.
+    private static let grokSideEffectingToolAliases: Set<String> = [
+        "write",
+        "edit",
+        "multiedit",
+        "bash",
+        "notebookedit",
+        "apply_patch",
+        "shell",
+        "search_replace",
+        "write_to_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+    ]
+
     /// Kiro emits lowercase / internal tool names (`fs_write`,
     /// `execute_bash`, `use_aws`, …) absent from ``sideEffectingTools``.
     /// Matched case-insensitively, but only for the `kiro` source, so another
@@ -300,6 +317,9 @@ struct FeedEventClassifier {
         guard !toolName.isEmpty else { return false }
         if sideEffectingTools.contains(toolName) {
             return true
+        }
+        if source == "grok" {
+            return grokSideEffectingToolAliases.contains(toolName.lowercased())
         }
         if source == "kiro" {
             return kiroSideEffectingToolAliases.contains(toolName.lowercased())
