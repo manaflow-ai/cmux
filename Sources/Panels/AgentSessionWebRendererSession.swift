@@ -46,4 +46,9 @@ final class AgentSessionWebRendererSession {
     func close() {
         ownedCoordinator.close()
     }
+
+    /// The underlying web view, exposed so find actions can be dispatched to it.
+    var webView: AgentSessionWebView? {
+        ownedCoordinator.webView
+    }
 }

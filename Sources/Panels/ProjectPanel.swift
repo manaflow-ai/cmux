@@ -2,6 +2,7 @@ import AppKit
 import CMUXProjectModel
 import Combine
 import Foundation
+import Observation
 import SwiftUI
 
 /// Which tab is active inside a ``ProjectPanel``.
@@ -47,6 +48,24 @@ public enum ProjectPanelLoadState: Sendable, Equatable {
     }
 }
 
+/// Lightweight focus-request state for ``ProjectPanel``.
+///
+/// Uses the modern `@Observable` shape so the view layer can react to focus
+/// requests without adding another `@Published` property to the legacy
+/// ``ObservableObject`` panel.
+@MainActor
+@Observable
+public final class ProjectPanelFocusState {
+    /// Which search field should receive focus, or `nil` if none.
+    public var request: ProjectPanelSearchFocus?
+
+    /// When flipped to `true`, the view layer should resign focus from any
+    /// search field and then reset this flag. This is required because the
+    /// `request` property is already cleared by the view after transferring
+    /// focus, so hiding find cannot rely on setting `request` to `nil`.
+    public var resignFocus: Bool = false
+}
+
 /// Runtime backing for one `project` surface.
 ///
 /// Holds the user's project URL, the parsed ``ProjectModel`` snapshot (loaded
@@ -71,6 +90,14 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
     @Published public var collapsedNodeIDs: Set<ProjectNodeID> = []
     @Published public var filesSearchText: String = ""
     @Published public var lastLoadError: String?
+
+    /// Tracks which search field, if any, should receive focus.
+    ///
+    /// Lives outside the ``ObservableObject`` state so the modern `@Observable`
+    /// pattern owns the focus request rather than adding another `@Published`
+    /// property to the legacy panel object.
+    public let focusState = ProjectPanelFocusState()
+
     private var reloadTask: Task<Void, Never>?
 
     public var displayTitle: String {
@@ -261,5 +288,46 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
         _ = intent
         _ = window
         return false
+    }
+}
+
+
+// MARK: - Find support
+
+/// Identifies which search field in a ``ProjectPanel`` should receive focus.
+public enum ProjectPanelSearchFocus: Hashable {
+    case files
+    case settings
+}
+
+extension ProjectPanel: FindablePanel {
+    /// Focuses the search field for tabs that have one.
+    @discardableResult
+    public func startFind() -> Bool {
+        focusState.resignFocus = false
+        switch activeTab {
+        case .files:
+            focusState.request = .files
+            return true
+        case .buildSettings:
+            focusState.request = .settings
+            return true
+        case .targets, .schemes:
+            return false
+        }
+    }
+
+    /// Project search fields do not support find-next/find-previous navigation.
+    public func findNext() {}
+    public func findPrevious() {}
+
+    /// Signals the view layer to resign focus from the active search field.
+    ///
+    /// Because the view clears `focusState.request` immediately after moving
+    /// focus into the text field, setting `request = nil` here is a no-op.
+    /// The dedicated `resignFocus` flag gives the view a distinct event to
+    /// react to so the filter field actually loses keyboard focus.
+    public func hideFind() {
+        focusState.resignFocus = true
     }
 }

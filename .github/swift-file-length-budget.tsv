@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34475	CLI/cmux.swift
-17604	Sources/AppDelegate.swift
+17602	Sources/AppDelegate.swift
 15933	Sources/ContentView.swift
 14104	Sources/TerminalController.swift
 12658	Sources/Workspace.swift
@@ -15,14 +15,14 @@
 7221	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6223	cmuxTests/GhosttyConfigTests.swift
-6172	Sources/TabManager.swift
+6214	Sources/TabManager.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
 5566	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5526	cmuxTests/BrowserConfigTests.swift
 4516	Sources/cmuxApp.swift
-4467	Sources/Panels/FilePreviewPanel.swift
+4509	Sources/Panels/FilePreviewPanel.swift
 4401	cmuxTests/BrowserPanelTests.swift
 4225	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
@@ -200,6 +200,7 @@
 527	CLI/CLISocketPathResolver.swift
 527	Packages/macOS/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
+523	Sources/Panels/MarkdownPanel.swift
 522	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
