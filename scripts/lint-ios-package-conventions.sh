@@ -19,7 +19,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 SCOPES=()
-for d in Packages/CMUXMobile* Packages/CmuxMobile* Packages/CmuxSyncStore ios/cmuxPackage/Sources ios/cmux; do
+for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxAgentChat Packages/iOS/CmuxAgentChatUI Packages/Shared/CmuxSyncStore ios/cmuxPackage/Sources ios/cmux; do
   [ -d "$d" ] && SCOPES+=("$d")
 done
 
@@ -74,7 +74,7 @@ echo "== untyped wire payloads =="
 scan untyped WARN '\[String: Any\]' 1 "${SCOPES[@]}"
 
 echo "== hardcoded global state in packages (inject instead) =="
-scan global WARN '\b(UserDefaults\.standard|FileManager\.default|Bundle\.main)\b' 1 Packages/CMUXMobile* Packages/CmuxMobile* 2>/dev/null || true
+scan global WARN '\b(UserDefaults\.standard|FileManager\.default|Bundle\.main)\b' 1 Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* 2>/dev/null || true
 
 echo "== free functions (scope functionality to a type) =="
 scan free-function ERROR '^(@[A-Za-z()_ ]+ )?(public |internal |package |private |fileprivate )?func [a-zA-Z]' 0 "${SCOPES[@]}"
@@ -135,7 +135,7 @@ echo "== namespace-types (static-only public types; instantiate or extend the re
 # grandfathered in scripts/lint-namespace-types-baseline.txt; that list may
 # only shrink.
 NS_TYPE_ROOTS=()
-for d in Packages/*/Sources ios/cmuxPackage/Sources ios/cmux; do
+for d in Packages/*/*/Sources ios/cmuxPackage/Sources ios/cmux; do
   [ -d "$d" ] && NS_TYPE_ROOTS+=("$d")
 done
 if ! python3 - scripts/lint-namespace-types-baseline.txt "${NS_TYPE_ROOTS[@]}" <<'PY'

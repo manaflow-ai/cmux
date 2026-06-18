@@ -177,32 +177,47 @@ extension TerminalController {
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
         url: URL?
-    ) -> UUID? {
+    ) -> ControlSidebarPaneSplitResolution {
         let focus = Self.socketCommandAllowsInAppFocusMutations()
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }),
               let focusedPanelId = tab.focusedPanelId else {
-            return nil
+            return .failed
         }
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
         if isBrowser {
-            return tab.newBrowserSplit(
+            guard let id = tab.newBrowserSplit(
                 from: focusedPanelId,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 url: url,
                 focus: focus,
                 creationPolicy: .automationPreload
-            )?.id
+            )?.id else {
+                return .failed
+            }
+            return .created(id)
         }
-        return tab.newTerminalSplit(
+        if tab.isRemoteTmuxMirror, insertFirst {
+            // Routed tmux `split-window` cannot insert before the target
+            // pane; reject before mutating the remote session.
+            return .mirrorInsertFirstRejected
+        }
+        switch tab.newTerminalSplitOutcome(
             from: focusedPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
             focus: focus
-        )?.id
+        ) {
+        case .created(let panel):
+            return .created(panel.id)
+        case .routedToRemote:
+            return .routedToRemote
+        case .failed:
+            return .failed
+        }
     }
 
     // MARK: - New / close surface
@@ -234,22 +249,29 @@ extension TerminalController {
             return .paneNotFound
         }
 
-        let newPanelId: UUID?
         if isBrowser {
-            newPanelId = tab.newBrowserSurface(
+            guard let id = tab.newBrowserSurface(
                 inPane: targetPaneId,
                 url: url,
                 focus: focus,
                 creationPolicy: .automationPreload
-            )?.id
-        } else {
-            newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus, inheritWorkingDirectoryFallback: true)?.id
+            )?.id else {
+                return .failed
+            }
+            return .created(id)
         }
-
-        guard let id = newPanelId else {
+        switch tab.newTerminalSurfaceOutcome(
+            inPane: targetPaneId,
+            focus: focus,
+            inheritWorkingDirectoryFallback: true
+        ) {
+        case .created(let panel):
+            return .created(panel.id)
+        case .routedToRemote:
+            return .routedToRemote
+        case .failed:
             return .failed
         }
-        return .created(id)
     }
 
     func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution {
@@ -307,6 +329,9 @@ extension TerminalController {
         force: Bool
     ) -> Bool {
         if let tabId = workspace.surfaceIdFromPanelId(surfaceId) {
+            if force {
+                return workspace.requestNonInteractiveCloseTabRecordingHistory(tabId)
+            }
             return workspace.requestCloseTabRecordingHistory(tabId, force: force)
         }
 

@@ -1,7 +1,7 @@
 import XCTest
 
 /// Behavioral UI tests for the Settings → **Browser** section
-/// (`Packages/CmuxSettingsUI/.../Sections/BrowserSection.swift`).
+/// (`Packages/macOS/CmuxSettingsUI/.../Sections/BrowserSection.swift`).
 ///
 /// The goal of each test here is behavioral: change a setting or press a
 /// control, then drive the surface it affects and assert the *effect*
