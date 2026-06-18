@@ -1,0 +1,107 @@
+name: Snyk security
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+  actions: read # Required by upload-sarif for private repositories.
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  snyk:
+    name: Snyk scans
+    runs-on: ubuntu-latest
+    env:
+      SNYK_TOKEN_PRESENT: ${{ secrets.SNYK_TOKEN != '' }}
+    steps:
+      - name: Skip when scan token is unavailable
+        if: env.SNYK_TOKEN_PRESENT != 'true'
+        run: |
+          echo "Security scan token is unavailable; skipping security scans."
+          echo "This is expected for restricted pull requests and pre-rollout runs before credentials are configured."
+
+      - name: Checkout
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup scanner CLI
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        uses: snyk/actions/setup@8e119fbb6c251787721d34ba683ed48eba792766 # master
+
+      - name: Code scan
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        id: snyk-code
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set +e
+          snyk code test . \
+            --severity-threshold=high \
+            --sarif-file-output=snyk-code.sarif
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
+            exit "$status"
+          fi
+          if [ ! -s snyk-code.sarif ]; then
+            echo "::error::Code scanning did not produce its SARIF report; check the scan step logs before relying on static analysis findings."
+            exit 1
+          fi
+
+      - name: Upload code scan SARIF
+        if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-code.sarif') != ''
+        uses: github/codeql-action/upload-sarif@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3
+        with:
+          sarif_file: snyk-code.sarif
+          category: snyk-code-swift
+
+      - name: Setup Bun
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install web dependencies
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        working-directory: web
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Dependency scan
+        if: env.SNYK_TOKEN_PRESENT == 'true'
+        id: snyk-oss
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          set +e
+          snyk test \
+            --file=web/package.json \
+            --package-manager=npm \
+            --dev \
+            --severity-threshold=high \
+            --sarif-file-output=snyk-oss.sarif
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
+            exit "$status"
+          fi
+          if [ ! -s snyk-oss.sarif ]; then
+            echo "::error::Dependency scanning did not produce its SARIF report; check the scan step logs before relying on dependency findings."
+            exit 1
+          fi
+
+      - name: Upload dependency scan SARIF
+        if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-oss.sarif') != ''
+        uses: github/codeql-action/upload-sarif@03e4368ac7daa2bd82b3e85262f3bf87ee112f57 # v3
+        with:
+          sarif_file: snyk-oss.sarif
+          category: snyk-open-source-web-npm
