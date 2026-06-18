@@ -181,7 +181,10 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(try payload.encodedURL().absoluteString)
+
     #expect(result == .needsUserApproval)
+    #expect(store.pairingVersionWarning?.contains("unknown compatibility") == true)
+
     let acceptedResult = await store.acceptPairingVersionWarning()
 
     #expect(acceptedResult == .connected)
@@ -503,9 +506,9 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(url.absoluteString)
 
-    let expectedTicket = try ticket.withCurrentPairingCompatibilityForTests()
     #expect(store.phase == .workspaces)
     #expect(store.connectionError == nil)
+    let expectedTicket = try ticket.withCurrentMacPairingCompatibilityVersionForTest()
     #expect(store.activeTicket == expectedTicket)
     #expect(store.activeRoute == route)
 }
@@ -840,6 +843,7 @@ final class TerminalOutputCollector {
         terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
+        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: ticketExpiresAt,
         authToken: "ticket-secret"
@@ -1443,6 +1447,7 @@ final class TerminalOutputCollector {
         terminalID: nil,
         macDeviceID: "qr-mac",
         macDisplayName: "QR Mac",
+        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: mintedAt.addingTimeInterval(600),
         authToken: "minted-but-never-in-the-qr"
@@ -2668,14 +2673,16 @@ private func testRuntime(
 private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
-    let normalizedTicket = try ticket.withCurrentPairingCompatibilityForTests()
+    let normalizedTicket = try ticket.withCurrentMacPairingCompatibilityVersionForTest()
     let payload = base64URLEncode(try encoder.encode(normalizedTicket))
     return try #require(URL(string: "cmux-ios://attach?v=\(normalizedTicket.version)&payload=\(payload)"))
 }
 
 private extension CmxAttachTicket {
-    func withCurrentPairingCompatibilityForTests() throws -> CmxAttachTicket {
-        guard macPairingCompatibilityVersion == nil else { return self }
+    func withCurrentMacPairingCompatibilityVersionForTest() throws -> CmxAttachTicket {
+        guard macPairingCompatibilityVersion == nil else {
+            return self
+        }
         return try CmxAttachTicket(
             version: version,
             workspaceID: workspaceID,
@@ -3005,6 +3012,7 @@ private func rpcAttachTicketFrame(
         terminalID: terminalID,
         macDeviceID: "test-mac",
         macDisplayName: nil,
+        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
         authToken: "ticket-secret"
