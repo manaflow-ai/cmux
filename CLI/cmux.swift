@@ -23638,15 +23638,23 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             do {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let claudePid = hookClaudePid ?? mappedSession?.pid
+                var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
+                    fallbackIsAmbient: workspaceArgIsAmbient,
+                    agentPID: claudePid,
+                    terminalBindingCache: &terminalBindingCache,
                     client: client
                 )
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
+                    fallbackIsAmbient: surfaceArgIsAmbient,
                     workspaceId: workspaceId,
+                    agentPID: claudePid,
+                    terminalBindingCache: &terminalBindingCache,
                     client: client
                 )
                 runClaudeAutoNameHook(
