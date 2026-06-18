@@ -11,6 +11,33 @@ import UniformTypeIdentifiers
 @Suite struct BrowserDownloadFilenameResolverTests {
     private let resolver = BrowserDownloadFilenameResolver()
 
+    @Test func downloadPolicyForcesChromeDownloadTypes() {
+        #expect(resolver.shouldForceDownload(mimeType: "text/csv", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "text/csv; charset=utf-8", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "application/zip", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "application/x-zip-compressed", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "application/octet-stream", contentDisposition: nil))
+        #expect(resolver.shouldForceDownload(mimeType: "application/gzip", contentDisposition: nil))
+    }
+
+    @Test func downloadPolicyKeepsInlineRenderableTypesInline() {
+        #expect(!resolver.shouldForceDownload(mimeType: "text/html", contentDisposition: nil))
+        #expect(!resolver.shouldForceDownload(mimeType: "image/png", contentDisposition: nil))
+        #expect(!resolver.shouldForceDownload(mimeType: "application/pdf", contentDisposition: nil))
+        #expect(!resolver.shouldForceDownload(mimeType: "application/json", contentDisposition: nil))
+    }
+
+    @Test func downloadPolicyHonorsAttachmentForAnyType() {
+        #expect(resolver.shouldForceDownload(
+            mimeType: "text/html",
+            contentDisposition: "attachment; filename=index.html"
+        ))
+        #expect(resolver.shouldForceDownload(
+            mimeType: "application/pdf",
+            contentDisposition: "ATTACHMENT; filename=report.pdf"
+        ))
+    }
+
     @Test func rejectsNonSuccessHTTPStatusBeforeSavePanelNaming() throws {
         let url = try #require(URL(string: "https://example.test/logo.jpg"))
         let response = try #require(HTTPURLResponse(
@@ -91,6 +118,56 @@ import UniformTypeIdentifiers
         )
 
         #expect(filename == "avatar.png")
+    }
+
+    @Test func downloadCookiesMatchRequestDomainAndPath() throws {
+        let url = try #require(URL(string: "https://sub.example.test/reports/2026/export.csv"))
+        let cookies = [
+            try Self.cookie(name: "parent", domain: ".example.test", path: "/reports"),
+            try Self.cookie(name: "host", domain: "sub.example.test", path: "/reports/2026"),
+            try Self.cookie(name: "wrong-domain", domain: ".other.test", path: "/reports"),
+            try Self.cookie(name: "wrong-path", domain: ".example.test", path: "/admin"),
+        ]
+
+        let names = Set(CmuxWebView.cookiesForDownloadRequest(cookies, url: url).map(\.name))
+
+        #expect(names == ["parent", "host"])
+    }
+
+    @Test func downloadCookiesRejectSecureCookiesForHTTPAndExpiredCookies() throws {
+        let url = try #require(URL(string: "http://example.test/report.csv"))
+        let cookies = [
+            try Self.cookie(name: "plain", domain: "example.test"),
+            try Self.cookie(name: "secure", domain: "example.test", secure: true),
+            try Self.cookie(name: "expired", domain: "example.test", expires: Date(timeIntervalSince1970: 0)),
+            try Self.cookie(name: "future", domain: "example.test", expires: Date(timeIntervalSince1970: 4_102_444_800)),
+        ]
+
+        let names = Set(CmuxWebView.cookiesForDownloadRequest(cookies, url: url).map(\.name))
+
+        #expect(names == ["plain", "future"])
+    }
+
+    private static func cookie(
+        name: String,
+        domain: String,
+        path: String = "/",
+        secure: Bool = false,
+        expires: Date? = nil
+    ) throws -> HTTPCookie {
+        var properties: [HTTPCookiePropertyKey: Any] = [
+            .name: name,
+            .value: "1",
+            .domain: domain,
+            .path: path,
+        ]
+        if secure {
+            properties[.secure] = "TRUE"
+        }
+        if let expires {
+            properties[.expires] = expires
+        }
+        return try #require(HTTPCookie(properties: properties))
     }
 
     private static let onePixelPNG = Data([
