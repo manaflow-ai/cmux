@@ -1805,7 +1805,7 @@ class TerminalController {
 
         // Workspaces
         // workspace.* (list/create/select/current/close/move_to_window/reorder[_many]/
-        // prompt_submit/rename) + workspace.group.* handled by ControlCommandCoordinator.
+        // prompt_submit/rename/set_color/clear_color) + workspace.group.* handled by ControlCommandCoordinator.
         // workspace.action (forwards to the still-shared v2WorkspaceAction) and
         // extension.sidebar.snapshot handled by ControlCommandCoordinator.
         // workspace.next/previous/last/equalize_splits + workspace.remote.* (configure/
@@ -2014,6 +2014,10 @@ class TerminalController {
             "workspace.reorder_many",
             "workspace.prompt_submit",
             "workspace.rename",
+            "workspace.set_color",
+            "workspace.setColor",
+            "workspace.clear_color",
+            "workspace.clearColor",
             "workspace.set_auto_title",
             "workspace.group.list",
             "workspace.group.create",
@@ -3516,26 +3520,6 @@ class TerminalController {
         ])
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     private nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
         workspaceId: UUID?,
         error: V2CallResult?
@@ -4166,16 +4150,144 @@ class TerminalController {
         }
     }
 
+    private func v2ResolveWorkspaceColor(params: [String: Any]) -> (color: String?, error: V2CallResult?) {
+        guard let colorRaw = v2String(params, "color"),
+              !colorRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(localized: "socket.workspaceColor.invalidOrMissing", defaultValue: "Missing or invalid color."),
+                data: nil
+            ))
+        }
 
+        let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectivePalette = WorkspaceTabColorSettings.palette()
+        if let entry = effectivePalette.first(where: {
+            $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
+        }) {
+            return (entry.hex, nil)
+        }
+        if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
+            return (normalized, nil)
+        }
 
+        let colorNames = effectivePalette.map(\.name)
+        return (nil, .err(
+            code: "invalid_params",
+            message: String(localized: "socket.workspaceColor.invalid", defaultValue: "Invalid color. Use a color name or #RRGGBB."),
+            data: ["named_colors": colorNames]
+        ))
+    }
 
-
+    private func v2WorkspaceColorActionPayload(
+        action: String,
+        workspace: Workspace,
+        windowId: UUID?,
+        color: Any
+    ) -> [String: Any] {
+        [
+            "action": action,
+            "workspace_id": workspace.id.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "color": color
+        ]
+    }
 
     @MainActor
+    func v2WorkspaceSetColor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(
+                code: "unavailable",
+                message: String(localized: "socket.workspaceColor.unavailable", defaultValue: "No workspace window is available."),
+                data: nil
+            )
+        }
+        let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.workspaceColor.invalidWorkspace", defaultValue: "Missing or invalid workspace_id."),
+                data: nil
+            )
+        }
+        let colorResolution = v2ResolveWorkspaceColor(params: params)
+        if let error = colorResolution.error {
+            return error
+        }
+        guard let color = colorResolution.color else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.workspaceColor.invalidOrMissing", defaultValue: "Missing or invalid color."),
+                data: nil
+            )
+        }
 
+        let workspaceId = requestedWorkspaceId ?? tabManager.selectedTabId
+        guard let workspaceId,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.workspaceColor.notFound", defaultValue: "Workspace not found."),
+                data: nil
+            )
+        }
+        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        tabManager.setTabColor(tabId: workspace.id, color: color)
+        return .ok(v2WorkspaceColorActionPayload(
+            action: "set_color",
+            workspace: workspace,
+            windowId: windowId,
+            color: color
+        ))
+    }
+
+    @MainActor
+    func v2WorkspaceClearColor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(
+                code: "unavailable",
+                message: String(localized: "socket.workspaceColor.unavailable", defaultValue: "No workspace window is available."),
+                data: nil
+            )
+        }
+        let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.workspaceColor.invalidWorkspace", defaultValue: "Missing or invalid workspace_id."),
+                data: nil
+            )
+        }
+
+        let workspaceId = requestedWorkspaceId ?? tabManager.selectedTabId
+        guard let workspaceId,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "socket.workspaceColor.notFound", defaultValue: "Workspace not found."),
+                data: nil
+            )
+        }
+        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        tabManager.setTabColor(tabId: workspace.id, color: nil)
+        return .ok(v2WorkspaceColorActionPayload(
+            action: "clear_color",
+            workspace: workspace,
+            windowId: windowId,
+            color: NSNull()
+        ))
+    }
+
+    @MainActor
     func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(
+                code: "unavailable",
+                message: String(localized: "socket.workspace.unavailable", defaultValue: "No workspace window is available."),
+                data: nil
+            )
         }
         guard let action = v2ActionKey(params) else {
             return .err(code: "invalid_params", message: "Missing action", data: nil)
@@ -4326,26 +4438,17 @@ class TerminalController {
                 finish()
 
             case "set_color":
-                guard let colorRaw = v2String(params, "color"),
-                      !colorRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    result = .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
+                let colorResolution = v2ResolveWorkspaceColor(params: params)
+                if let error = colorResolution.error {
+                    result = error
                     return
                 }
-                let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Resolve named colors from the effective palette, including file-defined additions.
-                let effectivePalette = WorkspaceTabColorSettings.palette()
-                let hex: String
-                if let entry = effectivePalette.first(where: {
-                    $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
-                }) {
-                    hex = entry.hex
-                } else if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
-                    hex = normalized
-                } else {
-                    let colorNames = effectivePalette.map(\.name)
-                    result = .err(code: "invalid_params", message: "Invalid color. Use a hex value (#RRGGBB) or a named color.", data: [
-                        "named_colors": colorNames
-                    ])
+                guard let hex = colorResolution.color else {
+                    result = .err(
+                        code: "invalid_params",
+                        message: String(localized: "socket.workspaceColor.invalidOrMissing", defaultValue: "Missing or invalid color."),
+                        data: nil
+                    )
                     return
                 }
                 tabManager.setTabColor(tabId: workspace.id, color: hex)
@@ -13363,7 +13466,11 @@ class TerminalController {
         tabManager resolvedTabManager: TabManager? = nil
     ) -> V2CallResult {
         guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(
+                code: "unavailable",
+                message: String(localized: "socket.workspace.unavailable", defaultValue: "No workspace window is available."),
+                data: nil
+            )
         }
 
         let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13402,6 +13509,23 @@ class TerminalController {
         let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
         let description = v2RawString(params, "description")
+        let color: String?
+        if v2HasNonNullParam(params, "color") {
+            let colorResolution = v2ResolveWorkspaceColor(params: params)
+            if let error = colorResolution.error {
+                return error
+            }
+            guard let resolvedColor = colorResolution.color else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(localized: "socket.workspaceColor.invalidOrMissing", defaultValue: "Missing or invalid color."),
+                    data: nil
+                )
+            }
+            color = resolvedColor
+        } else {
+            color = nil
+        }
 
         // Decode optional layout param (same JSON schema as cmux.json layout field).
         // Validate before creating the workspace so malformed layouts fail fast.
@@ -13435,6 +13559,7 @@ class TerminalController {
                 autoRefreshMetadata: shouldAutoRefreshMetadata
             )
             ws.setCustomDescription(description)
+            ws.setCustomColor(color)
             if let layoutNode {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
             }
@@ -13451,6 +13576,7 @@ class TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": newId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: newId),
+            "color": v2OrNull(color),
             "surface_id": v2OrNull(initialSurfaceId?.uuidString),
             "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
         ])

@@ -246,6 +246,193 @@ struct CLIHookNoResponseTests {
         #expect(result.stdout == "{}\n")
     }
 
+    @Test func setColorCommandSendsWorkspaceSetColorRPC() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let socketPath = Self.makeSocketPath("set-color")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 1)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let server = Self.startMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: { Self.jsonObject($0)?["method"] as? String == "workspace.set_color" }
+        ) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "workspace.set_color" else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "window_id": windowId,
+                    "workspace_id": workspaceId,
+                    "color": "#E11D48",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = Self.runProcess(
+            executablePath: cliPath,
+            arguments: ["set-color", "--workspace", workspaceId, "#e11d48"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: 5), "socket server did not observe workspace.set_color")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "OK workspace=\(workspaceId) window=\(windowId) color=#E11D48\n")
+
+        let request = try #require(state.snapshot().first.flatMap(Self.jsonObject))
+        #expect(request["method"] as? String == "workspace.set_color")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceId)
+        #expect(params["color"] as? String == "#e11d48")
+    }
+
+    @Test func setColorCommandIsNotHijackedBySameNamedPath() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let socketPath = Self.makeSocketPath("set-color-path")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 1)
+        let state = MockSocketServerState()
+        let currentDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-set-color-path-\(UUID().uuidString)", isDirectory: true)
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: currentDirectory.appendingPathComponent("set-color").path,
+            contents: Data("not a command\n".utf8)
+        )
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: currentDirectory)
+        }
+
+        let server = Self.startMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: { Self.jsonObject($0)?["method"] as? String == "workspace.set_color" }
+        ) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "workspace.set_color" else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "window_id": windowId,
+                    "workspace_id": workspaceId,
+                    "color": "#1E6AD8",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = Self.runProcess(
+            executablePath: cliPath,
+            arguments: ["set-color", "--workspace", workspaceId, "Blue"],
+            environment: environment,
+            timeout: 5,
+            currentDirectoryURL: currentDirectory
+        )
+
+        #expect(server.wait(timeout: 5), "socket server did not observe workspace.set_color")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "OK workspace=\(workspaceId) window=\(windowId) color=#1E6AD8\n")
+
+        let request = try #require(state.snapshot().first.flatMap(Self.jsonObject))
+        #expect(request["method"] as? String == "workspace.set_color")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceId)
+        #expect(params["color"] as? String == "Blue")
+    }
+
+    @Test func clearColorCommandSendsWorkspaceClearColorRPC() throws {
+        let cliPath = try Self.bundledCLIPath()
+        let socketPath = Self.makeSocketPath("clear-color")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath, backlog: 1)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let server = Self.startMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: { Self.jsonObject($0)?["method"] as? String == "workspace.clear_color" }
+        ) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  payload["method"] as? String == "workspace.clear_color" else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "window_id": windowId,
+                    "workspace_id": workspaceId,
+                    "color": NSNull(),
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = Self.runProcess(
+            executablePath: cliPath,
+            arguments: ["clear-color", "--workspace", workspaceId],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: 5), "socket server did not observe workspace.clear_color")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "OK workspace=\(workspaceId) window=\(windowId) color=none\n")
+
+        let request = try #require(state.snapshot().first.flatMap(Self.jsonObject))
+        #expect(request["method"] as? String == "workspace.clear_color")
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceId)
+        #expect(params["color"] == nil)
+    }
+
     private static func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: BundleProbe.self)
@@ -509,12 +696,14 @@ struct CLIHookNoResponseTests {
         arguments: [String],
         environment: [String: String],
         standardInput: String? = nil,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        currentDirectoryURL: URL? = nil
     ) -> ProcessRunResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
+        process.currentDirectoryURL = currentDirectoryURL
 
         let stdout = Pipe()
         let stderr = Pipe()

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import CmuxCore
 import Testing
@@ -8,7 +9,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Workspace terminal tab working directory")
+@Suite("Workspace terminal tab working directory", .serialized)
 struct WorkspaceTerminalTabWorkingDirectoryTests {
     @MainActor
     @Test("Cmd+T after session restore uses workspace cwd when focused agent has no terminal cwd")
@@ -224,6 +225,114 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let createdPanelId = try #require(UUID(uuidString: createdSurfaceIdString))
         let createdPanel = try #require(workspace.terminalPanel(for: createdPanelId))
         #expect(createdPanel.requestedWorkingDirectory == workspaceDirectory)
+    }
+
+    @MainActor
+    @Test("workspace color RPCs mutate custom color")
+    func workspaceColorRPCsMutateCustomColor() throws {
+        TerminalController.shared.stop()
+        let socketPath = makeControllerSocketPath("ws-color")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+
+        defer {
+            TerminalController.shared.stop()
+            unlink(socketPath)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+
+        var response = try v2SocketResponse(
+            method: "workspace.set_color",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "color": "#1565c0",
+            ]
+        )
+
+        #expect(response["ok"] as? Bool == true, "Unexpected JSON-RPC response: \(response)")
+        var result = try #require(response["result"] as? [String: Any])
+        #expect(result["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(result["action"] as? String == "set_color")
+        #expect(result["color"] as? String == "#1565C0")
+        #expect(workspace.customColor == "#1565C0")
+
+        response = try v2SocketResponse(
+            method: "workspace.setColor",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "color": "#abc123",
+            ]
+        )
+
+        #expect(response["ok"] as? Bool == true, "Unexpected JSON-RPC response: \(response)")
+        result = try #require(response["result"] as? [String: Any])
+        #expect(result["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(result["action"] as? String == "set_color")
+        #expect(result["color"] as? String == "#ABC123")
+        #expect(workspace.customColor == "#ABC123")
+
+        response = try v2SocketResponse(
+            method: "workspace.clear_color",
+            params: ["workspace_id": workspace.id.uuidString]
+        )
+
+        #expect(response["ok"] as? Bool == true, "Unexpected JSON-RPC response: \(response)")
+        result = try #require(response["result"] as? [String: Any])
+        #expect(result["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(result["action"] as? String == "clear_color")
+        #expect(result["color"] is NSNull)
+        #expect(workspace.customColor == nil)
+    }
+
+    @MainActor
+    @Test("workspace.create applies initial color")
+    func workspaceCreateAppliesInitialColor() throws {
+        TerminalController.shared.stop()
+        let socketPath = makeControllerSocketPath("ws-create-color")
+        let manager = TabManager()
+
+        defer {
+            TerminalController.shared.stop()
+            unlink(socketPath)
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+
+        let response = try v2SocketResponse(
+            method: "workspace.create",
+            params: [
+                "title": "Research",
+                "color": "#abc123",
+                "focus": false,
+            ]
+        )
+
+        #expect(response["ok"] as? Bool == true, "Unexpected JSON-RPC response: \(response)")
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["color"] as? String == "#ABC123")
+        let workspaceId = try #require(result["workspace_id"] as? String)
+        let workspaceUUID = try #require(UUID(uuidString: workspaceId))
+        let createdWorkspace = try #require(manager.tabs.first { $0.id == workspaceUUID })
+        #expect(createdWorkspace.customColor == "#ABC123")
+    }
+
+    private func makeControllerSocketPath(_ name: String) -> String {
+        let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
+        return URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("wtd-\(name.prefix(6))-\(shortID).sock")
+            .path
     }
 
     @MainActor
