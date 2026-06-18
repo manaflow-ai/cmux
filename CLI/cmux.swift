@@ -29959,7 +29959,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 cwd: hookCwd ?? mapped?.cwd
             )
             let launchCommand = launchCapture.command
-            let sanitizerRestorableOverride: Bool? = launchCapture.sanitizerRejected ? false : nil
+            // A fresh accepted SessionStart already permits live default resume binding publication.
+            // Persist the same positive signal so env-only/no-argv launch records survive app reload.
+            let sessionStartRestorabilitySignal: Bool? = launchCapture.sanitizerRejected ? false : true
             var acceptedFreshSessionStart = false
             func codexSessionStartWentStaleAfterAccept() -> Bool {
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
@@ -29979,7 +29981,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
-                        isRestorable: sanitizerRestorableOverride,
+                        isRestorable: sessionStartRestorabilitySignal,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -29993,7 +29995,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
-                        isRestorable: sanitizerRestorableOverride,
+                        isRestorable: sessionStartRestorabilitySignal,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
