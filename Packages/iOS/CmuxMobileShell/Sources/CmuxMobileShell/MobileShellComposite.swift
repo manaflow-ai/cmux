@@ -5457,6 +5457,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 }
 
+private struct MobileTerminalViewportKey: Hashable, Sendable {
+    var workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID
+}
+
 private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
     var ticket: CmxAttachTicket
 
