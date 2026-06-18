@@ -33,6 +33,12 @@ struct WorkspaceDetailContainer: View {
         return { id in Task { await store.closeWorkspace(id: id) } }
     }
 
+    private func closeTerminalClosure(workspace: MobileWorkspacePreview) -> ((MobileTerminalPreview.ID) -> Void)? {
+        guard store.supportsTerminalCloseActions else { return nil }
+        let store = store
+        return { id in Task { await store.closeTerminal(id: id, in: workspace.id) } }
+    }
+
     var body: some View {
         if let workspace {
             WorkspaceDetailView(
@@ -43,6 +49,7 @@ struct WorkspaceDetailContainer: View {
                 createWorkspace: createWorkspace,
                 createTerminal: { store.createTerminal(in: workspace.id) },
                 closeWorkspace: closeWorkspaceClosure,
+                closeTerminal: closeTerminalClosure(workspace: workspace),
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
                 safeAreaContext: safeAreaContext

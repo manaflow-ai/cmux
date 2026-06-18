@@ -12,6 +12,10 @@ extension MobileShellComposite {
     }
 
     func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
+        if frame.full {
+            terminalOverviewPreviewLinesByID[MobileTerminalPreview.ID(rawValue: surfaceID)] =
+                Self.terminalOverviewPreviewLines(from: frame)
+        }
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,

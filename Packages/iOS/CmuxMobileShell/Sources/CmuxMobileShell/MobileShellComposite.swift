@@ -61,6 +61,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
+    private static let terminalCloseCapability = "terminal.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -197,6 +198,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didSet {
             workspaceTopologyVersion &+= 1
             prunePendingAttachmentsForMissingTerminals()
+            pruneTerminalOverviewPreviewCacheForLiveTerminals()
         }
     }
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
@@ -218,6 +220,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the Mac supports terminal close requests from mobile.
+    public var supportsTerminalCloseActions: Bool { supportedHostCapabilities.contains(Self.terminalCloseCapability) }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
@@ -598,6 +602,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    var terminalOverviewPreviewLinesByID: [MobileTerminalPreview.ID: [String]] = [:]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -1138,6 +1143,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
+        supportedHostCapabilities = [
+            Self.workspaceActionsCapability,
+            Self.workspaceReadStateCapability,
+            Self.workspaceCloseCapability,
+            Self.terminalCloseCapability,
+            Self.workspaceGroupsCapability,
+        ]
         connectedHostName = PreviewMobileHost.hostName
         guard isCurrentPairingAttempt(attemptID) else { return }
         connectionState = .connected

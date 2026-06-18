@@ -170,6 +170,111 @@ import Testing
         #expect(store.shouldAutoFocusTerminalSurface("terminal-agent") == false)
     }
 
+    @Test func closeTerminalRemovesSelectedTerminalAndSelectsNeighbor() async {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        await store.closeTerminal(id: "terminal-build", in: "workspace-main")
+
+        let terminals = store.selectedWorkspace?.terminals.map(\.id.rawValue) ?? []
+        #expect(terminals == ["terminal-agent", "terminal-tui"])
+        #expect(store.selectedTerminalID?.rawValue == "terminal-agent")
+    }
+
+    @Test func closeTerminalKeepsLastTerminal() async {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        store.selectedWorkspaceID = "workspace-docs"
+
+        await store.closeTerminal(id: "terminal-notes", in: "workspace-docs")
+
+        #expect(store.selectedWorkspace?.terminals.map(\.id.rawValue) == ["terminal-notes"])
+        #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
+    }
+
+    @Test func overviewPreviewLinesUseRenderGridRows() throws {
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "terminal-build",
+            stateSeq: 1,
+            columns: 80,
+            rows: 3,
+            text: "swift test\nBuild succeeded\n"
+        )
+
+        let lines = MobileShellComposite.terminalOverviewPreviewLines(from: frame)
+
+        #expect(lines == ["swift test", "Build succeeded", ""])
+    }
+
+    @Test func overviewPreviewCachePrunesDroppedTerminals() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "terminal-tui",
+            stateSeq: 1,
+            columns: 80,
+            rows: 2,
+            text: "LAZYGIT\n"
+        )
+
+        store.deliverTerminalRenderGrid(frame, surfaceID: "terminal-tui")
+        #expect(store.terminalOverviewPreviewLines(for: "terminal-tui") == ["LAZYGIT", ""])
+
+        var nextWorkspaces = store.workspaces
+        nextWorkspaces[0].terminals.removeAll { $0.id.rawValue == "terminal-tui" }
+        store.workspaces = nextWorkspaces
+
+        #expect(store.terminalOverviewPreviewLines(for: "terminal-tui") == nil)
+    }
+
+    @Test func overviewPreviewCacheIgnoresDeltaFrames() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        let fullFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "terminal-tui",
+            stateSeq: 1,
+            columns: 80,
+            rows: 3,
+            text: "LAZYGIT\nfiles branches log\n"
+        )
+        store.deliverTerminalRenderGrid(fullFrame, surfaceID: "terminal-tui")
+
+        let deltaFrame = try MobileTerminalRenderGridFrame(
+            surfaceID: "terminal-tui",
+            stateSeq: 2,
+            columns: 80,
+            rows: 3,
+            full: false,
+            rowSpans: [
+                MobileTerminalRenderGridFrame.RowSpan(
+                    row: 1,
+                    column: 0,
+                    text: "partial delta"
+                ),
+            ]
+        )
+
+        #expect(MobileShellComposite.terminalOverviewPreviewLines(from: deltaFrame).isEmpty)
+
+        store.deliverTerminalRenderGrid(deltaFrame, surfaceID: "terminal-tui")
+
+        #expect(store.terminalOverviewPreviewLines(for: "terminal-tui") == [
+            "LAZYGIT",
+            "files branches log",
+            "",
+        ])
+    }
+
     @Test func selectingWorkspaceReconcilesTerminalSelection() {
         let store = MobileShellComposite.preview()
         store.signIn()
