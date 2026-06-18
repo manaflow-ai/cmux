@@ -1570,7 +1570,8 @@ class TerminalController {
             // commands) answer here; everything else falls through to the legacy
             // switch below.
             if let coordinatorV1 = controlCommandCoordinator.handleSidebarV1(command: cmd, args: args)
-                ?? controlCommandCoordinator.handleBrowserPanelV1(command: cmd, args: args) {
+                ?? controlCommandCoordinator.handleBrowserPanelV1(command: cmd, args: args)
+                ?? controlCommandCoordinator.handleDebugV1(command: cmd, args: args) {
                 return coordinatorV1
             }
             switch cmd {
@@ -1675,12 +1676,6 @@ class TerminalController {
         case "send_workspace":
             return sendInputToWorkspace(args)
 
-        case "set_shortcut":
-            return setShortcut(args)
-
-        case "simulate_shortcut":
-            return simulateShortcut(args)
-
         case "simulate_type":
             return simulateType(args)
 
@@ -1722,54 +1717,6 @@ class TerminalController {
 
         case "terminal_drop_overlay_probe":
             return terminalDropOverlayProbe(args)
-
-        case "activate_app":
-            return activateApp()
-
-        case "is_terminal_focused":
-            return isTerminalFocused(args)
-
-        case "read_terminal_text":
-            return readTerminalText(args)
-
-        case "render_stats":
-            return renderStats(args)
-
-        case "layout_debug":
-            return layoutDebug()
-
-        case "bonsplit_underflow_count":
-            return bonsplitUnderflowCount()
-
-        case "reset_bonsplit_underflow_count":
-            return resetBonsplitUnderflowCount()
-
-        case "empty_panel_count":
-            return emptyPanelCount()
-
-        case "reset_empty_panel_count":
-            return resetEmptyPanelCount()
-
-        case "focus_notification":
-            return focusFromNotification(args)
-
-        case "debug_right_sidebar_focus":
-            return debugRightSidebarFocus(args)
-
-        case "flash_count":
-            return flashCount(args)
-
-        case "reset_flash_counts":
-            return resetFlashCounts()
-
-        case "panel_snapshot":
-            return panelSnapshot(args)
-
-        case "panel_snapshot_reset":
-            return panelSnapshotReset(args)
-
-        case "screenshot":
-            return captureScreenshot(args)
 #endif
 
         case "help":
@@ -9835,41 +9782,6 @@ class TerminalController {
     // MARK: - V2 Debug / Test-only Methods
 
 #if DEBUG
-#endif
-
-#if DEBUG
-
-    private func debugRightSidebarFocus(_ args: String) -> String {
-        let modeName = args.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? RightSidebarMode.dock.rawValue
-            : args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let mode = RightSidebarMode(rawValue: modeName) else {
-            return "ERROR: Invalid right sidebar mode: \(modeName)"
-        }
-
-        var revealed = false
-        var focusApplied = false
-        var contextFound = false
-        var stateFound = false
-        var visible = false
-        var activeMode = ""
-
-        let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
-            mode: mode,
-            focusFirstItem: false,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-        )
-        revealed = result?.revealed ?? false
-        focusApplied = result?.focusApplied ?? false
-        contextFound = result?.contextFound ?? false
-        stateFound = result?.stateFound ?? false
-        visible = result?.visible ?? false
-        activeMode = result?.activeMode ?? ""
-
-        let details = "mode=\(mode.rawValue) active=\(activeMode) visible=\(visible ? 1 : 0) " +
-            "context=\(contextFound ? 1 : 0) state=\(stateFound ? 1 : 0) focus=\(focusApplied ? 1 : 0)"
-        return revealed ? "OK: \(details)" : "ERROR: \(details)"
-    }
 #endif
 
 #if DEBUG
