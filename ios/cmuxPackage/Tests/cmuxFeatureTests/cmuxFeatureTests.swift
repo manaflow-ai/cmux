@@ -503,9 +503,10 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(url.absoluteString)
 
+    let expectedTicket = try ticket.withCurrentPairingCompatibilityForTests()
     #expect(store.phase == .workspaces)
     #expect(store.connectionError == nil)
-    #expect(store.activeTicket == try ticket.withCurrentPairingCompatibilityForTests())
+    #expect(store.activeTicket == expectedTicket)
     #expect(store.activeRoute == route)
 }
 
@@ -2667,7 +2668,8 @@ private func testRuntime(
 private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
-    let payload = base64URLEncode(try encoder.encode(try ticket.withCurrentPairingCompatibilityForTests()))
+    let normalizedTicket = try ticket.withCurrentPairingCompatibilityForTests()
+    let payload = base64URLEncode(try encoder.encode(normalizedTicket))
     return try #require(URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"))
 }
 
