@@ -56,6 +56,41 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) async throws {
+        try await runIOSCommand(
+            commandArgs: commandArgs,
+            client: Optional(client),
+            jsonOutput: jsonOutput,
+            idFormat: idFormat
+        )
+    }
+
+    func runIOSCommandWithoutSocket(
+        commandArgs: [String],
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) async throws {
+        try await runIOSCommand(
+            commandArgs: commandArgs,
+            client: nil,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat
+        )
+    }
+
+    func iosCommandDoesNotNeedSocket(_ commandArgs: [String]) -> Bool {
+        let subcommand = commandArgs.first?.lowercased()
+        guard subcommand == "run" else {
+            return subcommand == nil || subcommand == "help"
+        }
+        return commandArgs.dropFirst().contains("--no-open")
+    }
+
+    private func runIOSCommand(
+        commandArgs: [String],
+        client: SocketClient?,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) async throws {
         let subcommand = commandArgs.first?.lowercased()
         switch subcommand {
         case nil, "help":
@@ -222,7 +257,7 @@ extension CMUXCLI {
             terminateIOSSimulatorServer(pid: ready.pid)
             throw CLIError(message: String(localized: "cli.ios.error.invalidReadyPayload", defaultValue: "ios simulator server returned an invalid ready payload"))
         }
-        let outputURL = redactedSimulatorURL(url)
+        let outputURL = noOpen ? url : redactedSimulatorURL(url)
 
         var outputPayload = ready.payload
         outputPayload["url"] = outputURL
@@ -233,6 +268,9 @@ extension CMUXCLI {
         outputPayload["server_lifecycle"] = "session_detached"
 
         if !noOpen {
+            guard let client else {
+                preconditionFailure("ios run without --no-open must have a SocketClient")
+            }
             do {
                 var params: [String: Any] = ["url": url]
                 let windowHandle = try cmuxWindow.flatMap { try normalizeWindowHandle($0, client: client) }

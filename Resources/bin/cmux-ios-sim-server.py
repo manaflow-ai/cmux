@@ -208,9 +208,11 @@ SIMCTL_BOOT_TIMEOUT_SECONDS = 300
 XCODEBUILD_DISCOVERY_TIMEOUT_SECONDS = 300
 XCODEBUILD_BUILD_TIMEOUT_SECONDS = 1800
 SCREENSHOT_TIMEOUT_SECONDS = 10
+SCREENSHOT_MIN_INTERVAL_SECONDS = 1.0
+SCREENSHOT_FAILURE_BACKOFF_SECONDS = 2.0
 INPUT_TIMEOUT_SECONDS = 30
 MAX_INPUT_BYTES = 65536
-STREAM_FRAME_INTERVAL_SECONDS = 1.0 / 30.0
+STREAM_FRAME_INTERVAL_SECONDS = 1.0
 
 INDEX_HTML = r"""<!doctype html>
 <html lang="en">
@@ -793,6 +795,8 @@ class SimulatorState:
         self.input_lock = threading.Lock()
         self.last_frame = None
         self.last_frame_error = None
+        self.last_frame_captured_at = 0.0
+        self.last_frame_failed_at = 0.0
 
     @property
     def input_available(self):
@@ -807,11 +811,21 @@ class SimulatorState:
         }
 
     def capture_frame(self):
+        now = time.monotonic()
+        if self.last_frame and now - self.last_frame_captured_at < SCREENSHOT_MIN_INTERVAL_SECONDS:
+            return self.last_frame, True
+        if self.last_frame_error and now - self.last_frame_failed_at < SCREENSHOT_FAILURE_BACKOFF_SECONDS:
+            return self.last_frame, bool(self.last_frame)
         if not self.frame_lock.acquire(blocking=False):
             if self.last_frame:
                 return self.last_frame, True
             return None, False
         try:
+            now = time.monotonic()
+            if self.last_frame and now - self.last_frame_captured_at < SCREENSHOT_MIN_INTERVAL_SECONDS:
+                return self.last_frame, True
+            if self.last_frame_error and now - self.last_frame_failed_at < SCREENSHOT_FAILURE_BACKOFF_SECONDS:
+                return self.last_frame, bool(self.last_frame)
             try:
                 raw = subprocess.run(
                     ["/usr/bin/xcrun", "simctl", "io", self.device["udid"], "screenshot", "--type=png", "-"],
@@ -821,6 +835,7 @@ class SimulatorState:
                 )
             except subprocess.TimeoutExpired as error:
                 self.last_frame_error = "frame_capture_timeout"
+                self.last_frame_failed_at = time.monotonic()
                 log(f"screenshot timed out after {SCREENSHOT_TIMEOUT_SECONDS} seconds")
                 if error.stderr:
                     log("screenshot stderr:\n" + timeout_output(error.stderr).rstrip())
@@ -828,9 +843,11 @@ class SimulatorState:
             if raw.returncode == 0 and raw.stdout:
                 self.last_frame = raw.stdout
                 self.last_frame_error = None
+                self.last_frame_captured_at = time.monotonic()
                 return raw.stdout, False
             detail = raw.stderr.decode("utf-8", errors="replace")
             self.last_frame_error = "frame_capture_failed"
+            self.last_frame_failed_at = time.monotonic()
             if detail.strip():
                 log("screenshot failed:\n" + detail.rstrip())
             return self.last_frame, True
