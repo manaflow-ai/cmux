@@ -81,12 +81,12 @@ extension cmuxApp {
 
     private func presentFeedbackFromHelpMenu() {
         if let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow {
-            FeedbackComposerBridge.openComposer(in: targetWindow)
+            FeedbackComposerBridge().openComposer(in: targetWindow)
             return
         }
 
         if let targetWindow = AppDelegate.shared?.showMainWindowFromMenuBar() {
-            FeedbackComposerBridge.openComposer(in: targetWindow)
+            FeedbackComposerBridge().openComposer(in: targetWindow)
         }
     }
 }

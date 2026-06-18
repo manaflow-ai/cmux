@@ -76,7 +76,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     private func makeSwitcherEntries(count: Int) -> [FixtureEntry] {
         (0..<count).map { index in
             let title = "Workspace \(index) Phoenix"
-            let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+            let keywords = CommandPaletteSwitcherSearchIndexer(
                 baseKeywords: ["workspace", "switch", "go", title],
                 metadata: CommandPaletteSwitcherSearchMetadata(
                     directories: ["/Users/example/dev/cmuxterm-hq/worktrees/feature-\(index)-rename-tab"],
@@ -84,7 +84,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     ports: [3000 + (index % 20), 9200 + (index % 5)]
                 ),
                 detail: .workspace
-            )
+            ).keywords
             return FixtureEntry(
                 id: "workspace.\(index)",
                 rank: index,
@@ -99,7 +99,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             let projectSlug = "project-\(index)-cmd-p-search-performance"
             let worktreeSlug = "feature-\(index)-palette-latency"
             let title = "Workspace \(index) \(projectSlug)"
-            let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+            let keywords = CommandPaletteSwitcherSearchIndexer(
                 baseKeywords: [
                     "workspace",
                     "switch",
@@ -125,7 +125,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     description: "Palette performance fixture \(index) for \(projectSlug)"
                 ),
                 detail: .workspace
-            )
+            ).keywords
             return FixtureEntry(
                 id: "workspace.large.\(index)",
                 rank: index,
@@ -195,7 +195,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         }
 
-        return CommandPaletteSearchEngine.search(entries: corpus, query: query, resultLimit: resultLimit) { _, _ in 0 }
+        return CommandPaletteSearchEngine(entries: corpus).search(
+            query: query, resultLimit: resultLimit) { _, _ in 0 }
             .map {
                 FixtureResult(
                     id: $0.payload,
@@ -434,7 +435,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         }
 
-        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+        let matches = CommandPaletteSearchOrchestrator().resolvedSearchMatches(
             searchIndex: nil,
             searchCorpus: corpus,
             query: "workspace",
@@ -460,7 +461,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             throw XCTSkip("Build the nucleo FFI dylib before running production wrapper tests")
         }
 
-        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+        let matches = CommandPaletteSearchOrchestrator().resolvedSearchMatches(
             searchIndex: searchIndex,
             searchCorpus: corpus,
             query: "workspace",
@@ -484,8 +485,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
         var cancellationChecks = 0
 
-        let results = CommandPaletteSearchEngine.search(
-            entries: corpus,
+        let results = CommandPaletteSearchEngine(entries: corpus).search(
             query: "rename"
         ) { _, _ in
             0
@@ -534,8 +534,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         }
 
-        let results = CommandPaletteSearchEngine.search(
-            entries: corpus,
+        let results = CommandPaletteSearchEngine(entries: corpus).search(
             query: "fork"
         ) { commandId, _ in
             ContentView.commandPaletteForkPriorityBoost(commandId: commandId, query: "fork")
@@ -1396,7 +1395,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             throw XCTSkip("Build the nucleo FFI dylib before running production wrapper tests")
         }
 
-        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+        let matches = CommandPaletteSearchOrchestrator().resolvedSearchMatches(
             searchIndex: searchIndex,
             searchCorpus: corpus,
             query: "renamd",
@@ -1446,7 +1445,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
         XCTAssertFalse(nucleoOnlyMatches.isEmpty)
 
-        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+        let matches = CommandPaletteSearchOrchestrator().resolvedSearchMatches(
             searchIndex: searchIndex,
             searchCorpus: corpus,
             query: "renamd",
@@ -1493,7 +1492,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(nucleoOnlyMatches.count, 10)
         XCTAssertNotEqual(nucleoOnlyMatches.first?.payload, "palette.renameTab")
 
-        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+        let matches = CommandPaletteSearchOrchestrator().resolvedSearchMatches(
             searchIndex: searchIndex,
             searchCorpus: corpus,
             query: "renamd",
@@ -1552,7 +1551,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertLessThan(nucleoOnlyMatches.count, 10)
 
         var cancellationChecks = 0
-        let matches = CommandPaletteSearchOrchestrator.resolvedSearchMatches(
+        let matches = CommandPaletteSearchOrchestrator().resolvedSearchMatches(
             searchIndex: searchIndex,
             searchCorpus: corpus,
             query: "project-642",
@@ -2243,7 +2242,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         for query in queries.prefix(8) {
             _ = referenceResults(entries: entries, query: query)
-            _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+            _ = CommandPaletteSearchEngine(entries: corpus).search(
+            query: query) { _, _ in 0 }
         }
 
         let referenceMs = benchmarkElapsedMs {
@@ -2253,7 +2253,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
         let optimizedMs = benchmarkElapsedMs {
             for query in queries {
-                _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+                _ = CommandPaletteSearchEngine(entries: corpus).search(
+            query: query) { _, _ in 0 }
             }
         }
 
@@ -2282,7 +2283,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         for query in queries.prefix(8) {
             _ = referenceResults(entries: entries, query: query)
-            _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+            _ = CommandPaletteSearchEngine(entries: corpus).search(
+            query: query) { _, _ in 0 }
         }
 
         let referenceMs = benchmarkElapsedMs {
@@ -2292,7 +2294,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
         let optimizedMs = benchmarkElapsedMs {
             for query in queries {
-                _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+                _ = CommandPaletteSearchEngine(entries: corpus).search(
+            query: query) { _, _ in 0 }
             }
         }
 
@@ -2330,7 +2333,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         for query in queries.prefix(8) {
             _ = referenceResults(entries: entries, query: query)
-            _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+            _ = CommandPaletteSearchEngine(entries: corpus).search(
+            query: query) { _, _ in 0 }
         }
 
         let referenceMs = benchmarkElapsedMs {
@@ -2340,7 +2344,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
         let optimizedMs = benchmarkElapsedMs {
             for query in queries {
-                _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+                _ = CommandPaletteSearchEngine(entries: corpus).search(
+            query: query) { _, _ in 0 }
             }
         }
 
@@ -2369,9 +2374,12 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         for query in queries.prefix(8) {
-            _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
-            _ = CommandPaletteSearchEngine.search(entries: corpus, query: query, resultLimit: 100) { _, _ in 0 }
-            _ = CommandPaletteSearchEngine.search(entries: visibleCandidateCorpus, query: query, resultLimit: 48) { _, _ in 0 }
+            _ = CommandPaletteSearchEngine(entries: corpus).search(
+            query: query) { _, _ in 0 }
+            _ = CommandPaletteSearchEngine(entries: corpus).search(
+            query: query, resultLimit: 100) { _, _ in 0 }
+            _ = CommandPaletteSearchEngine(entries: visibleCandidateCorpus).search(
+            query: query, resultLimit: 48) { _, _ in 0 }
         }
 
         var fullDurationsMs: [Double] = []
@@ -2384,17 +2392,20 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         for query in queries {
             fullDurationsMs.append(
                 benchmarkElapsedMs {
-                    _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+                    _ = CommandPaletteSearchEngine(entries: corpus).search(
+            query: query) { _, _ in 0 }
                 }
             )
             cappedFullDurationsMs.append(
                 benchmarkElapsedMs {
-                    _ = CommandPaletteSearchEngine.search(entries: corpus, query: query, resultLimit: 100) { _, _ in 0 }
+                    _ = CommandPaletteSearchEngine(entries: corpus).search(
+            query: query, resultLimit: 100) { _, _ in 0 }
                 }
             )
             previewDurationsMs.append(
                 benchmarkElapsedMs {
-                    _ = CommandPaletteSearchEngine.search(entries: visibleCandidateCorpus, query: query, resultLimit: 48) { _, _ in 0 }
+                    _ = CommandPaletteSearchEngine(entries: visibleCandidateCorpus).search(
+            query: query, resultLimit: 48) { _, _ in 0 }
                 }
             )
         }
