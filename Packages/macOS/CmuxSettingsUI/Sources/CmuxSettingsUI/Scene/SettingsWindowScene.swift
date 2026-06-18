@@ -18,7 +18,7 @@ public struct SettingsWindowScene: Scene {
     }
 
     public var body: some Scene {
-        Window(String(localized: "settings.title", defaultValue: "Settings"), id: "cmux.settings") {
+        WindowGroup(String(localized: "settings.title", defaultValue: "Settings"), id: "cmux.settings") {
             SettingsWindowRoot(runtime: runtime)
                 .settingsRuntime(runtime)
         }

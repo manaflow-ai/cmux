@@ -858,7 +858,7 @@ struct cmuxApp: App {
             windowAndViewCommands
         }
 
-        Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
+        WindowGroup(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
             SettingsWindowRoot(runtime: settingsRuntime)
                 .settingsRuntime(settingsRuntime)
                 .background(WindowAccessor(dedupeByWindow: false) { window in
@@ -2550,8 +2550,8 @@ private struct AboutPanelView: View {
 private struct SidebarDebugView: View {
     @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
@@ -2707,8 +2707,8 @@ private struct SidebarDebugView: View {
 
                 HStack(spacing: 12) {
                     Button("Reset Tint") {
-                        sidebarTintOpacity = 0.62
-                        sidebarTintHex = SidebarTintDefaults.hex
+                        sidebarTintOpacity = SidebarTintDefaults().opacity
+                        sidebarTintHex = SidebarTintDefaults().hex
                         sidebarTintHexLight = nil
                         sidebarTintHexDark = nil
                     }
@@ -3094,7 +3094,7 @@ private struct TabBarBackdropLabView: View {
     }
 
     private var separatorColor: NSColor {
-        WindowChromeSeparatorColor.color(forChromeBackground: terminalColor)
+        WindowChromeColorResolver().separatorColor(forChromeBackground: terminalColor)
     }
 
     private var candidateBackdropEffect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
@@ -3793,7 +3793,7 @@ private struct BackgroundDebugView: View {
         }()
         guard let window else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
-        WindowBackdropController.updateGlassTint(to: window, color: tintColor)
+        AppWindowChromeComposition().backdropController.updateGlassTint(to: window, color: tintColor)
     }
 
     private var tintColorBinding: Binding<Color> {
