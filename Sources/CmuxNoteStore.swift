@@ -11,6 +11,7 @@ enum CmuxNoteStore {
 
     private static let schemaVersion = 1
     private static let indexFileName = "index.json"
+    private static let indexDataReader = CmuxNoteIndexDataReader(maxBytes: 8 * 1024 * 1024)
     private static let storageQueue = DispatchQueue(label: "com.cmux.notes.store")
 
     static func newAnchorID() -> String {
@@ -586,13 +587,11 @@ enum CmuxNoteStore {
             throw CmuxNoteStoreError.untrustedNotesDirectory
         }
         let path = indexPath(forProjectRoot: projectRoot)
-        let fs = FileManager.default
         let legacy = legacyNotes(projectRoot: projectRoot)
-        guard fs.fileExists(atPath: path) else {
-            return IndexFile(version: schemaVersion, notes: legacy)
-        }
         do {
-            let data = try Data(contentsOf: URL(fileURLWithPath: path))
+            guard let data = try indexDataReader.readIfPresent(atPath: path) else {
+                return IndexFile(version: schemaVersion, notes: legacy)
+            }
             var index = try JSONDecoder().decode(IndexFile.self, from: data)
             index.notes = mergeLegacyNotes(legacy, into: index.notes)
             return index

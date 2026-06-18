@@ -258,6 +258,7 @@
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */; };
+		C0DE43310000000000000003 /* CmuxNoteIndexDataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43310000000000000004 /* CmuxNoteIndexDataReader.swift */; };
 		B1723BD44F3448CD939F12AD /* CmuxNoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E5A5CCF827C4E0BA8A2B663 /* CmuxNoteModels.swift */; };
 		C0DE43310000000000000001 /* CmuxNoteStore+BodyPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43310000000000000002 /* CmuxNoteStore+BodyPath.swift */; };
 		8E220C8D4318488FB97FCD2E /* CmuxNoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DD5CCB7C0564B569D8C2AA9 /* CmuxNoteStore.swift */; };
@@ -1266,6 +1267,7 @@
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxModalAlertPresentation.swift; sourceTree = "<group>"; };
+		C0DE43310000000000000004 /* CmuxNoteIndexDataReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNoteIndexDataReader.swift; sourceTree = "<group>"; };
 		0E5A5CCF827C4E0BA8A2B663 /* CmuxNoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNoteModels.swift; sourceTree = "<group>"; };
 		C0DE43310000000000000002 /* CmuxNoteStore+BodyPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxNoteStore+BodyPath.swift"; sourceTree = "<group>"; };
 		2DD5CCB7C0564B569D8C2AA9 /* CmuxNoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNoteStore.swift; sourceTree = "<group>"; };
@@ -2685,6 +2687,7 @@
 				A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				A5001651 /* CmuxConfig.swift */,
+				C0DE43310000000000000004 /* CmuxNoteIndexDataReader.swift */,
 				0E5A5CCF827C4E0BA8A2B663 /* CmuxNoteModels.swift */,
 				2DD5CCB7C0564B569D8C2AA9 /* CmuxNoteStore.swift */,
 				C0DE43310000000000000002 /* CmuxNoteStore+BodyPath.swift */,
@@ -3630,6 +3633,7 @@
 				E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */,
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */,
+				C0DE43310000000000000003 /* CmuxNoteIndexDataReader.swift in Sources */,
 				B1723BD44F3448CD939F12AD /* CmuxNoteModels.swift in Sources */,
 				C0DE43310000000000000001 /* CmuxNoteStore+BodyPath.swift in Sources */,
 				8E220C8D4318488FB97FCD2E /* CmuxNoteStore.swift in Sources */,
