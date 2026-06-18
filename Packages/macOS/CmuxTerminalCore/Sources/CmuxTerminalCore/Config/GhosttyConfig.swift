@@ -322,16 +322,21 @@ public struct GhosttyConfig {
         }
 
         if rawSidebarBackground != nil {
-            applySidebarColor(
-                sidebarBackgroundLight,
-                key: "sidebarTintHexLight",
-                appliedValues: &appliedValues
-            )
-            applySidebarColor(
-                sidebarBackgroundDark,
-                key: "sidebarTintHexDark",
-                appliedValues: &appliedValues
-            )
+            if sidebarBackground != nil, sidebarBackgroundLight == nil, sidebarBackgroundDark == nil {
+                clearSidebarAppearanceOverride(key: "sidebarTintHexLight", appliedValues: &appliedValues)
+                clearSidebarAppearanceOverride(key: "sidebarTintHexDark", appliedValues: &appliedValues)
+            } else {
+                applySidebarColor(
+                    sidebarBackgroundLight,
+                    key: "sidebarTintHexLight",
+                    appliedValues: &appliedValues
+                )
+                applySidebarColor(
+                    sidebarBackgroundDark,
+                    key: "sidebarTintHexDark",
+                    appliedValues: &appliedValues
+                )
+            }
             applySidebarColor(
                 sidebarBackground,
                 key: "sidebarTintHex",
@@ -459,6 +464,14 @@ public struct GhosttyConfig {
         if UserDefaults.standard.string(forKey: key) == appliedValue {
             UserDefaults.standard.removeObject(forKey: key)
         }
+    }
+
+    private func clearSidebarAppearanceOverride(
+        key: String,
+        appliedValues: inout [String: String]
+    ) {
+        appliedValues.removeValue(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
     }
 
     // Internal + @usableFromInline so it can back the public `load` default

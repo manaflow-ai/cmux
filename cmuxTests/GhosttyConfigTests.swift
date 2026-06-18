@@ -4696,7 +4696,7 @@ final class SidebarBackgroundConfigTests: XCTestCase {
                      "Stale dark key should be cleared")
     }
 
-    func testApplyToUserDefaultsPreservesUserEditedLightDarkTintKeysOnSwitchToSingle() {
+    func testApplyToUserDefaultsClearsUntrackedLightDarkTintKeysWhenSingleBackgroundSet() {
         let defaults = UserDefaults.standard
         let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", GhosttyConfig.sidebarAppearanceAppliedDefaultsKey]
         let originals = keys.map { defaults.object(forKey: $0) }
@@ -4708,10 +4708,7 @@ final class SidebarBackgroundConfigTests: XCTestCase {
 
         defaults.set("#CCCCCC", forKey: "sidebarTintHexLight")
         defaults.set("#DDDDDD", forKey: "sidebarTintHexDark")
-        defaults.set([
-            "sidebarTintHexLight": "#AAAAAA",
-            "sidebarTintHexDark": "#BBBBBB",
-        ], forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
+        defaults.removeObject(forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
 
         var config = GhosttyConfig()
         config.rawSidebarBackground = "#222222"
@@ -4719,8 +4716,10 @@ final class SidebarBackgroundConfigTests: XCTestCase {
         config.applySidebarAppearanceToUserDefaults()
 
         XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#222222")
-        XCTAssertEqual(defaults.string(forKey: "sidebarTintHexLight"), "#CCCCCC")
-        XCTAssertEqual(defaults.string(forKey: "sidebarTintHexDark"), "#DDDDDD")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexLight"),
+                     "Legacy light key should not override an explicit single Ghostty background")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexDark"),
+                     "Legacy dark key should not override an explicit single Ghostty background")
     }
 
     func testApplyToUserDefaultsOnlyWritesOpacityWhenExplicit() {
