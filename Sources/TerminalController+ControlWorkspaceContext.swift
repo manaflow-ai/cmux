@@ -440,7 +440,10 @@ extension TerminalController: ControlWorkspaceContext {
         )
     }
 
-    func controlReconnectWorkspaceRemote(workspaceID: UUID) -> ControlWorkspaceRemoteResolution {
+    func controlReconnectWorkspaceRemote(
+        workspaceID: UUID,
+        surfaceID: UUID?
+    ) -> ControlWorkspaceRemoteResolution {
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
@@ -448,7 +451,7 @@ extension TerminalController: ControlWorkspaceContext {
         guard workspace.remoteConfiguration != nil else {
             return .notConfigured(workspaceID: workspaceID)
         }
-        workspace.reconnectRemoteConnection()
+        workspace.reconnectRemoteConnection(surfaceId: surfaceID)
         notifyRemotePTYControllerAvailabilityChanged()
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
@@ -749,4 +752,3 @@ extension TerminalController: ControlWorkspaceContext {
         return .string(uuid.uuidString)
     }
 }
-
