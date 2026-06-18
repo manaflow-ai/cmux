@@ -17531,7 +17531,7 @@ private extension NSWindow {
             if let ghosttyView = cmuxOwningGhosttyView(for: hitView) {
                 return ghosttyView
             }
-            if !cmuxHitViewAllowsPortalPaneBodyFallback(hitView) {
+            if !cmuxHitViewAllowsPortalPaneBodyFallback(hitView, at: event.locationInWindow) {
                 return nil
             }
         }
@@ -17586,7 +17586,7 @@ private extension NSWindow {
             ) {
                 return target
             }
-            guard cmuxHitViewAllowsPortalPaneBodyFallback(hitView) else {
+            guard cmuxHitViewAllowsPortalPaneBodyFallback(hitView, at: event.locationInWindow) else {
                 return nil
             }
         }
@@ -17688,9 +17688,9 @@ private extension NSWindow {
     // hit and must fall through to the geometric portal-fallback path. Using the sibling-aware
     // resolver here would misread an overlay covering the web content (the split/workspace
     // churn state that triggers issue #5269) as a direct hit and skip activation, leaving the
-    // pane unfocused. Focus-stealing chrome (e.g. the find field) stays protected downstream
-    // by `cmuxHitViewAllowsPortalPaneBodyFallback(_:)`, which blocks the fallback for native
-    // text entry.
+    // pane unfocused. Focus-stealing chrome (e.g. find/omnibar controls) stays protected
+    // downstream by `cmuxHitViewAllowsPortalPaneBodyFallback(_:at:)`, which delegates
+    // browser slot hits back to the slot owner.
     private static func cmuxDirectOwningWebView(for view: NSView) -> CmuxWebView? {
         if let webView = view as? CmuxWebView {
             return webView
@@ -17723,16 +17723,18 @@ private extension NSWindow {
         return false
     }
 
-    private static func cmuxHitViewAllowsPortalPaneBodyFallback(_ hitView: NSView) -> Bool {
+    private static func cmuxHitViewAllowsPortalPaneBodyFallback(_ hitView: NSView, at windowPoint: NSPoint) -> Bool {
         if cmuxNativeTextEntryOwnsPointerHit(hitView) {
             return false
         }
 
         var current: NSView? = hitView
         while let candidate = current {
+            if let browserSlot = candidate as? WindowBrowserSlotView {
+                return browserSlot.allowsPaneBodyPointerFocusFallback(for: hitView, at: windowPoint)
+            }
             if candidate is WindowTerminalHostView ||
                 candidate is WindowBrowserHostView ||
-                candidate is WindowBrowserSlotView ||
                 candidate is GhosttySurfaceScrollView {
                 return true
             }
