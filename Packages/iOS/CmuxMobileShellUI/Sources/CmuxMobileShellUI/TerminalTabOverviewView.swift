@@ -87,7 +87,7 @@ struct TerminalTabOverviewView: View {
             )
         }
         return String.localizedStringWithFormat(
-            L10n.string("mobile.terminal.overview.tabCount.many", defaultValue: "%d Tabs"),
+            L10n.string("mobile.terminal.overview.tabCount.other", defaultValue: "%d Tabs"),
             items.count
         )
     }

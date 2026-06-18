@@ -3401,7 +3401,7 @@
         }
       }
     },
-    "mobile.terminal.overview.tabCount.many": {
+    "mobile.terminal.overview.tabCount.other": {
       "extractionState": "manual",
       "localizations": {
         "en": {
