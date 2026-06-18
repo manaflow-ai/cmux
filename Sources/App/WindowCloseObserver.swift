@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class MainWindowCloseObserver {
+final class WindowCloseObserver {
     private var token: NSObjectProtocol?
 
     init(window: NSWindow, onClose: @escaping @MainActor (NSWindow) -> Void) {

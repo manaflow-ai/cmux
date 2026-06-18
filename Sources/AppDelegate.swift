@@ -554,7 +554,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
-        var closeObserver: MainWindowCloseObserver?
+        var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
 
         init(
@@ -4523,7 +4523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let cmuxConfigStore {
                 existing.cmuxConfigStore = cmuxConfigStore
             }
-            existing.closeObserver = MainWindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+            existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             if let existingWindow = existing.window,
                existingWindow !== window,
@@ -4561,7 +4561,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 existing.cmuxConfigStore = cmuxConfigStore
             }
             reindexMainWindowContextIfNeeded(existing, for: window)
-            existing.closeObserver = MainWindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+            existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else {
             tabManager.window = window
             tabManager.windowId = windowId
@@ -4575,7 +4575,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 window: window
             )
             mainWindowContexts[key] = context
-            context.closeObserver = MainWindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+            context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         }
         commandPaletteWindowStore.registerWindow(windowId)
 
