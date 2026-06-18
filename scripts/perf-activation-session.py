@@ -437,13 +437,11 @@ class CmuxPerfRunner:
                     snapshot = self.read_session_snapshot()
                     shape_satisfied, last_shape = self.restored_session_snapshot_is_complete(snapshot)
                     mtime_changed = current_mtime_ns != previous_mtime_ns
-                    if mtime_changed or shape_satisfied:
+                    if mtime_changed and shape_satisfied:
                         self.result["measurements"]["restore_snapshot_file_wait_ms"] = rounded_ms(
                             now_ms() - start
                         )
-                        self.result["fixture"]["restore_snapshot_file_reason"] = (
-                            "mtime_changed" if mtime_changed else "shape_satisfied"
-                        )
+                        self.result["fixture"]["restore_snapshot_file_reason"] = "mtime_changed_shape_satisfied"
                         return snapshot
                 except (OSError, json.JSONDecodeError) as exc:
                     last_error = str(exc)

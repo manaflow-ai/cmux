@@ -320,7 +320,61 @@ def test_post_restore_shape_uses_persisted_session_snapshot() -> None:
     }
 
 
-def test_restored_session_snapshot_accepts_complete_idempotent_save(tmp_path: pathlib.Path) -> None:
+def test_restored_session_snapshot_rejects_stale_complete_file(tmp_path: pathlib.Path) -> None:
+    runner = object.__new__(perf_activation_session.CmuxPerfRunner)
+    runner.args = types.SimpleNamespace(workspace_count=2, budget_min_terminal_surfaces=2)
+    runner.result = {"measurements": {}, "fixture": {}}
+    runner.session_snapshot_path = tmp_path / "session.json"
+    runner.proc = mock.Mock()
+    runner.proc.wait.side_effect = perf_activation_session.subprocess.TimeoutExpired(
+        cmd="cmux",
+        timeout=0.1,
+    )
+    snapshot = {
+        "windows": [
+            {
+                "tabManager": {
+                    "workspaces": [
+                        {"panels": [{"terminal": {}}, {"browser": {}}]},
+                        {"panels": [{"terminal": {}}]},
+                    ]
+                }
+            }
+        ]
+    }
+    runner.session_snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    previous_mtime_ns = runner.session_snapshot_mtime_ns()
+
+    with (
+        mock.patch.object(perf_activation_session.time, "monotonic", side_effect=[0.0, 0.0, 0.2]),
+        mock.patch.object(perf_activation_session, "now_ms", side_effect=[0.0, 200.0]),
+    ):
+        try:
+            runner.wait_for_restored_session_snapshot(
+                previous_mtime_ns=previous_mtime_ns,
+                timeout_s=0.1,
+            )
+        except perf_activation_session.PerfFailure as exc:
+            assert "restore_session_snapshot_file: not updated after 0.1s" in str(exc)
+        else:
+            raise AssertionError("stale complete snapshot should not be accepted")
+
+    assert runner.result["fixture"]["restore_snapshot_file_failure"]["last_shape"] == {
+        "windows": 1,
+        "workspaces": 2,
+        "panels": 3,
+        "terminals": 2,
+        "browsers": 1,
+        "markdown": 0,
+        "scrollback_chars": 0,
+        "status_entries": 0,
+        "log_entries": 0,
+        "progress_entries": 0,
+        "git_entries": 0,
+    }
+
+
+def test_restored_session_snapshot_accepts_updated_complete_file(tmp_path: pathlib.Path) -> None:
     runner = object.__new__(perf_activation_session.CmuxPerfRunner)
     runner.args = types.SimpleNamespace(workspace_count=2, budget_min_terminal_surfaces=2)
     runner.result = {"measurements": {}, "fixture": {}}
@@ -338,7 +392,7 @@ def test_restored_session_snapshot_accepts_complete_idempotent_save(tmp_path: pa
         ]
     }
     runner.session_snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
-    previous_mtime_ns = runner.session_snapshot_mtime_ns()
+    previous_mtime_ns = runner.session_snapshot_mtime_ns() - 1
 
     with mock.patch.object(perf_activation_session.time, "sleep") as sleep:
         restored_snapshot = runner.wait_for_restored_session_snapshot(
@@ -347,7 +401,7 @@ def test_restored_session_snapshot_accepts_complete_idempotent_save(tmp_path: pa
         )
 
     assert restored_snapshot == snapshot
-    assert runner.result["fixture"]["restore_snapshot_file_reason"] == "shape_satisfied"
+    assert runner.result["fixture"]["restore_snapshot_file_reason"] == "mtime_changed_shape_satisfied"
     assert runner.result["measurements"]["restore_snapshot_file_wait_ms"] >= 0
     sleep.assert_not_called()
 

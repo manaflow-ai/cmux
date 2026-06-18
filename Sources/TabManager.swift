@@ -3666,13 +3666,23 @@ class TabManager: ObservableObject {
     /// Create and focus a new top-level terminal tab in the selected workspace.
     func newSurface() {
         // Cmd+T creates a Ghostty-style top tab in the current workspace and focuses it.
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTopLevelTerminalTab(focus: true)
+        guard let selectedWorkspace else { return }
+        selectedWorkspace.clearSplitZoom()
+        if selectedWorkspace.layoutMode == .canvas {
+            selectedWorkspace.newTerminalSurfaceInFocusedPane(focus: true)
+        } else {
+            selectedWorkspace.newTopLevelTerminalTab(focus: true)
+        }
     }
 
     func newSurface(initialInput: String) {
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTopLevelTerminalTab(focus: true, initialInput: initialInput)
+        guard let selectedWorkspace else { return }
+        selectedWorkspace.clearSplitZoom()
+        if selectedWorkspace.layoutMode == .canvas {
+            selectedWorkspace.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+        } else {
+            selectedWorkspace.newTopLevelTerminalTab(focus: true, initialInput: initialInput)
+        }
     }
 
     // MARK: - Split Creation

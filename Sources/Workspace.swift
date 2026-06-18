@@ -7916,6 +7916,9 @@ final class Workspace: Identifiable, ObservableObject {
               let paneId = paneId(forPanelId: panelId) else {
             return nil
         }
+        let targetController = bonsplitController(containingSurfaceId: tabId)
+            ?? bonsplitController(containingPaneId: paneId)
+            ?? bonsplitController
 
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
@@ -7925,9 +7928,10 @@ final class Workspace: Identifiable, ObservableObject {
             requestedWorkingDirectory: workingDirectory,
             sourcePanelId: panelId
         )
-        let selectedInPane = bonsplitController.selectedTab(inPane: paneId)?.id == tabId
-        let paneWasFocused = bonsplitController.focusedPaneId == paneId
-        let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
+        let selectedInPane = targetController.selectedTab(inPane: paneId)?.id == tabId
+        let paneWasFocused = targetController.focusedPaneId == paneId
+        let layoutWasSelected = layoutTab(containing: targetController)?.id == selectedLayoutTabId
+        let shouldFocus = focus ?? (layoutWasSelected && selectedInPane && paneWasFocused)
         let customTitle = panelCustomTitles[panelId]
         let customTitleSource = panelCustomTitleSources[panelId]
         let wasPinned = pinnedPanelIds.contains(panelId)
@@ -7993,11 +7997,11 @@ final class Workspace: Identifiable, ObservableObject {
         if wasPinned {
             pinnedPanelIds.insert(panelId)
         }
-        surfaceIdToPanelId[tabId] = panelId
+        setSurfaceMapping(tabId: tabId, panelId: panelId, in: targetController)
         seedTerminalInheritanceFontPoints(panelId: panelId, configTemplate: inheritedConfig)
 
         let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
-        bonsplitController.updateTab(
+        targetController.updateTab(
             tabId,
             title: resolvedTitle,
             icon: .some(replacementPanel.displayIcon),
@@ -8011,11 +8015,12 @@ final class Workspace: Identifiable, ObservableObject {
         )
 
         if shouldFocus {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(tabId)
+            _ = selectTopLevelTab(containing: targetController, reassertAppKitFocus: false)
+            targetController.focusPane(paneId)
+            targetController.selectTab(tabId)
             focusPanel(panelId)
-        } else if selectedInPane {
-            bonsplitController.selectTab(tabId)
+        } else if layoutWasSelected && selectedInPane {
+            targetController.selectTab(tabId)
             applyTabSelection(tabId: tabId, inPane: paneId)
         } else {
             replacementPanel.unfocus()
@@ -12832,6 +12837,14 @@ extension Workspace: BonsplitDelegate {
                 // pending disconnect placeholder state would survive and leak into a later close.
                 pendingRemoteDisconnectReplacement = nil
                 scheduleTerminalGeometryReconcile()
+                return
+            }
+
+            if let layout = layoutTab(containing: controller), layoutTabs.count > 1 {
+                pendingRemoteDisconnectReplacement = nil
+                removeTopLevelLayoutTab(layout, fallbackLayoutId: nil)
+                scheduleTerminalGeometryReconcile()
+                scheduleFocusReconcile()
                 return
             }
 
