@@ -87,8 +87,8 @@ public struct SettingsSearchIndex: Sendable {
     /// ``SettingsCardRow`` resolve the config path it already declares
     /// via ``SettingsConfigurationReview`` into the scroll/highlight
     /// target the navigation layer posts, without a second
-    /// hand-maintained id table. Built from the curated entries' dotted
-    /// synonym tokens.
+    /// hand-maintained id table. Built from curated entry paths, or from
+    /// dotted synonym tokens for legacy entries.
     private let pathAnchorIDs: [String: String]
 
     /// Builds an index from the section list and supplied curated entries.
@@ -153,7 +153,8 @@ public struct SettingsSearchIndex: Sendable {
                 anchorID: entryID
             ))
 
-            for path in searchPaths {
+            let anchorPaths = entry.anchorPath.map { [$0] } ?? searchPaths
+            for path in anchorPaths {
                 if pathAnchors[path] == nil { pathAnchors[path] = entryID }
             }
         }
