@@ -8,10 +8,14 @@ Requires:
   - Debug socket commands enabled (`simulate_shortcut`)
 """
 
+import contextlib
+import http.server
 import os
+import socketserver
 import sys
+import threading
 import time
-from typing import Optional
+from typing import Iterator, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -24,6 +28,79 @@ def focused_pane_id(client: cmux) -> Optional[str]:
         if is_focused:
             return pane_id
     return None
+
+
+@contextlib.contextmanager
+def _local_test_server() -> Iterator[str]:
+    """Serve a tiny static page from an ephemeral 127.0.0.1 port.
+
+    Avoids depending on external network (https://example.com), which makes the
+    blind page-load wait flaky in CI without/with throttled network access.
+    """
+    html = (
+        "<!DOCTYPE html><html><head><title>goto-split</title></head>"
+        "<body><h1 id=\"hello\">goto split test</h1></body></html>"
+    )
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            body = html.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args) -> None:  # noqa: A003
+            return
+
+    class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+
+    server = ThreadedTCPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1.0)
+
+
+def _wait_focused(client: cmux, expected_pane_id: str, timeout_s: float = 6.0) -> Optional[str]:
+    """Poll until the focused pane equals expected_pane_id, or the deadline.
+
+    Pane-focus change after a synthesized shortcut is asynchronous (event
+    injection -> first-responder handoff -> focus-state propagation), so a fixed
+    sleep races under load. Returns the last-observed focused pane id.
+    """
+    deadline = time.time() + timeout_s
+    focused = focused_pane_id(client)
+    while time.time() < deadline:
+        focused = focused_pane_id(client)
+        if focused == expected_pane_id:
+            return focused
+        time.sleep(0.05)
+    return focused
+
+
+def _wait_url_loaded(client: cmux, browser_id: str, timeout_s: float = 10.0) -> None:
+    """Poll the browser surface until it reports a non-blank loaded URL.
+
+    Replaces a blind time.sleep page-load wait; returns as soon as the page URL
+    is observable, and only spends the full deadline on the failure path.
+    """
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            url = client.get_url(browser_id)
+        except Exception:
+            url = ""
+        if url and url not in ("about:blank", "about:blank#blocked"):
+            return
+        time.sleep(0.1)
 
 
 def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
@@ -41,9 +118,12 @@ def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
     client.set_shortcut("focus_left", "clear")
     client.set_shortcut("focus_right", "clear")
 
-    # Create a browser pane to the right, loading a real page
-    browser_id = client.new_pane(direction="right", panel_type="browser", url="https://example.com")
-    time.sleep(2.0)  # Wait for page load
+    # Create a browser pane to the right, loading a local ephemeral page
+    # (avoids depending on external network for a deterministic load signal).
+    server_cm = _local_test_server()
+    page_url = server_cm.__enter__()
+    browser_id = client.new_pane(direction="right", panel_type="browser", url=page_url)
+    _wait_url_loaded(client, browser_id)  # Wait on a real load signal, not a fixed sleep
 
     # Identify the two panes
     panes = client.list_panes()
@@ -58,47 +138,44 @@ def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
             break
 
     if not terminal_pane_id or not browser_pane_id:
+        server_cm.__exit__(None, None, None)
         return False, f"Could not identify terminal/browser panes: {panes}"
 
-    # Ensure browser pane is focused
-    client.focus_pane(browser_pane_id)
-    time.sleep(0.3)
+    try:
+        # Ensure browser pane is focused (poll for the async focus to land).
+        client.focus_pane(browser_pane_id)
+        _wait_focused(client, browser_pane_id)
 
-    # Force WKWebView first responder (socket-driven; avoids flakey clicking).
-    client.focus_webview(browser_id)
-    client.wait_for_webview_focus(browser_id, timeout_s=3.0)
+        # Force WKWebView first responder (socket-driven; avoids flakey clicking).
+        client.focus_webview(browser_id)
+        client.wait_for_webview_focus(browser_id, timeout_s=10.0)
 
-    # Verify WebKit (not just the pane) has first responder.
-    if not client.is_webview_focused(browser_id):
-        return False, "Browser pane is focused, but WKWebView is not first responder"
+        # Verify WebKit (not just the pane) has first responder.
+        if not client.is_webview_focused(browser_id):
+            return False, "Browser pane is focused, but WKWebView is not first responder"
 
-    # Verify browser pane is still focused after click
-    pre_focus = focused_pane_id(client)
-    if pre_focus != browser_pane_id:
+        # Verify browser pane is still focused after webview focus
+        pre_focus = focused_pane_id(client)
+        if pre_focus != browser_pane_id:
+            return False, f"Click changed focus away from browser pane (now {pre_focus})"
+
+        # Send Cmd+Option+Left arrow; poll for the focus change to propagate.
+        client.simulate_shortcut("cmd+opt+left")
+        new_focused = _wait_focused(client, terminal_pane_id)
+
+        if new_focused == terminal_pane_id:
+            return True, "Cmd+Option+Left moved focus from loaded browser to terminal"
+        else:
+            return False, (
+                f"Focus did NOT move. Expected terminal {terminal_pane_id}, "
+                f"got {new_focused} (browser={browser_pane_id})"
+            )
+    finally:
         try:
             client.close_workspace(ws_id)
         except Exception:
             pass
-        return False, f"Click changed focus away from browser pane (now {pre_focus})"
-
-    # Send Cmd+Option+Left arrow
-    client.simulate_shortcut("cmd+opt+left")
-    time.sleep(0.5)
-
-    new_focused = focused_pane_id(client)
-
-    try:
-        client.close_workspace(ws_id)
-    except Exception:
-        pass
-
-    if new_focused == terminal_pane_id:
-        return True, "Cmd+Option+Left moved focus from loaded browser to terminal"
-    else:
-        return False, (
-            f"Focus did NOT move. Expected terminal {terminal_pane_id}, "
-            f"got {new_focused} (browser={browser_pane_id})"
-        )
+        server_cm.__exit__(None, None, None)
 
 
 def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
@@ -113,11 +190,14 @@ def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
     client.set_shortcut("focus_left", "clear")
     client.set_shortcut("focus_right", "clear")
 
-    browser_id = client.new_pane(direction="right", panel_type="browser", url="https://example.com")
-    time.sleep(2.0)
+    server_cm = _local_test_server()
+    page_url = server_cm.__enter__()
+    browser_id = client.new_pane(direction="right", panel_type="browser", url=page_url)
+    _wait_url_loaded(client, browser_id)
 
     panes = client.list_panes()
     if len(panes) < 2:
+        server_cm.__exit__(None, None, None)
         return False, f"Expected 2 panes, got {len(panes)}"
 
     browser_pane_id = focused_pane_id(client)
@@ -128,50 +208,45 @@ def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
             break
 
     if not terminal_pane_id or not browser_pane_id:
+        server_cm.__exit__(None, None, None)
         return False, f"Could not identify panes: {panes}"
 
-    # Focus terminal pane first
-    client.focus_pane(terminal_pane_id)
-    time.sleep(0.3)
+    try:
+        # Focus terminal pane first (poll for the async focus to land).
+        client.focus_pane(terminal_pane_id)
+        _wait_focused(client, terminal_pane_id)
 
-    # Cmd+Option+Right to move to browser
-    client.simulate_shortcut("cmd+opt+right")
-    time.sleep(0.5)
+        # Cmd+Option+Right to move to browser; poll for the focus change.
+        client.simulate_shortcut("cmd+opt+right")
+        mid_focused = _wait_focused(client, browser_pane_id)
+        if mid_focused != browser_pane_id:
+            return False, (
+                f"Cmd+Option+Right from terminal didn't reach browser. "
+                f"Expected {browser_pane_id}, got {mid_focused}"
+            )
 
-    mid_focused = focused_pane_id(client)
-    if mid_focused != browser_pane_id:
+        # Now browser is focused. Force WKWebView first responder.
+        client.focus_webview(browser_id)
+        client.wait_for_webview_focus(browser_id, timeout_s=10.0)
+        if not client.is_webview_focused(browser_id):
+            return False, "WKWebView did not become first responder in browser pane"
+
+        # Cmd+Option+Left to go back to terminal; poll for the focus change.
+        client.simulate_shortcut("cmd+opt+left")
+        final_focused = _wait_focused(client, terminal_pane_id)
+
+        if final_focused == terminal_pane_id:
+            return True, "Round-trip through loaded browser with webview focus works"
+        else:
+            return False, (
+                f"Return trip failed. Expected terminal {terminal_pane_id}, got {final_focused}"
+            )
+    finally:
         try:
             client.close_workspace(ws_id)
         except Exception:
             pass
-        return False, (
-            f"Cmd+Option+Right from terminal didn't reach browser. "
-            f"Expected {browser_pane_id}, got {mid_focused}"
-        )
-
-    # Now browser is focused. Force WKWebView first responder.
-    client.focus_webview(browser_id)
-    client.wait_for_webview_focus(browser_id, timeout_s=3.0)
-    if not client.is_webview_focused(browser_id):
-        return False, "WKWebView did not become first responder in browser pane"
-
-    # Cmd+Option+Left to go back to terminal
-    client.simulate_shortcut("cmd+opt+left")
-    time.sleep(0.5)
-
-    final_focused = focused_pane_id(client)
-
-    try:
-        client.close_workspace(ws_id)
-    except Exception:
-        pass
-
-    if final_focused == terminal_pane_id:
-        return True, "Round-trip through loaded browser with webview focus works"
-    else:
-        return False, (
-            f"Return trip failed. Expected terminal {terminal_pane_id}, got {final_focused}"
-        )
+        server_cm.__exit__(None, None, None)
 
 
 def run_tests() -> int:
