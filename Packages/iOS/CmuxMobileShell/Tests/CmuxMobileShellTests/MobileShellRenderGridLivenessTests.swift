@@ -411,4 +411,13 @@ import Testing
     #expect(sentStaleQueuedDelete == false)
     let closeCount = await router.count(of: "surface.close")
     #expect(closeCount == 1)
+    let rolledBackQueuedDeletes = try await pollUntil {
+        store.workspaces.map(\.id.rawValue) == ["live-workspace", "backup-workspace"]
+            && store.workspaces.first(where: { $0.id.rawValue == "live-workspace" })?.terminals.map(\.id.rawValue) == ["backup-terminal"]
+            && store.workspaces.first(where: { $0.id.rawValue == "backup-workspace" })?.terminals.map(\.id.rawValue) == ["backup-workspace-terminal"]
+    }
+    let workspaceSnapshot = store.workspaces
+        .map { "\($0.id.rawValue):\($0.terminals.map(\.id.rawValue))" }
+        .joined(separator: ", ")
+    #expect(rolledBackQueuedDeletes, "queued rollback state: \(workspaceSnapshot)")
 }

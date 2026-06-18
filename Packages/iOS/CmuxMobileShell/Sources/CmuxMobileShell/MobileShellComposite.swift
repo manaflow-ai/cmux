@@ -584,6 +584,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var deleteMutationTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingDeleteRollbackHandlers: [
+        (id: UUID, rollback: @MainActor @Sendable () -> Void)
+    ]
     private var workspaceListRefreshTask: Task<Void, Never>?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
@@ -718,6 +721,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
         self.deleteMutationTask = nil
+        self.pendingDeleteRollbackHandlers = []
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
         self.createWorkspaceTaskID = nil
@@ -955,7 +959,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         guard usesRemoteClient else { return }
 
-        enqueueDeleteMutation { [weak self] in
+        enqueueDeleteMutation(
+            onSkipped: { [weak self] in
+                guard let self else { return }
+                restoreLocalWorkspace(deletedWorkspace, at: deletedWorkspaceIndex)
+                restoreSelection(
+                    workspaceID: previousWorkspaceID,
+                    terminalID: previousTerminalID
+                )
+            }
+        ) { [weak self] in
             await self?.deleteRemoteWorkspace(
                 id: id,
                 deletedWorkspace: deletedWorkspace,
@@ -995,7 +1008,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         guard usesRemoteClient else { return }
 
-        enqueueDeleteMutation { [weak self] in
+        enqueueDeleteMutation(
+            onSkipped: { [weak self] in
+                guard let self else { return }
+                restoreLocalTerminal(
+                    deletedTerminal,
+                    in: workspaceID,
+                    at: deletedTerminalIndex,
+                    deletedWorkspace: deletedWorkspace,
+                    deletedWorkspaceIndex: deletedWorkspaceIndex
+                )
+                restoreSelection(
+                    workspaceID: previousWorkspaceID,
+                    terminalID: previousTerminalID
+                )
+            }
+        ) { [weak self] in
             await self?.deleteRemoteTerminal(
                 id: terminalID,
                 in: workspaceID,
@@ -3219,6 +3247,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// production without standing up the full handshake.
     func bumpConnectionGenerationForTesting() {
         connectionGeneration = UUID()
+        rollbackPendingDeleteMutations()
     }
 
     /// Clear the sent text from wherever it now lives after a successful
@@ -3636,6 +3665,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         createTerminalTask = nil
         createTerminalTaskID = nil
+        rollbackPendingDeleteMutations()
         deleteMutationTask?.cancel()
         deleteMutationTask = nil
         deleteMutationTaskID = nil
@@ -3911,18 +3941,45 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     @discardableResult
     private func enqueueDeleteMutation(
+        onSkipped: @escaping @MainActor @Sendable () -> Void,
         _ operation: @escaping @MainActor @Sendable () async -> Void
     ) -> Task<Void, Never> {
         let previous = deleteMutationTask, taskID = UUID(), generation = connectionGeneration
         deleteMutationTaskID = taskID
+        pendingDeleteRollbackHandlers.append((id: taskID, rollback: onSkipped))
         let task = Task { @MainActor [weak self] in
             await previous?.value
-            guard let self, connectionGeneration == generation, !Task.isCancelled else { return }
+            guard let self else { return }
             defer { self.clearDeleteMutationTask(id: taskID) }
+            guard connectionGeneration == generation, !Task.isCancelled else {
+                rollbackPendingDeleteMutation(id: taskID)
+                return
+            }
+            removePendingDeleteRollback(id: taskID)
             await operation()
         }
         deleteMutationTask = task
         return task
+    }
+
+    private func removePendingDeleteRollback(id: UUID) {
+        pendingDeleteRollbackHandlers.removeAll { $0.id == id }
+    }
+
+    private func rollbackPendingDeleteMutation(id: UUID) {
+        guard let index = pendingDeleteRollbackHandlers.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let rollback = pendingDeleteRollbackHandlers.remove(at: index).rollback
+        rollback()
+    }
+
+    private func rollbackPendingDeleteMutations() {
+        let rollbacks = pendingDeleteRollbackHandlers.map { $0.rollback }
+        pendingDeleteRollbackHandlers.removeAll()
+        for rollback in rollbacks {
+            rollback()
+        }
     }
 
     private func clearDeleteMutationTask(id: UUID) {

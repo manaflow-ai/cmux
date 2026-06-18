@@ -1348,7 +1348,7 @@ final class MobileHostService {
         workspaceID: String
     ) -> MobileHostRPCError? {
         guard let authorization = ticketStore.validAuthorization(authToken: auth?.attachToken) else {
-            return nil
+            return Self.scopedTicketError
         }
         return Self.ticketAuthorizationError(
             authorization: authorization,
@@ -1367,7 +1367,7 @@ final class MobileHostService {
         surfaceID: String
     ) -> MobileHostRPCError? {
         guard let authorization = ticketStore.validAuthorization(authToken: auth?.attachToken) else {
-            return nil
+            return Self.scopedTicketError
         }
         return Self.ticketAuthorizationError(
             authorization: authorization,
