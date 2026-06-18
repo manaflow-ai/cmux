@@ -3915,7 +3915,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
-        updateSurfaceSize(forcePixelOnlyResize: true)
+        updateSurfaceSize(bypassLiveResizeCoalescing: true)
         invalidateTextInputCoordinates()
     }
 
@@ -3987,7 +3987,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     private func updateSurfaceSize(
         size: CGSize? = nil,
-        forcePixelOnlyResize: Bool = false
+        bypassLiveResizeCoalescing: Bool = false
     ) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
         let size = resolvedSurfaceSize(preferred: size)
@@ -4112,7 +4112,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             yScale: yScale,
             layerScale: layerScale,
             backingSize: backingSize,
-            coalescePixelOnlyResize: isWindowLiveResizeActive && !forcePixelOnlyResize
+            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing
         )
         return didChange || surfaceSizeChanged
     }
