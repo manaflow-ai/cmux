@@ -45,6 +45,12 @@ struct ProjectFilesTabView: View {
                 panel.focusState.request = nil
             }
         }
+        .onChange(of: panel.focusState.resignFocus) { _, shouldResign in
+            if shouldResign {
+                focus = nil
+                panel.focusState.resignFocus = false
+            }
+        }
     }
 
     @ViewBuilder

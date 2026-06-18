@@ -58,6 +58,12 @@ public enum ProjectPanelLoadState: Sendable, Equatable {
 public final class ProjectPanelFocusState {
     /// Which search field should receive focus, or `nil` if none.
     public var request: ProjectPanelSearchFocus?
+
+    /// When flipped to `true`, the view layer should resign focus from any
+    /// search field and then reset this flag. This is required because the
+    /// `request` property is already cleared by the view after transferring
+    /// focus, so hiding find cannot rely on setting `request` to `nil`.
+    public var resignFocus: Bool = false
 }
 
 /// Runtime backing for one `project` surface.
@@ -298,6 +304,7 @@ extension ProjectPanel: FindablePanel {
     /// Focuses the search field for tabs that have one.
     @discardableResult
     public func startFind() -> Bool {
+        focusState.resignFocus = false
         switch activeTab {
         case .files:
             focusState.request = .files
@@ -314,8 +321,13 @@ extension ProjectPanel: FindablePanel {
     public func findNext() {}
     public func findPrevious() {}
 
-    /// Clears the focus request so the search field can resign focus normally.
+    /// Signals the view layer to resign focus from the active search field.
+    ///
+    /// Because the view clears `focusState.request` immediately after moving
+    /// focus into the text field, setting `request = nil` here is a no-op.
+    /// The dedicated `resignFocus` flag gives the view a distinct event to
+    /// react to so the filter field actually loses keyboard focus.
     public func hideFind() {
-        focusState.request = nil
+        focusState.resignFocus = true
     }
 }
