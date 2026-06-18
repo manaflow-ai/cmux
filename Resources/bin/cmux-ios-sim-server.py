@@ -21,6 +21,42 @@ from pathlib import Path
 
 
 MESSAGES = {
+    "ar": {
+        "title": "محاكي iOS في cmux",
+        "statusBooting": "جارٍ تجهيز المحاكي...",
+        "statusReady": "دفق المحاكي جاهز",
+        "statusInputReady": "جسر الإدخال جاهز",
+        "statusInputUnavailable": "جسر الإدخال غير متاح",
+        "statusInputFailed": "فشل حدث الإدخال",
+        "emptyFrame": "في انتظار أول إطار من المحاكي",
+    },
+    "bs": {
+        "title": "cmux iOS simulator",
+        "statusBooting": "Priprema simulatora...",
+        "statusReady": "Stream simulatora je spreman",
+        "statusInputReady": "Most za unos je spreman",
+        "statusInputUnavailable": "Most za unos nije dostupan",
+        "statusInputFailed": "Događaj unosa nije uspio",
+        "emptyFrame": "Čeka se prvi okvir simulatora",
+    },
+    "da": {
+        "title": "cmux iOS-simulator",
+        "statusBooting": "Forbereder simulator...",
+        "statusReady": "Simulatorstream klar",
+        "statusInputReady": "Inputbro klar",
+        "statusInputUnavailable": "Inputbro ikke tilgængelig",
+        "statusInputFailed": "Inputhændelse mislykkedes",
+        "emptyFrame": "Venter på det første simulatorbillede",
+    },
+    "de": {
+        "title": "cmux iOS-Simulator",
+        "statusBooting": "Simulator wird vorbereitet...",
+        "statusReady": "Simulatorstream bereit",
+        "statusInputReady": "Eingabebrücke bereit",
+        "statusInputUnavailable": "Eingabebrücke nicht verfügbar",
+        "statusInputFailed": "Eingabeereignis fehlgeschlagen",
+        "emptyFrame": "Warten auf den ersten Simulatorframe",
+    },
     "en": {
         "title": "cmux iOS Simulator",
         "statusBooting": "Preparing simulator...",
@@ -30,6 +66,33 @@ MESSAGES = {
         "statusInputFailed": "Input event failed",
         "emptyFrame": "Waiting for the first simulator frame",
     },
+    "es": {
+        "title": "Simulador iOS de cmux",
+        "statusBooting": "Preparando simulador...",
+        "statusReady": "Transmisión del simulador lista",
+        "statusInputReady": "Puente de entrada listo",
+        "statusInputUnavailable": "Puente de entrada no disponible",
+        "statusInputFailed": "Error en el evento de entrada",
+        "emptyFrame": "Esperando el primer fotograma del simulador",
+    },
+    "fr": {
+        "title": "Simulateur iOS cmux",
+        "statusBooting": "Préparation du simulateur...",
+        "statusReady": "Flux du simulateur prêt",
+        "statusInputReady": "Pont de saisie prêt",
+        "statusInputUnavailable": "Pont de saisie indisponible",
+        "statusInputFailed": "Échec de l’événement de saisie",
+        "emptyFrame": "En attente de la première image du simulateur",
+    },
+    "it": {
+        "title": "Simulatore iOS cmux",
+        "statusBooting": "Preparazione del simulatore...",
+        "statusReady": "Stream del simulatore pronto",
+        "statusInputReady": "Bridge di input pronto",
+        "statusInputUnavailable": "Bridge di input non disponibile",
+        "statusInputFailed": "Evento di input non riuscito",
+        "emptyFrame": "In attesa del primo frame del simulatore",
+    },
     "ja": {
         "title": "cmux iOS シミュレータ",
         "statusBooting": "シミュレータを準備しています...",
@@ -38,6 +101,105 @@ MESSAGES = {
         "statusInputUnavailable": "入力ブリッジを利用できません",
         "statusInputFailed": "入力イベントに失敗しました",
         "emptyFrame": "最初のシミュレータフレームを待っています",
+    },
+    "km": {
+        "title": "កម្មវិធីក្លែងធ្វើ iOS របស់ cmux",
+        "statusBooting": "កំពុងរៀបចំកម្មវិធីក្លែងធ្វើ...",
+        "statusReady": "ស្ទ្រីមកម្មវិធីក្លែងធ្វើរួចរាល់",
+        "statusInputReady": "ស្ពានបញ្ចូលរួចរាល់",
+        "statusInputUnavailable": "មិនអាចប្រើស្ពានបញ្ចូលបាន",
+        "statusInputFailed": "ព្រឹត្តិការណ៍បញ្ចូលបានបរាជ័យ",
+        "emptyFrame": "កំពុងរង់ចាំស៊ុមដំបូងពីកម្មវិធីក្លែងធ្វើ",
+    },
+    "ko": {
+        "title": "cmux iOS 시뮬레이터",
+        "statusBooting": "시뮬레이터를 준비하는 중...",
+        "statusReady": "시뮬레이터 스트림 준비됨",
+        "statusInputReady": "입력 브리지 준비됨",
+        "statusInputUnavailable": "입력 브리지를 사용할 수 없음",
+        "statusInputFailed": "입력 이벤트 실패",
+        "emptyFrame": "첫 번째 시뮬레이터 프레임을 기다리는 중",
+    },
+    "nb": {
+        "title": "cmux iOS-simulator",
+        "statusBooting": "Forbereder simulator...",
+        "statusReady": "Simulatorstrømmen er klar",
+        "statusInputReady": "Inndatabroen er klar",
+        "statusInputUnavailable": "Inndatabroen er utilgjengelig",
+        "statusInputFailed": "Inndatahendelsen mislyktes",
+        "emptyFrame": "Venter på første simulatorbilde",
+    },
+    "pl": {
+        "title": "Symulator iOS cmux",
+        "statusBooting": "Przygotowywanie symulatora...",
+        "statusReady": "Strumień symulatora gotowy",
+        "statusInputReady": "Most wejścia gotowy",
+        "statusInputUnavailable": "Most wejścia niedostępny",
+        "statusInputFailed": "Zdarzenie wejściowe nie powiodło się",
+        "emptyFrame": "Oczekiwanie na pierwszą klatkę symulatora",
+    },
+    "pt-BR": {
+        "title": "Simulador iOS do cmux",
+        "statusBooting": "Preparando simulador...",
+        "statusReady": "Transmissão do simulador pronta",
+        "statusInputReady": "Ponte de entrada pronta",
+        "statusInputUnavailable": "Ponte de entrada indisponível",
+        "statusInputFailed": "Falha no evento de entrada",
+        "emptyFrame": "Aguardando o primeiro quadro do simulador",
+    },
+    "ru": {
+        "title": "Симулятор iOS cmux",
+        "statusBooting": "Подготовка симулятора...",
+        "statusReady": "Поток симулятора готов",
+        "statusInputReady": "Мост ввода готов",
+        "statusInputUnavailable": "Мост ввода недоступен",
+        "statusInputFailed": "Событие ввода не выполнено",
+        "emptyFrame": "Ожидание первого кадра симулятора",
+    },
+    "th": {
+        "title": "ตัวจำลอง iOS ของ cmux",
+        "statusBooting": "กำลังเตรียมตัวจำลอง...",
+        "statusReady": "สตรีมตัวจำลองพร้อมแล้ว",
+        "statusInputReady": "บริดจ์อินพุตพร้อมแล้ว",
+        "statusInputUnavailable": "บริดจ์อินพุตไม่พร้อมใช้งาน",
+        "statusInputFailed": "เหตุการณ์อินพุตล้มเหลว",
+        "emptyFrame": "กำลังรอเฟรมแรกของตัวจำลอง",
+    },
+    "tr": {
+        "title": "cmux iOS Simülatörü",
+        "statusBooting": "Simülatör hazırlanıyor...",
+        "statusReady": "Simülatör akışı hazır",
+        "statusInputReady": "Girdi köprüsü hazır",
+        "statusInputUnavailable": "Girdi köprüsü kullanılamıyor",
+        "statusInputFailed": "Girdi olayı başarısız oldu",
+        "emptyFrame": "İlk simülatör karesi bekleniyor",
+    },
+    "uk": {
+        "title": "Симулятор iOS cmux",
+        "statusBooting": "Підготовка симулятора...",
+        "statusReady": "Потік симулятора готовий",
+        "statusInputReady": "Міст введення готовий",
+        "statusInputUnavailable": "Міст введення недоступний",
+        "statusInputFailed": "Подія введення не вдалася",
+        "emptyFrame": "Очікування першого кадру симулятора",
+    },
+    "zh-Hans": {
+        "title": "cmux iOS 模拟器",
+        "statusBooting": "正在准备模拟器...",
+        "statusReady": "模拟器流已就绪",
+        "statusInputReady": "输入桥已就绪",
+        "statusInputUnavailable": "输入桥不可用",
+        "statusInputFailed": "输入事件失败",
+        "emptyFrame": "正在等待第一个模拟器帧",
+    },
+    "zh-Hant": {
+        "title": "cmux iOS 模擬器",
+        "statusBooting": "正在準備模擬器...",
+        "statusReady": "模擬器串流已就緒",
+        "statusInputReady": "輸入橋接已就緒",
+        "statusInputUnavailable": "輸入橋接無法使用",
+        "statusInputFailed": "輸入事件失敗",
+        "emptyFrame": "正在等待第一個模擬器影格",
     },
 }
 
@@ -130,7 +292,30 @@ INDEX_HTML = r"""<!doctype html>
 </section>
 <script>
 const MESSAGES = __MESSAGES_JSON__;
-const lang = (navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : "en";
+const messageLocales = Object.keys(MESSAGES);
+function resolveLanguage() {
+  const requested = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "en"]);
+  for (const rawLanguage of requested) {
+    const normalized = String(rawLanguage || "en").toLowerCase();
+    const exact = messageLocales.find(locale => locale.toLowerCase() === normalized);
+    if (exact) {
+      return exact;
+    }
+    if (normalized.startsWith("zh-hant") || ["zh-tw", "zh-hk", "zh-mo"].includes(normalized)) {
+      return "zh-Hant";
+    }
+    if (normalized.startsWith("zh")) {
+      return "zh-Hans";
+    }
+    const primary = normalized.split("-")[0];
+    const primaryMatch = messageLocales.find(locale => locale.toLowerCase().split("-")[0] === primary);
+    if (primaryMatch) {
+      return primaryMatch;
+    }
+  }
+  return "en";
+}
+const lang = resolveLanguage();
 const t = MESSAGES[lang] || MESSAGES.en;
 document.documentElement.lang = lang;
 document.title = t.title;
