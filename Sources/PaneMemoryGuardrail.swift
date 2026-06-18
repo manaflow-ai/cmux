@@ -191,7 +191,8 @@ final class PaneMemoryGuardrail {
 
     private static let pollInterval: TimeInterval = 4
     private static let defaultThresholdGB: Double = 8
-    private static let minThresholdGB: Double = 1
+    private static let thresholdRangeGB: ClosedRange<Double> = 1...256
+    private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
 
     /// The banner content for the most recent un-dismissed crossing, or nil.
     private(set) var activeBanner: PaneMemoryWarning?
@@ -247,10 +248,10 @@ final class PaneMemoryGuardrail {
     }
 
     private func thresholdBytes() -> Int64 {
-        let configured = UserDefaults.standard.object(forKey: DefaultsKeys.thresholdGB) as? Double
+        let raw = UserDefaults.standard.object(forKey: DefaultsKeys.thresholdGB) as? Double
             ?? Self.defaultThresholdGB
-        let gb = max(Self.minThresholdGB, configured)
-        return Int64(gb * 1024 * 1024 * 1024)
+        let gb = raw.isFinite ? min(max(raw, Self.thresholdRangeGB.lowerBound), Self.thresholdRangeGB.upperBound) : Self.defaultThresholdGB
+        return Int64(gb * Self.bytesPerGB)
     }
 
     // MARK: Tick
@@ -278,7 +279,6 @@ final class PaneMemoryGuardrail {
         }
     }
 
-    /// Off-main: capture one shared process snapshot and attribute memory per pane.
     nonisolated static func computeSamples(
         descriptors: [PaneMemoryDescriptor],
         thresholdBytes: Int64

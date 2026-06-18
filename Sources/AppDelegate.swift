@@ -2079,21 +2079,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             var descriptors: [PaneMemoryDescriptor] = []
             for workspace in tabManager.tabs {
                 let workspaceTitle = workspace.title
-                let reportedTTYs = workspace.surfaceTTYNames
                 for panel in workspace.panels.values {
                     guard let terminalPanel = panel as? TerminalPanel else { continue }
                     let surface = terminalPanel.surface
                     guard surface.hasLiveSurface else { continue }
-                    // Prefer the shell-reported tty (reliable, socket `report_tty`);
-                    // fall back to the libghostty accessor.
-                    let ttyName = reportedTTYs[terminalPanel.id] ?? surface.controllingTTYName()
-                    guard let ttyName, !ttyName.isEmpty else { continue }
+                    let ttyName = surface.controllingTTYName()?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
                     descriptors.append(PaneMemoryDescriptor(
                         workspaceId: workspace.id,
                         panelId: terminalPanel.id,
                         workspaceTitle: workspaceTitle,
                         paneTitle: terminalPanel.displayTitle,
-                        ttyName: ttyName,
+                        ttyName: ttyName?.isEmpty == false ? ttyName : nil,
                         foregroundPID: surface.foregroundProcessID()
                     ))
                 }

@@ -8,6 +8,7 @@ import SwiftUI
 struct PaneMemoryGuardrailBanner: View {
     let guardrail: PaneMemoryGuardrail
     @State private var isConfirmingKill = false
+    @State private var killConfirmationWarning: PaneMemoryWarning?
 
     private static let byteFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
@@ -26,6 +27,14 @@ struct PaneMemoryGuardrailBanner: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: guardrail.activeBanner)
+        .onChange(of: guardrail.activeBanner?.key) { _, activeKey in
+            guard killConfirmationWarning?.key != activeKey else { return }
+            killConfirmationWarning = nil
+            isConfirmingKill = false
+        }
+        .onChange(of: isConfirmingKill) { _, isPresented in
+            if !isPresented { killConfirmationWarning = nil }
+        }
     }
 
     @ViewBuilder
@@ -55,6 +64,7 @@ struct PaneMemoryGuardrailBanner: View {
 
             HStack(spacing: 8) {
                 Button(role: .destructive) {
+                    killConfirmationWarning = warning
                     isConfirmingKill = true
                 } label: {
                     Text(String(
@@ -73,14 +83,19 @@ struct PaneMemoryGuardrailBanner: View {
                     titleVisibility: .visible
                 ) {
                     Button(role: .destructive) {
-                        guardrail.killPaneProcess(for: warning)
+                        guard let selected = killConfirmationWarning,
+                              guardrail.activeBanner?.key == selected.key else { return }
+                        killConfirmationWarning = nil
+                        guardrail.killPaneProcess(for: selected)
                     } label: {
                         Text(String(
                             localized: "paneMemoryGuardrail.confirm.kill",
                             defaultValue: "Kill Process"
                         ))
                     }
-                    Button(role: .cancel) {} label: {
+                    Button(role: .cancel) {
+                        killConfirmationWarning = nil
+                    } label: {
                         Text(String(localized: "paneMemoryGuardrail.confirm.cancel", defaultValue: "Cancel"))
                     }
                 } message: {
