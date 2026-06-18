@@ -22,7 +22,7 @@ public final class MobileDisplaySettings {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
-    private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift"
+    private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
 

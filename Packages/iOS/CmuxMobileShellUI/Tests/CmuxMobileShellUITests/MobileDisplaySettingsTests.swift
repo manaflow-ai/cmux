@@ -46,7 +46,7 @@ import Testing
         #expect(settings.unreadIndicatorLeftShift == 1.5)
         #expect(settings.profilePictureLeftShift == 4)
         #expect(settings.profilePictureSize == 45)
-        #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift") == nil)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift.v2") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureLeftShift") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureSize") == nil)
     }
@@ -74,7 +74,7 @@ import Testing
         #expect(settings.profilePictureLeftShift == 0)
         #expect(settings.profilePictureSize == 64)
 
-        defaults.set(-5.0, forKey: "cmux.mobile.debug.unreadIndicatorLeftShift")
+        defaults.set(-5.0, forKey: "cmux.mobile.debug.unreadIndicatorLeftShift.v2")
         defaults.set(99.0, forKey: "cmux.mobile.debug.profilePictureLeftShift")
         defaults.set(1.0, forKey: "cmux.mobile.debug.profilePictureSize")
         let reloaded = MobileDisplaySettings(defaults: defaults)
