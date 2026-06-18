@@ -94,7 +94,7 @@ extension TerminalController {
                 if workspace.panels.count <= 1 {
                     break
                 }
-                if workspace.requestCloseTabRecordingHistory(tabId, force: true) {
+                if workspace.requestNonInteractiveCloseTabRecordingHistory(tabId) {
                     closed += 1
                 }
             }
@@ -183,11 +183,22 @@ extension TerminalController {
             }
 
             let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-            guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: focus, inheritWorkingDirectoryFallback: true, workingDirectoryFallbackSourcePanelId: surfaceId) else {
+            switch workspace.newTerminalSurfaceOutcome(
+                inPane: paneId,
+                focus: focus,
+                inheritWorkingDirectoryFallback: true,
+                workingDirectoryFallbackSourcePanelId: surfaceId
+            ) {
+            case .created(let newPanel):
+                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
+                return finish(.created(newPanel.id))
+            case .routedToRemote:
+                // Routed to the remote tmux mirror as `new-window`; the tab
+                // arrives via %window-add (tmux appends, so no local reorder).
+                return finish(.routedToRemote)
+            case .failed:
                 return .createFailed
             }
-            _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
-            return finish(.created(newPanel.id))
 
         case "new_browser_right", "new_browser_to_right", "new_browser_tab_to_right":
             guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
