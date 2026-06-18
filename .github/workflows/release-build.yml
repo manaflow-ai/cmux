@@ -1,0 +1,197 @@
+name: Release build (unsigned, fork)
+
+# Fork-friendly build that produces an UNSIGNED universal cmux.app (+ .dmg) as a
+# downloadable workflow artifact. It deliberately skips Apple codesigning,
+# notarization, Sparkle, Sentry, and R2 publishing so it needs no org secrets.
+#
+# Runners: standard GitHub-hosted macOS runners, which are FREE and unlimited on
+# public repositories. To trade money for speed, replace `macos-15` / `macos-26`
+# below with a paid label (e.g. `warp-macos-15-arm64-6x`, `blacksmith-6vcpu-macos-26`,
+# `depot-macos-26`) or the larger hosted runners (`macos-26-xlarge`).
+#
+# The repository-owner guard keeps this from running (and failing/duplicating the
+# real release.yml) if the file ever lands on the upstream repo. Change or remove
+# it if you rename your fork.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ghostty-cli-helper:
+    if: ${{ github.repository_owner == 'nkthiebaut' }}
+    # Build the universal Ghostty CLI helper on macOS 15: Zig 0.15.2 cannot link
+    # it on macOS 26 yet (same constraint the upstream release uses).
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Build universal Ghostty CLI helper
+        run: |
+          set -euo pipefail
+          mkdir -p ghostty-cli-helper
+          ./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty
+          lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
+
+      - name: Upload universal Ghostty CLI helper
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-ghostty-cli-helper
+          path: ghostty-cli-helper/ghostty
+          if-no-files-found: error
+
+  build:
+    needs: ghostty-cli-helper
+    if: ${{ github.repository_owner == 'nkthiebaut' }}
+    # Build the app on macOS 26 so SDK-gated SwiftUI (Liquid Glass) compiles into
+    # the artifact. Standard runner is slower than the 6-vCPU paid runners the
+    # upstream jobs use, hence the higher timeout.
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(
+              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+                | sort \
+                | tail -n 1 \
+                || true
+            )"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache GhosttyKit.xcframework
+        id: cache-ghosttykit
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
+
+      - name: Download pre-built GhosttyKit.xcframework
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .spm-cache
+          key: spm-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            spm-release-
+            spm-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
+
+      - name: Build universal app (Release, unsigned)
+        run: |
+          set -euo pipefail
+          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Download universal Ghostty CLI helper
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-ghostty-cli-helper
+          path: ghostty-cli-helper
+
+      - name: Install universal Ghostty CLI helper
+        run: |
+          set -euo pipefail
+          ./scripts/install-prebuilt-ghostty-cli-helper.sh \
+            ghostty-cli-helper/ghostty \
+            build-universal/Build/Products/Release/cmux.app
+
+      - name: Verify universal artifact slices
+        run: |
+          set -euo pipefail
+          APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
+          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          test -x "$APP_BINARY"
+          test -x "$CLI_BINARY"
+          test -x "$HELPER_BINARY"
+          file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"
+          SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
+          echo "App SDK version: $SDK_VERSION"
+          lipo "$APP_BINARY" -verify_arch arm64 x86_64
+          lipo "$CLI_BINARY" -verify_arch arm64 x86_64
+          lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
+          [[ "$SDK_VERSION" == 26.* ]]
+
+      - name: Package app and DMG
+        run: |
+          set -euo pipefail
+          APP="build-universal/Build/Products/Release/cmux.app"
+          mkdir -p dist
+          # Zip the bundle with ditto so symlinks, resource forks, and the
+          # executable bits survive the artifact round-trip.
+          ditto -c -k --sequesterRsrc --keepParent "$APP" dist/cmux.app.zip
+          # Build a simple unsigned drag-to-install DMG (no codesign identity).
+          STAGE="$(mktemp -d)"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "cmux" -srcfolder "$STAGE" -ov -format UDZO dist/cmux-macos.dmg
+          rm -rf "$STAGE"
+          ls -lh dist
+
+      - name: Upload unsigned build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-macos-unsigned
+          path: |
+            dist/cmux.app.zip
+            dist/cmux-macos.dmg
+          if-no-files-found: error
