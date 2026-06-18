@@ -2670,7 +2670,7 @@ private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
     encoder.dateEncodingStrategy = .iso8601
     let normalizedTicket = try ticket.withCurrentPairingCompatibilityForTests()
     let payload = base64URLEncode(try encoder.encode(normalizedTicket))
-    return try #require(URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"))
+    return try #require(URL(string: "cmux-ios://attach?v=\(normalizedTicket.version)&payload=\(payload)"))
 }
 
 private extension CmxAttachTicket {
