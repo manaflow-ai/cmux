@@ -15,8 +15,29 @@ final class SSHPTYAttachReconnectInputFilterControl: Sendable {
     }
 
     func stopFiltering() {
+        if stopAcknowledgementReady() {
+            waitForStopAcknowledgement()
+            return
+        }
         signalStopFiltering()
         waitForStopAcknowledgement()
+    }
+
+    private func stopAcknowledgementReady() -> Bool {
+        let events = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
+        var pollFD = pollfd(fd: stopAcknowledgementReadFD, events: events, revents: 0)
+        while true {
+            let result = Darwin.poll(&pollFD, 1, 0)
+            if result > 0 {
+                return (pollFD.revents & events) != 0
+            }
+            if result == 0 {
+                return false
+            }
+            if errno != EINTR {
+                return true
+            }
+        }
     }
 
     private func signalStopFiltering() {

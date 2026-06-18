@@ -155,8 +155,24 @@ final class SSHPTYAttachReconnectInputFilter {
             }
         }
 
+        func closeStopSignal() {
+            guard let fd = stopSignalFD else {
+                return
+            }
+            Darwin.close(fd)
+            stopSignalFD = nil
+        }
+
+        func finishReconnectFilteringWithoutFlush() {
+            reconnectInputFilter = nil
+            acknowledgeStopFiltering()
+        }
+
         func stopReconnectFiltering() -> Bool {
-            defer { acknowledgeStopFiltering() }
+            defer {
+                acknowledgeStopFiltering()
+                closeStopSignal()
+            }
             guard let filter = reconnectInputFilter else {
                 return true
             }
@@ -164,10 +180,6 @@ final class SSHPTYAttachReconnectInputFilter {
                 return false
             }
             reconnectInputFilter = nil
-            if let fd = stopSignalFD {
-                Darwin.close(fd)
-                stopSignalFD = nil
-            }
             return true
         }
 
@@ -202,7 +214,15 @@ final class SSHPTYAttachReconnectInputFilter {
             let count = Darwin.read(inputFD, &buffer, buffer.count)
             if count > 0 {
                 let rawInput = Data(buffer.prefix(count))
-                let input = reconnectInputFilter?.filter(rawInput) ?? rawInput
+                let input: Data
+                if let filter = reconnectInputFilter {
+                    input = filter.filter(rawInput)
+                    if !filter.isFilteringActive {
+                        finishReconnectFilteringWithoutFlush()
+                    }
+                } else {
+                    input = rawInput
+                }
                 guard writeOrShutdown(input) else {
                     return
                 }
@@ -282,6 +302,10 @@ final class SSHPTYAttachReconnectInputFilter {
 
     var isFilteringAtProbeBoundary: Bool {
         isFiltering && pending.isEmpty
+    }
+
+    var isFilteringActive: Bool {
+        isFiltering
     }
 
     func flushPendingInput() -> Data {

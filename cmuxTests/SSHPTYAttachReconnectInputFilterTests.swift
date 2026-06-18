@@ -171,6 +171,38 @@ import Testing
         #expect(try readUntilEOF(fd: bridgePair[1]) == liveProbeReply)
     }
 
+    @Test func stdinPumpAcknowledgesAfterFilteringNaturallyEnds() throws {
+        var inputPipe = [Int32](repeating: -1, count: 2)
+        try makePipe(&inputPipe)
+        var bridgePair = [Int32](repeating: -1, count: 2)
+        try makeSocketPair(&bridgePair)
+        defer {
+            closeIfOpen(inputPipe[0])
+            closeIfOpen(inputPipe[1])
+            closeIfOpen(bridgePair[0])
+            closeIfOpen(bridgePair[1])
+        }
+
+        let control = try SSHPTYAttachReconnectInputFilter.startStdinPump(
+            fd: bridgePair[0],
+            inputFD: inputPipe[0],
+            filterEnabled: true
+        )
+        #expect(control != nil)
+
+        let normalInput = Data("printf keep\n".utf8)
+        try writeAll(fd: inputPipe[1], data: normalInput)
+        #expect(try readExactly(fd: bridgePair[1], count: normalInput.count) == normalInput)
+
+        control?.stopFiltering()
+        let liveProbeReply = Data("\u{1B}[3;3R".utf8)
+        try writeAll(fd: inputPipe[1], data: liveProbeReply)
+        Darwin.close(inputPipe[1])
+        inputPipe[1] = -1
+
+        #expect(try readUntilEOF(fd: bridgePair[1]) == liveProbeReply)
+    }
+
     private func makePipe(_ fds: inout [Int32]) throws {
         guard Darwin.pipe(&fds) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
@@ -215,6 +247,23 @@ import Testing
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
         }
+    }
+
+    private func readExactly(fd: Int32, count expectedCount: Int) throws -> Data {
+        var output = Data()
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        while output.count < expectedCount {
+            let remaining = expectedCount - output.count
+            let count = Darwin.read(fd, &buffer, min(buffer.count, remaining))
+            if count > 0 {
+                output.append(contentsOf: buffer.prefix(count))
+            } else if count == 0 {
+                return output
+            } else if errno != EINTR {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
+        return output
     }
 
     private func closeIfOpen(_ fd: Int32) {

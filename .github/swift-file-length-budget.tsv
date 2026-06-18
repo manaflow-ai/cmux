@@ -206,6 +206,7 @@
 519	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
 519	Sources/CmuxConfigExecutor.swift
 518	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
+517	CLI/SSHPTYAttachReconnectInputFilter.swift
 517	Sources/TerminalImageTransfer.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
