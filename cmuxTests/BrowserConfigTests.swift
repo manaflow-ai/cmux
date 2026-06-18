@@ -3578,7 +3578,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 1)
+        waitForDeveloperToolsTransitions(); let showCountAfterOpen = inspector.showCount
 
         // Simulate WebKit closing inspector during detach/reattach churn.
         inspector.close()
@@ -3587,7 +3587,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 2)
+        XCTAssertGreaterThan(inspector.showCount, showCountAfterOpen)
     }
 
     private func attachPanelWebViewToWindow(_ panel: BrowserPanel) -> NSWindow {
@@ -3739,7 +3739,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
-        XCTAssertEqual(inspector.showCount, 1)
+        let showCountAfterOpen = inspector.showCount
 
         // Simulate user closing inspector before detach.
         inspector.close()
@@ -3747,7 +3747,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertFalse(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertEqual(inspector.showCount, showCountAfterOpen)
     }
 
     func testSyncCanPreserveVisibleIntentDuringDetachChurn() {

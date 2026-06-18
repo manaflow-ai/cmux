@@ -128,7 +128,7 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
 }
 
 @MainActor
-private func withHiddenWebViewDiscardPolicyEnabled(_ body: () -> Void) {
+func withHiddenWebViewDiscardPolicyEnabled(_ body: () -> Void) {
     let defaults = UserDefaults.standard
     let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
     defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)

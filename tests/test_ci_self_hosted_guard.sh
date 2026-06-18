@@ -10,6 +10,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+PERF_ACTIVATION_FILE="$ROOT_DIR/.github/workflows/perf-activation.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
@@ -207,6 +208,106 @@ check_release_helper_upload_retry() {
   fi
 
   echo "PASS: release-ghostty-cli-helper retries required Ghostty helper artifact uploads"
+}
+
+check_release_helper_selects_xcode() {
+  if ! awk '
+    /^  release-ghostty-cli-helper:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /- name: Select Xcode/ { saw_select=1 }
+    in_job && /echo "DEVELOPER_DIR=\$XCODE_DIR" >> "\$GITHUB_ENV"/ { saw_developer_dir=1 }
+    in_job && /xcrun --sdk macosx --show-sdk-path/ { saw_sdk=1 }
+    in_job && /- name: Install zig/ {
+      saw_install=1
+      if (!(saw_select && saw_developer_dir && saw_sdk)) {
+        exit 1
+      }
+    }
+    END { exit !(saw_select && saw_developer_dir && saw_sdk && saw_install) }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-ghostty-cli-helper must select Xcode before installing Zig and building the helper"
+    exit 1
+  fi
+
+  echo "PASS: release-ghostty-cli-helper selects Xcode before building the helper"
+}
+
+check_shared_test_products_use_xctestrun() {
+  if ! grep -Fq "name 'cmux-unit_*.xctestrun'" "$CI_FILE"; then
+    echo "FAIL: unit test jobs must locate the shared cmux-unit .xctestrun before test-without-building"
+    exit 1
+  fi
+
+  if ! grep -Fq -- "-xctestrun \"\$CMUX_UNIT_XCTESTRUN\"" "$CI_FILE"; then
+    echo "FAIL: unit test jobs must run test-without-building through the shared cmux-unit .xctestrun"
+    exit 1
+  fi
+
+  if ! grep -Fq "name 'cmux_*.xctestrun'" "$CI_FILE"; then
+    echo "FAIL: UI regression jobs must locate the shared cmux .xctestrun before test-without-building"
+    exit 1
+  fi
+
+  if ! grep -Fq -- "-xctestrun \"\$CMUX_UI_XCTESTRUN\"" "$CI_FILE"; then
+    echo "FAIL: UI regression jobs must run test-without-building through the shared cmux .xctestrun"
+    exit 1
+  fi
+
+  echo "PASS: shared test product jobs use extracted .xctestrun files"
+}
+
+check_app_hosted_xctest_socket_isolation() {
+  if ! awk '
+	    /^  xctest-focused-regressions:/ { in_job=1; next }
+	    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+	    in_job && /runs-on:.*vars\.MACOS_RUNNER_15/ { saw_xcode_runner=1 }
+	    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
+	    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-focused-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
+	    in_job && /CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:[[:space:]]*"360"/ { saw_idle_timeout=1 }
+	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"3"/ { saw_attempts=1 }
+	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
+	    in_job && /name: Capture Ghostty revision/ { saw_ghostty_revision=1 }
+	    in_job && saw_ghostty_revision && /name: Cache GhosttyKit\.xcframework/ { saw_ghosttykit_cache=1 }
+	    in_job && saw_ghosttykit_cache && /name: Download pre-built GhosttyKit\.xcframework/ { saw_ghosttykit_download=1 }
+	    in_job && saw_ghosttykit_download && /name: Run TerminalCore split-theme package regression/ { saw_terminal_core_after_ghosttykit=1 }
+	    END { exit !(saw_xcode_runner && saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper && saw_terminal_core_after_ghosttykit) }
+	  ' "$CI_FILE"; then
+	    echo "FAIL: xctest-focused-regressions must use the app Xcode runner, unique CMUX_SOCKET_PATH, override, bounded app-host idle timeout, three attempts, the app-host wrapper, and GhosttyKit before TerminalCore"
+	    exit 1
+	  fi
+
+  if ! awk '
+	    /^  xctest-shard:/ { in_job=1; next }
+	    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+	    in_job && /runs-on:.*vars\.MACOS_RUNNER_15/ { saw_xcode_runner=1 }
+	    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
+	    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-xctest-\$\{\{ matrix\.shard_index \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
+	    in_job && /CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:[[:space:]]*"360"/ { saw_idle_timeout=1 }
+	    in_job && /CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:[[:space:]]*"3"/ { saw_attempts=1 }
+	    in_job && /scripts\/ci\/run-app-host-xcodebuild\.sh/ { saw_retry_wrapper=1 }
+	    END { exit !(saw_xcode_runner && saw_override && saw_socket && saw_idle_timeout && saw_attempts && saw_retry_wrapper) }
+	  ' "$CI_FILE"; then
+	    echo "FAIL: xctest-shard must use the app Xcode runner, per-shard CMUX_SOCKET_PATH, override, bounded app-host idle timeout, three attempts, and the app-host wrapper"
+	    exit 1
+	  fi
+
+  if ! awk '
+    /^  ui-regressions:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /CMUX_ALLOW_SOCKET_OVERRIDE:[[:space:]]*"1"/ { saw_override=1 }
+    in_job && /CMUX_SOCKET_PATH:.*cmux-debug-ci-ui-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}\.sock/ { saw_socket=1 }
+    END { exit !(saw_override && saw_socket) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must use a unique CMUX_SOCKET_PATH and allow override"
+    exit 1
+  fi
+
+  if ! grep -Fq 'CMUX_APP_HOST_XCODEBUILD_LOCK_DIR:-/tmp/cmux-ci-app-host-xcodebuild.lock' "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh"; then
+    echo "FAIL: app-hosted XCTest wrapper must serialize app-host xcodebuild on each self-hosted Mac"
+    exit 1
+  fi
+
+  echo "PASS: app-hosted XCTest jobs use isolated control sockets, bounded retry, and host lock"
 }
 
 check_signing_intermediate_imports() {
@@ -612,6 +713,171 @@ check_web_db_behavior_tests() {
   echo "PASS: web DB behavior tests run through the discovery runner"
 }
 
+check_agent_session_resources_gate() {
+  if ! grep -Fq "needs.detect-changes.outputs.app == 'true' || needs.detect-changes.outputs.webviews == 'true'" "$CI_FILE"; then
+    echo "FAIL: agent-session web resources must run for app changes and webview dependency changes"
+    exit 1
+  fi
+
+  echo "PASS: agent-session web resources run for app and webview dependency changes"
+}
+
+check_app_detector_includes_ui_tests() {
+  if ! grep -Fq "cmuxUITests/" "$CI_FILE"; then
+    echo "FAIL: app-domain change detector must include cmuxUITests/"
+    exit 1
+  fi
+
+  echo "PASS: app-domain change detector includes cmuxUITests/"
+}
+
+check_app_detector_includes_warning_budget() {
+  if ! grep -Fq "\\.github/swift-warning-budget\\.tsv" "$CI_FILE"; then
+    echo "FAIL: app-domain change detector must include .github/swift-warning-budget.tsv"
+    exit 1
+  fi
+
+  echo "PASS: app-domain change detector includes Swift warning budget"
+}
+
+check_app_detectors_include_root_entitlements() {
+  for file in "$CI_FILE" "$PERF_ACTIVATION_FILE"; do
+    if ! grep -Fq "[^/]+\\.entitlements$" "$file"; then
+      echo "FAIL: app/runtime change detector in $(basename "$file") must include root entitlement files"
+      exit 1
+    fi
+  done
+
+  echo "PASS: app/runtime change detectors include root entitlement files"
+}
+
+check_pr_file_api_cap_fails_open() {
+  for file in "$CI_FILE" "$PERF_ACTIVATION_FILE" "$ROOT_DIR/.github/workflows/test-ios.yml"; do
+    if ! grep -Fq '(.previous_filename // "")' "$file" || ! grep -Fq 'changed-file-rows.tsv' "$file"; then
+      echo "FAIL: $(basename "$file") PR file detector must include previous_filename while preserving one row per GitHub file object"
+      exit 1
+    fi
+  done
+
+  if ! awk '
+    /PR file list reached GitHub API cap/ { saw_cap=1 }
+    /echo "app=true"/ { saw_app=1 }
+    /echo "daemon=true"/ { saw_daemon=1 }
+    /echo "web=true"/ { saw_web=1 }
+    /echo "webviews=true"/ { saw_webviews=1 }
+    END { exit !(saw_cap && saw_app && saw_daemon && saw_web && saw_webviews) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ci.yml PR file detector must fail open when the GitHub PR files API reaches its 3000-file cap"
+    exit 1
+  fi
+
+  if ! awk '
+    /PR file list reached GitHub API cap/ { saw_cap=1 }
+    /echo "should_run=true"/ { saw_run=1 }
+    END { exit !(saw_cap && saw_run) }
+  ' "$PERF_ACTIVATION_FILE"; then
+    echo "FAIL: perf-activation.yml PR file detector must fail open when the GitHub PR files API reaches its 3000-file cap"
+    exit 1
+  fi
+
+  if ! awk '
+    /PR file list reached GitHub API cap/ { saw_cap=1 }
+    /echo "should_run=true"/ { saw_run=1 }
+    /echo "should_lint=true"/ { saw_lint=1 }
+    END { exit !(saw_cap && saw_run && saw_lint) }
+  ' "$ROOT_DIR/.github/workflows/test-ios.yml"; then
+    echo "FAIL: test-ios.yml PR file detector must fail open when the GitHub PR files API reaches its 3000-file cap"
+    exit 1
+  fi
+
+  echo "PASS: PR file detectors include rename sources and fail open at the GitHub API cap"
+}
+
+check_activation_benchmark_deflake() {
+  check_macos_runner "$PERF_ACTIVATION_FILE" "activation-session"
+
+  if ! grep -Fq "github.event_name == 'pull_request' && 'depot-macos-latest'" "$PERF_ACTIVATION_FILE"; then
+    echo "FAIL: perf-activation.yml must route PR activation benchmarks to the Depot GUI runner"
+    exit 1
+  fi
+
+  if ! grep -Fq "RUNNER_CONTEXT_NAME: \${{ runner.name }}" "$PERF_ACTIVATION_FILE"; then
+    echo "FAIL: perf-activation.yml must validate the actual Depot runner identity"
+    exit 1
+  fi
+
+  if ! grep -Fq "SCROLLBACK_TARGET_CHARS_INPUT" "$PERF_ACTIVATION_FILE" || ! grep -Fq -- "--scrollback-target-chars" "$PERF_ACTIVATION_FILE"; then
+    echo "FAIL: perf-activation.yml must pass the bounded scrollback target into the activation benchmark"
+    exit 1
+  fi
+
+  if ! grep -Fq "sudo -n true" "$PERF_ACTIVATION_FILE"; then
+    echo "FAIL: perf-activation.yml must fall back when passwordless sudo is unavailable"
+    exit 1
+  fi
+
+  echo "PASS: activation benchmark uses Depot, bounded scrollback, and sudo fallback"
+}
+
+check_swift_package_tests_select_xcode() {
+  if ! awk '
+    /^  swift-package-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /- name: Select Xcode/ { saw_select=1 }
+    in_job && /echo "DEVELOPER_DIR=\$XCODE_DIR" >> "\$GITHUB_ENV"/ { saw_developer_dir=1 }
+    in_job && /- name: Run Swift package unit tests/ {
+      saw_run=1
+      if (!(saw_select && saw_developer_dir)) {
+        exit 1
+      }
+    }
+    END { exit !(saw_select && saw_developer_dir && saw_run) }
+  ' "$CI_FILE"; then
+    echo "FAIL: swift-package-tests must select the pinned Xcode before running swift test"
+    exit 1
+  fi
+
+  echo "PASS: swift-package-tests selects Xcode before swift test"
+}
+
+check_swift_package_appkit_display_isolation() {
+  if ! grep -Fq "matrix.requires_display && (vars.MACOS_RUNNER_DISPLAY" "$CI_FILE"; then
+    echo "FAIL: swift-package-tests must route display-required package tests to the display runner"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  swift-package-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /group:[[:space:]]*terminal-services/ { in_terminal_services=1 }
+    in_terminal_services && /requires_display:[[:space:]]*true/ { saw_terminal_services_display=1; in_terminal_services=0 }
+    in_job && /CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:[[:space:]]*"900"/ { saw_timeout=1 }
+    in_job && /- name: Create virtual display for AppKit Swift package tests/ { saw_vdisplay=1 }
+    in_job && /scripts\/ci\/virtual-display-lock\.sh acquire/ { saw_lock=1 }
+    in_job && /- name: Cleanup Swift package virtual display/ { saw_cleanup=1 }
+    END { exit !(saw_terminal_services_display && saw_timeout && saw_vdisplay && saw_lock && saw_cleanup) }
+  ' "$CI_FILE"; then
+    echo "FAIL: CmuxTerminalServices SwiftPM tests must use display isolation and a per-package timeout"
+    exit 1
+  fi
+
+  if ! grep -Fq "python3 tests/test_ci_run_with_timeout.py" "$CI_FILE"; then
+    echo "FAIL: workflow guards must validate the command timeout helper"
+    exit 1
+  fi
+
+  echo "PASS: AppKit SwiftPM package tests use display isolation and timeout guard"
+}
+
+check_daemon_detector_includes_release_asset_script() {
+  if ! grep -Fq "scripts/build_remote_daemon_release_assets\\.sh$" "$CI_FILE"; then
+    echo "FAIL: daemon-domain change detector must include scripts/build_remote_daemon_release_assets.sh"
+    exit 1
+  fi
+
+  echo "PASS: daemon-domain change detector includes remote release asset builder"
+}
+
 check_tmux_terminal_nightly_isolation() {
   check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
 
@@ -633,7 +899,10 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 # ci.yml jobs
-check_macos_runner "$CI_FILE" "tests"
+check_macos_runner "$CI_FILE" "debug-app-build"
+check_macos_runner "$CI_FILE" "xctest-focused-regressions"
+check_macos_runner "$CI_FILE" "xctest-shard"
+check_macos_runner "$CI_FILE" "swift-package-tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
@@ -656,6 +925,9 @@ check_xcode_selection
 check_release_build_signal
 check_release_build_disk_cleanup
 check_release_helper_upload_retry
+check_release_helper_selects_xcode
+check_shared_test_products_use_xctestrun
+check_app_hosted_xctest_socket_isolation
 check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
@@ -666,4 +938,13 @@ check_gui_smoke_unsupported_launch_handling
 check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
+check_agent_session_resources_gate
+check_app_detector_includes_ui_tests
+check_app_detector_includes_warning_budget
+check_app_detectors_include_root_entitlements
+check_pr_file_api_cap_fails_open
+check_swift_package_tests_select_xcode
+check_swift_package_appkit_display_isolation
+check_daemon_detector_includes_release_asset_script
+check_activation_benchmark_deflake
 check_tmux_terminal_nightly_isolation

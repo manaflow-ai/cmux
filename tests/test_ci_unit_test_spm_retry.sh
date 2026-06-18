@@ -6,9 +6,11 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 
 REQUIRED_PATTERNS=(
+  "debug-app-build:"
+  "Resolve Swift packages"
+  "for attempt in 1 2 3"
+  "Failed to resolve Swift packages after 3 attempts"
   "run_unit_tests()"
-  "Could not resolve package dependencies"
-  "rm -rf ~/Library/Caches/org.swift.swiftpm"
   "run_unit_tests | tee /tmp/test-output.txt"
 )
 
@@ -19,4 +21,4 @@ for pattern in "${REQUIRED_PATTERNS[@]}"; do
   fi
 done
 
-echo "PASS: CI unit-test SwiftPM retry guard is present"
+echo "PASS: CI shared-build SwiftPM retry and unit-test runner guards are present"

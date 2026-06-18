@@ -44,7 +44,46 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  detect-app-runtime-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      should_run: ${{ steps.detect.outputs.should_run }}
+    steps:
+      - name: Detect app runtime changes
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh api --paginate \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' > /tmp/changed-file-rows.tsv
+          changed_count="$(wc -l < /tmp/changed-file-rows.tsv | tr -d ' ')"
+          if [ "$changed_count" -ge 3000 ]; then
+            echo "PR file list reached GitHub API cap; running activation performance to avoid a false skip."
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          awk -F '\t' '{ print $1; if ($2 != "") print $2 }' /tmp/changed-file-rows.tsv > /tmp/changed-files.txt
+          if grep -Eq '^(\.github/workflows/perf-activation\.yml|\.xcode-version|[^/]+\.h$|[^/]+\.entitlements$|AppIcon\.icon/|Assets\.xcassets/|CLI/|Native/|Packages/|Resources/|Sources/|build/|cmux\.xcodeproj/|cmux\.xcworkspace/|ghostty($|/)|vendor/|webviews/|scripts/|bun\.lock|package\.json)' /tmp/changed-files.txt; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No app runtime or activation benchmark files changed; skipping activation performance."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   activation-session:
+    needs: detect-app-runtime-changes
+    if: ${{ needs.detect-app-runtime-changes.outputs.should_run == 'true' }}
     runs-on: ${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}
     timeout-minutes: 45
     env:
@@ -73,7 +112,13 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ inputs.ref || github.ref }}
-          submodules: recursive
+          submodules: false
+          persist-credentials: false
+
+      - name: Update submodules
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Select Xcode
         run: |

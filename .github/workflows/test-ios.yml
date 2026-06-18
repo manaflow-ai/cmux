@@ -37,6 +37,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   detect-ios-changes:
@@ -46,19 +47,10 @@ jobs:
       should_run: ${{ steps.detect.outputs.should_run }}
       should_lint: ${{ steps.detect.outputs.should_lint }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-          submodules: false
-
       - name: Detect iOS changes
         id: detect
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
@@ -66,8 +58,17 @@ jobs:
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
-          git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
+          gh api --paginate \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' > /tmp/changed-file-rows.tsv
+          changed_count="$(wc -l < /tmp/changed-file-rows.tsv | tr -d ' ')"
+          if [ "$changed_count" -ge 3000 ]; then
+            echo "PR file list reached GitHub API cap; running iOS checks to avoid false skips."
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "should_lint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          awk -F '\t' '{ print $1; if ($2 != "") print $2 }' /tmp/changed-file-rows.tsv > /tmp/changed-files.txt
           if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
@@ -168,7 +169,13 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           persist-credentials: false
-          submodules: recursive
+          submodules: false
+
+      - name: Update submodules
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/update-submodules.sh
 
       - name: Select Xcode
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}

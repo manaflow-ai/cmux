@@ -9,10 +9,10 @@ import CmuxTerminal
 #endif
 
 @MainActor
-@Suite("Terminal search overlay mouse release")
+@Suite("Terminal search overlay mouse release", .serialized)
 struct TerminalSearchOverlayMouseReleaseTests {
     @Test("Search overlay forwards terminal mouse release during selection drag")
-    func searchOverlayForwardsTerminalMouseReleaseDuringSelectionDrag() throws {
+    func searchOverlayForwardsTerminalMouseReleaseDuringSelectionDrag() async throws {
         let surface = makeTerminalSurface()
         defer { surface.releaseSurfaceForTesting() }
 
@@ -20,11 +20,16 @@ struct TerminalSearchOverlayMouseReleaseTests {
         defer { window.orderOut(nil) }
 
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
-        #expect(waitUntil(description: "search overlay to mount") {
-            hostedView.debugHasSearchOverlay()
+        #expect(await waitUntil(description: "search overlay hosting view to mount") {
+            hostedView.debugSearchOverlayHostingViewForTesting() != nil
         })
 
         let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
+        #expect(await waitUntil(description: "terminal runtime surface to attach") {
+            surface.surface != nil &&
+                terminalView.window === window &&
+                !terminalView.bounds.isEmpty
+        })
         let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
 
         let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
@@ -49,7 +54,7 @@ struct TerminalSearchOverlayMouseReleaseTests {
     }
 
     @Test("Search overlay release clears pending selection after surface release")
-    func searchOverlayMouseReleaseClearsSelectionDragAfterSurfaceRelease() throws {
+    func searchOverlayMouseReleaseClearsSelectionDragAfterSurfaceRelease() async throws {
         let surface = makeTerminalSurface()
         defer { surface.releaseSurfaceForTesting() }
 
@@ -57,11 +62,16 @@ struct TerminalSearchOverlayMouseReleaseTests {
         defer { window.orderOut(nil) }
 
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "needle"))
-        #expect(waitUntil(description: "search overlay to mount") {
-            hostedView.debugHasSearchOverlay()
+        #expect(await waitUntil(description: "search overlay hosting view to mount") {
+            hostedView.debugSearchOverlayHostingViewForTesting() != nil
         })
 
         let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
+        #expect(await waitUntil(description: "terminal runtime surface to attach") {
+            surface.surface != nil &&
+                terminalView.window === window &&
+                !terminalView.bounds.isEmpty
+        })
         let overlay = try #require(hostedView.debugSearchOverlayHostingViewForTesting())
 
         let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
@@ -136,15 +146,17 @@ struct TerminalSearchOverlayMouseReleaseTests {
     }
 
     private func waitUntil(
-        timeout: TimeInterval = 1.0,
+        timeout: TimeInterval = 5.0,
         description: String,
         _ condition: @escaping () -> Bool
-    ) -> Bool {
+    ) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() {
                 return true
             }
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
             _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
         return condition()

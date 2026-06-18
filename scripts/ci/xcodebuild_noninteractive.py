@@ -14,6 +14,7 @@ from typing import BinaryIO
 
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
 TIMEOUT_EXIT_CODE = 124
+SWIFT_CRASH_PROMPT_EXIT_CODE = 86
 
 
 def child_exit_code(status: int) -> int:
@@ -97,6 +98,13 @@ def write_child_output(chunk: bytes, log_file: BinaryIO | None, stdout_fd: int) 
         view = view[written:]
 
 
+def write_diagnostic(message: str, log_file: BinaryIO | None) -> None:
+    print(message, file=sys.stderr, flush=True)
+    if log_file is not None:
+        log_file.write((message + "\n").encode())
+        log_file.flush()
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(
@@ -158,10 +166,14 @@ def main() -> int:
             deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
         if SWIFT_CRASH_PROMPT in prompt_window:
-            # The Swift crash backtracer asks for one key. Send q to choose the
-            # noninteractive quit path and let xcodebuild continue reporting.
-            os.write(fd, b"q")
-            prompt_window = b""
+            write_diagnostic(
+                "Swift crash prompt detected; terminating noninteractive child",
+                log_file,
+            )
+            terminate_child(pid)
+            if log_file is not None:
+                log_file.close()
+            return SWIFT_CRASH_PROMPT_EXIT_CODE
 
     if timed_out:
         assert timeout is not None
