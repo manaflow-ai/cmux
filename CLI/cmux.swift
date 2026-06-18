@@ -24208,7 +24208,7 @@ struct CMUXCLI {
                 preferred,
                 workspaceId: workspaceId,
                 client: client,
-                preferCallerTTYOverRaw: true
+                preferCallerTTYOverRaw: false
             )
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
