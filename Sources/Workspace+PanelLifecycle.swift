@@ -316,9 +316,18 @@ extension Workspace {
             }
             statusEntries = merged
         }
+        func transferredStatusKey(forAgentPIDKey key: String) -> String? {
+            if runtimeState.statusEntries[key] != nil {
+                return key
+            }
+            guard let dotIndex = key.firstIndex(of: ".") else {
+                return nil
+            }
+            let statusKey = String(key[..<dotIndex])
+            return runtimeState.statusEntries[statusKey] != nil ? statusKey : nil
+        }
         func adoptedStatusSurvived(forAgentPIDKey key: String) -> Bool {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard runtimeState.statusEntries[statusKey] != nil else { return true }
+            guard let statusKey = transferredStatusKey(forAgentPIDKey: key) else { return true }
             return statusEntries[statusKey] != nil
         }
         var didAdoptAgentPID = false

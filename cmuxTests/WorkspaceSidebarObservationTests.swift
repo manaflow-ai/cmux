@@ -456,6 +456,47 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         )
     }
 
+    func testDetachedAdoptionSkipsDottedPIDWhenExactDottedStatusEvicted() {
+        let workspace = Workspace()
+        let cap = Workspace.maxSidebarStatusEntries
+
+        for index in 0..<cap {
+            let key = "live_\(index)"
+            _ = workspace.recordAgentPID(key: key, pid: pid_t(5000 + index), panelId: nil, refreshPorts: false)
+            workspace.statusEntries[key] = SidebarStatusEntry(
+                key: key,
+                value: "Running",
+                priority: 100,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+        XCTAssertEqual(workspace.statusEntries.count, cap)
+
+        let runtime = Workspace.DetachedAgentRuntimeState(
+            panelId: UUID(),
+            statusEntries: [
+                "adopted.session": SidebarStatusEntry(
+                    key: "adopted.session",
+                    value: "Running",
+                    priority: 0,
+                    timestamp: Date(timeIntervalSince1970: 0)
+                )
+            ],
+            agentPIDs: ["adopted.session": 8888],
+            agentPIDKeys: ["adopted.session"]
+        )
+        workspace.adoptDetachedAgentRuntimeState(runtime)
+
+        XCTAssertNil(
+            workspace.statusEntries["adopted.session"],
+            "The exact dotted adopted status self-evicts when the destination is full of live statuses"
+        )
+        XCTAssertNil(
+            workspace.agentPIDs["adopted.session"],
+            "The exact dotted adopted PID must not be recorded when its status self-evicted"
+        )
+    }
+
     func testDetachedAdoptionRecordsPIDWhenStatusSurvives() {
         let workspace = Workspace()
         let runtime = Workspace.DetachedAgentRuntimeState(
