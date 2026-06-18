@@ -115,7 +115,7 @@ extension ShortcutAction {
         case .find: return ShortcutStroke(key: "f", command: true)
         case .findInDirectory: return ShortcutStroke(key: "f", command: true, shift: true)
         case .findNext: return ShortcutStroke(key: "g", command: true)
-        case .findPrevious: return ShortcutStroke(key: "g", command: true, option: true)
+        case .findPrevious: return ShortcutStroke(key: "g", command: true, shift: true)
         case .hideFind: return ShortcutStroke(key: "f", command: true, shift: true, option: true)
         case .useSelectionForFind: return ShortcutStroke(key: "e", command: true)
         case .toggleBrowserDeveloperTools: return ShortcutStroke(key: "i", command: true, option: true)

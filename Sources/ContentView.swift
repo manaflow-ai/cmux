@@ -6305,7 +6305,7 @@ struct ContentView: View {
         case "palette.terminalFindNext":
             return "⌘G"
         case "palette.terminalFindPrevious":
-            return "⌥⌘G"
+            return "⌘⇧G"
         case "palette.terminalHideFind":
             return "⌥⌘⇧F"
         case "palette.terminalUseSelectionForFind":
@@ -7392,7 +7392,7 @@ struct ContentView: View {
                 commandId: "palette.terminalFindPrevious",
                 title: constant(String(localized: "command.terminalFindPrevious.title", defaultValue: "Find Previous")),
                 subtitle: terminalPanelSubtitle,
-                shortcutHint: "⌥⌘G",
+                shortcutHint: "⌘⇧G",
                 keywords: ["terminal", "find", "previous", "search"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )

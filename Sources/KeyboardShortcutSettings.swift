@@ -395,11 +395,11 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
             case .groupSelectedWorkspaces:
                 // Cmd+Shift+G is the user-natural mnemonic. It collides with
-                // toggleReactGrab's default, but handleGroupSelectedWorkspacesShortcut
-                // returns false (lets the event propagate) whenever there are
-                // no eligible workspaces to group — so React Grab still
-                // fires in browser/terminal contexts where this shortcut
-                // wouldn't have done anything anyway.
+                // Find Previous and toggleReactGrab's defaults, but the
+                // shortcut router lets terminal-owned Ghostty navigation keep
+                // the chord and handleGroupSelectedWorkspacesShortcut only
+                // consumes it when the workspace sidebar owns focus and there
+                // are eligible workspaces to group.
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .toggleFocusedWorkspaceGroupCollapsed:
                 // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family
@@ -509,7 +509,7 @@ enum KeyboardShortcutSettings {
             case .findNext:
                 return StoredShortcut(key: "g", command: true, shift: false, option: false, control: false)
             case .findPrevious:
-                return StoredShortcut(key: "g", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .hideFind:
                 return StoredShortcut(key: "f", command: true, shift: true, option: true, control: false)
             case .useSelectionForFind:

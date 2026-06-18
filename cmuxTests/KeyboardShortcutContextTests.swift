@@ -152,6 +152,16 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    func testFindPreviousDefaultMatchesGhosttyMacSearchPreviousShortcut() {
+        let expected = StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+
+        XCTAssertEqual(KeyboardShortcutSettings.Action.findPrevious.defaultShortcut, expected)
+        XCTAssertEqual(
+            CmuxSettings.ShortcutAction.findPrevious.defaultStroke,
+            ShortcutStroke(key: "g", command: true, shift: true)
+        )
+    }
+
     func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
         let focusMode = KeyboardShortcutSettings.Action.toggleBrowserFocusMode
 

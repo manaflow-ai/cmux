@@ -6611,6 +6611,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return isWorkspaceSidebarFocusResponder(responder, in: window)
     }
 
+    func shouldRouteFocusedTerminalGhosttyOwnedShortcut(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+        let targetWindow = window ?? mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let responder = targetWindow?.firstResponder
+            ?? NSApp.keyWindow?.firstResponder
+            ?? NSApp.mainWindow?.firstResponder
+        guard cmuxOwningGhosttyView(for: responder) != nil else {
+            return false
+        }
+        return shouldRouteGhosttyTerminalOwnedShortcutBeforeAppShortcut(event)
+    }
+
     func shouldRouteRightSidebarModeShortcut(in window: NSWindow?) -> Bool {
         guard let window,
               let responder = window.firstResponder else {
@@ -12848,6 +12859,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
+        if shouldRouteFocusedTerminalGhosttyOwnedShortcut(event) {
+            return false
+        }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
@@ -13195,8 +13209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .groupSelectedWorkspaces) {
             // Only consume the event when grouping actually happened; otherwise
             // fall through so the dispatcher reaches the later
-            // `.toggleReactGrab` check (default ⌘⇧G collides with React Grab
-            // and grouping returns false when no multi-selection exists).
+            // `.toggleReactGrab`/Find Previous handling (default ⌘⇧G is shared
+            // by grouping, terminal search previous, and React Grab).
             if handleGroupSelectedWorkspacesShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             ) {
@@ -14551,9 +14565,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
         // Only consume the shortcut when there's an explicit sidebar
         // multi-selection. Anything ≤ 1 falls through so ⌘⇧G keeps working as
-        // React Grab's default in browser/terminal contexts. A single-tab
-        // group can still be created via right-click → New Group from
-        // Workspace. `sidebarSelectedWorkspaceIds` is normally synced to the
+        // the default Find Previous/React Grab chord outside an eligible
+        // workspace-sidebar grouping action. A single-tab group can still be
+        // created via right-click → New Group from Workspace.
+        // `sidebarSelectedWorkspaceIds` is normally synced to the
         // focused workspace (clearSidebarMultiSelection sets it to a
         // singleton after keyboard nav), so the singleton case must be
         // treated the same as "no selection."
@@ -14568,8 +14583,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard eligibleIds.count >= 2 else {
             // Don't consume the event — let it propagate to the next handler
-            // (e.g. toggleReactGrab on the default Cmd+Shift+G binding) so
-            // the user gets the next-best action instead of a dead key. The
+            // (e.g. Find Previous/React Grab on the default Cmd+Shift+G
+            // binding) so the user gets the next-best action instead of a dead key. The
             // shortcut contract is "multi-select then ⌘⇧G"; single-workspace
             // groups are only created from the right-click context menu, so
             // a 2-row sidebar selection where only one survives the
@@ -17231,6 +17246,22 @@ private extension NSWindow {
                 if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal font zoom") {
 #if DEBUG
                     cmuxDebugLog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
+#endif
+                    return true
+                }
+                return false
+            }
+
+            if AppDelegate.shared?.shouldRouteFocusedTerminalGhosttyOwnedShortcut(event, in: self) == true {
+                if ghosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
+#if DEBUG
+                    cmuxDebugLog("  → terminal Ghostty-owned shortcut routed to Ghostty")
+#endif
+                    return true
+                }
+                if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal Ghostty-owned shortcut") {
+#if DEBUG
+                    cmuxDebugLog("  → terminal Ghostty-owned shortcut keyDown fallback")
 #endif
                     return true
                 }
