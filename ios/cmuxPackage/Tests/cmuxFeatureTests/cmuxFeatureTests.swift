@@ -3853,7 +3853,10 @@ private struct HangingTransportFactory: CmxByteTransportFactory {
 /// A ``ReachabilityProviding`` double reporting a permanently-offline device, so
 /// the pairing reachability preflight short-circuits before any connect.
 private struct OfflineReachability: ReachabilityProviding {
-    var isOnline: Bool { false }
+    var isOnline: Bool {
+        get async { false }
+    }
+
     func pathChanges() -> AsyncStream<Void> {
         AsyncStream { $0.finish() }
     }
@@ -3862,7 +3865,10 @@ private struct OfflineReachability: ReachabilityProviding {
 /// A ``ReachabilityProviding`` double reporting a stable online path, so tests
 /// that exercise scripted transports do not inherit CI runner network state.
 private struct OnlineReachability: ReachabilityProviding {
-    var isOnline: Bool { true }
+    var isOnline: Bool {
+        get async { true }
+    }
+
     func pathChanges() -> AsyncStream<Void> {
         AsyncStream { $0.finish() }
     }
