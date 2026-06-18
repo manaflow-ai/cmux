@@ -2,6 +2,45 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    func configureCLISocketNoSIGPIPE(fileDescriptor fd: Int32, failureMessage: @autoclosure () -> String) throws {
+#if os(macOS)
+        var noSigPipe: Int32 = 1
+        let result = withUnsafePointer(to: &noSigPipe) { ptr in
+            setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                ptr,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
+        guard result == 0 else {
+            throw CLIError(message: failureMessage())
+        }
+#endif
+    }
+
+    func acceptCLISocketNoSIGPIPE(
+        _ serverFD: Int32,
+        acceptFailureMessage: @autoclosure () -> String,
+        noSIGPIPEFailureMessage: @autoclosure () -> String
+    ) throws -> Int32? {
+        let clientFD = accept(serverFD, nil, nil)
+        if clientFD < 0 {
+            if errno == EINTR {
+                return nil
+            }
+            throw CLIError(message: acceptFailureMessage())
+        }
+        do {
+            try configureCLISocketNoSIGPIPE(fileDescriptor: clientFD, failureMessage: noSIGPIPEFailureMessage())
+            return clientFD
+        } catch {
+            Darwin.close(clientFD)
+            throw error
+        }
+    }
+
     private static func currentSIGPIPEDispositionName() -> String {
         var current = sigaction()
         guard sigaction(SIGPIPE, nil, &current) == 0 else {

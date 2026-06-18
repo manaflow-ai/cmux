@@ -8586,7 +8586,7 @@ struct CMUXCLI {
         let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
         var didForegroundChild = false
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             throw CLIError(message: "ssh-tmux: failed to launch ssh: \(String(describing: error))")
         }
@@ -11655,6 +11655,15 @@ struct CMUXCLI {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw CLIError(message: "ssh-pty-attach: failed to create bridge socket")
+        }
+        do {
+            try configureCLISocketNoSIGPIPE(
+                fileDescriptor: fd,
+                failureMessage: "ssh-pty-attach: failed to disable SIGPIPE on bridge socket"
+            )
+        } catch {
+            Darwin.close(fd)
+            throw error
         }
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
@@ -20740,7 +20749,7 @@ struct CMUXCLI {
             process.standardError = standardError
         }
 
-        try process.run()
+        try cliRunProcess(process)
         return process
     }
 
