@@ -87,6 +87,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // down (and blank the map) the moment the user signs out so a
             // shared device never renders the previous account's devices.
             evaluatePresenceSubscription()
+            if isSignedIn {
+                // Cover a sign-in that lands after a presence snapshot already
+                // arrived; the snapshot path also kicks this.
+                kickPresenceAutoAttach()
+            } else {
+                presenceAutoAttachTask?.cancel()
+                presenceAutoAttachTask = nil
+            }
         }
     }
     public private(set) var connectionState: MobileConnectionState {
@@ -662,9 +670,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
-        draftStore: (any TerminalDraftStoring)? = nil
+        draftStore: (any TerminalDraftStoring)? = nil,
+        presenceAutoAttachEnabled: Bool? = nil
     ) {
         self.runtime = runtime
+        self.presenceAutoAttachEnabled = presenceAutoAttachEnabled ?? MobilePresenceAutoAttachFlag().isEnabled
         self.draftStore = draftStore
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
@@ -867,6 +877,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
+        // Re-evaluate the zero-setup auto-attach on foreground (covers a store
+        // constructed already-signed-in). No-op unless the flag is on and the
+        // phone is disconnected with no paired Mac.
+        kickPresenceAutoAttach()
         resyncTerminalOutput(reason: "foreground", restartEventStream: true)
     }
 
@@ -1561,6 +1575,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var presenceMap = PresenceMap()
     private var presenceTask: Task<Void, Never>?
 
+    /// Whether presence-driven auto-attach is enabled (see
+    /// ``MobilePresenceAutoAttachFlag``). Resolved once at init. DEBUG-on /
+    /// Release-off by default, so a production build never auto-connects from
+    /// presence unless explicitly opted in.
+    public let presenceAutoAttachEnabled: Bool
+    /// The single in-flight presence auto-attach. Coalesces the triggers
+    /// (sign-in edge, foreground, presence frames) so concurrent presence frames
+    /// never start more than one connect.
+    private var presenceAutoAttachTask: Task<Void, Never>?
+
     /// Start or stop the presence subscription to match the session: running
     /// while signed in (and a client is injected), torn down with a blanked map
     /// on sign-out. Idempotent; called from the `isSignedIn` edge and from
@@ -1624,6 +1648,84 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             })
         case .offline, .seen:
             break
+        }
+        // A presence frame can bring a never-paired Mac online with dialable
+        // routes; the zero-setup dev path connects to it. No-op unless the flag
+        // is on and the phone is disconnected with no paired Mac.
+        kickPresenceAutoAttach()
+    }
+
+    /// Pick the freshest online **host** instance (mac/linux/windows) that
+    /// advertises a route the phone can dial. Pure given the map + supported
+    /// route kinds, so it is unit-testable without a socket.
+    static func presenceAutoAttachTarget(
+        in presenceMap: PresenceMap,
+        supportedKinds: [CmxAttachTransportKind]
+    ) -> PresenceInstance? {
+        presenceMap.onlineRouteAdvertisingInstances()
+            .filter { instance in
+                // Only hosts the phone can attach to; never another phone.
+                switch instance.platform.lowercased() {
+                case "mac", "linux", "windows": break
+                default: return false
+                }
+                // Must advertise a route the phone can actually dial.
+                return firstReconnectHostPortRoute(
+                    instance.routes ?? [],
+                    supportedKinds: supportedKinds
+                ) != nil
+            }
+            .max { $0.lastSeenAt < $1.lastSeenAt }
+    }
+
+    /// Fire-and-forget presence-driven auto-attach: the zero-setup dev path.
+    /// When signed in with no paired Mac and no live connection, connect to the
+    /// freshest online host the presence service reports.
+    ///
+    /// A no-op unless ``presenceAutoAttachEnabled`` (DEBUG-on / Release-off), so
+    /// production builds never auto-connect from presence. Gated to the
+    /// never-paired case (`!hasKnownPairedMac`) so a returning user is served by
+    /// the normal `reconnectActiveMacIfAvailable` path instead. Security: the
+    /// connect still requires the Mac owner's same-account Stack token (presence
+    /// routes carry no auth power); this only chooses which trusted host to dial.
+    /// Coalesces onto one in-flight attempt.
+    private func kickPresenceAutoAttach() {
+        guard presenceAutoAttachEnabled,
+              isSignedIn,
+              connectionState == .disconnected,
+              !hasKnownPairedMac else { return }
+        if let existing = presenceAutoAttachTask, !existing.isCancelled { return }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        guard let target = Self.presenceAutoAttachTarget(
+            in: presenceMap,
+            supportedKinds: supportedKinds
+        ) else { return }
+        presenceAutoAttachTask = Task { @MainActor [weak self] in
+            defer { self?.presenceAutoAttachTask = nil }
+            guard let self else { return }
+            // Re-check at execution time: a manual connect/pairing may have
+            // landed between scheduling and running.
+            guard self.presenceAutoAttachEnabled,
+                  self.isSignedIn,
+                  self.connectionState == .disconnected,
+                  !self.hasKnownPairedMac else { return }
+            let seenAt = Date(timeIntervalSince1970: target.lastSeenAt / 1000)
+            let device = RegistryDevice(
+                deviceId: target.deviceId,
+                platform: target.platform,
+                displayName: target.displayName,
+                lastSeenAt: seenAt,
+                instances: []
+            )
+            let instance = RegistryAppInstance(
+                tag: target.tag,
+                routes: target.routes ?? [],
+                lastSeenAt: seenAt
+            )
+            mobileShellLog.debug(
+                "presence auto-attach connecting device=\(target.deviceId, privacy: .public) tag=\(target.tag, privacy: .public) routes=\(instance.routes.count, privacy: .public)"
+            )
+            await self.connectToRegistryInstance(device: device, instance: instance)
         }
     }
 

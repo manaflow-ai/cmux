@@ -48,7 +48,20 @@ public struct MobileAuthComposition {
         self.reachability = reachability
 
         let isDevelopment = Self.isDevelopmentBuild
-        let overrides = Self.localConfigStringOverrides(in: bundle)
+        var overrides = Self.localConfigStringOverrides(in: bundle)
+        #if DEBUG
+        // DEBUG-only dev convenience: let `mobile-dev-launch.sh` point the dev
+        // build's web API (the device registry) at a reachable endpoint via
+        // `CMUX_API_BASE_URL`, the way the Mac dev build reads `CMUX_VM_API_BASE_URL`.
+        // A bundled `LocalConfig.plist` value still wins. Compiled out of Release,
+        // so production never reads this and behaves exactly as before.
+        if overrides["ApiBaseURL"] == nil,
+           let envAPIBaseURL = environment["CMUX_API_BASE_URL"]?
+               .trimmingCharacters(in: .whitespacesAndNewlines),
+           !envAPIBaseURL.isEmpty {
+            overrides["ApiBaseURL"] = envAPIBaseURL
+        }
+        #endif
         let resolvedConfig = AuthConfig(
             environment: isDevelopment ? .development : .production,
             overrides: overrides

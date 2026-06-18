@@ -70,6 +70,16 @@ public struct PresenceMap: Equatable, Sendable {
         return candidates.count == 1 ? candidates.first : nil
     }
 
+    /// Every online instance that advertises at least one attach route, across
+    /// all devices. Used by presence-driven auto-attach to find a connectable
+    /// host without the registry. Order is unspecified; callers sort (e.g. by
+    /// `lastSeenAt`).
+    public func onlineRouteAdvertisingInstances() -> [PresenceInstance] {
+        instancesByDevice.values
+            .flatMap { $0.values }
+            .filter { $0.online && !($0.routes ?? []).isEmpty }
+    }
+
     /// Roll the device's instances up for a device row, or `nil` when the
     /// presence service has never seen this device (the row then falls back to
     /// its registry "last seen" hint).
