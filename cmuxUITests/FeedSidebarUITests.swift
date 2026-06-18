@@ -94,11 +94,15 @@ final class FeedSidebarUITests: XCTestCase {
             "feed.push did not publish a pending item. result=\(loadFeedResult())"
         )
 
-        // The TUI blocks on keyboard input. Refresh first so it observes the
-        // pending request, then Enter accepts the default "once" action.
-        app.typeKey("r", modifierFlags: [])
-        Thread.sleep(forTimeInterval: 1.0)
-        app.typeKey(.return, modifierFlags: [])
+        // The TUI blocks on keyboard input. Refresh so it observes the pending
+        // request, then Enter accepts the default "once" action. The TUI is an
+        // out-of-process bun/opentui program reading from a pty, so a single
+        // fixed delay between the refresh and Enter is a synchronization
+        // substitute for "the TUI re-rendered with the pending item selected"
+        // and races on a loaded runner. Instead, drive refresh+Enter in a
+        // bounded loop and stop as soon as the real signal (the resolved
+        // feed.push result) appears.
+        driveFeedRefreshAndAccept(in: app, timeout: 35)
 
         // Await the hook-side reply from the Feed dispatcher.
         let result = try waitForFeedPushResult(timeout: 35)
@@ -219,6 +223,36 @@ final class FeedSidebarUITests: XCTestCase {
         pollUntil(timeout: timeout, interval: 0.2) {
             self.loadFeedResult()["pushPendingObserved"] == "1"
         }
+    }
+
+    /// Drives the Feed TUI's "refresh then accept default" path without gating
+    /// on wall-clock time. Each iteration presses `r` (refresh) then Return
+    /// (accept the default "once" action) and then polls the real readiness
+    /// signal: the resolved `feed.push` result published to `feedResultPath`.
+    /// If a refresh/Enter pair lands before the out-of-process TUI has selected
+    /// the pending item, the next iteration re-refreshes and re-presses Enter.
+    /// Returns as soon as the push resolves; otherwise keeps trying until the
+    /// generous deadline, leaving the subsequent `waitForFeedPushResult`
+    /// assertion to surface a precise failure.
+    private func driveFeedRefreshAndAccept(in app: XCUIApplication, timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            app.typeKey("r", modifierFlags: [])
+            // Give the out-of-process TUI a brief window to process the refresh
+            // keystroke and re-render the selected pending item before Enter.
+            if pollUntil(timeout: 1.0, interval: 0.1, { self.feedPushHasReturned() }) {
+                return
+            }
+            app.typeKey(.return, modifierFlags: [])
+            if pollUntil(timeout: 1.5, interval: 0.1, { self.feedPushHasReturned() }) {
+                return
+            }
+        } while Date() < deadline
+    }
+
+    private func feedPushHasReturned() -> Bool {
+        let payload = loadFeedResult()
+        return payload["pushResultStatus"] != nil || payload["pushError"] != nil
     }
 
     private func waitForFeedPushResult(timeout: TimeInterval) throws -> FeedPushResult {
