@@ -25,6 +25,7 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { parseHeartbeat, readBoundedJson } from "./validate";
+import { parsePairedMacBackup } from "./syncPairedMacs";
 
 export { TeamPresence };
 
@@ -81,6 +82,22 @@ export default {
       return json(result);
     }
 
+    if (url.pathname === "/v1/sync/paired-macs") {
+      // Back up the caller's saved-host list to the per-team DO, scoped to the
+      // verified user. Mirrors the heartbeat RPC: the verified user id is passed
+      // to the DO, which writes the per-user `pairedMacs:<userId>` collection and
+      // broadcasts deltas to that user's other signed-in devices.
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      const team = await resolveTeamOr403(request, env);
+      if (!team.ok) return team.response;
+      const body = await readBoundedJson(request);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parsePairedMacBackup(body.value);
+      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      const result = await team.stub.backupPairedMacs(team.teamId, team.user.id, parsed.ops);
+      return json(result);
+    }
+
     if (url.pathname === "/v1/presence/snapshot") {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
       const team = await resolveTeamOr403(request, env);
@@ -107,6 +124,10 @@ export default {
       const headers = new Headers(request.headers);
       headers.set("x-presence-team-id", team.teamId);
       headers.set("x-presence-expires-at", String(Math.floor(expiresAt)));
+      // Forward the verified user id so the DO can scope the per-user
+      // `pairedMacs` backup collection to its owner. Set from the verified value
+      // only, never passed through from the client.
+      headers.set("x-presence-user-id", team.user.id);
       return team.stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 

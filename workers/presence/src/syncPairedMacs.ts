@@ -1,0 +1,232 @@
+// Per-user paired-Mac backup collection for the TeamPresence DO.
+//
+// This is the first CLIENT-OWNED sync collection (plans/feat-ios-paired-mac-backup
+// /DESIGN.md). Unlike `devices` (server-derived from presence, read-only on the
+// phone), `pairedMacs` is written by the phone to back up its local saved-host
+// list — including manually typed host/IPs — so the list survives an app
+// upgrade, a bundle-id change, or a reinstall.
+//
+// Privacy: a paired-Mac backup is per USER, not per team. The DO is per team, so
+// we scope by PHYSICAL collection name: the logical client collection
+// `pairedMacs` maps to `pairedMacs:<ownerUserId>`, where ownerUserId is the
+// VERIFIED Stack user id (never client input). This reuses the whole generic
+// sync machinery (snapshot/delta/tombstone/GC/epoch) unchanged; only the
+// collection string carries the user scope, and outgoing frames are relabeled
+// back to the logical name so the client stays oblivious to the suffix.
+//
+// Writes arrive via a trusted worker RPC (POST /v1/sync/paired-macs ->
+// backupPairedMacs), mirroring the Mac heartbeat RPC pattern, rather than
+// expanding the live WS inbound surface. Reads ride the existing sync WS.
+//
+// Pure + storage-bound so it unit-tests against the Map-backed fake, same
+// posture as sync.ts / syncStorage.ts.
+
+import { buildDelta, type SyncDeltaFrame, type SyncRecord, type SyncSnapshotFrame } from "./sync";
+import {
+  listRecords,
+  readRecord,
+  tombstoneRecord,
+  upsertRecord,
+  type SyncStorage,
+} from "./syncStorage";
+
+/** Logical collection name the client subscribes to and stores under. */
+export const PAIRED_MACS_COLLECTION = "pairedMacs";
+
+/** Max saved-host records a single user may back up. Bounds the storage a client
+ * can create, mirroring MAX_DEVICES_PER_TEAM for the device registry. */
+export const MAX_PAIRED_MACS_PER_USER = 200;
+
+/** Max ops accepted in one backup request. A full reconcile pushes at most the
+ * whole list, so the per-user cap is the natural bound. */
+export const MAX_BACKUP_OPS = MAX_PAIRED_MACS_PER_USER;
+
+/** Max length of a backed-up Mac id / display name (mirrors the registry/presence
+ * display-name bound and a generous id bound). */
+export const MAX_MAC_ID_LENGTH = 256;
+export const MAX_DISPLAY_NAME_LENGTH = 128;
+/** Route bounds mirror validate.ts so the backup payload can't exceed what a
+ * heartbeat could push. */
+export const MAX_ROUTES = 16;
+export const MAX_ROUTES_TOTAL_BYTES = 2048;
+
+/** The backup payload — mirrors the iOS `MobilePairedMac` row so a restore is
+ * lossless. The server bounds it but does not interpret `routes` (route
+ * validation stays client-owned, exactly like the heartbeat route handling), so
+ * new route kinds flow through without a worker ship. */
+export interface PairedMacBackupRecord {
+  macDeviceID: string;
+  displayName?: string;
+  routes: unknown[];
+  /** epoch ms */
+  createdAt: number;
+  /** epoch ms; also the render sort key */
+  lastSeenAt: number;
+  isActive: boolean;
+}
+
+export type PairedMacBackupOp =
+  | { kind: "upsert"; id: string; record: PairedMacBackupRecord }
+  | { kind: "delete"; id: string };
+
+export type PairedMacBackupParse =
+  | { ok: true; ops: PairedMacBackupOp[] }
+  | { ok: false; error: string };
+
+/** Physical per-user collection name. Derived from the VERIFIED user id ONLY, so
+ * a client can never read or write another user's saved hosts. */
+export function pairedMacsCollection(userId: string): string {
+  return `${PAIRED_MACS_COLLECTION}:${userId}`;
+}
+
+function trimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** Parse and bound a backup body that has already been JSON-decoded. The body is
+ * `{ ops: [{ macDeviceID, deleted?, record? }] }`. Pure for tests. */
+export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBackupParse {
+  if (!Array.isArray(body.ops)) return { ok: false, error: "invalid_ops" };
+  if (body.ops.length > MAX_BACKUP_OPS) return { ok: false, error: "too_many_ops" };
+
+  const ops: PairedMacBackupOp[] = [];
+  const seen = new Set<string>();
+  for (const entry of body.ops) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+      return { ok: false, error: "invalid_op" };
+    }
+    const e = entry as Record<string, unknown>;
+    const id = trimmedString(e.macDeviceID);
+    if (!id || id.length > MAX_MAC_ID_LENGTH) return { ok: false, error: "invalid_mac_id" };
+    // The last op for an id wins within a request, but a single request should
+    // not carry the same id twice; dedup defensively, keeping the last.
+    if (seen.has(id)) {
+      const idx = ops.findIndex((o) => o.id === id);
+      if (idx >= 0) ops.splice(idx, 1);
+    }
+    seen.add(id);
+
+    if (e.deleted === true) {
+      ops.push({ kind: "delete", id });
+      continue;
+    }
+
+    const recordRaw = e.record;
+    if (recordRaw === null || typeof recordRaw !== "object" || Array.isArray(recordRaw)) {
+      return { ok: false, error: "invalid_record" };
+    }
+    const r = recordRaw as Record<string, unknown>;
+    const displayName = trimmedString(r.displayName);
+    if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+      return { ok: false, error: "invalid_display_name" };
+    }
+    const createdAt = finiteNumber(r.createdAt);
+    const lastSeenAt = finiteNumber(r.lastSeenAt);
+    if (createdAt === null || lastSeenAt === null) {
+      return { ok: false, error: "invalid_timestamps" };
+    }
+    if (!Array.isArray(r.routes)) return { ok: false, error: "invalid_routes" };
+    // Same entry-count + cumulative-byte bound as the heartbeat route parse:
+    // keep only plain objects, preferred-first prefix, stop at the byte budget.
+    const routes: unknown[] = [];
+    let routeBytes = 0;
+    for (const route of r.routes) {
+      if (route === null || typeof route !== "object" || Array.isArray(route)) continue;
+      if (routes.length >= MAX_ROUTES) break;
+      routeBytes += JSON.stringify(route).length;
+      if (routeBytes > MAX_ROUTES_TOTAL_BYTES) break;
+      routes.push(route);
+    }
+
+    ops.push({
+      kind: "upsert",
+      id,
+      record: {
+        macDeviceID: id,
+        displayName: displayName || undefined,
+        routes,
+        createdAt,
+        lastSeenAt,
+        isActive: r.isActive === true,
+      },
+    });
+  }
+
+  return { ok: true, ops };
+}
+
+/** Relabel a frame's collection from the physical per-user name back to the
+ * logical `pairedMacs` so the client never sees (or stores under) the user-id
+ * suffix. The rev space is the physical collection's, but each user has exactly
+ * one physical collection, so the client's logical cursor tracks it 1:1. */
+export function relabelDelta<P>(delta: SyncDeltaFrame<P>): SyncDeltaFrame<P> {
+  return { ...delta, collection: PAIRED_MACS_COLLECTION };
+}
+
+export function relabelSnapshot<P>(page: SyncSnapshotFrame<P>): SyncSnapshotFrame<P> {
+  return { ...page, collection: PAIRED_MACS_COLLECTION };
+}
+
+/** Count the live (non-tombstone) backup records a user currently has, to
+ * enforce the per-user cap on NEW ids. */
+async function liveRecordCount(storage: SyncStorage, collection: string): Promise<number> {
+  const all = await listRecords<PairedMacBackupRecord>(storage, collection);
+  return all.filter((r) => !r.deleted).length;
+}
+
+/** Apply a batch of backup ops for one user against their physical collection,
+ * returning the deltas (relabeled to the logical name) the DO should broadcast
+ * to that user's subscribed sockets. An unchanged payload is a no-op (no rev
+ * churn). A new id beyond the per-user cap is dropped. Storage writes reuse the
+ * generic, already-tested `upsertRecord` / `tombstoneRecord`. */
+export async function applyBackupOps(
+  storage: SyncStorage,
+  userId: string,
+  ops: readonly PairedMacBackupOp[],
+  nowMs: number,
+): Promise<SyncDeltaFrame<unknown>[]> {
+  const collection = pairedMacsCollection(userId);
+  let liveCount = await liveRecordCount(storage, collection);
+  // Upsert and tombstone deltas carry different payload shapes (the record vs.
+  // `{}`); both serialize the same on the wire, so collect them as unknown.
+  const deltas: SyncDeltaFrame<unknown>[] = [];
+
+  for (const op of ops) {
+    if (op.kind === "delete") {
+      const res = await tombstoneRecord(storage, collection, op.id, nowMs);
+      if (res.delta !== null) {
+        liveCount = Math.max(0, liveCount - 1);
+        deltas.push(relabelDelta(res.delta));
+      }
+      continue;
+    }
+    const existing = await readRecord<PairedMacBackupRecord>(storage, collection, op.id);
+    const isNew = existing === undefined || existing.deleted;
+    if (isNew && liveCount >= MAX_PAIRED_MACS_PER_USER) {
+      // At cap: drop new entries rather than fail the whole batch, mirroring the
+      // preferred-first leniency elsewhere. Existing records still update.
+      continue;
+    }
+    const res = await upsertRecord<PairedMacBackupRecord>(
+      storage,
+      collection,
+      op.id,
+      op.record,
+      nowMs,
+    );
+    if (res.delta !== null) {
+      if (isNew) liveCount += 1;
+      deltas.push(relabelDelta(res.delta));
+    }
+  }
+
+  return deltas;
+}
+
+/** Re-export so the DO can build an empty delta if it ever needs to. */
+export { buildDelta };
+export type { SyncRecord };

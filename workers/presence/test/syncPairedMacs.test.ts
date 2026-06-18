@@ -1,0 +1,177 @@
+// Tests for the per-user paired-Mac backup collection (the first client-owned
+// sync collection). Uses the same Map-backed `SyncStorage` fake as
+// syncStorage.test.ts — no Workers runtime. Covers: parse bounds, per-user
+// physical scoping (one user can't read another's hosts), the per-user cap,
+// frame relabeling to the logical name, tombstones, and no-op idempotency.
+
+import { describe, expect, it } from "bun:test";
+import {
+  applyBackupOps,
+  MAX_PAIRED_MACS_PER_USER,
+  pairedMacsCollection,
+  PAIRED_MACS_COLLECTION,
+  parsePairedMacBackup,
+  type PairedMacBackupRecord,
+} from "../src/syncPairedMacs";
+import { buildSnapshotPages, listRecords, type SyncStorage } from "../src/syncStorage";
+
+const T0 = 1_750_000_000_000;
+
+class FakeStorage implements SyncStorage {
+  private map = new Map<string, unknown>();
+  async get<T>(key: string): Promise<T | undefined> {
+    return this.map.get(key) as T | undefined;
+  }
+  async put<T>(keyOrEntries: string | Record<string, unknown>, value?: T): Promise<void> {
+    if (typeof keyOrEntries === "string") {
+      this.map.set(keyOrEntries, JSON.parse(JSON.stringify(value)));
+      return;
+    }
+    for (const [k, v] of Object.entries(keyOrEntries)) {
+      this.map.set(k, JSON.parse(JSON.stringify(v)));
+    }
+  }
+  async delete(key: string): Promise<boolean> {
+    return this.map.delete(key);
+  }
+  async list<T>(options: { prefix: string; limit?: number }): Promise<Map<string, T>> {
+    const out = new Map<string, T>();
+    const keys = [...this.map.keys()].filter((k) => k.startsWith(options.prefix)).sort();
+    for (const k of keys) {
+      if (options.limit !== undefined && out.size >= options.limit) break;
+      out.set(k, this.map.get(k) as T);
+    }
+    return out;
+  }
+}
+
+function record(macDeviceID: string, host: string, port: number): PairedMacBackupRecord {
+  return {
+    macDeviceID,
+    displayName: "Studio",
+    routes: [{ id: "manual", kind: "tailscale", endpoint: { type: "host_port", host, port }, priority: 0 }],
+    createdAt: T0,
+    lastSeenAt: T0,
+    isActive: true,
+  };
+}
+
+describe("parsePairedMacBackup", () => {
+  it("accepts a well-formed upsert + delete batch", () => {
+    const parsed = parsePairedMacBackup({
+      ops: [
+        { macDeviceID: "manual-192.168.1.50:22", record: record("manual-192.168.1.50:22", "192.168.1.50", 22) },
+        { macDeviceID: "gone", deleted: true },
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.ops).toHaveLength(2);
+    expect(parsed.ops[0]).toMatchObject({ kind: "upsert", id: "manual-192.168.1.50:22" });
+    expect(parsed.ops[1]).toEqual({ kind: "delete", id: "gone" });
+  });
+
+  it("rejects a non-array ops, missing id, and bad timestamps", () => {
+    expect(parsePairedMacBackup({ ops: "nope" }).ok).toBe(false);
+    expect(parsePairedMacBackup({ ops: [{ record: record("x", "h", 1) }] }).ok).toBe(false);
+    expect(
+      parsePairedMacBackup({ ops: [{ macDeviceID: "x", record: { ...record("x", "h", 1), lastSeenAt: "nope" } }] }).ok,
+    ).toBe(false);
+  });
+
+  it("bounds the ops count", () => {
+    const ops = Array.from({ length: MAX_PAIRED_MACS_PER_USER + 1 }, (_, i) => ({
+      macDeviceID: `m${i}`,
+      record: record(`m${i}`, "10.0.0.1", 22),
+    }));
+    expect(parsePairedMacBackup({ ops }).ok).toBe(false);
+  });
+
+  it("drops malformed route entries but keeps the record", () => {
+    const parsed = parsePairedMacBackup({
+      ops: [{ macDeviceID: "x", record: { ...record("x", "h", 1), routes: [null, 5, { id: "ok" }] } }],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const op = parsed.ops[0];
+    expect(op.kind).toBe("upsert");
+    if (op.kind !== "upsert") return;
+    expect(op.record.routes).toEqual([{ id: "ok" }]);
+  });
+});
+
+describe("applyBackupOps", () => {
+  it("writes the per-user physical collection and relabels frames to the logical name", async () => {
+    const storage = new FakeStorage();
+    const deltas = await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-a", record: record("mac-a", "192.168.1.50", 22) }],
+      T0,
+    );
+    expect(deltas).toHaveLength(1);
+    // The wire frame carries the LOGICAL name, never the user-id suffix.
+    expect(deltas[0].collection).toBe(PAIRED_MACS_COLLECTION);
+    // Storage is under the per-user PHYSICAL collection.
+    const stored = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection("user-1"));
+    expect(stored.map((r) => r.id)).toEqual(["mac-a"]);
+  });
+
+  it("isolates users: user-2 never sees user-1's hosts", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "10.0.0.1", 22) }], T0);
+    await applyBackupOps(storage, "user-2", [{ kind: "upsert", id: "mac-b", record: record("mac-b", "10.0.0.2", 22) }], T0);
+
+    const u1 = await buildSnapshotPages<PairedMacBackupRecord>(storage, pairedMacsCollection("user-1"));
+    const u2 = await buildSnapshotPages<PairedMacBackupRecord>(storage, pairedMacsCollection("user-2"));
+    const ids = (pages: typeof u1.pages) => pages.flatMap((p) => p.records.map((r) => r.id));
+    expect(ids(u1.pages)).toEqual(["mac-a"]);
+    expect(ids(u2.pages)).toEqual(["mac-b"]);
+  });
+
+  it("is a no-op when the payload is unchanged (no rev churn)", async () => {
+    const storage = new FakeStorage();
+    const rec = record("mac-a", "192.168.1.50", 22);
+    const first = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: rec }], T0);
+    expect(first).toHaveLength(1);
+    const second = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: rec }], T0 + 1000);
+    expect(second).toHaveLength(0);
+  });
+
+  it("tombstones a deleted host", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "10.0.0.1", 22) }], T0);
+    const del = await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-a" }], T0 + 1000);
+    expect(del).toHaveLength(1);
+    expect(del[0].records[0].deleted).toBe(true);
+    const live = (await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection("user-1"))).filter((r) => !r.deleted);
+    expect(live).toHaveLength(0);
+  });
+
+  it("drops NEW records beyond the per-user cap but keeps updating existing ones", async () => {
+    const storage = new FakeStorage();
+    const ops = Array.from({ length: MAX_PAIRED_MACS_PER_USER }, (_, i) => ({
+      kind: "upsert" as const,
+      id: `m${i}`,
+      record: record(`m${i}`, "10.0.0.1", 1024 + i),
+    }));
+    await applyBackupOps(storage, "user-1", ops, T0);
+    const live = () =>
+      listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection("user-1")).then((r) =>
+        r.filter((x) => !x.deleted),
+      );
+    expect((await live()).length).toBe(MAX_PAIRED_MACS_PER_USER);
+    // One more NEW id is dropped (still at cap).
+    const over = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "extra", record: record("extra", "10.0.0.9", 22) }], T0 + 1000);
+    expect(over).toHaveLength(0);
+    expect((await live()).length).toBe(MAX_PAIRED_MACS_PER_USER);
+    // But updating an EXISTING id still works.
+    const upd = await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "m0", record: record("m0", "10.0.0.250", 2222) }],
+      T0 + 2000,
+    );
+    expect(upd).toHaveLength(1);
+  });
+});
