@@ -347,6 +347,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         defer { context.cleanup() }
 
         let mappedSurfaceId = context.surfaceId
+        let ambientSurfaceId = "66666666-6666-6666-6666-666666666666"
         let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
         try writeClaudeHookStore(
             to: storeURL,
@@ -357,7 +358,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
         let serverHandled = startClaudeSurfaceResolutionServer(
             context: context,
-            surfaces: surfaces(mappedSurfaceId),
+            surfaces: surfaces(mappedSurfaceId) + [(ambientSurfaceId, "surface:9", false)],
             ttyName: ttyName,
             ttySurfaceId: ttySurfaceId
         )
@@ -371,7 +372,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             arguments: arguments,
             environment: claudeHookEnvironment(
                 context: context,
-                surfaceId: mappedSurfaceId,
+                surfaceId: ambientSurfaceId,
                 ttyName: ttyName,
                 storeURL: storeURL
             ),
@@ -391,6 +392,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             request["surface_id"] as? String == expected,
             "\(requestMessage); params=\(request)"
         )
+        #expect(request["surface_id"] as? String != ambientSurfaceId, "Raw ambient CMUX_SURFACE_ID must not win")
         #expect(
             context.state.snapshot().contains {
                 $0.hasPrefix("set_status claude_code Running ")
