@@ -62,7 +62,8 @@ the specific known-public value):
   `SentryScrubber.swift`'s doc comment.
 - **Other synthetic test-only tokens.** An attach-ticket coding fixture, a
   diff-viewer URL token (a UUID), a websocket-lease fuzz seed (a sha256 hex
-  literal), and a command-palette focus probe marker.
+  literal), a command-palette focus probe marker, and the Sentry CLI checksum
+  fixture used by the self-hosted CI guard.
 - **Public-by-design keys.** The Stack Auth *publishable* client keys and the
   PostHog project API key are meant to ship in clients, plus an APNs key
   *env-var reference* (not a hardcoded secret).

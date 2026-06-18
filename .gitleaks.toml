@@ -55,6 +55,8 @@ regexes = [
   '''CMUX_PALETTE_FOCUS_PROBE_9412''',
   '''CMUX_PALETTE_RESTORE_PROBE_7731''',
   '''00112233445566778899aabbccddeeff''',
+  '''3q2-7wDqzfQqzKpQ4XB8x1n0o5pYkz9jW2sT8uVbLwM''',
+  '''dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5''',
   '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
   '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
   '''phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP''',
@@ -68,8 +70,8 @@ regexes = [
 [[allowlists]]
 description = "Sentry-scrubber redaction test fixtures (issue #5978)"
 paths = [
-  '''(^|/)Packages/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
-  '''(^|/)Packages/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
+  '''(^|/)Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
+  '''(^|/)Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
   '''(^|/)cmuxTests/SentryEventScrubberTests\.swift$''',
 ]
 
@@ -80,7 +82,7 @@ paths = [
 description = "SentryScrubber doc-comment example token (issue #5978)"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)Packages/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber\.swift$''']
+paths = ['''(^|/)Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber\.swift$''']
 regexes = ['''token=sk-abc123def456ghij''']
 
 # ---------------------------------------------------------------------------
@@ -91,8 +93,11 @@ regexes = ['''token=sk-abc123def456ghij''']
 description = "Attach-ticket compact-coder fixture token"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)Packages/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift$''']
-regexes = ['''ticket-secret''']
+paths = ['''(^|/)Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift$''']
+regexes = [
+  '''ticket-secret''',
+  '''3q2-7wDqzfQqzKpQ4XB8x1n0o5pYkz9jW2sT8uVbLwM''',
+]
 
 [[allowlists]]
 description = "Diff-viewer URL fixture token"
@@ -122,8 +127,18 @@ regexes = [
 description = "Remote CLI relay fixture token hex"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)Packages/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift$''']
+paths = ['''(^|/)Packages/macOS/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift$''']
 regexes = ['''00112233445566778899aabbccddeeff''']
+
+[[allowlists]]
+description = "Sentry CLI release checksum (public integrity hash)"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''(^|/)scripts/ensure-sentry-cli\.sh$''',
+  '''(^|/)tests/test_ci_self_hosted_guard\.sh$''',
+]
+regexes = ['''dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5''']
 
 # ---------------------------------------------------------------------------
 # Embedded public/publishable keys and non-secret env references. These ship in
@@ -140,7 +155,7 @@ regexes = ['''00112233445566778899aabbccddeeff''']
 description = "Stack Auth publishable client keys in AuthConfig.swift (public by design)"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig\.swift$''']
+paths = ['''(^|/)Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig\.swift$''']
 regexes = [
   '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
   '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
@@ -155,6 +170,13 @@ regexes = [
   '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
   '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
 ]
+
+[[allowlists]]
+description = "Stack Auth publishable client key in setup-team-dev.sh (public by design)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)scripts/setup-team-dev\.sh$''']
+regexes = ['''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''']
 
 [[allowlists]]
 description = "PostHog project API key (public, intentionally embedded in the client)"
