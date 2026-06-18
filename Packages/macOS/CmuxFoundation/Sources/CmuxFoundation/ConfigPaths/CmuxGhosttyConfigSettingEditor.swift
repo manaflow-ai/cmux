@@ -27,6 +27,11 @@ public struct CmuxGhosttyConfigSettingEditor {
     /// The largest surface-tab-bar font size cmux allows.
     public static let maxSurfaceTabBarFontSize = 14.0
 
+    /// The config key that enables surface tabs to stretch across a pane.
+    public static let surfaceTabsFillPaneWidthKey = "surface-tabs-fill-pane-width"
+    /// The default surface tab width mode.
+    public static let defaultSurfaceTabsFillPaneWidth = false
+
     public init() {}
 
     /// Clamps a sidebar font size to its allowed range, substituting the default
@@ -63,6 +68,35 @@ public struct CmuxGhosttyConfigSettingEditor {
     /// or `nil` when absent.
     public func parsedSurfaceTabBarFontSize(in contents: String) -> Double? {
         parsedFontSize(in: contents, key: Self.surfaceTabBarFontSizeKey, clamp: clampedSurfaceTabBarFontSize)
+    }
+
+    /// Serializes a boolean Ghostty config value (`true`/`false`).
+    public func formattedBool(_ value: Bool) -> String {
+        value ? "true" : "false"
+    }
+
+    /// Reads the last occurrence of the surface-tabs-fill-pane-width flag, or `nil` if unset/unparseable.
+    public func parsedSurfaceTabsFillPaneWidth(in contents: String) -> Bool? {
+        guard let raw = parsedValue(for: Self.surfaceTabsFillPaneWidthKey, in: contents) else {
+            return nil
+        }
+        return parsedBoolLiteral(raw)
+    }
+
+    /// Parses a Ghostty-style boolean literal, accepting common truthy and falsy spellings.
+    public func parsedBoolLiteral(_ rawValue: String) -> Bool? {
+        let normalized = rawValue
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+        switch normalized {
+        case "true", "1", "yes", "on":
+            return true
+        case "false", "0", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 
     /// Formats a point size for display, trimming trailing zeros (`12`, `13.5`, `13.75`).

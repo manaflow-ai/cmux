@@ -48,6 +48,7 @@ extension WorkspaceContentView {
             String(format: "%.4f", config.backgroundOpacity),
             String(describing: config.backgroundBlur),
             String(format: "%.4f", config.surfaceTabBarFontSize),
+            String(config.surfaceTabsFillPaneWidth),
             String(format: "%.4f", config.unfocusedSplitOpacity),
             config.unfocusedSplitFill?.hexString(includeAlpha: true) ?? "nil",
             config.splitDividerColor?.hexString(includeAlpha: true) ?? "nil",

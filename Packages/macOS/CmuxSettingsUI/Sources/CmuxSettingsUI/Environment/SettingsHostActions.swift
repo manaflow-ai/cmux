@@ -109,6 +109,19 @@ public protocol SettingsHostActions: AnyObject {
     @discardableResult
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool
 
+    /// Whether surface tabs stretch to fill their pane's available tab-bar
+    /// width. Backed by the Ghostty config file (`surface-tabs-fill-pane-width`).
+    func surfaceTabsFillPaneWidth() -> Bool
+
+    /// Persists the surface-tabs-fill-pane-width flag to the Ghostty config and
+    /// live-reloads open windows.
+    ///
+    /// - Returns: `true` if the value was written and reloaded, `false` if
+    ///   persistence failed. The disk write happens off the main actor, so this
+    ///   is `async`; call it from a `Task` in the toggle action.
+    @discardableResult
+    func setSurfaceTabsFillPaneWidth(_ enabled: Bool) async -> Bool
+
     /// Formats a point size for display next to a font-size slider
     /// (e.g. `12`, `13.5`), trimming trailing zeros.
     func formattedFontSize(_ points: Double) -> String
@@ -183,6 +196,10 @@ public extension SettingsHostActions {
     }
 
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool { true }
+
+    func surfaceTabsFillPaneWidth() -> Bool { false }
+
+    func setSurfaceTabsFillPaneWidth(_ enabled: Bool) async -> Bool { true }
 
     func formattedFontSize(_ points: Double) -> String {
         let scaled = (points * 100).rounded()

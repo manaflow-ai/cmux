@@ -51,6 +51,8 @@ public struct GhosttyConfig {
     public var fontSize: CGFloat = 12
     /// The surface tab-bar font size, in points.
     public var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
+    /// Whether surface tabs stretch to fill their pane's available tab-bar width.
+    public var surfaceTabsFillPaneWidth: Bool = CmuxGhosttyConfigSettingEditor.defaultSurfaceTabsFillPaneWidth
     /// The sidebar font size, in points.
     public var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
     /// The configured `theme` directive value, or `nil` when unset.
@@ -484,7 +486,7 @@ public struct GhosttyConfig {
             var trimmed = line.trimmingCharacters(in: .whitespaces)
             // Strip a leading UTF-8 BOM so a BOM-encoded first line (e.g. a
             // `sidebar-font-size` setting) is still parsed instead of silently
-            // ignored, matching `CmuxGhosttyConfigSettingEditor.parsedSetting`.
+            // ignored, matching `CmuxGhosttyConfigSettingEditor` parsing.
             if trimmed.hasPrefix("\u{FEFF}") {
                 trimmed.removeFirst()
                 trimmed = trimmed.trimmingCharacters(in: .whitespaces)
@@ -508,6 +510,10 @@ public struct GhosttyConfig {
                 case "surface-tab-bar-font-size":
                     if let size = Double(value), size.isFinite {
                         surfaceTabBarFontSize = Self.clampedSurfaceTabBarFontSize(CGFloat(size))
+                    }
+                case "surface-tabs-fill-pane-width":
+                    if let enabled = CmuxGhosttyConfigSettingEditor().parsedBoolLiteral(value) {
+                        surfaceTabsFillPaneWidth = enabled
                     }
                 case "sidebar-font-size":
                     if let size = Double(value), size.isFinite {

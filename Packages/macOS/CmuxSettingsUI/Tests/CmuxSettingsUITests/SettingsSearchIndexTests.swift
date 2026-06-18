@@ -53,6 +53,7 @@ struct SettingsSearchIndexTests {
         ("option as alt", "setting:app:terminal-config"),
         ("option", "setting:app:terminal-config"),
         ("environment variables", "setting:app:notification-command"),
+        ("fill pane width", "setting:terminal:tabs-fill-pane-width"),
     ])
     func searchesFindRealSettingsRows(query: String, expectedID: String) {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
