@@ -481,8 +481,9 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
     private let authorizationStateBroadcaster = TerminalNotificationAuthorizationStateBroadcaster()
+    private static let maxPendingFallbackAuthorizationRefreshCompletions = 128
     private var fallbackAuthorizationRefreshInFlight = false
-    private var pendingFallbackAuthorizationRefreshCompletion: ((NotificationAuthorizationState) -> Void)?
+    private var pendingFallbackAuthorizationRefreshCompletions: [(NotificationAuthorizationState) -> Void] = []
     private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
@@ -1905,9 +1906,32 @@ final class TerminalNotificationStore: ObservableObject {
     private func enqueueFallbackAuthorizationRefresh(
         _ completion: @escaping (NotificationAuthorizationState) -> Void
     ) {
-        pendingFallbackAuthorizationRefreshCompletion = completion
-        guard !fallbackAuthorizationRefreshInFlight else { return }
+        if fallbackAuthorizationRefreshInFlight {
+            // Keep the coalesced fan-out bounded if usernoted stalls while a
+            // notification flood is already waiting on one authorization read.
+            guard pendingFallbackAuthorizationRefreshCompletions.count < Self.maxPendingFallbackAuthorizationRefreshCompletions else {
+                requestFallbackAuthorizationRefresh(completion)
+                return
+            }
+            pendingFallbackAuthorizationRefreshCompletions.append(completion)
+            return
+        }
+        pendingFallbackAuthorizationRefreshCompletions.append(completion)
         fallbackAuthorizationRefreshInFlight = true
+        requestFallbackAuthorizationRefresh { [weak self] state in
+            guard let self else { return }
+            let completions = self.pendingFallbackAuthorizationRefreshCompletions
+            self.pendingFallbackAuthorizationRefreshCompletions.removeAll(keepingCapacity: false)
+            self.fallbackAuthorizationRefreshInFlight = false
+            for completion in completions {
+                completion(state)
+            }
+        }
+    }
+
+    private func requestFallbackAuthorizationRefresh(
+        _ completion: @escaping (NotificationAuthorizationState) -> Void
+    ) {
         notificationAuthorizationStatusProvider { [weak self] status in
             Task { @MainActor in
                 guard let self else { return }
@@ -1916,10 +1940,7 @@ final class TerminalNotificationStore: ObservableObject {
                 self.logAuthorization(
                     "feedback status=\(Self.authorizationStatusLabel(status)) mapped=\(state.statusLabel)"
                 )
-                let completion = self.pendingFallbackAuthorizationRefreshCompletion
-                self.pendingFallbackAuthorizationRefreshCompletion = nil
-                self.fallbackAuthorizationRefreshInFlight = false
-                completion?(state)
+                completion(state)
             }
         }
     }
@@ -2206,7 +2227,7 @@ final class TerminalNotificationStore: ObservableObject {
     func resetNotificationAuthorizationStatusProviderForTesting() {
         notificationAuthorizationStatusProvider = Self.defaultNotificationAuthorizationStatusProvider
         fallbackAuthorizationRefreshInFlight = false
-        pendingFallbackAuthorizationRefreshCompletion = nil
+        pendingFallbackAuthorizationRefreshCompletions.removeAll()
     }
 
     func configurePhoneForwardHandlerForTesting(
