@@ -3,6 +3,9 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceRow: View {
+    private static let unreadDotAvatarVisualGap: CGFloat = 10
+    private static let avatarTextVisualGap: CGFloat = 8
+
     let workspace: MobileWorkspacePreview
     let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
@@ -18,14 +21,20 @@ struct WorkspaceRow: View {
     var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
 
     var body: some View {
-        HStack(alignment: .top, spacing: 4) {
+        HStack(alignment: .top, spacing: 0) {
             // Unread is JUST this dot, left of the icon like iMessage. The
             // gutter is always present (hidden dot when read) so read and
             // unread rows line up. Centered against the avatar's height.
             WorkspaceUnreadDot(isUnread: workspace.hasUnread, leftShift: unreadIndicatorLeftShift)
                 .frame(height: CGFloat(profilePictureSize))
 
+            Spacer()
+                .frame(width: unreadDotAvatarLayoutGap)
+
             WorkspaceAvatar(workspace: workspace, size: profilePictureSize, leftShift: profilePictureLeftShift)
+
+            Spacer()
+                .frame(width: avatarTextLayoutGap)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -65,6 +74,20 @@ struct WorkspaceRow: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    private var unreadDotAvatarLayoutGap: CGFloat {
+        let dotTrailing = (WorkspaceUnreadDot.gutterWidth + WorkspaceUnreadDot.dotDiameter) / 2
+            - CGFloat(unreadIndicatorLeftShift)
+        return max(
+            0,
+            Self.unreadDotAvatarVisualGap + dotTrailing - WorkspaceUnreadDot.gutterWidth
+                + CGFloat(profilePictureLeftShift)
+        )
+    }
+
+    private var avatarTextLayoutGap: CGFloat {
+        max(0, Self.avatarTextVisualGap - CGFloat(profilePictureLeftShift))
     }
 }
 
