@@ -710,38 +710,48 @@ check_no_self_hosted_fleet_runners() {
   local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-6vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
 
+  # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
+  # Case-sensitive: GitHub's auto labels are `macOS`/`ARM64`, distinct from the
+  # lowercase `macos`/`arm64` inside cloud labels like warp-macos-15-arm64-6x.
+  local selfhosted='(^|[^A-Za-z0-9_-])(self-hosted|macOS|ARM64)([^A-Za-z0-9_-]|$)'
+  local forbidden="${fleet}|${selfhosted}"
+
   # Self-test the matcher so a future edit cannot silently narrow it: every
-  # known fleet label must be caught, every allowed cloud label must pass.
+  # known fleet/self-hosted label must be caught, every allowed cloud label
+  # must pass. Probes are raw YAML values (no path:lineno: prefix).
   local probe
   for probe in 'runs-on: macfleet' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
                "runs-on: \${{ vars.X || 'macos-26' }}" '- warp-macos-26-arm64-6x' \
-               '- cmux-aws-macos-15' '- cmux-macos-26'; do
-    if ! printf '%s\n' "$probe" | grep -Eq "($fleet)"; then
-      echo "FAIL: fleet-runner guard self-test missed a known fleet label: $probe"
+               '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
+               'runs-on: [self-hosted, macOS, ARM64]'; do
+    if ! printf '%s\n' "$probe" | grep -Eq "($forbidden)"; then
+      echo "FAIL: fleet-runner guard self-test missed a known fleet/self-hosted label: $probe"
       exit 1
     fi
   done
   for probe in "runs-on: \${{ vars.X || 'blacksmith-6vcpu-macos-26' }}" \
-               '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15'; do
-    if printf '%s\n' "$probe" | grep -E "($fleet)" | grep -Eqv "($allowed)"; then
+               "runs-on: \${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}" \
+               '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15' \
+               '- blacksmith-4vcpu-ubuntu-2404'; do
+    if printf '%s\n' "$probe" | grep -E "($forbidden)" | grep -Eqv "($allowed)"; then
       echo "FAIL: fleet-runner guard self-test false-positived a cloud label: $probe"
       exit 1
     fi
   done
 
   local hits="" line content
-  # Only runner-selection lines: runs-on:, matrix `os:`, and scalar dispatch
-  # options (`  - <label>` with no colon). Free-text descriptions and step
-  # lists (`- name:` / `- uses:`) are excluded. Match the YAML value only, never
-  # the `path:lineno:` prefix grep -rn prepends (the checkout path contains
-  # "cmux", which would otherwise match the bare `cmux` label alternative).
+  # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
+  # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
+  # `runs-on:` arrays). `- name:` / `- uses:` step entries have a colon and are
+  # excluded. grep matches against file CONTENT; strip the `path:lineno:` prefix
+  # before matching the value so the checkout path (which contains "cmux") can
+  # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
-    printf '%s\n' "$content" | grep -Eq "($fleet)" || continue
+    printf '%s\n' "$content" | grep -Eq "($forbidden)" || continue
     printf '%s\n' "$content" | grep -Eq "($allowed)" && continue
     hits+="$line"$'\n'
-  done < <(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[^:]+:[0-9]+:[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
-  hits+="$(grep -rnE "runs-on:[[:space:]]*\[?[[:space:]]*(self-hosted|macOS|ARM64)([[:space:],]|\]|$)" "$ROOT_DIR/.github/workflows" || true)"
+  done < <(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then
     echo "FAIL: workflow references a self-hosted mac fleet label or bare self-hosted runner in a runner-selection position."
     echo "      Use a cloud label so required jobs never land on a mini that can't foreground a GUI app:"
