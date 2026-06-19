@@ -12432,36 +12432,6 @@ private struct SidebarWorkspaceDescriptionText: View {
     }
 }
 
-private extension String {
-    func sidebarBoundedDisplayString(maxDisplayedLines: Int, maxDisplayedCharacters: Int) -> String {
-        var result = ""
-        result.reserveCapacity(maxDisplayedCharacters)
-        var lineCount = 1
-        var characterCount = 0
-        var truncated = false
-
-        for character in self {
-            if characterCount >= maxDisplayedCharacters {
-                truncated = true
-                break
-            }
-            if character == "\n" {
-                if lineCount >= maxDisplayedLines {
-                    truncated = true
-                    break
-                }
-                lineCount += 1
-            }
-            result.append(character)
-            characterCount += 1
-        }
-
-        guard truncated else { return self }
-        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "..." : trimmed + "..."
-    }
-}
-
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
@@ -13517,7 +13487,6 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
     }
 }
 
-enum SidebarSelection {
-    case tabs
-    case notifications
-}
+/// Lifted to `CmuxCore.SidebarSelection`; this typealias keeps the unqualified
+/// `SidebarSelection` spelling resolving for app-target consumers.
+typealias SidebarSelection = CmuxCore.SidebarSelection
