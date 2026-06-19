@@ -544,32 +544,32 @@ final class FullScreenShortcutTests: XCTestCase {
 
     func testInlineTextHandlingDisablesPaletteSelectionNavigationRouting() {
         XCTAssertTrue(
-            shouldRouteCommandPaletteSelectionNavigation(
+            CommandPaletteSelectionNavigation(
                 delta: -1,
                 isInteractive: true,
                 usesInlineTextHandling: false
-            )
+            ).shouldRoute
         )
         XCTAssertFalse(
-            shouldRouteCommandPaletteSelectionNavigation(
+            CommandPaletteSelectionNavigation(
                 delta: -1,
                 isInteractive: true,
                 usesInlineTextHandling: true
-            )
+            ).shouldRoute
         )
         XCTAssertFalse(
-            shouldRouteCommandPaletteSelectionNavigation(
+            CommandPaletteSelectionNavigation(
                 delta: nil,
                 isInteractive: true,
                 usesInlineTextHandling: false
-            )
+            ).shouldRoute
         )
         XCTAssertFalse(
-            shouldRouteCommandPaletteSelectionNavigation(
+            CommandPaletteSelectionNavigation(
                 delta: 1,
                 isInteractive: false,
                 usesInlineTextHandling: false
-            )
+            ).shouldRoute
         )
     }
 }
@@ -578,96 +578,56 @@ final class FullScreenShortcutTests: XCTestCase {
 final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
     func testDoesNotConsumeWhenPaletteIsNotVisible() {
         XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: false,
-                normalizedFlags: [.command],
-                chars: "n",
-                keyCode: 45
-            )
+            CommandPaletteKeystroke(keyCode: 45, modifierFlags: [.command], characters: "n")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: false)
         )
     }
 
     func testConsumesAppCommandShortcutsWhenPaletteIsVisible() {
         XCTAssertTrue(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "n",
-                keyCode: 45
-            )
+            CommandPaletteKeystroke(keyCode: 45, modifierFlags: [.command], characters: "n")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
         XCTAssertTrue(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "t",
-                keyCode: 17
-            )
+            CommandPaletteKeystroke(keyCode: 17, modifierFlags: [.command], characters: "t")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
         XCTAssertTrue(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command, .shift],
-                chars: ",",
-                keyCode: 43
-            )
+            CommandPaletteKeystroke(keyCode: 43, modifierFlags: [.command, .shift], characters: ",")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
     }
 
     func testAllowsClipboardAndUndoShortcutsForPaletteTextEditing() {
         XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "v",
-                keyCode: 9
-            )
+            CommandPaletteKeystroke(keyCode: 9, modifierFlags: [.command], characters: "v")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
         XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "z",
-                keyCode: 6
-            )
+            CommandPaletteKeystroke(keyCode: 6, modifierFlags: [.command], characters: "z")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
         XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command, .shift],
-                chars: "z",
-                keyCode: 6
-            )
+            CommandPaletteKeystroke(keyCode: 6, modifierFlags: [.command, .shift], characters: "z")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
     }
 
     func testAllowsArrowAndDeleteEditingCommandsForPaletteTextEditing() {
         XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "",
-                keyCode: 123
-            )
+            CommandPaletteKeystroke(keyCode: 123, modifierFlags: [.command], characters: "")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
         XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "",
-                keyCode: 51
-            )
+            CommandPaletteKeystroke(keyCode: 51, modifierFlags: [.command], characters: "")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
     }
 
     func testConsumesEscapeWhenPaletteIsVisible() {
         XCTAssertTrue(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [],
-                chars: "",
-                keyCode: 53
-            )
+            CommandPaletteKeystroke(keyCode: 53, modifierFlags: [], characters: "")
+                .shouldConsumeWhilePaletteVisible(isPaletteVisible: true)
         )
     }
 }

@@ -2774,11 +2774,11 @@ struct ContentView: View {
                         )
                     },
                     shouldSubmitWithReturn: { event in
-                        shouldSubmitCommandPaletteWithReturn(
+                        CommandPaletteKeystroke(
                             keyCode: event.keyCode,
-                            flags: event.modifierFlags,
-                            mode: "single_line"
-                        )
+                            modifierFlags: event.modifierFlags,
+                            characters: event.characters ?? event.charactersIgnoringModifiers ?? ""
+                        ).shouldSubmitWithReturn(mode: "single_line")
                     }
                 )
                 .frame(maxWidth: .infinity)
