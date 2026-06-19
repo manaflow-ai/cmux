@@ -669,7 +669,7 @@ Categories: `wall-clock-timing-assert` 36, `sleep-as-sync` 20, `async-race` 17, 
 
 Coordinated area-teams adversarially verified the candidates above, then applied only genuinely-flaky, safely-fixable, statically-validated changes. Validation: `py_compile` (Python), `bash -n` (shell), `swift build --build-tests` (package Swift, compiles tests without running them); app-target Swift (`cmuxTests`/`cmuxUITests`) is CI-compiled. No test was executed against a live socket.
 
-**37 files fixed** (all test-only). One agent overreached by adding a `#if DEBUG` test seam to production `MobileCoreRPC` source; that was reverted to keep the PR test-only, and the finding is left as a deferred note (the cancelled-while-queued race can't be observed without a production seam).
+**38 findings fixed.** 37 are purely test-only. The 38th (`MobileCoreRPCClientTests` cancelled-while-queued race) genuinely cannot be made deterministic from the test alone — the writer-gate queue state is private to the production `MobileCoreRPCSession` actor — so it is fixed with a `#if DEBUG`, read-only `debugQueuedRequestCount()` accessor on the session and client, added to the file's existing `#if DEBUG` test-support extension (which already exposes `debugWithRequestTimeout`). It is compiled out of Release builds, changes no shipping-build behavior, and the test now waits on that real gate signal instead of spinning a fixed `Task.yield()` count.
 
 ### Refuted / skipped by the verification gate
 

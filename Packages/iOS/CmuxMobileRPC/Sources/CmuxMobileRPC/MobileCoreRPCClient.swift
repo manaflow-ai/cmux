@@ -354,6 +354,16 @@ extension MobileCoreRPCClient {
             operation: operation
         )
     }
+
+    /// Test-only: number of requests currently parked at the session's writer
+    /// gate (registered in the write queue but not yet handed to the transport).
+    /// Lets a cancellation test wait until a queued `sendRequest` has actually
+    /// reached the gate before cancelling, instead of guessing with a fixed
+    /// number of `Task.yield()`s. Read-only and `#if DEBUG`, so it has no effect
+    /// on shipping builds.
+    public func debugQueuedRequestCount() async -> Int {
+        await session.debugQueuedRequestCount()
+    }
 }
 #endif
 
