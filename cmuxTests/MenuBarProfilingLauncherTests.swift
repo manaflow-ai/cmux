@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,9 +6,10 @@ import XCTest
 @testable import cmux
 #endif
 
-final class MenuBarProfilingLauncherTests: XCTestCase {
+struct MenuBarProfilingLauncherTests {
+    @Test
     func testMenuBarProfilingLaunchesCurrentProcessForFifteenSecondsAndOpensOutput() {
-        XCTAssertEqual(
+        #expect(
             MenuBarProfilingLauncher.arguments(pid: 1234),
             ["--pid", "1234", "--duration", "15", "--open-output"]
         )

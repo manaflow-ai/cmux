@@ -1721,6 +1721,7 @@ final class MenuBarBuildHintFormatterTests: XCTestCase {
     }
 }
 
+
 final class MenuBarNotificationLineFormatterTests: XCTestCase {
     func testPlainTitleContainsUnreadDotBodyAndTab() {
         let notification = TerminalNotification(
