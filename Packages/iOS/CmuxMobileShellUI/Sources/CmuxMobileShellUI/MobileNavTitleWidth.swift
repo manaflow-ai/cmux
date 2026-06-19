@@ -9,7 +9,9 @@ import CoreGraphics
 /// picker plus, when the visible tab has an agent session, the chat toggle.
 /// Reserving only that (instead of a flat, over-large constant) lets a long
 /// title use as much of the center as it safely can before truncating.
-enum MobileNavTitleWidth {
+struct MobileNavTitleWidth {
+    private init() {}
+
     /// Reserved width of the leading cluster: the custom back button (chevron +
     /// optional unread-count pill) plus the bar's leading margin.
     static let leadingReserve: CGFloat = 84
