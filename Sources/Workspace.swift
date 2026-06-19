@@ -6533,10 +6533,15 @@ final class Workspace: Identifiable, ObservableObject {
     /// (`panelDirectories[sourcePanelId]`), or nil when the remote has not
     /// reported one yet.
     ///
-    /// The directory a new tab (`new-window`) should inherit in a remote-tmux
-    /// mirror, based on the source tab.
+    /// It must not use ``resolvedTerminalStartupWorkingDirectory(requestedWorkingDirectory:sourcePanelId:)``:
+    /// that resolver falls back to `currentDirectory`, which on a mirror
+    /// workspace is seeded from the local workspace and so can be a local
+    /// filesystem path. A local path is meaningless on the remote host — as
+    /// `new-window -c` it would open the tab somewhere other than the active
+    /// tab's directory. Only `panelDirectories[sourcePanelId]`, fed by the tab's
+    /// remote cwd reports, is a correct remote-side source.
     func remoteTmuxNewWindowWorkingDirectory(forSourcePanelId sourcePanelId: UUID?) -> String? {
-        resolvedTerminalStartupWorkingDirectory(requestedWorkingDirectory: nil, sourcePanelId: sourcePanelId)
+        Self.normalizedTerminalWorkingDirectory(sourcePanelId.flatMap { panelDirectories[$0] })
     }
 
     /// Candidate terminal panels used as the source when creating inherited Ghostty config.

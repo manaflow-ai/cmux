@@ -457,7 +457,13 @@ final class RemoteTmuxController {
     /// use on this stream); a path carrying CR/LF/control bytes that could
     /// terminate the command line is dropped, leaving the placement-only command.
     nonisolated static func newWindowCommand(afterWindowId: Int?, workingDirectory: String?) -> String {
-        afterWindowId.map { "new-window -a -t @\($0)" } ?? "new-window -a -t '{end}'"
+        var command = afterWindowId.map { "new-window -a -t @\($0)" } ?? "new-window -a -t '{end}'"
+        if let directory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !directory.isEmpty,
+           RemoteTmuxHost.controlModeLineSafeName(directory) != nil {
+            command += " -c \(RemoteTmuxHost.shellSingleQuoted(directory))"
+        }
+        return command
     }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
