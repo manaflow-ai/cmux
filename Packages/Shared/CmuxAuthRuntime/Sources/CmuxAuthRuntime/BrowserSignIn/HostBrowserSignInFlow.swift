@@ -166,7 +166,6 @@ public final class HostBrowserSignInFlow {
            let state = authCallbackState(from: url),
            state == pendingFallbackCallbackState {
             log.log("auth.callback.external.routeToIssuedFallback")
-            pendingFallbackCallbackState = nil
             return await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
         }
         log.log("auth.callback.external.reject reason=noActiveAttempt")
@@ -461,6 +460,7 @@ public final class HostBrowserSignInFlow {
         if authCallbackState(from: url) == pendingFallbackCallbackState {
             pendingFallbackCallbackState = nil
         }
+        lastFailure = nil
         return true
     }
 
