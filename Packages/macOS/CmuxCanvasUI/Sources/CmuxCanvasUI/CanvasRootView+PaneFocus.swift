@@ -67,7 +67,8 @@ extension CanvasRootView {
         for pane in model.layout.panes.reversed() {
             guard let view = paneViews[pane.id], view.frame.contains(documentPoint) else { continue }
             let localPoint = view.convert(documentPoint, from: documentView)
-            // Chrome and resize-rim hits belong to the frontmost pane they hit, not panes behind it.
+            // Stop at the first pane frame hit: chrome and resize-rim clicks
+            // belong to that frontmost pane, not an overlapped pane behind it.
             return view.containsBodyPoint(localPoint) ? view : nil
         }
         return nil
