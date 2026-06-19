@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
+import CmuxCommandPaletteUI
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
@@ -29,600 +30,22 @@ import UniformTypeIdentifiers
 import WebKit
 
 var fileDropOverlayKey: UInt8 = 0
-private var commandPaletteWindowOverlayKey: UInt8 = 0
 private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
-let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
 let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
-@MainActor
-private final class CommandPaletteOverlayContainerView: NSView {
-    var capturesMouseEvents = false
-
-    override var isOpaque: Bool { false }
-    override var acceptsFirstResponder: Bool { true }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard capturesMouseEvents else { return nil }
-        return super.hitTest(point)
-    }
-}
-
-@MainActor
-private final class PassthroughWindowOverlayContainerView: NSView {
-    override var isOpaque: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-}
-
-#if DEBUG
-private func debugCommandPaletteWindowSummary(_ window: NSWindow?) -> String {
-    guard let window else { return "nil" }
-    let ident = window.identifier?.rawValue ?? "nil"
-    return "num=\(window.windowNumber) ident=\(ident) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
-}
-
-private func debugCommandPaletteNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
-    flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-}
-
-private func debugCommandPaletteModifierFlagsSummary(_ flags: NSEvent.ModifierFlags) -> String {
-    let normalized = debugCommandPaletteNormalizedModifierFlags(flags)
-    var parts: [String] = []
-    if normalized.contains(.command) { parts.append("cmd") }
-    if normalized.contains(.shift) { parts.append("shift") }
-    if normalized.contains(.option) { parts.append("opt") }
-    if normalized.contains(.control) { parts.append("ctrl") }
-    return parts.isEmpty ? "none" : parts.joined(separator: "+")
-}
-
-private func debugCommandPaletteKeyEventSummary(_ event: NSEvent) -> String {
-    let chars = event.characters.map(String.init(reflecting:)) ?? "nil"
-    let charsIgnoring = event.charactersIgnoringModifiers.map(String.init(reflecting:)) ?? "nil"
-    return
-        "type=\(event.type) keyCode=\(event.keyCode) flags=\(debugCommandPaletteModifierFlagsSummary(event.modifierFlags)) " +
-        "chars=\(chars) charsIgnoring=\(charsIgnoring)"
-}
-
-private func debugCommandPaletteTextPreview(_ text: String, limit: Int = 120) -> String {
-    let escaped = text
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\n", with: "\\n")
-        .replacingOccurrences(of: "\r", with: "\\r")
-        .replacingOccurrences(of: "\t", with: "\\t")
-    if escaped.count <= limit {
-        return escaped
-    }
-    let prefix = escaped.prefix(limit)
-    return "\(prefix)..."
-}
-
-private func debugCommandPaletteResponderSummary(_ responder: NSResponder?) -> String {
-    guard let responder else { return "nil" }
-
-    let typeName = String(describing: type(of: responder))
-    if let textView = responder as? NSTextView {
-        let selection = textView.selectedRange()
-        return "\(typeName){fieldEditor=\(textView.isFieldEditor ? 1 : 0) editable=\(textView.isEditable ? 1 : 0) selectable=\(textView.isSelectable ? 1 : 0) hidden=\(textView.isHiddenOrHasHiddenAncestor ? 1 : 0) len=\((textView.string as NSString).length) sel=\(selection.location):\(selection.length)}"
-    }
-
-    if let textField = responder as? NSTextField {
-        return "\(typeName){editable=\(textField.isEditable ? 1 : 0) enabled=\(textField.isEnabled ? 1 : 0) hidden=\(textField.isHiddenOrHasHiddenAncestor ? 1 : 0) len=\((textField.stringValue as NSString).length)}"
-    }
-
-    if let view = responder as? NSView {
-        return "\(typeName){hidden=\(view.isHiddenOrHasHiddenAncestor ? 1 : 0)}"
-    }
-
-    return typeName
-}
-#endif
-
-@MainActor
-private final class WindowCommandPaletteOverlayController: NSObject {
-    private weak var window: NSWindow?
-    private let containerView = CommandPaletteOverlayContainerView(frame: .zero)
-    private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
-    private let chromeComposition = AppWindowChromeComposition()
-    private var installConstraints: [NSLayoutConstraint] = []
-    private weak var installedContainerView: NSView?
-    private weak var installedReferenceView: NSView?
-    private var focusLockTimer: DispatchSourceTimer?
-    private var scheduledFocusWorkItem: DispatchWorkItem?
-    private var isPaletteVisible = false
-    private var hasMountedPaletteRootView = false
-    private var windowDidBecomeKeyObserver: NSObjectProtocol?
-    private var windowDidResignKeyObserver: NSObjectProtocol?
-
-    init(window: NSWindow) {
-        self.window = window
-        super.init()
-        containerView.translatesAutoresizingMaskIntoConstraints = false
-        containerView.wantsLayer = true
-        containerView.layer?.backgroundColor = NSColor.clear.cgColor
-        containerView.isHidden = true
-        containerView.alphaValue = 0
-        containerView.capturesMouseEvents = false
-        containerView.identifier = commandPaletteOverlayContainerIdentifier
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-        containerView.addSubview(hostingView)
-        NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-        ])
-        _ = ensureInstalled()
-        installWindowKeyObservers()
-    }
-
-    @discardableResult
-    private func ensureInstalled() -> Bool {
-        guard let window,
-              let target = chromeComposition
-                .contentOverlayTargetResolver
-                .installationTarget(for: window) else { return false }
-
-        if containerView.superview !== target.container || installedReferenceView !== target.reference {
-            NSLayoutConstraint.deactivate(installConstraints)
-            installConstraints.removeAll()
-            containerView.removeFromSuperview()
-            target.container.addSubview(containerView, positioned: .above, relativeTo: nil)
-            installConstraints = [
-                containerView.topAnchor.constraint(equalTo: target.reference.topAnchor),
-                containerView.bottomAnchor.constraint(equalTo: target.reference.bottomAnchor),
-                containerView.leadingAnchor.constraint(equalTo: target.reference.leadingAnchor),
-                containerView.trailingAnchor.constraint(equalTo: target.reference.trailingAnchor),
-            ]
-            NSLayoutConstraint.activate(installConstraints)
-            installedContainerView = target.container
-            installedReferenceView = target.reference
-#if DEBUG
-            cmuxDebugLog(
-                "palette.overlay.install container=\(String(describing: type(of: target.container))) " +
-                "reference=\(String(describing: type(of: target.reference))) " +
-                "glass=\(chromeComposition.glassEffect.portalInstallationTarget(for: window) != nil ? 1 : 0)"
-            )
-#endif
-        }
-
-        return true
-    }
-
-    private func promoteOverlayAboveSiblingsIfNeeded() {
-        guard let container = installedContainerView,
-              containerView.superview === container else { return }
-        container.addSubview(containerView, positioned: .above, relativeTo: nil)
-    }
-
-    private func isPaletteResponder(_ responder: NSResponder?) -> Bool {
-        guard let responder else { return false }
-
-        if let view = responder as? NSView, view.isDescendant(of: containerView) {
-            return true
-        }
-
-        if let textView = responder as? NSTextView {
-            if let delegateView = textView.delegate as? NSView,
-               delegateView.isDescendant(of: containerView) {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func isPaletteFieldEditor(_ textView: NSTextView) -> Bool {
-        guard textView.isFieldEditor else { return false }
-
-        if let delegateView = textView.delegate as? NSView,
-           delegateView.isDescendant(of: containerView) {
-            return true
-        }
-
-        // SwiftUI text fields can keep a field editor delegate that isn't an NSView.
-        // Fall back to validating editor ownership from the mounted palette text field.
-        if let textField = firstEditableTextField(in: hostingView),
-           textField.currentEditor() === textView {
-            return true
-        }
-
-        return false
-    }
-
-    private func isPaletteMultilineTextView(_ textView: NSTextView) -> Bool {
-        guard !textView.isFieldEditor,
-              textView.isEditable,
-              textView.isSelectable,
-              !textView.isHiddenOrHasHiddenAncestor,
-              textView.isDescendant(of: containerView) else { return false }
-        return true
-    }
-
-    private func isPaletteTextInputFirstResponder(_ responder: NSResponder?) -> Bool {
-        guard let responder else { return false }
-
-        if let textView = responder as? NSTextView {
-            return isPaletteFieldEditor(textView) || isPaletteMultilineTextView(textView)
-        }
-
-        if let textField = responder as? NSTextField {
-            return textField.isDescendant(of: containerView)
-        }
-
-        return false
-    }
-
-    private func firstEditableTextInput(in view: NSView) -> NSResponder? {
-        if let textField = view as? NSTextField,
-           textField.isEditable,
-           textField.isEnabled,
-           !textField.isHiddenOrHasHiddenAncestor {
-            return textField
-        }
-
-        if let textView = view as? NSTextView,
-           !textView.isFieldEditor,
-           textView.isEditable,
-           textView.isSelectable,
-           !textView.isHiddenOrHasHiddenAncestor {
-            return textView
-        }
-
-        for subview in view.subviews {
-            if let match = firstEditableTextInput(in: subview) {
-                return match
-            }
-        }
-        return nil
-    }
-
-    private func firstEditableTextField(in view: NSView) -> NSTextField? {
-        if let textField = view as? NSTextField,
-           textField.isEditable,
-           textField.isEnabled,
-           !textField.isHiddenOrHasHiddenAncestor {
-            return textField
-        }
-
-        for subview in view.subviews {
-            if let match = firstEditableTextField(in: subview) {
-                return match
-            }
-        }
-        return nil
-    }
-
-    private func focusPaletteTextInput(in window: NSWindow) -> Bool {
-        guard let input = firstEditableTextInput(in: hostingView) else {
-#if DEBUG
-            cmuxDebugLog(
-                "palette.focus.direct missingInput window={\(debugCommandPaletteWindowSummary(window))} " +
-                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-            )
-#endif
-            return false
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "palette.focus.direct attempt window={\(debugCommandPaletteWindowSummary(window))} " +
-            "input=\(debugCommandPaletteResponderSummary(input)) " +
-            "frBefore=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-        )
-#endif
-        guard window.makeFirstResponder(input) else {
-#if DEBUG
-            cmuxDebugLog(
-                "palette.focus.direct failedMakeFirstResponder window={\(debugCommandPaletteWindowSummary(window))} " +
-                "input=\(debugCommandPaletteResponderSummary(input)) " +
-                "frAfter=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-            )
-#endif
-            return false
-        }
-
-        if let textView = input as? NSTextView, !textView.isFieldEditor {
-            let length = (textView.string as NSString).length
-            textView.setSelectedRange(NSRange(location: length, length: 0))
-        } else {
-            normalizeSelectionAfterProgrammaticFocus()
-        }
-
-        let didSettle = isPaletteTextInputFirstResponder(window.firstResponder)
-#if DEBUG
-        cmuxDebugLog(
-            "palette.focus.direct settled window={\(debugCommandPaletteWindowSummary(window))} " +
-            "didSettle=\(didSettle ? 1 : 0) frAfter=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-        )
-#endif
-        return didSettle
-    }
-
-    private func scheduleFocusIntoPalette(retries: Int = 4) {
-#if DEBUG
-        if let window {
-            cmuxDebugLog(
-                "palette.focus.schedule retries=\(retries) " +
-                "window={\(debugCommandPaletteWindowSummary(window))} " +
-                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-            )
-        } else {
-            cmuxDebugLog("palette.focus.schedule retries=\(retries) window=nil")
-        }
-#endif
-        scheduledFocusWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.scheduledFocusWorkItem = nil
-            self?.focusIntoPalette(retries: retries)
-        }
-        scheduledFocusWorkItem = workItem
-        DispatchQueue.main.async(execute: workItem)
-    }
-
-    private func focusIntoPalette(retries: Int) {
-        guard let window else { return }
-#if DEBUG
-        cmuxDebugLog(
-            "palette.focus.retry start retries=\(retries) " +
-            "window={\(debugCommandPaletteWindowSummary(window))} " +
-            "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-        )
-#endif
-        if isPaletteTextInputFirstResponder(window.firstResponder) {
-#if DEBUG
-            cmuxDebugLog(
-                "palette.focus.retry alreadyFocused window={\(debugCommandPaletteWindowSummary(window))} " +
-                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-            )
-#endif
-            return
-        }
-
-        if focusPaletteTextInput(in: window) {
-#if DEBUG
-            cmuxDebugLog(
-                "palette.focus.retry directSuccess retries=\(retries) " +
-                "window={\(debugCommandPaletteWindowSummary(window))}"
-            )
-#endif
-            return
-        }
-
-        let containerFocused = window.makeFirstResponder(containerView)
-#if DEBUG
-        cmuxDebugLog(
-            "palette.focus.retry containerResult retries=\(retries) " +
-            "window={\(debugCommandPaletteWindowSummary(window))} " +
-            "didFocusContainer=\(containerFocused ? 1 : 0) " +
-            "frAfterContainer=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-        )
-#endif
-        if containerFocused {
-            if focusPaletteTextInput(in: window) {
-#if DEBUG
-                cmuxDebugLog(
-                    "palette.focus.retry containerAssistedSuccess retries=\(retries) " +
-                    "window={\(debugCommandPaletteWindowSummary(window))}"
-                )
-#endif
-                return
-            }
-        }
-
-        guard retries > 0 else {
-#if DEBUG
-            cmuxDebugLog(
-                "palette.focus.retry exhausted window={\(debugCommandPaletteWindowSummary(window))} " +
-                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-            )
-#endif
-            return
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "palette.focus.retry reschedule nextRetries=\(retries - 1) " +
-            "window={\(debugCommandPaletteWindowSummary(window))}"
-        )
-#endif
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
-            self?.focusIntoPalette(retries: retries - 1)
-        }
-    }
-
-    private func installWindowKeyObservers() {
-        guard let window else { return }
-        windowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateFocusLockForWindowState()
-            }
-        }
-        windowDidResignKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateFocusLockForWindowState()
-            }
-        }
-    }
-
-    private func updateFocusLockForWindowState() {
-        guard let window else {
-            stopFocusLockTimer()
-            return
-        }
-        guard isPaletteVisible else {
-#if DEBUG
-            cmuxDebugLog(
-                "palette.focus.lock inactive visible=0 window={\(debugCommandPaletteWindowSummary(window))}"
-            )
-#endif
-            stopFocusLockTimer()
-            return
-        }
-
-        guard window.isKeyWindow else {
-#if DEBUG
-            cmuxDebugLog(
-                "palette.focus.lock keyWindowMissing window={\(debugCommandPaletteWindowSummary(window))} " +
-                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-            )
-#endif
-            stopFocusLockTimer()
-            if isPaletteResponder(window.firstResponder) {
-                _ = window.makeFirstResponder(nil)
-            }
-            return
-        }
-
-        startFocusLockTimer()
-        if !isPaletteTextInputFirstResponder(window.firstResponder) {
-#if DEBUG
-            cmuxDebugLog(
-                "palette.focus.lock requestRestore window={\(debugCommandPaletteWindowSummary(window))} " +
-                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-            )
-#endif
-            scheduleFocusIntoPalette(retries: 8)
-        }
-    }
-
-    private func startFocusLockTimer() {
-        guard focusLockTimer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(80), leeway: .milliseconds(12))
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            guard let window = self.window else {
-                self.stopFocusLockTimer()
-                return
-            }
-            if self.isPaletteTextInputFirstResponder(window.firstResponder) {
-                return
-            }
-            self.focusIntoPalette(retries: 1)
-        }
-        focusLockTimer = timer
-        timer.resume()
-    }
-
-    private func stopFocusLockTimer() {
-        focusLockTimer?.cancel()
-        focusLockTimer = nil
-        scheduledFocusWorkItem?.cancel()
-        scheduledFocusWorkItem = nil
-    }
-
-    private func normalizeSelectionAfterProgrammaticFocus() {
-        guard let window,
-              let editor = window.firstResponder as? NSTextView,
-              editor.isFieldEditor else { return }
-
-        let text = editor.string
-        let length = (text as NSString).length
-        let selection = editor.selectedRange()
-        guard length > 0 else { return }
-        guard selection.location == 0, selection.length == length else { return }
-
-        // Keep commands-mode prefix semantics stable after focus re-assertions:
-        // if AppKit selected the entire query (e.g. ">foo"), restore caret-at-end
-        // so the next keystroke appends instead of replacing and switching modes.
-        guard text.hasPrefix(">") else { return }
-        editor.setSelectedRange(NSRange(location: length, length: 0))
-    }
-
-    func update(
-        isVisible: Bool,
-        makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
-    ) {
-        let wasVisible = isPaletteVisible
-        if !isVisible, !wasVisible, !hasMountedPaletteRootView, containerView.isHidden {
-            return
-        }
-
-        guard ensureInstalled() else { return }
-        let shouldPromote = CommandPaletteOverlayPromotionPolicy(
-            previouslyVisible: wasVisible,
-            isVisible: isVisible
-        ).shouldPromote
-#if DEBUG
-        if let window {
-            cmuxDebugLog(
-                "palette.overlay.update visible=\(isVisible ? 1 : 0) promote=\(shouldPromote ? 1 : 0) " +
-                "window={\(debugCommandPaletteWindowSummary(window))} " +
-                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
-            )
-        } else {
-            cmuxDebugLog("palette.overlay.update visible=\(isVisible ? 1 : 0) promote=\(shouldPromote ? 1 : 0) window=nil")
-        }
-#endif
-        isPaletteVisible = isVisible
-        if isVisible {
-            hostingView.rootView = makeRootView()
-            hasMountedPaletteRootView = true
-            containerView.capturesMouseEvents = true
-            containerView.isHidden = false
-            containerView.alphaValue = 1
-            if shouldPromote {
-                promoteOverlayAboveSiblingsIfNeeded()
-            }
-            updateFocusLockForWindowState()
-        } else {
-            stopFocusLockTimer()
-            if let window, isPaletteResponder(window.firstResponder) {
-                _ = window.makeFirstResponder(nil)
-            }
-            hostingView.rootView = AnyView(EmptyView())
-            hasMountedPaletteRootView = false
-            containerView.capturesMouseEvents = false
-            containerView.alphaValue = 0
-            containerView.isHidden = true
-        }
-    }
-
-    func underlyingResponder(atWindowPoint windowPoint: NSPoint) -> NSResponder? {
-        guard let window,
-              let target = chromeComposition
-                .contentOverlayTargetResolver
-                .installationTarget(for: window) else {
-            return nil
-        }
-
-        let previousCapturesMouseEvents = containerView.capturesMouseEvents
-        containerView.capturesMouseEvents = false
-        defer {
-            containerView.capturesMouseEvents = previousCapturesMouseEvents
-        }
-
-        let pointInContainer = target.container.convert(windowPoint, from: nil)
-        return target.container.hitTest(pointInContainer)
-    }
-}
-
-@MainActor
-private func commandPaletteWindowOverlayController(for window: NSWindow) -> WindowCommandPaletteOverlayController {
-    if let existing = objc_getAssociatedObject(window, &commandPaletteWindowOverlayKey) as? WindowCommandPaletteOverlayController {
-        return existing
-    }
-    let controller = WindowCommandPaletteOverlayController(window: window)
-    objc_setAssociatedObject(window, &commandPaletteWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    return controller
-}
+// CommandPaletteOverlayContainerView, PassthroughWindowOverlayContainerView (now
+// the shared CmuxAppKitSupportUI.PassthroughOverlayContainerView), the
+// debugCommandPalette* summarizers (now CmuxCommandPaletteUI DEBUG-only
+// commandPaletteDebugSummary/commandPaletteDebugPreview extensions on
+// NSWindow/NSEvent/NSEvent.ModifierFlags/String/NSResponder),
+// WindowCommandPaletteOverlayController, its per-window factory (now
+// WindowCommandPaletteOverlayController.installed(in:)), and commandPaletteOwningWebView
+// (now NSResponder.commandPaletteOwningWebView) live in CmuxCommandPaletteUI.
 
 @MainActor
 private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private weak var window: NSWindow?
-    private let containerView = PassthroughWindowOverlayContainerView(frame: .zero)
+    private let containerView = PassthroughOverlayContainerView(frame: .zero)
     private let model = TmuxWorkspacePaneOverlayModel()
     private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayView>
     private let chromeComposition = AppWindowChromeComposition()
@@ -730,39 +153,6 @@ private func tmuxWorkspacePaneWindowOverlayController(for window: NSWindow, crea
     let controller = WindowTmuxWorkspacePaneOverlayController(window: window)
     objc_setAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     return controller
-}
-private func commandPaletteOwningWebView(for responder: NSResponder?) -> WKWebView? {
-    guard let responder else { return nil }
-
-    if let webView = responder as? WKWebView {
-        return webView
-    }
-
-    if let view = responder as? NSView {
-        var current: NSView? = view
-        while let candidate = current {
-            if let webView = candidate as? WKWebView {
-                return webView
-            }
-            current = candidate.superview
-        }
-    }
-
-    if let textView = responder as? NSTextView,
-       let delegateView = textView.delegate as? NSView,
-       let webView = commandPaletteOwningWebView(for: delegateView) {
-        return webView
-    }
-
-    var currentResponder = responder.nextResponder
-    while let next = currentResponder {
-        if let webView = commandPaletteOwningWebView(for: next) {
-            return webView
-        }
-        currentResponder = next.nextResponder
-    }
-
-    return nil
 }
 
 // Lifted to `CmuxFoundation.WorkspaceMountPlan` / `MountedWorkspacePresentation`
@@ -2812,8 +2202,8 @@ struct ContentView: View {
             )
 #if DEBUG
             cmuxDebugLog(
-                "palette.wsDescription.request observed={\(debugCommandPaletteWindowSummary(observedWindow))} " +
-                "requested={\(debugCommandPaletteWindowSummary(requestedWindow))} " +
+                "palette.wsDescription.request observed={\((observedWindow).commandPaletteWindowDebugSummary)} " +
+                "requested={\((requestedWindow).commandPaletteWindowDebugSummary)} " +
                 "shouldHandle=\(shouldHandle ? 1 : 0) presented=\(isCommandPalettePresented ? 1 : 0) " +
                 "mode=\(debugCommandPaletteModeLabel(commandPaletteMode))"
             )
@@ -2876,7 +2266,7 @@ struct ContentView: View {
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
             let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
             tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
-            let overlayController = commandPaletteWindowOverlayController(for: window)
+            let overlayController = WindowCommandPaletteOverlayController.installed(in: window)
             overlayController.update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
         }))
 
@@ -3107,7 +2497,7 @@ struct ContentView: View {
         if backdropResult.didChangeGlassRoot {
             let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
             tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
-            commandPaletteWindowOverlayController(for: window)
+            WindowCommandPaletteOverlayController.installed(in: window)
                 .update(isVisible: isCommandPalettePresented) { commandPaletteOverlayView }
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
@@ -3642,8 +3032,8 @@ struct ContentView: View {
             cmuxDebugLog(
                 "palette.wsDescription.focus.binding new=\(newValue ? 1 : 0) " +
                 "mode=\(debugCommandPaletteModeLabel(commandPaletteMode)) " +
-                "window={\(debugCommandPaletteWindowSummary(observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow))} " +
-                "fr=\(debugCommandPaletteResponderSummary((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder))"
+                "window={\((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow).commandPaletteWindowDebugSummary)} " +
+                "fr=\(((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder).commandPaletteResponderDebugSummary)"
             )
 #endif
         }
@@ -3898,7 +3288,7 @@ struct ContentView: View {
 #if DEBUG
             cmuxDebugLog(
                 "palette.wsDescription.editor.flagsChanged " +
-                "\(debugCommandPaletteKeyEventSummary(event))"
+                "\((event).commandPaletteEventDebugSummary)"
             )
 #endif
             super.flagsChanged(with: event)
@@ -3909,8 +3299,8 @@ struct ContentView: View {
 #if DEBUG
             cmuxDebugLog(
                 "palette.wsDescription.editor.textView.becomeFirstResponder success=\(becameFirstResponder ? 1 : 0) " +
-                "window={\(debugCommandPaletteWindowSummary(window))} " +
-                "fr=\(debugCommandPaletteResponderSummary(window?.firstResponder))"
+                "window={\((window).commandPaletteWindowDebugSummary)} " +
+                "fr=\((window?.firstResponder).commandPaletteResponderDebugSummary)"
             )
 #endif
             if becameFirstResponder {
@@ -3924,7 +3314,7 @@ struct ContentView: View {
 #if DEBUG
                 cmuxDebugLog(
                     "palette.wsDescription.editor.keyDown markedText=1 " +
-                    "\(debugCommandPaletteKeyEventSummary(event))"
+                    "\((event).commandPaletteEventDebugSummary)"
                 )
 #endif
                 super.keyDown(with: event)
@@ -3934,7 +3324,7 @@ struct ContentView: View {
 #if DEBUG
             cmuxDebugLog(
                 "palette.wsDescription.editor.keyDown handled=\(handled ? 1 : 0) " +
-                "\(debugCommandPaletteKeyEventSummary(event))"
+                "\((event).commandPaletteEventDebugSummary)"
             )
 #endif
             if handled {
@@ -3948,7 +3338,7 @@ struct ContentView: View {
 #if DEBUG
                 cmuxDebugLog(
                     "palette.wsDescription.editor.performKeyEquivalent markedText=1 " +
-                    "\(debugCommandPaletteKeyEventSummary(event))"
+                    "\((event).commandPaletteEventDebugSummary)"
                 )
 #endif
                 return super.performKeyEquivalent(with: event)
@@ -3957,7 +3347,7 @@ struct ContentView: View {
 #if DEBUG
             cmuxDebugLog(
                 "palette.wsDescription.editor.performKeyEquivalent handled=\(handled ? 1 : 0) " +
-                "\(debugCommandPaletteKeyEventSummary(event))"
+                "\((event).commandPaletteEventDebugSummary)"
             )
 #endif
             if handled {
@@ -3967,7 +3357,7 @@ struct ContentView: View {
 #if DEBUG
             cmuxDebugLog(
                 "palette.wsDescription.editor.performKeyEquivalent superResult=\(result ? 1 : 0) " +
-                "\(debugCommandPaletteKeyEventSummary(event))"
+                "\((event).commandPaletteEventDebugSummary)"
             )
 #endif
             return result
@@ -4137,15 +3527,15 @@ struct ContentView: View {
             guard window.firstResponder !== textView else {
 #if DEBUG
                 cmuxDebugLog(
-                    "palette.wsDescription.editor.focusIfNeeded alreadyFocused window={\(debugCommandPaletteWindowSummary(window))}"
+                    "palette.wsDescription.editor.focusIfNeeded alreadyFocused window={\((window).commandPaletteWindowDebugSummary)}"
                 )
 #endif
                 return
             }
 #if DEBUG
             cmuxDebugLog(
-                "palette.wsDescription.editor.focusIfNeeded attempt window={\(debugCommandPaletteWindowSummary(window))} " +
-                "frBefore=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+                "palette.wsDescription.editor.focusIfNeeded attempt window={\((window).commandPaletteWindowDebugSummary)} " +
+                "frBefore=\((window.firstResponder).commandPaletteResponderDebugSummary)"
             )
 #endif
             let didFocus = window.makeFirstResponder(textView)
@@ -4154,8 +3544,8 @@ struct ContentView: View {
 #if DEBUG
             cmuxDebugLog(
                 "palette.wsDescription.editor.focusIfNeeded result didFocus=\(didFocus ? 1 : 0) " +
-                "window={\(debugCommandPaletteWindowSummary(window))} " +
-                "frAfter=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+                "window={\((window).commandPaletteWindowDebugSummary)} " +
+                "frAfter=\((window.firstResponder).commandPaletteResponderDebugSummary)"
             )
 #endif
         }
@@ -4249,7 +3639,7 @@ struct ContentView: View {
 #if DEBUG
                 cmuxDebugLog(
                     "palette.wsDescription.editor.beginEditing focus=\(parent.isFocused ? 1 : 0) " +
-                    "responder=\(debugCommandPaletteResponderSummary(notification.object as? NSResponder))"
+                    "responder=\((notification.object as? NSResponder).commandPaletteResponderDebugSummary)"
                 )
 #endif
                 if !parent.isFocused {
@@ -4304,8 +3694,8 @@ struct ContentView: View {
 #if DEBUG
                 cmuxDebugLog(
                     "palette.wsDescription.editor.handleKeyEvent " +
-                    "\(debugCommandPaletteKeyEventSummary(event)) " +
-                    "normalized=\(debugCommandPaletteModifierFlagsSummary(normalizedFlags))"
+                    "\((event).commandPaletteEventDebugSummary) " +
+                    "normalized=\((normalizedFlags).commandPaletteModifierDebugSummary)"
                 )
 #endif
 
@@ -4317,7 +3707,7 @@ struct ContentView: View {
                         cmuxDebugLog(
                             "palette.wsDescription.editor.handleKeyEvent submitText " +
                             "len=\((currentText as NSString).length) " +
-                            "text=\"\(debugCommandPaletteTextPreview(currentText))\""
+                            "text=\"\((currentText).commandPaletteDebugPreview())\""
                         )
 #endif
                         if parent.text != currentText {
@@ -4418,8 +3808,8 @@ struct ContentView: View {
                     "palette.wsDescription.editor.update focus=\(isFocused ? 1 : 0) " +
                     "isFirstResponder=\(isFirstResponder ? 1 : 0) " +
                     "pending=\(context.coordinator.pendingFocusRequest ? 1 : 0) " +
-                    "window={\(debugCommandPaletteWindowSummary(window))} " +
-                    "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+                    "window={\((window).commandPaletteWindowDebugSummary)} " +
+                    "fr=\((window.firstResponder).commandPaletteResponderDebugSummary)"
                 )
             }
 #endif
@@ -4427,8 +3817,8 @@ struct ContentView: View {
                 context.coordinator.pendingFocusRequest = true
 #if DEBUG
                 cmuxDebugLog(
-                    "palette.wsDescription.editor.update scheduleFocus window={\(debugCommandPaletteWindowSummary(window))} " +
-                    "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+                    "palette.wsDescription.editor.update scheduleFocus window={\((window).commandPaletteWindowDebugSummary)} " +
+                    "fr=\((window.firstResponder).commandPaletteResponderDebugSummary)"
                 )
 #endif
                 DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
@@ -8470,7 +7860,7 @@ struct ContentView: View {
         cmuxDebugLog(
             "palette.wsDescription.open begin presented=\(isCommandPalettePresented ? 1 : 0) " +
             "mode=\(debugCommandPaletteModeLabel(commandPaletteMode)) " +
-            "window={\(debugCommandPaletteWindowSummary(observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow))}"
+            "window={\((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow).commandPaletteWindowDebugSummary)}"
         )
 #endif
         if !isCommandPalettePresented {
@@ -8641,7 +8031,7 @@ struct ContentView: View {
                 "restoreFocus=\(restoreFocus ? 1 : 0) " +
                 "draftLen=\((commandPaletteWorkspaceDescriptionDraft as NSString).length) " +
                 "newlines=\(newlineCount) " +
-                "window={\(debugCommandPaletteWindowSummary(observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow))}"
+                "window={\((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow).commandPaletteWindowDebugSummary)}"
             )
         }
 #endif
@@ -8723,7 +8113,7 @@ struct ContentView: View {
         atWindowPoint windowPoint: NSPoint,
         in window: NSWindow
     ) -> CommandPaletteRestoreFocusTarget? {
-        let overlayController = commandPaletteWindowOverlayController(for: window)
+        let overlayController = WindowCommandPaletteOverlayController.installed(in: window)
         if let responder = overlayController.underlyingResponder(atWindowPoint: windowPoint),
            let target = commandPaletteBackdropFocusTarget(for: responder) {
             return target
@@ -8762,7 +8152,7 @@ struct ContentView: View {
             )
         }
 
-        if let webView = commandPaletteOwningWebView(for: responder),
+        if let webView = responder.commandPaletteOwningWebView,
            let target = commandPaletteBrowserFocusTarget(for: webView) {
             return target
         }
@@ -8942,8 +8332,8 @@ struct ContentView: View {
                 "palette.wsDescription.focus.reset apply.before search=\(isCommandPaletteSearchFocused ? 1 : 0) " +
                 "rename=\(isCommandPaletteRenameFocused ? 1 : 0) " +
                 "editor=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0) " +
-                "window={\(debugCommandPaletteWindowSummary(observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow))} " +
-                "fr=\(debugCommandPaletteResponderSummary((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder))"
+                "window={\((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow).commandPaletteWindowDebugSummary)} " +
+                "fr=\(((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder).commandPaletteResponderDebugSummary)"
             )
 #endif
             isCommandPaletteSearchFocused = false
@@ -8955,7 +8345,7 @@ struct ContentView: View {
                 "palette.wsDescription.focus.reset apply.after search=\(isCommandPaletteSearchFocused ? 1 : 0) " +
                 "rename=\(isCommandPaletteRenameFocused ? 1 : 0) " +
                 "editor=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0) " +
-                "fr=\(debugCommandPaletteResponderSummary((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder))"
+                "fr=\(((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder).commandPaletteResponderDebugSummary)"
             )
 #endif
         }
@@ -9260,7 +8650,7 @@ struct ContentView: View {
             "palette.wsDescription.apply.begin workspace=\(target.workspaceId.uuidString.prefix(8)) " +
             "proposedLen=\((proposedDescription as NSString).length) " +
             "newlines=\(newlineCount) " +
-            "text=\"\(debugCommandPaletteTextPreview(proposedDescription))\""
+            "text=\"\((proposedDescription).commandPaletteDebugPreview())\""
         )
 #endif
         tabManager.setCustomDescription(tabId: target.workspaceId, description: proposedDescription)
@@ -9274,7 +8664,7 @@ struct ContentView: View {
                 "palette.wsDescription.apply.end workspace=\(target.workspaceId.uuidString.prefix(8)) " +
                 "persistedLen=\((persisted as NSString).length) " +
                 "persistedNewlines=\(persistedNewlineCount) " +
-                "text=\"\(debugCommandPaletteTextPreview(persisted))\""
+                "text=\"\((persisted).commandPaletteDebugPreview())\""
             )
         }
 #endif
@@ -13625,9 +13015,9 @@ struct TabItemView: View, Equatable {
             cmuxDebugLog(
                 "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
                 "source=immediate " +
-                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                "title=\"\((tab.title).commandPaletteDebugPreview())\" " +
                 "descLen=\((description as NSString).length) " +
-                "desc=\"\(debugCommandPaletteTextPreview(description))\""
+                "desc=\"\((description).commandPaletteDebugPreview())\""
             )
 #endif
             refreshWorkspaceSnapshot()
@@ -13645,9 +13035,9 @@ struct TabItemView: View, Equatable {
             cmuxDebugLog(
                 "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
                 "source=debounced " +
-                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                "title=\"\((tab.title).commandPaletteDebugPreview())\" " +
                 "descLen=\((description as NSString).length) " +
-                "desc=\"\(debugCommandPaletteTextPreview(description))\""
+                "desc=\"\((description).commandPaletteDebugPreview())\""
             )
 #endif
             refreshWorkspaceSnapshot()
@@ -14810,7 +14200,7 @@ private struct SidebarWorkspaceDescriptionText: View {
                 "sidebar.description.render workspaceState=appear " +
                 "len=\((markdown as NSString).length) " +
                 "newlines=\(newlineCount) " +
-                "text=\"\(debugCommandPaletteTextPreview(markdown))\""
+                "text=\"\((markdown).commandPaletteDebugPreview())\""
             )
 #endif
         }
@@ -14823,7 +14213,7 @@ private struct SidebarWorkspaceDescriptionText: View {
                 "sidebar.description.render workspaceState=change " +
                 "len=\((newValue as NSString).length) " +
                 "newlines=\(newlineCount) " +
-                "text=\"\(debugCommandPaletteTextPreview(newValue))\""
+                "text=\"\((newValue).commandPaletteDebugPreview())\""
             )
 #endif
         }

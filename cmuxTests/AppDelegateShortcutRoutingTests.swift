@@ -1,4 +1,5 @@
 import XCTest
+import CmuxCommandPaletteUI
 import CmuxTerminal
 import AppKit
 import Carbon.HIToolbox
