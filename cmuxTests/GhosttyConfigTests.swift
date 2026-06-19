@@ -15,6 +15,7 @@ import Darwin
 import SwiftUI
 import Testing
 import CmuxTerminal
+import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

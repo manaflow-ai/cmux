@@ -24,15 +24,14 @@ import CMUXMobileCore
 import IOSurface
 import UniformTypeIdentifiers
 
-enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
-    case realUserConfig
-    case freshInstall
-    case userThemePair
-    case userSingleTheme
-    case userExplicitColors
-
-    var id: String { rawValue }
-
+// GhosttyStartupAppearancePreviewProfile and GhosttyStartupAppearancePreviewState
+// moved to CmuxTerminalCore (DebugSupport/). The enum's config behavior
+// (cases, loadsRealUserConfig, previewConfigContents) and the DEBUG static
+// profile hook now live in the terminal core; the profile setter installs the
+// CmuxTerminalCore TerminalStartupAppearancePreviewOverride seam intra-package.
+// The presentation strings stay app-side below so String(localized:) binds to
+// the app bundle and keeps its non-English translations.
+extension GhosttyStartupAppearancePreviewProfile {
     var displayName: String {
         switch self {
         case .realUserConfig:
@@ -92,77 +91,6 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
             )
         }
     }
-
-    var loadsRealUserConfig: Bool {
-        self == .realUserConfig
-    }
-
-    func previewConfigContents(
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
-    ) -> String? {
-        switch self {
-        case .realUserConfig:
-            return nil
-        case .freshInstall:
-            return GhosttyConfig.cmuxDefaultThemeConfigContents(
-                preferredColorScheme: preferredColorScheme
-            )
-        case .userThemePair:
-            return "theme = light:Catppuccin Latte,dark:Catppuccin Mocha"
-        case .userSingleTheme:
-            return "theme = Catppuccin Mocha"
-        case .userExplicitColors:
-            return """
-            background = #101820
-            foreground = #F4F7F7
-            cursor-color = #FEE715
-            cursor-text = #101820
-            selection-background = #28536B
-            selection-foreground = #F4F7F7
-            palette = 0=#101820
-            palette = 1=#C14953
-            palette = 2=#47A025
-            palette = 3=#D9A441
-            palette = 4=#2E86AB
-            palette = 5=#9B5DE5
-            palette = 6=#00A6A6
-            palette = 7=#D6D6D6
-            palette = 8=#5C6672
-            palette = 9=#FF6B6B
-            palette = 10=#7BD88F
-            palette = 11=#FFD166
-            palette = 12=#54C6EB
-            palette = 13=#C77DFF
-            palette = 14=#4ECDC4
-            palette = 15=#FFFFFF
-            """
-        }
-    }
-}
-
-enum GhosttyStartupAppearancePreviewState {
-    #if DEBUG
-    // The selected debug preview profile. Backed by the CmuxTerminalCore seam
-    // (TerminalStartupAppearancePreviewOverride) so GhosttyConfig's loader, now
-    // package-bound, never reaches back up into this app-target settings type.
-    // The app is the sole writer of the override.
-    private nonisolated(unsafe) static var storedProfile: GhosttyStartupAppearancePreviewProfile = .realUserConfig
-
-    static var profile: GhosttyStartupAppearancePreviewProfile {
-        get { storedProfile }
-        set {
-            storedProfile = newValue
-            TerminalStartupAppearancePreviewOverride.installed = TerminalStartupAppearancePreviewOverride(
-                loadsRealUserConfig: newValue.loadsRealUserConfig,
-                previewConfigContents: { colorScheme in
-                    newValue.previewConfigContents(preferredColorScheme: colorScheme)
-                }
-            )
-        }
-    }
-    #else
-    static var profile: GhosttyStartupAppearancePreviewProfile = .realUserConfig
-    #endif
 }
 
 // Window-background policy (cmuxShouldApplyWindowGlass /
