@@ -2,12 +2,6 @@ import CmuxSettings
 import Foundation
 import Observation
 
-struct PaneMemoryGuardrailSampleBatch: Sendable {
-    let samples: [PaneMemorySample]
-    let scopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample]
-    let includesCMUXScope: Bool
-}
-
 // MARK: - Monitor
 
 /// One instance owns the background poll timer, scans every live pane each tick,
