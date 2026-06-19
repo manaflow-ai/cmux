@@ -2764,6 +2764,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
         let workspace = workspaces.first { $0.id == id }
+        // Cross-Mac open (P5): a workspace from the aggregated list may belong to
+        // a Mac other than the current foreground connection. Switch the
+        // foreground to that Mac first so the terminal attaches to the right one.
+        if Self.multiMacAggregationEnabled,
+           let macDeviceID = workspace?.macDeviceID,
+           !macDeviceID.isEmpty,
+           macDeviceID != foregroundMacDeviceID {
+            await switchToMac(macDeviceID: macDeviceID)
+        }
         analytics.capture("ios_workspace_opened", [
             "terminal_count": .int(workspace?.terminals.count ?? 0),
             "is_pinned": .bool(workspace?.isPinned ?? false),
