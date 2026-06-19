@@ -162,9 +162,9 @@
 614	Sources/PortScanner.swift
 612	cmuxUITests/FeedSidebarUITests.swift
 608	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
+606	Sources/Mobile/AgentChat/AgentChatTranscriptService.swift
 606	Sources/SettingsNavigation.swift
 604	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
-601	Sources/Mobile/AgentChat/AgentChatTranscriptService.swift
 599	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 596	cmuxTests/CmuxEventBusTests.swift
 594	Sources/SessionIndexModels.swift

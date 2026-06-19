@@ -30,6 +30,7 @@ final class AgentChatTranscriptService {
     private var deliveredTitleKeys: [String: String] = [:]
     private var transcriptResolutionTasks: [String: Task<Void, Never>] = [:]
     private var transcriptResolutionKeys: [String: ClaudeTranscriptResolutionKey] = [:]
+    private var claimedDetectedTranscriptSessionIDs: Set<String> = []
     private var titleAdoptionHandler: (@MainActor (GhosttyTitleChange) -> Bool)?
     private static let detectionScanThrottle: TimeInterval = 4
     private static let titleChangeDebounceNanoseconds: UInt64 = 250_000_000
@@ -331,7 +332,7 @@ final class AgentChatTranscriptService {
             return
         }
 
-        var claimed = registry.claimedSessionIDs()
+        var claimed = registry.claimedSessionIDs().union(claimedDetectedTranscriptSessionIDs)
         if let excludingSessionID {
             claimed.remove(excludingSessionID)
         }
@@ -391,6 +392,9 @@ final class AgentChatTranscriptService {
         transcriptResolutionKeys[surfaceID] = nil
 
         guard let resolved else { return }
+        guard !claimedDetectedTranscriptSessionIDs.contains(resolved.sessionID) else {
+            return
+        }
         if let claimed = registry.record(sessionID: resolved.sessionID),
            claimed.surfaceID != nil,
            claimed.surfaceID != surfaceID {
@@ -398,6 +402,7 @@ final class AgentChatTranscriptService {
         }
 
         detectionScanAt.removeValue(forKey: surfaceID)
+        claimedDetectedTranscriptSessionIDs.insert(resolved.sessionID)
         if let bound = registry.liveSession(surfaceID: surfaceID) {
             guard bound.transcriptPath == nil else { return }
             registry.update(sessionID: bound.sessionID) { record in
