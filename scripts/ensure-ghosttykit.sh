@@ -117,6 +117,19 @@ LOCK_TIMEOUT=300
 LOCK_START=$SECONDS
 LOCK_MKDIR_ERR="$(mktemp "${TMPDIR:-/tmp}/cmux-ghosttykit-lock.XXXXXX")"
 LOCK_ACQUIRED=0
+print_sanitized_lock_error() {
+  [[ -s "$LOCK_MKDIR_ERR" ]] || return 0
+
+  local line
+  while IFS= read -r line; do
+    line="${line//$LOCK_DIR/<GhosttyKit cache lock>}"
+    line="${line//$CACHE_ROOT/<GhosttyKit cache>}"
+    if [[ -n "${HOME:-}" ]]; then
+      line="${line//$HOME/~}"
+    fi
+    printf '  %s\n' "$line" >&2
+  done < "$LOCK_MKDIR_ERR"
+}
 cleanup_lock() {
   rm -f "$LOCK_MKDIR_ERR"
   if [[ "$LOCK_ACQUIRED" == "1" ]]; then
@@ -137,6 +150,7 @@ while ! mkdir "$LOCK_DIR" 2>"$LOCK_MKDIR_ERR"; do
     fi
     echo "error: could not create the GhosttyKit cache lock." >&2
     echo "The underlying mkdir command failed while creating the lock directory." >&2
+    print_sanitized_lock_error
     echo "Check that the GhosttyKit cache directory is writable." >&2
     exit 1
   fi
