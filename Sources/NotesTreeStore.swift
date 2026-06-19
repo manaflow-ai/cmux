@@ -45,6 +45,8 @@ final class NotesTreeStore: ObservableObject {
     private(set) var notesDirPath: String?
     /// Cap on session rows so a long-lived workspace doesn't flood the sidebar.
     private let sessionRowLimit = 20
+    /// Per-cwd live-session scan cap for the visible-sidebar refresh cadence.
+    private var liveSessionEntryLimit: Int { max(sessionRowLimit * 2, 30) }
 
     /// Paths the user has explicitly collapsed. Everything is expanded by
     /// default; only entries listed here stay collapsed across reloads.
@@ -704,13 +706,14 @@ final class NotesTreeStore: ObservableObject {
                 if !recordCwd.isEmpty { cwds.insert(recordCwd) }
             }
             // Bound the per-tick fan-out: every cwd costs a real agent-store
-            // scan and this runs on the visible-sidebar cadence. The
-            // workspace cwd refreshes every tick; foreign cwds (dragged-in
-            // sessions/folders) rotate through a fixed budget across ticks,
-            // which is safe because applySessionRefresh leaves unmatched
-            // folders untouched until their turn comes around.
+            // scan and this runs on the visible-sidebar cadence. The workspace
+            // cwd refreshes every tick; foreign cwds rotate through a fixed
+            // budget across ticks. Each cwd uses a small row-budget-derived
+            // entry cap, so a large historical agent store cannot reread tens
+            // of thousands of sessions just because the Notes tab is visible.
             let otherCwds = cwds.subtracting([workspaceCwd]).sorted()
             let foreignBudget = 7
+            let liveEntryLimit = self.liveSessionEntryLimit
             let scanOthers: [String]
             if otherCwds.count <= foreignBudget {
                 scanOthers = otherCwds
@@ -722,7 +725,10 @@ final class NotesTreeStore: ObservableObject {
             var live: [NotesSessionDescriptor] = []
             for scanCwd in [workspaceCwd] + scanOthers {
                 guard !Task.isCancelled else { return }
-                let entries = await SessionIndexStore.loadLiveSessionEntries(cwdFilter: scanCwd)
+                let entries = await SessionIndexStore.loadLiveSessionEntries(
+                    cwdFilter: scanCwd,
+                    limit: liveEntryLimit
+                )
                 live.append(contentsOf: entries.map { entry in
                     NotesSessionDescriptor(
                         agent: entry.agent.rawValue,

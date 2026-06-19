@@ -190,9 +190,48 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: "Reset Default Shortcuts", synonyms: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
 
             // Pane tab bar
-            .init(section: .paneTabBar, id: "documentation", title: "Pane tab bar documentation", synonyms: "surface tab bar pane buttons more menu customize docs"),
-            .init(section: .paneTabBar, id: "global-config", title: "Global cmux.json", synonyms: "global config file cmux json user settings"),
-            .init(section: .paneTabBar, id: "project-config", title: "Project .cmux/cmux.json", synonyms: "project local directory scoped config cmux json"),
+            .init(
+                section: .paneTabBar,
+                id: "documentation",
+                title: String(localized: "settings.paneTabBar.documentation", defaultValue: "Documentation"),
+                detailText: String(
+                    localized: "settings.paneTabBar.documentation.subtitle",
+                    defaultValue: "View supported buttons, More menu items, examples, and reload behavior."
+                ),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.paneTabBar.documentation",
+                    defaultValue: "surface tab bar pane buttons more menu customize docs"
+                )
+            ),
+            .init(
+                section: .paneTabBar,
+                id: "global-config",
+                title: String(localized: "settings.paneTabBar.globalConfig", defaultValue: "Global cmux.json"),
+                detailText: String(
+                    localized: "settings.paneTabBar.globalConfig.subtitle",
+                    defaultValue: "Set default pane tab bar buttons for every workspace."
+                ),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.paneTabBar.global-config",
+                    defaultValue: "global config file cmux json user settings surface tab bar buttons"
+                )
+            ),
+            .init(
+                section: .paneTabBar,
+                id: "project-config",
+                title: String(
+                    localized: "settings.paneTabBar.projectConfig",
+                    defaultValue: "Project .cmux/cmux.json"
+                ),
+                detailText: String(
+                    localized: "settings.paneTabBar.projectConfig.subtitle",
+                    defaultValue: "Put ui.surfaceTabBar.buttons in a project config to override buttons for that directory."
+                ),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.paneTabBar.project-config",
+                    defaultValue: "project local directory scoped config cmux json surface tab bar buttons"
+                )
+            ),
 
             // Workspace colors
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),

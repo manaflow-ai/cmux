@@ -627,7 +627,7 @@ final class SessionIndexStore: ObservableObject {
     /// cache. Used by the Notes tree to re-resolve session-folder markers
     /// against live session data with the exact scanners the Vault uses, so a
     /// dragged-in session's title/recency keeps tracking the real session.
-    nonisolated static func loadLiveSessionEntries(cwdFilter: String) async -> [SessionEntry] {
+    nonisolated static func loadLiveSessionEntries(cwdFilter: String, limit: Int = 10_000) async -> [SessionEntry] {
         let bag = ErrorBag()
         let order = await defaultAgentOrder(workingDirectory: cwdFilter)
         return await loadAgents(
@@ -636,7 +636,7 @@ final class SessionIndexStore: ObservableObject {
             needle: "",
             cwdFilter: cwdFilter,
             offset: 0,
-            limit: 10_000,
+            limit: max(1, limit),
             errorBag: bag
         )
     }
