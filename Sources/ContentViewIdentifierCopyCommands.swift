@@ -3,14 +3,15 @@ import AppKit
 import Foundation
 
 extension ContentView {
-    func appendIdentifierCopyCommandContributions(
-        to contributions: inout [CommandPaletteCommandContribution],
+    func identifierCopyCommandContributions(
         workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String,
         panelSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
-    ) {
+    ) -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
+
+        var contributions: [CommandPaletteCommandContribution] = []
 
         let workspaceCommands: [(id: String, title: String, keywords: [String])] = [
             (
@@ -84,6 +85,8 @@ extension ContentView {
                 }
             )
         }
+
+        return contributions
     }
 
     func registerIdentifierCopyCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {

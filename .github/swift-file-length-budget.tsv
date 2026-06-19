@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34179	CLI/cmux.swift
 15032	Sources/AppDelegate.swift
-14378	Sources/ContentView.swift
+13566	Sources/ContentView.swift
 12331	Sources/Workspace.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11584	Sources/GhosttyTerminalView.swift
@@ -81,6 +81,7 @@
 1161	cmuxTests/SidebarOrderingTests.swift
 1144	cmuxTests/FileExplorerStoreTests.swift
 1144	cmuxTests/PiVaultAgentPersistenceTests.swift
+1130	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Handling/CommandPaletteContributionProvider.swift
 1120	cmuxTests/AgentHibernationTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1104	Sources/GotoSplitUITestRecorder.swift
@@ -146,6 +147,7 @@
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
 680	Sources/FileExplorerSearchController.swift
+679	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Handling/CommandPaletteContributionStrings.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 668	cmuxTests/FeedCoordinatorTests.swift
 663	cmuxTests/SessionIndexViewTests.swift

@@ -4,11 +4,10 @@ import CmuxFoundation
 import SwiftUI
 
 extension ContentView {
-    func appendMoveTabToNewWorkspaceCommandContribution(
-        to contributions: inout [CommandPaletteCommandContribution],
+    func moveTabToNewWorkspaceCommandContributions(
         panelSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
-    ) {
-        contributions.append(
+    ) -> [CommandPaletteCommandContribution] {
+        [
             CommandPaletteCommandContribution(
                 commandId: "palette.moveTabToNewWorkspace",
                 title: { _ in String(localized: "command.moveTabToNewWorkspace.title", defaultValue: "Move Tab to New Workspace") },
@@ -16,8 +15,8 @@ extension ContentView {
                 keywords: ["move", "tab", "workspace", "detach", "sidebar", "surface"],
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) },
                 enablement: { $0.bool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace) }
-            )
-        )
+            ),
+        ]
     }
 
     func moveFocusedPanelToNewWorkspace() -> Bool {
