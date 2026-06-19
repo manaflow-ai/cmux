@@ -953,7 +953,7 @@ class TerminalController {
                 return (true, v2Result(id: request.id, workspaceParamError))
             }
             if request.method == "feed.push", request.id == nil {
-                guard let waitTimeout = Self.feedPushWaitTimeoutSeconds(params: request.params) else {
+                guard let waitTimeout = FeedPushWaitTimeout(rawValue: request.params["wait_timeout_seconds"])?.seconds else {
                     return (true, v2Error(
                         id: request.id,
                         code: "invalid_params",
@@ -972,26 +972,6 @@ class TerminalController {
             }
             return (true, socketWorkerV2Response(request))
         }
-    }
-
-    private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
-        guard let rawTimeout = params["wait_timeout_seconds"] else {
-            return 0
-        }
-        let seconds: Double?
-        if let number = rawTimeout as? NSNumber {
-            seconds = number.doubleValue
-        } else if let value = rawTimeout as? Double {
-            seconds = value
-        } else if let value = rawTimeout as? Int {
-            seconds = Double(value)
-        } else {
-            seconds = nil
-        }
-        guard let seconds, seconds.isFinite, seconds >= 0, seconds <= 120 else {
-            return nil
-        }
-        return seconds
     }
 
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
@@ -4766,13 +4746,17 @@ class TerminalController {
 
 
     private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
-        guard let email = params["email"] as? String else {
-            return .err(code: "invalid_params", message: "Missing email", data: ["field": "email"])
+        let request: FeedbackSubmissionRequest
+        do {
+            request = try FeedbackSubmissionRequest(params: params)
+        } catch let error as FeedbackSubmissionRequest.ParseError {
+            return .err(code: "invalid_params", message: error.message, data: ["field": error.field])
+        } catch {
+            return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
         }
-        guard let body = params["body"] as? String else {
-            return .err(code: "invalid_params", message: "Missing body", data: ["field": "body"])
-        }
-        let imagePaths = params["image_paths"] as? [String] ?? []
+        let email = request.email
+        let body = request.body
+        let imagePaths = request.imagePaths
 
         let semaphore = DispatchSemaphore(value: 0)
         var result: V2CallResult = .err(code: "internal_error", message: "Feedback submission failed", data: nil)
@@ -4817,34 +4801,21 @@ class TerminalController {
 
     private nonisolated func v2FeedPush(params: [String: Any]) -> V2CallResult {
         let waitTimeout: TimeInterval
-        if let rawTimeout = params["wait_timeout_seconds"] {
-            let seconds: Double?
-            if let number = rawTimeout as? NSNumber {
-                seconds = number.doubleValue
-            } else if let value = rawTimeout as? Double {
-                seconds = value
-            } else if let value = rawTimeout as? Int {
-                seconds = Double(value)
-            } else {
-                seconds = nil
-            }
-            guard let seconds else {
-                return .err(
-                    code: "invalid_params",
-                    message: "feed.push wait_timeout_seconds must be numeric",
-                    data: nil
-                )
-            }
-            guard seconds.isFinite, seconds >= 0, seconds <= 120 else {
-                return .err(
-                    code: "invalid_params",
-                    message: "feed.push wait_timeout_seconds must be between 0 and 120",
-                    data: nil
-                )
-            }
-            waitTimeout = seconds
-        } else {
-            waitTimeout = 0
+        switch FeedPushWaitTimeout.parse(rawValue: params["wait_timeout_seconds"]) {
+        case .success(let timeout):
+            waitTimeout = timeout.seconds
+        case .failure(.nonNumeric):
+            return .err(
+                code: "invalid_params",
+                message: "feed.push wait_timeout_seconds must be numeric",
+                data: nil
+            )
+        case .failure(.outOfRange):
+            return .err(
+                code: "invalid_params",
+                message: "feed.push wait_timeout_seconds must be between 0 and 120",
+                data: nil
+            )
         }
         let eventDict: [String: Any]
         if let nested = params["event"] as? [String: Any] {
