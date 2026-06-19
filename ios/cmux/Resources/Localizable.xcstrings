@@ -120,6 +120,23 @@
         }
       }
     },
+    "auth.error.invalid_callback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sign-in callback was invalid. Try signing in again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインコールバックが無効です。もう一度サインインしてください。"
+          }
+        }
+      }
+    },
     "auth.error.invalid_email": {
       "extractionState": "manual",
       "localizations": {
