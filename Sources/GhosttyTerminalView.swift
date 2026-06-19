@@ -3562,6 +3562,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
+    private var pendingNonPreciseScrollX: CGFloat = 0
+    private var pendingNonPreciseScrollY: CGFloat = 0
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
@@ -7005,8 +7007,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let scrollSpeedMultiplier = CGFloat(TerminalScrollSpeedSettings.multiplier())
-        x *= scrollSpeedMultiplier
-        y *= scrollSpeedMultiplier
+        if precision {
+            x *= scrollSpeedMultiplier
+            y *= scrollSpeedMultiplier
+        } else {
+            x = Self.scaledNonPreciseScrollDelta(
+                rawDelta: x,
+                multiplier: scrollSpeedMultiplier,
+                pending: &pendingNonPreciseScrollX,
+                usesDarwinMinimumTick: false
+            )
+            y = Self.scaledNonPreciseScrollDelta(
+                rawDelta: y,
+                multiplier: scrollSpeedMultiplier,
+                pending: &pendingNonPreciseScrollY,
+                usesDarwinMinimumTick: true
+            )
+        }
 
         var mods: Int32 = 0
         if precision {
@@ -7037,12 +7054,40 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let momentumEnded = event.momentumPhase == .ended || event.momentumPhase == .cancelled
         GhosttyApp.shared.markScrollActivity(hasMomentum: hasMomentum, momentumEnded: momentumEnded)
 
+        guard x != 0 || y != 0 else { return }
+
         ghostty_surface_mouse_scroll(
             surface,
             x,
             y,
             ghostty_input_scroll_mods_t(mods)
         )
+    }
+
+    private static func scaledNonPreciseScrollDelta(
+        rawDelta: CGFloat,
+        multiplier: CGFloat,
+        pending: inout CGFloat,
+        usesDarwinMinimumTick: Bool
+    ) -> CGFloat {
+        guard rawDelta != 0 else { return 0 }
+
+        let effectiveTicks: CGFloat
+        if usesDarwinMinimumTick {
+            // Match Ghostty's Darwin non-precision vertical-wheel normalization
+            // before applying cmux's multiplier so values below 1.0 can slow
+            // ordinary mouse wheels instead of being rounded back up in Ghostty.
+            effectiveTicks = rawDelta > 0 ? max(rawDelta, 1) : min(rawDelta, -1)
+        } else {
+            effectiveTicks = rawDelta.rounded()
+        }
+        guard effectiveTicks != 0 else { return 0 }
+
+        pending += effectiveTicks * multiplier
+        let wholeTicks = pending > 0 ? floor(pending) : ceil(pending)
+        guard wholeTicks != 0 else { return 0 }
+        pending -= wholeTicks
+        return wholeTicks
     }
 
     deinit {
