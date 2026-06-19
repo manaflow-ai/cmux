@@ -1625,42 +1625,14 @@ struct RestorableAgentSessionIndex: Sendable {
         return nil
     }
 
-    private static func collectClaudeTranscriptPaths(
-        inDirectory directory: String,
-        remainingDirectoryDepth: Int,
-        fileManager: FileManager,
-        pathsBySessionId: inout [String: String]
-    ) {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let children = try? fileManager.contentsOfDirectory(atPath: directory) else {
-            return
-        }
-        for child in children {
-            let childPath = (directory as NSString).appendingPathComponent(child)
-            if child.hasSuffix(".jsonl") {
-                let sessionId = String(child.dropLast(".jsonl".count))
-                guard claudeSessionIdIsSafeFilename(sessionId),
-                      pathsBySessionId[sessionId] == nil,
-                      regularNonEmptyFileExists(atPath: childPath, fileManager: fileManager) else {
-                    continue
-                }
-                pathsBySessionId[sessionId] = childPath
-            } else if remainingDirectoryDepth > 0 {
-                collectClaudeTranscriptPaths(
-                    inDirectory: childPath,
-                    remainingDirectoryDepth: remainingDirectoryDepth - 1,
-                    fileManager: fileManager,
-                    pathsBySessionId: &pathsBySessionId
-                )
-            }
-        }
-    }
-
     private final class ClaudeTranscriptLookupCache {
         private struct ProjectSessionKey: Hashable {
             let projectRoot: String
+            let sessionId: String
+        }
+
+        private struct ConfigRootSessionKey: Hashable {
+            let configRoot: String
             let sessionId: String
         }
 
@@ -1674,7 +1646,7 @@ struct RestorableAgentSessionIndex: Sendable {
         private var defaultRoots: [String]?
         private var projectDirsByConfigRoot: [String: [String]] = [:]
         private var transcriptPathByProjectRootAndSession: [ProjectSessionKey: CachedTranscriptPath] = [:]
-        private var transcriptIndexByConfigRoot: [String: [String: String]] = [:]
+        private var transcriptPathByConfigRootAndSession: [ConfigRootSessionKey: CachedTranscriptPath] = [:]
 
         init(homeDirectory: String, fileManager: FileManager) {
             self.homeDirectory = homeDirectory
@@ -1768,34 +1740,35 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         func transcriptPathInAnyProject(configRoot: String, sessionId: String) -> String? {
-            transcriptIndex(configRoot: configRoot)[sessionId]
-        }
-
-        private func transcriptIndex(configRoot: String) -> [String: String] {
             let standardizedRoot = (configRoot as NSString).standardizingPath
-            if let cached = transcriptIndexByConfigRoot[standardizedRoot] {
-                return cached
+            let key = ConfigRootSessionKey(configRoot: standardizedRoot, sessionId: sessionId)
+            if let cached = transcriptPathByConfigRootAndSession[key] {
+                switch cached {
+                case .found(let path):
+                    return path
+                case .missing:
+                    return nil
+                }
             }
 
             let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
             guard directoryExists(atPath: projectsRoot) else {
-                transcriptIndexByConfigRoot[standardizedRoot] = [:]
-                return [:]
+                transcriptPathByConfigRootAndSession[key] = .missing
+                return nil
             }
 
-            var pathsBySessionId: [String: String] = [:]
             for projectDir in projectDirs(configRoot: standardizedRoot) {
-                let projectRoot = ((projectsRoot as NSString).appendingPathComponent(projectDir) as NSString)
-                    .standardizingPath
-                RestorableAgentSessionIndex.collectClaudeTranscriptPaths(
-                    inDirectory: projectRoot,
-                    remainingDirectoryDepth: 4,
-                    fileManager: fileManager,
-                    pathsBySessionId: &pathsBySessionId
-                )
+                if let path = transcriptPath(
+                    configRoot: standardizedRoot,
+                    projectDirName: projectDir,
+                    sessionId: sessionId
+                ) {
+                    transcriptPathByConfigRootAndSession[key] = .found(path)
+                    return path
+                }
             }
-            transcriptIndexByConfigRoot[standardizedRoot] = pathsBySessionId
-            return pathsBySessionId
+            transcriptPathByConfigRootAndSession[key] = .missing
+            return nil
         }
 
         private func directoryExists(atPath path: String) -> Bool {

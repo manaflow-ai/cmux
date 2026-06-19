@@ -347,6 +347,7 @@ def run_wrapper_auth_env(
     inherited_env: dict[str, str],
     socket_state: str = "live",
     hooks_disabled: bool = False,
+    in_cmux: bool = True,
     setup_env=None,
 ) -> tuple[int, dict[str, str], list[str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-auth-env-") as td:
@@ -424,8 +425,8 @@ exit 0
                 test_socket.bind(socket_path)
 
             env = os.environ.copy()
-            env.pop("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV", None)
-            env.pop("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS", None)
+            for ambient_cmux_key in [k for k in env if k.startswith("CMUX_")]:
+                env.pop(ambient_cmux_key, None)
             for ambient_aws_key in [k for k in env if k.startswith("AWS_")]:
                 env.pop(ambient_aws_key, None)
             for ambient_key in (
@@ -444,8 +445,9 @@ exit 0
             ):
                 env.pop(ambient_key, None)
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
-            env["CMUX_SURFACE_ID"] = "surface:test"
-            env["CMUX_SOCKET_PATH"] = socket_path
+            if in_cmux:
+                env["CMUX_SURFACE_ID"] = "surface:test"
+                env["CMUX_SOCKET_PATH"] = socket_path
             env["FAKE_AUTH_ENV_LOG"] = str(auth_env_log)
             env["FAKE_ARGS_LOG"] = str(args_log)
             env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
@@ -1160,6 +1162,52 @@ def test_stale_socket_resume_self_heals_after_value_option(failures: list[str]) 
     )
 
 
+def test_plain_terminal_resume_does_not_self_heal_mismatched_claude_config_dir(failures: list[str]) -> None:
+    # Outside cmux, the wrapper must be a passthrough and must not repoint the
+    # user's selected Claude account just because another config root has the id.
+    session_id = "57d7a2a6-6261-4a6f-b950-10f892a0fd81"
+
+    for hooks_disabled in (False, True):
+        expected: dict[str, str] = {}
+
+        def setup_env(tmp: Path) -> dict[str, str]:
+            home = tmp / "home"
+            default_root = home / ".claude"
+            (default_root / "projects" / "-Users-austinwang").mkdir(parents=True)
+            (default_root / "projects" / "-Users-austinwang" / f"{session_id}.jsonl").write_text(
+                "{}\n", encoding="utf-8"
+            )
+            foreign_root = home / ".codex-accounts" / "claude" / "_pforeign"
+            (foreign_root / "projects").mkdir(parents=True)
+            expected["path"] = str(foreign_root)
+            return {
+                "HOME": str(home),
+                "CLAUDE_CONFIG_DIR": str(foreign_root),
+            }
+
+        label = "hooks-disabled" if hooks_disabled else "normal"
+        code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+            argv=["--resume", session_id],
+            inherited_env={},
+            socket_state="missing",
+            hooks_disabled=hooks_disabled,
+            in_cmux=False,
+            setup_env=setup_env,
+        )
+        expect(code == 0, f"plain terminal {label} resume: wrapper exited {code}: {stderr}", failures)
+        expect(
+            real_argv == ["--resume", session_id],
+            f"plain terminal {label} resume: expected passthrough argv, got {real_argv}",
+            failures,
+        )
+        expect(
+            auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"],
+            f"plain terminal {label} resume: expected CLAUDE_CONFIG_DIR to stay on the user's "
+            f"selected root {expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}",
+            failures,
+        )
+
+
 def test_live_socket_resume_after_unlisted_value_option_does_not_inject_session_id(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
@@ -1704,6 +1752,7 @@ def main() -> int:
     test_live_socket_resume_self_heals_bare_legacy_subrouter_config_dir(failures)
     test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures)
     test_stale_socket_resume_self_heals_after_value_option(failures)
+    test_plain_terminal_resume_does_not_self_heal_mismatched_claude_config_dir(failures)
     test_live_socket_resume_after_unlisted_value_option_does_not_inject_session_id(failures)
     test_live_socket_resume_self_heals_nested_claude_transcript_config_dir(failures)
     test_live_socket_resume_keeps_correct_claude_config_dir(failures)
