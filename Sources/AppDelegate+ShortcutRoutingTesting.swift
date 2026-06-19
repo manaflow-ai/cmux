@@ -14,18 +14,16 @@ final class DebugShortcutRoutingFocusedWindowOverrideForTesting {
 
 let debugShortcutRoutingFocusedWindowOverrideForTesting = DebugShortcutRoutingFocusedWindowOverrideForTesting()
 
-private enum AppDelegateShortcutRoutingTestingSwizzles {
-    static let didInstallWindowMakeKeyAndOrderFront: Void = {
-        let targetClass: AnyClass = NSWindow.self
-        let originalSelector = #selector(NSWindow.makeKeyAndOrderFront(_:))
-        let swizzledSelector = #selector(NSWindow.cmux_makeKeyAndOrderFront(_:))
-        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
-              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
-            return
-        }
-        method_exchangeImplementations(originalMethod, swizzledMethod)
-    }()
-}
+private let didInstallShortcutRoutingWindowMakeKeyAndOrderFrontSwizzleForTesting: Void = {
+    let targetClass: AnyClass = NSWindow.self
+    let originalSelector = #selector(NSWindow.makeKeyAndOrderFront(_:))
+    let swizzledSelector = #selector(NSWindow.cmux_makeKeyAndOrderFront(_:))
+    guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+          let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+        return
+    }
+    method_exchangeImplementations(originalMethod, swizzledMethod)
+}()
 
 extension AppDelegate {
     func debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: Bool = true) {
@@ -59,7 +57,7 @@ extension AppDelegate {
     }
 
     static func installShortcutRoutingFocusedWindowSwizzleForTesting() {
-        _ = AppDelegateShortcutRoutingTestingSwizzles.didInstallWindowMakeKeyAndOrderFront
+        _ = didInstallShortcutRoutingWindowMakeKeyAndOrderFrontSwizzleForTesting
     }
 }
 
