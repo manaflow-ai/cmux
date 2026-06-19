@@ -255,6 +255,8 @@
 		CCB0000000000000000000B3 /* CmuxKanbanCore in Frameworks */ = {isa = PBXBuildFile; productRef = CCB0000000000000000000B2 /* CmuxKanbanCore */; };
 		CCB0000000000000000000B4 /* CmuxKanbanCore in Frameworks */ = {isa = PBXBuildFile; productRef = CCB0000000000000000000B2 /* CmuxKanbanCore */; };
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
+		C11FE0BAC11FE0BAC11F0002 /* CmuxLiveBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11FE0BAC11FE0BAC11F0001 /* CmuxLiveBackend.swift */; };
+		C11FE0BAC11FE0BAC11F0004 /* CmuxLiveBackendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11FE0BAC11FE0BAC11F0003 /* CmuxLiveBackendTests.swift */; };
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
@@ -1284,6 +1286,8 @@
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
 		C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXInstalledExtensionSidebarHostView.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
+		C11FE0BAC11FE0BAC11F0001 /* CmuxLiveBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLiveBackend.swift; sourceTree = "<group>"; };
+		C11FE0BAC11FE0BAC11F0003 /* CmuxLiveBackendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLiveBackendTests.swift; sourceTree = "<group>"; };
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxModalAlertPresentation.swift; sourceTree = "<group>"; };
 		148E422243F3D224DC2EAED8 /* CmuxNativeBackend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxNativeBackend.swift; sourceTree = "<group>"; };
@@ -2130,6 +2134,7 @@
 				D22B495D7654520266D3BEB9 /* KanbanPanel.swift */,
 				C24A8341FB5F7D946CC02559 /* KanbanPanelView.swift */,
 				148E422243F3D224DC2EAED8 /* CmuxNativeBackend.swift */,
+				C11FE0BAC11FE0BAC11F0001 /* CmuxLiveBackend.swift */,
 				25CC1284562D1FBCC79F8195 /* GitWorktreeProvisioner.swift */,
 			);
 			name = Kanban;
@@ -3023,6 +3028,7 @@
 				4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */,
 				C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				C11FE0BAC11FE0BAC11F0003 /* CmuxLiveBackendTests.swift */,
 				FA0E7E57FA0E7E57FA0E0001 /* AgentSessionEventFanOutTests.swift */,
 				C0793DC7D7B61CF54886EC36 /* RemoteTmuxControlParserTests.swift */,
 				B0555302B0555302B0555302 /* RemoteTmuxControlStreamParserBudgetTests.swift */,
@@ -3642,6 +3648,7 @@
 				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
 				C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */,
 				E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */,
+				C11FE0BAC11FE0BAC11F0002 /* CmuxLiveBackend.swift in Sources */,
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */,
 				9552222CDC7031553A909AFE /* CmuxNativeBackend.swift in Sources */,
@@ -4266,6 +4273,7 @@
 				E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */,
 				C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
 				E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */,
+				C11FE0BAC11FE0BAC11F0004 /* CmuxLiveBackendTests.swift in Sources */,
 				C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */,
 				C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */,
 				C7A50C000000000000000002 /* CmuxTopProcessCPUTests.swift in Sources */,

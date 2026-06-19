@@ -40,6 +40,10 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
     /// coordinator subscribes to its streams and projects them to the webview,
     /// and never mutates board state itself.
     private var engine: KanbanEngine?
+    /// The live backend (interactive, visible agent sessions). Retained so the
+    /// "Open live session" action can register a card's shared process store
+    /// before ``KanbanEngine/dispatchLive(cardId:)``.
+    private var liveBackend: CmuxLiveBackend?
     private var didStartEngine = false
     private var subscriptions: [Task<Void, Never>] = []
 
@@ -406,8 +410,15 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
             baseDirectory: base.appendingPathComponent("worktrees", isDirectory: true)
         )
         let backend = CmuxNativeBackend(workspaceRoot: workingDirectory, worktreeProvisioner: provisioner)
-        let engine = KanbanEngine(workspaceId: workspaceId, repository: repository, backend: backend)
+        let liveBackend = CmuxLiveBackend()
+        let engine = KanbanEngine(
+            workspaceId: workspaceId,
+            repository: repository,
+            backend: backend,
+            liveBackend: liveBackend
+        )
         self.engine = engine
+        self.liveBackend = liveBackend
         startSubscriptions(to: engine)
         return engine
     }
