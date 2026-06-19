@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   workflow-guard-tests:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -58,6 +58,9 @@ jobs:
 
       - name: Validate app-host xcodebuild attempt budget
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
+
+      - name: Validate cmux profiling support scripts
+        run: ./tests/test_start_cmux_profiling.sh
 
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
@@ -132,7 +135,7 @@ jobs:
         run: python3 scripts/check-test-determinism.py --strict
 
   remote-daemon-tests:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -151,7 +154,7 @@ jobs:
         run: ./tests/test_remote_daemon_release_assets.sh
 
   web-typecheck:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     defaults:
       run:
         working-directory: web
@@ -174,7 +177,7 @@ jobs:
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
   react-apps-check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -205,7 +208,7 @@ jobs:
         run: bun run react-doctor:ci
 
   web-db-migrations:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     defaults:
       run:
         working-directory: web
@@ -253,14 +256,9 @@ jobs:
         run: bun run test:db:behavior
 
   tests:
-    # TEMPORARY (2026-06-18): pinned to hosted runners. The self-hosted austin
-    # mac-minis in the MACOS_RUNNER_15 pool cannot broker the XCTest control
-    # session with testmanagerd ("Timed out 120s initiating control session
-    # with daemon" -> Executed 0 tests -> idle-timeout), so this required check
-    # can never go green there. Revert to
-    # `${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}` once the austin
-    # runners are repaired (GUI login session + automation mode + unwedged
-    # testmanagerd). Tracked by the CI-flakiness handoff.
+    # App-host XCTest needs a runner that can broker testmanagerd control
+    # sessions. Keep this job on the hosted GUI-capable pool until the
+    # MACOS_RUNNER_15/Austin runner-infra issue is fixed separately.
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 75
     env:
@@ -870,6 +868,11 @@ jobs:
             echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR" >> "$GITHUB_ENV"
             echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN" >> "$GITHUB_ENV"
 
+            # Now that we hold the lock, reap any leaked display helper so a
+            # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
+            # this create on persistent self-hosted runners.
+            scripts/ci/virtual-display-lock.sh reap-strays || true
+
             "$HELPER_PATH" \
               --ready-path "$VDISPLAY_READY" \
               --display-id-path "$VDISPLAY_ID_PATH" \
@@ -1052,7 +1055,7 @@ jobs:
     # Release builds need enough disk for a universal Release build plus the
     # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
     # of the generic persistent macOS 26 pool.
-    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'warp-macos-26-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1415,6 +1418,11 @@ jobs:
 
             acquire_display_lock
 
+            # Reap any leaked display helper now that we hold the lock, so a
+            # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
+            # this create on persistent self-hosted runners.
+            scripts/ci/virtual-display-lock.sh reap-strays || true
+
             # Launch display helper from shell (non-sandboxed).
             # Use --start-delay-ms instead of --start-path because the XCTest
             # runner is sandboxed and can't write to /tmp/ for the start signal.
@@ -1578,6 +1586,11 @@ jobs:
           VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-vdisplay-persistent.id"
           VDISPLAY_LOG="$RUNNER_TEMP/cmux-vdisplay-persistent.log"
           rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+
+          # Now that we hold the lock, reap any leaked display helper so a
+          # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
+          # this create on persistent self-hosted runners.
+          scripts/ci/virtual-display-lock.sh reap-strays || true
 
           "$HELPER_PATH" \
             --modes "1920x1080" \
