@@ -1,5 +1,13 @@
 export const blogPosts = [
   {
+    slug: "emacsification-of-coding-agents",
+    key: "emacsificationOfCodingAgents",
+    title: "The Emacsification of Coding Agents",
+    date: "2026-06-19",
+    summary:
+      "Why open, terminal-native agent interfaces let developers compose their own workflows instead of waiting for one IDE to own them.",
+  },
+  {
     slug: "cmux-history",
     key: "cmuxHistory",
     title: "cmux history",

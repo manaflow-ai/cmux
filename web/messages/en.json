@@ -308,6 +308,22 @@
     "metaTitle": "Blog",
     "metaDescription": "News and updates from the cmux team",
     "description": "News and updates from the cmux team",
+    "emacsificationOfCodingAgents": {
+      "metaTitle": "The Emacsification of Coding Agents",
+      "metaDescription": "Open, terminal-native agent interfaces let developers compose their own coding workflows instead of waiting for one IDE to own them.",
+      "metaKeywords": [
+        "emacsification of coding agents",
+        "cmux",
+        "AI coding agents",
+        "terminal coding agents",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "agent SDK",
+        "background agents"
+      ]
+    },
     "passkeyAuth": {
       "metaTitle": "Passkey auth in the cmux browser",
       "metaDescription": "cmux v0.64+ supports passkey authentication in browser panes and can import cookies from other browsers with cmux browser import.",
@@ -393,6 +409,16 @@
       "metaDescription": "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side."
     },
     "posts": {
+      "emacsificationOfCodingAgents": {
+        "title": "The Emacsification of Coding Agents",
+        "summary": "Why open, terminal-native agent interfaces let developers compose their own workflows instead of waiting for one IDE to own them.",
+        "date": "June 19, 2026",
+        "p1": "Agent tools are moving into terminals because terminals are the shared interface every provider can support.",
+        "p2": "Claude Code, Codex, OpenCode, Gemini CLI, Aider, and custom SDK agents should not require a different dashboard for every run. The useful layer is a programmable terminal where panes, browsers, notifications, and workspace state are scriptable.",
+        "p3": "That is the emacsification: providers keep interfaces open, developers compose their own workflows, and the best patterns become reusable scripts instead of product lock-in.",
+        "p4": "cmux exists for that world. It stays close to the shell, adds native macOS panes and an embedded browser, and exposes a CLI/socket API so background agents can be launched, watched, resumed, and rearranged by code.",
+        "p5": "Source: <sourceLink>May 14, 2026 tweet</sourceLink>."
+      },
       "passkeyAuth": {
         "title": "Passkey auth in the cmux browser",
         "summary": "cmux's embedded browser supports passkey authentication and can import cookies from other browsers with cmux browser import.",

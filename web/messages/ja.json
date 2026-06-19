@@ -308,7 +308,33 @@
     "metaTitle": "ブログ",
     "metaDescription": "cmuxチームからのニュースとアップデート",
     "description": "cmuxチームからのニュースとアップデート",
+    "emacsificationOfCodingAgents": {
+      "metaTitle": "コーディングエージェントのEmacs化",
+      "metaDescription": "オープンでターミナルネイティブなエージェントインターフェイスにより、開発者は1つのIDEに任せるのではなく自分のワークフローを組み立てられます。",
+      "metaKeywords": [
+        "コーディングエージェントのEmacs化",
+        "cmux",
+        "AIコーディングエージェント",
+        "ターミナル コーディングエージェント",
+        "Claude Code",
+        "Codex",
+        "OpenCode",
+        "Gemini CLI",
+        "agent SDK",
+        "background agents"
+      ]
+    },
     "posts": {
+      "emacsificationOfCodingAgents": {
+        "title": "コーディングエージェントのEmacs化",
+        "summary": "オープンでターミナルネイティブなエージェントインターフェイスが、1つのIDEに依存しない独自ワークフローを可能にする理由。",
+        "date": "2026年6月19日",
+        "p1": "エージェントツールはターミナルへ向かっています。ターミナルは、どのプロバイダーも対応できる共通インターフェイスだからです。",
+        "p2": "Claude Code、Codex、OpenCode、Gemini CLI、Aider、カスタムSDKエージェントの実行ごとに別々のダッシュボードは必要ありません。役に立つ層は、ペイン、ブラウザ、通知、ワークスペース状態をスクリプトで扱えるプログラマブルなターミナルです。",
+        "p3": "これがEmacs化です。プロバイダーはインターフェイスを開いたままにし、開発者は自分のワークフローを組み立て、良いパターンはプロダクトへのロックインではなく再利用できるスクリプトになります。",
+        "p4": "cmuxはその世界のためにあります。シェルに近いまま、ネイティブmacOSペインと組み込みブラウザを追加し、CLIとsocket APIでバックグラウンドエージェントを起動、監視、再開、並べ替えできるようにします。",
+        "p5": "出典：<sourceLink>2026年5月14日の投稿</sourceLink>。"
+      },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
         "summary": "Cmd+Shift+Uがcmuxのワークスペース間で完了したエージェントにどうナビゲートするか。",
