@@ -1258,7 +1258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
-        let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
+        let telemetryEnabled = telemetrySettings.enabledForCurrentLaunch
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",
             fields: [
@@ -1787,7 +1787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0
         ])
-        if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
+        if telemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
 

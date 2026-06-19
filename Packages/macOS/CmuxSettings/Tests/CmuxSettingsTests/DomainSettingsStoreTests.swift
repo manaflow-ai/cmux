@@ -476,3 +476,30 @@ struct QuitConfirmationPolicyTests {
         ))
     }
 }
+
+@Suite("TelemetrySettingsStore")
+struct TelemetrySettingsStoreTests {
+    @Test func defaultsToEnabledWhenUnset() {
+        let defaults = makeScratchDefaults()
+        #expect(TelemetrySettingsStore(defaults: defaults).enabledForCurrentLaunch)
+    }
+
+    @Test func readsStoredDisabledValue() {
+        let defaults = makeScratchDefaults()
+        defaults.set(false, forKey: "sendAnonymousTelemetry")
+        #expect(!TelemetrySettingsStore(defaults: defaults).enabledForCurrentLaunch)
+    }
+
+    @Test func freezesEnablementAtConstruction() {
+        // The store captures the value once at init; a later defaults change
+        // must NOT be observed, mirroring the launch-frozen `static let` it
+        // replaced (a settings change applies on next restart, not mid-launch).
+        let defaults = makeScratchDefaults()
+        defaults.set(false, forKey: "sendAnonymousTelemetry")
+        let store = TelemetrySettingsStore(defaults: defaults)
+        #expect(!store.enabledForCurrentLaunch)
+
+        defaults.set(true, forKey: "sendAnonymousTelemetry")
+        #expect(!store.enabledForCurrentLaunch)
+    }
+}
