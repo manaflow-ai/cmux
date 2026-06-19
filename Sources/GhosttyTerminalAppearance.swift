@@ -1,20 +1,7 @@
 import AppKit
 import CmuxFoundation
+import CmuxTerminalCore
 import Foundation
-
-enum GhosttyDefaultBackgroundUpdateScope: Int {
-    case unscoped = 0
-    case app = 1
-    case surface = 2
-
-    var logLabel: String {
-        switch self {
-        case .unscoped: return "unscoped"
-        case .app: return "app"
-        case .surface: return "surface"
-        }
-    }
-}
 
 /// Coalesces Ghostty appearance notifications so consumers only observe the
 /// latest runtime terminal colors for a burst of updates.

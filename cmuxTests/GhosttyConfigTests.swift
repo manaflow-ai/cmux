@@ -999,10 +999,7 @@ final class GhosttyConfigTests: XCTestCase {
         ]
         for (currentScope, incomingScope, expected) in cases {
             XCTAssertEqual(
-                GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                    currentScope: currentScope,
-                    incomingScope: incomingScope
-                ),
+                incomingScope.shouldApply(over: currentScope),
                 expected
             )
         }
