@@ -33,6 +33,29 @@ make_app "$stable_app" "com.cmuxterm.app" "cmux"
 make_app "$nightly_app" "com.cmuxterm.app.nightly" "cmux NIGHTLY"
 make_app "$dev_app" "com.cmuxterm.app.debug.dog" "cmux DEV dog"
 
+plist_buddy="$TMP_DIR/plistbuddy"
+cat > "$plist_buddy" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+command="${2:-}"
+plist="${3:-}"
+key="${command#Print :}"
+python3 - "$key" "$plist" <<'PY'
+import plistlib
+import sys
+
+key = sys.argv[1]
+path = sys.argv[2]
+with open(path, "rb") as handle:
+    value = plistlib.load(handle).get(key, "")
+if value:
+    print(value)
+PY
+EOF
+chmod +x "$plist_buddy"
+export CMUX_PROFILE_PLIST_BUDDY="$plist_buddy"
+
 ps_file="$TMP_DIR/ps.txt"
 cat > "$ps_file" <<EOF
 101 $stable_app/Contents/MacOS/cmux
@@ -172,7 +195,17 @@ exit 42
 EOF
 chmod +x "$open_bin"
 
-CMUX_PROFILE_OSASCRIPT="$cancel_bin" CMUX_PROFILE_OPEN="$open_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
+ditto_bin="$TMP_DIR/ditto"
+cat > "$ditto_bin" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+dest="${@: -1}"
+mkdir -p "$(dirname "$dest")"
+printf 'zip' > "$dest"
+EOF
+chmod +x "$ditto_bin"
+
+CMUX_PROFILE_OSASCRIPT="$cancel_bin" CMUX_PROFILE_OPEN="$open_bin" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
   --profile "$timeout_out" \
   --target-name "cmux DEV dog" \
   --target-pid 303 \
