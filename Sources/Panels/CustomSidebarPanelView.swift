@@ -167,7 +167,7 @@ struct CustomSidebarPanelView: View {
     @ViewBuilder
     private var focusFlashOverlay: some View {
         if shouldAnimateFocusFlash, let focusFlashStartedAt {
-            TimelineView(CustomSidebarFocusFlashTimelineSchedule(startDate: focusFlashStartedAt)) { timeline in
+            TimelineView(TmuxWorkspacePaneFlashTimelineSchedule(startDate: focusFlashStartedAt)) { timeline in
                 WorkspaceAttentionFlashRingView(
                     opacity: FocusFlashPattern.opacity(at: timeline.date.timeIntervalSince(focusFlashStartedAt))
                 )
