@@ -33,6 +33,8 @@ on:
         description: >-
           macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
           our self-hosted fleet (cmux-macos-26 / cmux-aws-macos-15), warp, or depot.
+          This is the dev-build offload path (reload-cloud), not required CI, so
+          targeting the fleet for a build is intentional.
         required: false
         default: blacksmith-6vcpu-macos-26
         type: string
