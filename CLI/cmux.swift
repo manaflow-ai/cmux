@@ -8826,7 +8826,7 @@ struct CMUXCLI {
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: 0,
                 reconnectLimitDefault: 86400
-            ); reusableTerminalRecoveryCommand = splitAttachCommand
+            ); reusableTerminalRecoveryCommand = "while true; do \(splitAttachCommand); s=$?; [ \"$s\" = 255 ] || exit \"$s\"; sleep 2; done"
             if usesPersistentFreestyleCloud {
                 initialSSHStartupCommand = reusableTerminalStartupCommand; remoteTerminalSSHStartupCommand = reusableTerminalStartupCommand
             }
