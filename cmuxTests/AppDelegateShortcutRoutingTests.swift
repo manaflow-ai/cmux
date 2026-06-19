@@ -262,6 +262,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        try Self.skipFocusRoutingTestInCI(testName: name)
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
         #if DEBUG
@@ -283,7 +284,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         #if DEBUG
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
         #endif
-        try Self.skipFocusRoutingTestInCI(testName: name)
     }
 
     override func tearDown() {
