@@ -7017,8 +7017,25 @@ final class Workspace: Identifiable, ObservableObject {
         // breaking the 1:1 invariant (symmetric with newBrowserSurface). A dead
         // mirror workspace is torn down separately via handleSessionEndedRemotely.
         if isRemoteTmuxMirror {
+            // Mirror cmux's tab-strip `newTabPosition` so a remote new tab lands
+            // where a local one would: `.end` appends, `.current` inserts after the
+            // selected tab's window (falling back to the end if it can't be
+            // resolved). Without this the remote's bare `new-window` would pick the
+            // lowest free index and land mid-list when the session has gaps.
+            let placement: RemoteTmuxController.MirrorNewTabPlacement
+            switch bonsplitController.configuration.newTabPosition {
+            case .end:
+                placement = .end
+            case .current:
+                if let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+                   let selectedPanelId = panelIdFromSurfaceId(selectedTabId) {
+                    placement = .afterPanel(selectedPanelId)
+                } else {
+                    placement = .end
+                }
+            }
             let routed = AppDelegate.shared?.remoteTmuxController
-                .handleMirrorNewTabRequested(workspaceId: id) ?? false
+                .handleMirrorNewTabRequested(workspaceId: id, placement: placement) ?? false
             return routed ? .routedToRemote : .failed
         }
         guard let panel = newTerminalSurfaceLocal(

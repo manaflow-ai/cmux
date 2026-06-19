@@ -385,9 +385,25 @@ final class RemoteTmuxController {
 
     // MARK: - Create / destroy propagation (P5)
 
+    /// Where a mirror's new tab (a tmux window) should be inserted, mirroring the
+    /// workspace tab strip's `BonsplitConfiguration.newTabPosition`.
+    enum MirrorNewTabPlacement: Equatable {
+        /// Append after the last window (`newTabPosition: .end`).
+        case end
+        /// Insert right after the window backing `panelId` — the cmux-selected tab
+        /// (`newTabPosition: .current`). Falls back to `.end` when the panel has no
+        /// live window so a new tab is never dropped.
+        case afterPanel(UUID)
+    }
+
     /// A new tab was requested in a mirrored workspace → create a tmux window in
     /// that session. The new tab arrives via the `%window-add` notification (one
     /// source of truth), so the caller must NOT also create a local tab.
+    ///
+    /// `placement` mirrors cmux's `newTabPosition` for the workspace tab strip so
+    /// a remote new tab lands where a local one would (after the selected tab, or
+    /// at the end), instead of wherever tmux's bare `new-window` picks (the lowest
+    /// free index, which lands mid-list when the session has window-index gaps).
     ///
     /// Requires a live `.connected` stream — NOT just `!exited`: while
     /// reconnecting there is no stdin and `send` silently drops the command, so
@@ -397,10 +413,37 @@ final class RemoteTmuxController {
     /// - Returns: `true` if routed to the remote; `false` if there is no live
     ///   mirror/connection (callers must still NOT create a local tab in a
     ///   mirror workspace — they report failure instead).
-    func handleMirrorNewTabRequested(workspaceId: UUID) -> Bool {
+    func handleMirrorNewTabRequested(workspaceId: UUID, placement: MirrorNewTabPlacement) -> Bool {
         guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
               mirror.connection.connectionState == .connected else { return false }
-        return mirror.connection.send("new-window")
+        let afterWindowId: Int?
+        switch placement {
+        case .end:
+            afterWindowId = nil
+        case .afterPanel(let panelId):
+            // nil (panel has no live window) falls back to end placement.
+            afterWindowId = mirror.windowId(forPanel: panelId)
+        }
+        return mirror.connection.send(Self.newWindowCommand(afterWindowId: afterWindowId))
+    }
+
+    /// Builds the tmux `new-window` command for a mirror new-tab. Pure (testable).
+    ///
+    /// - `afterWindowId == nil` → `new-window -a -t '{end}'`: `-a` inserts *after*
+    ///   the target and `'{end}'` resolves to the highest-indexed window, so the
+    ///   new window lands at the very end regardless of index gaps or which window
+    ///   tmux considers current. (`'{end}'` is an alias for `$`, available since
+    ///   tmux 2.1.) Plain `new-window` instead fills the lowest free index, landing
+    ///   mid-list when the session has gaps from closed windows.
+    /// - `afterWindowId == id` → `new-window -a -t @id`: insert right after that
+    ///   window. cmux never `select-window`s the remote, so the selected tab's
+    ///   window is targeted by id rather than relying on tmux's current window.
+    nonisolated static func newWindowCommand(afterWindowId: Int?) -> String {
+        // Stub: still emits the legacy bare `new-window` so the new-tab placement
+        // regression test fails (red). The real placement logic lands in the
+        // follow-up fix commit.
+        _ = afterWindowId
+        return "new-window"
     }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
