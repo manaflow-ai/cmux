@@ -188,6 +188,185 @@ normalize_claude_config_dir() {
     esac
 }
 
+# Claude stores transcripts at <config-dir>/projects/<encode(cwd)>/<id>.jsonl and
+# `--resume <id>` only resolves a session under the *current* CLAUDE_CONFIG_DIR.
+# cmux can launch with a foreign CLAUDE_CONFIG_DIR (the .app inherits the env of
+# whatever opened it, e.g. a terminal whose agent set one), so resuming a session
+# created under a different config root fails with "No conversation found" and drops
+# the user to a bare shell. Self-heal by relocating CLAUDE_CONFIG_DIR to the root
+# that actually holds the transcript, but only when the current root lacks it (so a
+# correct resume is never repointed). https://github.com/manaflow-ai/cmux/issues/6194
+cmux_claude_config_dir_has_session() {
+    local root="$1" sid="$2"
+    [[ -n "$root" && -d "$root/projects" ]] || return 1
+    local transcript
+    for transcript in \
+        "$root"/projects/*/"$sid".jsonl \
+        "$root"/projects/*/*/"$sid".jsonl \
+        "$root"/projects/*/*/*/"$sid".jsonl \
+        "$root"/projects/*/*/*/*/"$sid".jsonl \
+        "$root"/projects/*/*/*/*/*/"$sid".jsonl; do
+        [[ -f "$transcript" && -s "$transcript" ]] && return 0
+    done
+    return 1
+}
+
+claude_option_consumes_value() {
+    case "$1" in
+        --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
+        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
+        --disallowed-tools|--effort|--fallback-model|--file|\
+        --input-format|--json-schema|--max-budget-usd|--mcp-config|\
+        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
+        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
+        --settings|--system-prompt|--tools)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_remaining_args_have_resume_flag() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|-r|--resume=*)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+claude_remaining_args_have_explicit_session_flag() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+claude_unknown_option_should_skip_value_before_resume_flag() {
+    local index="$1"
+    local -a args=("${@:2}")
+    local next_index=$((index + 1))
+    local rest_index=$((index + 2))
+    (( next_index < ${#args[@]} )) || return 1
+    [[ "${args[$next_index]}" != -* ]] || return 1
+    claude_remaining_args_have_resume_flag "${args[@]:$rest_index}"
+}
+
+claude_unknown_option_should_skip_value_before_explicit_session_flag() {
+    local index="$1"
+    local -a args=("${@:2}")
+    local next_index=$((index + 1))
+    local rest_index=$((index + 2))
+    (( next_index < ${#args[@]} )) || return 1
+    [[ "${args[$next_index]}" != -* ]] || return 1
+    claude_remaining_args_have_explicit_session_flag "${args[@]:$rest_index}"
+}
+
+extract_claude_resume_session_id() {
+    local -a args=("$@")
+    local index=0
+    local arg
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|-r)
+                index=$((index + 1))
+                (( index < ${#args[@]} )) || return 1
+                printf '%s' "${args[$index]}"
+                return 0
+                ;;
+            --resume=*)
+                printf '%s' "${arg#--resume=}"
+                return 0
+                ;;
+            -*)
+                if [[ "$arg" != *=* ]]; then
+                    if claude_option_consumes_value "$arg" ||
+                       claude_unknown_option_should_skip_value_before_resume_flag "$index" "${args[@]}"; then
+                        index=$((index + 2))
+                        continue
+                    fi
+                fi
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+        index=$((index + 1))
+    done
+    return 1
+}
+
+claude_explicit_session_flag_present() {
+    local -a args=("$@")
+    local index=0
+    local arg
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
+                return 0
+                ;;
+            -*)
+                if [[ "$arg" != *=* ]]; then
+                    if claude_option_consumes_value "$arg" ||
+                       claude_unknown_option_should_skip_value_before_explicit_session_flag "$index" "${args[@]}"; then
+                        index=$((index + 2))
+                        continue
+                    fi
+                fi
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+        index=$((index + 1))
+    done
+    return 1
+}
+
+reconcile_claude_config_dir_for_resume() {
+    local sid="$1"
+    [[ -n "$sid" && -n "${HOME:-}" ]] || return 0
+    # Only safe filename tokens (claude session ids are uuids); never glob-walk on
+    # path separators or dot segments.
+    case "$sid" in
+        *[!A-Za-z0-9._-]*|''|.|..) return 0 ;;
+    esac
+
+    local current_root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    cmux_claude_config_dir_has_session "$current_root" "$sid" && return 0
+
+    local root
+    for root in "$HOME/.claude" "$HOME"/.codex-accounts/claude/* "$HOME/.subrouter/codex/claude" "$HOME"/.subrouter/codex/claude/*; do
+        [[ "$root" == "$current_root" ]] && continue
+        if cmux_claude_config_dir_has_session "$root" "$sid"; then
+            export CLAUDE_CONFIG_DIR="$root"
+            return 0
+        fi
+    done
+}
+
 clear_inherited_claude_auth_selection_env() {
     if [[ "${IN_CMUX:-0}" == "1" ]]; then
         local key
@@ -224,6 +403,9 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
         unset CLAUDECODE
     fi
     clear_inherited_claude_auth_selection_env
+    if [[ "$IN_CMUX" == "1" ]]; then
+        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+    fi
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec "$REAL_CLAUDE" "$@"
 fi
@@ -235,6 +417,9 @@ if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
         unset CLAUDECODE
     fi
     clear_inherited_claude_auth_selection_env
+    if [[ "$IN_CMUX" == "1" ]]; then
+        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+    fi
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec_real_claude_passthrough "$@"
 fi
@@ -350,21 +535,6 @@ encode_launch_argv() {
     } | base64 | tr -d '\n'
 }
 
-claude_option_consumes_value() {
-    case "$1" in
-        --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
-        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
-        --disallowed-tools|--effort|--fallback-model|--file|\
-        --input-format|--json-schema|--max-budget-usd|--mcp-config|\
-        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
-        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
-        --settings|--system-prompt|--tools)
-            return 0
-            ;;
-    esac
-    return 1
-}
-
 claude_interactive_entry_flag() {
     case "$1" in
         --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
@@ -460,14 +630,14 @@ clear_inherited_claude_auth_selection_env
 # Check if the user already specified a session/resume flag.
 # If so, don't inject our own --session-id (it would conflict).
 SKIP_SESSION_ID=false
-for arg in "$@"; do
-    case "$arg" in
-        --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
-            SKIP_SESSION_ID=true
-            break
-            ;;
-    esac
-done
+if claude_explicit_session_flag_present "$@"; then
+    SKIP_SESSION_ID=true
+fi
+
+# For an explicit `--resume <id>`, point CLAUDE_CONFIG_DIR at the config root that
+# actually holds the transcript so an inherited/foreign config dir cannot turn the
+# resume into "No conversation found". https://github.com/manaflow-ai/cmux/issues/6194
+reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
 
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
