@@ -68,6 +68,78 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
+    @Test func claudeSessionStartOverridesLeakedEnvWorkspaceAndSurfaceWithTTYBinding() throws {
+        let context = try makeClaudeHookContext(name: "claude-leaked-workspace")
+        defer { context.cleanup() }
+
+        let leakedWorkspaceId = context.workspaceId
+        let leakedSurfaceId = context.surfaceId
+        let ttyWorkspaceId = "77777777-7777-7777-7777-777777777777"
+        let ttySurfaceId = "33333333-3333-3333-3333-333333333333"
+        let ttyName = "ttys-claude-leaked-workspace"
+        let sessionId = "claude-leaked-workspace-session"
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(leakedSurfaceId, "surface:1", true)],
+            ttyName: ttyName,
+            ttySurfaceId: ttySurfaceId,
+            ttyWorkspaceId: ttyWorkspaceId,
+            surfacesByWorkspace: [
+                leakedWorkspaceId: [(leakedSurfaceId, "surface:1", true)],
+                ttyWorkspaceId: [(ttySurfaceId, "surface:2", false)],
+            ]
+        )
+
+        let environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": leakedWorkspaceId,
+            "CMUX_SURFACE_ID": leakedSurfaceId,
+            "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
+        ]
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let request = try #require(
+            resumeBindingRequests(in: context).last,
+            "Expected Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+        )
+        #expect(
+            request["workspace_id"] as? String == ttyWorkspaceId,
+            "Claude must persist the agent TTY workspace, not the leaked ambient CMUX_WORKSPACE_ID; params=\(request)"
+        )
+        #expect(
+            request["surface_id"] as? String == ttySurfaceId,
+            "Claude must persist the agent TTY surface, not the leaked ambient CMUX_SURFACE_ID; params=\(request)"
+        )
+        #expect(
+            context.state.snapshot().contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    && $0.contains("--tab=\(ttyWorkspaceId)")
+                    && $0.contains("--panel=\(ttySurfaceId)")
+            },
+            "Claude visible status should target the TTY workspace and surface, saw \(context.state.snapshot())"
+        )
+    }
+
     @Test func claudeExplicitSurfaceOverridesMappedSessionAndTTYBinding() throws {
         let explicitSurfaceId = "33333333-3333-3333-3333-333333333333"
         let ttySurfaceId = "44444444-4444-4444-4444-444444444444"
@@ -261,7 +333,15 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         return handled
     }
 
-    private func startClaudeSurfaceResolutionServer(context: ClaudeHookContext, surfaces: [SurfaceFixture], ttyName: String, ttySurfaceId: String) -> DispatchSemaphore {
+    private func startClaudeSurfaceResolutionServer(
+        context: ClaudeHookContext,
+        surfaces: [SurfaceFixture],
+        ttyName: String,
+        ttySurfaceId: String,
+        ttyWorkspaceId: String? = nil,
+        surfacesByWorkspace: [String: [SurfaceFixture]]? = nil
+    ) -> DispatchSemaphore {
+        let resolvedTTYWorkspaceId = ttyWorkspaceId ?? context.workspaceId
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
                   let id = payload["id"] as? String,
@@ -270,7 +350,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             }
             switch method {
             case "surface.list":
-                let surfacePayload: [[String: Any]] = surfaces.map { ["id": $0.id, "ref": $0.ref, "focused": $0.focused] }
+                let params = payload["params"] as? [String: Any]
+                let workspaceId = params?["workspace_id"] as? String
+                let listedSurfaces = workspaceId.flatMap { surfacesByWorkspace?[$0] } ?? surfaces
+                let surfacePayload: [[String: Any]] = listedSurfaces.map { ["id": $0.id, "ref": $0.ref, "focused": $0.focused] }
                 return v2Response(id: id, ok: true, result: ["surfaces": surfacePayload])
             case "debug.terminals":
                 return v2Response(
@@ -278,7 +361,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                     ok: true,
                     result: ["terminals": [[
                         "tty": ttyName,
-                        "workspace_id": context.workspaceId,
+                        "workspace_id": resolvedTTYWorkspaceId,
                         "surface_id": ttySurfaceId,
                     ]]]
                 )
