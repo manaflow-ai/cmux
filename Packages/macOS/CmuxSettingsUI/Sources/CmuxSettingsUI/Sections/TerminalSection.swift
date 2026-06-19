@@ -15,6 +15,7 @@ public struct TerminalSection: View {
     @State private var fontSaveFailed = false
     @State private var fontSaveTask: Task<Void, Never>?
     @State private var scrollSpeed: DefaultsValueModel<Double>
+    @State private var activeScrollSpeedDragValue: Double?
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
@@ -87,6 +88,15 @@ public struct TerminalSection: View {
             let saved = await hostActions.setSurfaceTabBarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
+    }
+
+    private var displayedScrollSpeed: Double {
+        activeScrollSpeedDragValue ?? scrollSpeed.current
+    }
+
+    private func commitScrollSpeedDrag() {
+        scrollSpeed.set(displayedScrollSpeed)
+        activeScrollSpeedDragValue = nil
     }
 
     @ViewBuilder
@@ -168,24 +178,27 @@ public struct TerminalSection: View {
             ) {
                 HStack(spacing: 8) {
                     Slider(
-                        value: Binding(get: { scrollSpeed.current }, set: { scrollSpeed.set($0) }),
+                        value: Binding(get: { displayedScrollSpeed }, set: { activeScrollSpeedDragValue = $0 }),
                         in: TerminalCatalogSection.scrollSpeedMinimum...TerminalCatalogSection.scrollSpeedMaximum,
                         step: 0.05
-                    )
+                    ) { editing in
+                        if !editing { commitScrollSpeedDrag() }
+                    }
                     .frame(width: 130)
                     .accessibilityIdentifier("SettingsTerminalScrollSpeedSlider")
 
-                    Text(String.localizedStringWithFormat(String(localized: "settings.terminal.scrollSpeed.value", defaultValue: "%.2f×"), scrollSpeed.current))
+                    Text(String.localizedStringWithFormat(String(localized: "settings.terminal.scrollSpeed.value", defaultValue: "%.2f×"), displayedScrollSpeed))
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .frame(width: 44, alignment: .trailing)
 
                     Button(String(localized: "settings.terminal.scrollSpeed.reset", defaultValue: "Reset")) {
+                        activeScrollSpeedDragValue = nil
                         scrollSpeed.set(TerminalCatalogSection.scrollSpeedDefault)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(abs(scrollSpeed.current - TerminalCatalogSection.scrollSpeedDefault) < 0.001)
+                    .disabled(abs(displayedScrollSpeed - TerminalCatalogSection.scrollSpeedDefault) < 0.001)
                 }
             }
             SettingsCardDivider()
