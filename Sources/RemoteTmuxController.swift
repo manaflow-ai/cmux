@@ -439,11 +439,8 @@ final class RemoteTmuxController {
     ///   window. cmux never `select-window`s the remote, so the selected tab's
     ///   window is targeted by id rather than relying on tmux's current window.
     nonisolated static func newWindowCommand(afterWindowId: Int?) -> String {
-        // Stub: still emits the legacy bare `new-window` so the new-tab placement
-        // regression test fails (red). The real placement logic lands in the
-        // follow-up fix commit.
-        _ = afterWindowId
-        return "new-window"
+        guard let afterWindowId else { return "new-window -a -t '{end}'" }
+        return "new-window -a -t @\(afterWindowId)"
     }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
