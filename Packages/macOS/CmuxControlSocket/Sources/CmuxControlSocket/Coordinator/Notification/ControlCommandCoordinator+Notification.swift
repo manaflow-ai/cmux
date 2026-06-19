@@ -4,8 +4,10 @@ internal import Foundation
 /// former `TerminalController.v2Notification*` bodies. Each payload is built
 /// directly as a ``JSONValue`` (the typed twin of the legacy `[String: Any]`
 /// dictionaries); the resulting Foundation object is identical, so the encoded
-/// wire bytes match. The `notification.create_for_caller` method is NOT here:
-/// it has its own self-contained app-side resolver and is left in place.
+/// wire bytes match. `notification.create_for_caller`'s multi-window target pick
+/// is irreducibly app-coupled, so its body stays behind the
+/// ``ControlNotificationContext/controlNotificationCreateForCaller(preferredWorkspaceID:preferredSurfaceID:callerTTY:preferTTY:title:subtitle:body:)``
+/// seam; the coordinator here parses the request and shapes the echoed identity.
 extension ControlCommandCoordinator {
     /// Runs one decoded request if it belongs to the notification domain,
     /// returning the typed result; returns `nil` otherwise so the caller can
@@ -21,6 +23,8 @@ extension ControlCommandCoordinator {
             return notificationCreateForSurface(request.params)
         case "notification.create_for_target":
             return notificationCreateForTarget(request.params)
+        case "notification.create_for_caller":
+            return notificationCreateForCaller(request.params)
         case "notification.list":
             return notificationList()
         case "notification.clear":
@@ -112,6 +116,37 @@ extension ControlCommandCoordinator {
             body: body
         ) ?? .tabManagerUnavailable
         return targetedDeliveryResult(resolution)
+    }
+
+    /// `notification.create_for_caller` — deliver to the workspace/surface that
+    /// best matches the calling terminal. A byte-faithful lift of the legacy
+    /// `v2NotificationCreateForCaller`: title/subtitle/body default exactly as
+    /// before, and the response echoes the bare workspace/surface ids (no refs,
+    /// matching the legacy resolver's payload).
+    func notificationCreateForCaller(_ params: [String: JSONValue]) -> ControlCallResult {
+        let title = string(params, "title") ?? "Notification"
+        let subtitle = string(params, "subtitle") ?? ""
+        let body = string(params, "body") ?? ""
+        let resolution = context?.controlNotificationCreateForCaller(
+            preferredWorkspaceID: uuid(params, "preferred_workspace_id"),
+            preferredSurfaceID: uuid(params, "preferred_surface_id"),
+            callerTTY: string(params, "caller_tty"),
+            preferTTY: bool(params, "prefer_tty") ?? false,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        ) ?? .tabManagerUnavailable
+        switch resolution {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .workspaceNotFound:
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        case .delivered(let workspaceID, let surfaceID):
+            return .ok(.object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": orNull(surfaceID?.uuidString),
+            ]))
+        }
     }
 
     /// The shared result shaping for `create_for_surface` / `create_for_target`.

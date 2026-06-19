@@ -152,6 +152,32 @@ public protocol ControlNotificationContext: AnyObject {
     /// the identical keys and default values the legacy bodies used.
     var notificationStrings: ControlNotificationStrings { get }
 
+    /// Delivers a notification for `notification.create_for_caller`: picks the
+    /// workspace/surface that best matches the calling terminal across every
+    /// window (the preferred ids, the caller TTY, then the selected workspace),
+    /// then delivers and echoes the workspace/surface identity. The whole pick
+    /// is app-coupled, so it lives behind this seam.
+    ///
+    /// - Parameters:
+    ///   - preferredWorkspaceID: The optional `preferred_workspace_id`.
+    ///   - preferredSurfaceID: The optional `preferred_surface_id`.
+    ///   - callerTTY: The raw, trimmed-non-empty `caller_tty` (the seam applies
+    ///     the legacy TTY normalization), or `nil`.
+    ///   - preferTTY: The `prefer_tty` flag.
+    ///   - title: The notification title (already defaulted to "Notification").
+    ///   - subtitle: The notification subtitle (already defaulted to "").
+    ///   - body: The notification body (already defaulted to "").
+    /// - Returns: The caller-delivery resolution.
+    func controlNotificationCreateForCaller(
+        preferredWorkspaceID: UUID?,
+        preferredSurfaceID: UUID?,
+        callerTTY: String?,
+        preferTTY: Bool,
+        title: String,
+        subtitle: String,
+        body: String
+    ) -> ControlNotificationCallerDeliveryResolution
+
     // MARK: - v1 line-protocol notification bodies
 
     /// The v1 `notify` body: delivers a `<title>|<subtitle>|<body>` payload to

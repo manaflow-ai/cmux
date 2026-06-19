@@ -10,6 +10,11 @@ internal import Foundation
 /// `workspace.action` / `extension.sidebar.snapshot` and the worker-lane
 /// `workspace.remote.pty_*` (sessions/close/detach/bridge/resize) methods stay
 /// on the app-side dispatcher.
+///
+/// `workspace.env` is a socket-worker-lane method, so the app's worker
+/// dispatcher hops to the main actor (`v2MainSync`) to reach this coordinator;
+/// its body still runs on main exactly as the legacy `v2WorkspaceEnv`'s
+/// `v2MainSync` block did.
 extension ControlCommandCoordinator {
     /// Dispatches the non-group workspace methods this coordinator owns; returns
     /// `nil` for anything else so the core `handle(_:)` can fall through.
@@ -46,6 +51,10 @@ extension ControlCommandCoordinator {
             return workspaceLast(request.params)
         case "workspace.equalize_splits":
             return workspaceEqualizeSplits(request.params)
+        case "workspace.set_auto_title":
+            return workspaceSetAutoTitle(request.params)
+        case "workspace.env":
+            return workspaceEnv(request.params)
         case "workspace.remote.configure":
             return workspaceRemoteConfigure(request.params)
         case "workspace.remote.foreground_auth_ready":
@@ -847,6 +856,132 @@ extension ControlCommandCoordinator {
                 "surface_ref": ref(.surface, surfaceID),
                 "relay_port": .int(Int64(relayPort)),
                 "remote": remoteStatus,
+            ]))
+        }
+    }
+
+    // MARK: - Set auto title
+
+    /// `workspace.set_auto_title` — the auto-naming endpoint (probe, disabled
+    /// gate, failure record, or title apply). A byte-faithful lift of the legacy
+    /// `v2WorkspaceSetAutoTitle`.
+    func workspaceSetAutoTitle(_ params: [String: JSONValue]) -> ControlCallResult {
+        let routing = routingSelectors(params)
+
+        if bool(params, "probe") == true {
+            let workspaceID = uuid(params, "workspace_id")
+            let probe = context?.controlWorkspaceAutoTitleProbe(
+                routing: routing,
+                hasWorkspaceID: workspaceID != nil,
+                workspaceID: workspaceID
+            ) ?? ControlWorkspaceAutoTitleProbe(
+                enabled: false,
+                summarizerAgentSlug: nil,
+                includeUserOwned: false,
+                userOwned: nil
+            )
+            var result: [String: JSONValue] = [
+                "enabled": .bool(probe.enabled),
+                "summarizer_agent": orNull(probe.summarizerAgentSlug),
+            ]
+            // With a workspace_id the probe also reports user ownership, so
+            // naming engines can skip the LLM call entirely for workspaces
+            // the user renamed.
+            if probe.includeUserOwned {
+                result["workspace_user_owned"] = probe.userOwned.map { JSONValue.bool($0) } ?? .null
+            }
+            return .ok(.object(result))
+        }
+
+        guard context?.controlWorkspaceAutoNamingEnabled() ?? false else {
+            return .err(
+                code: "disabled",
+                message: "Workspace auto-naming is disabled in Settings",
+                data: .object(["enabled": .bool(false)])
+            )
+        }
+
+        // A naming pass reporting a problem (rate limit / out of tokens / signed
+        // out / missing override binary). Recorded for the Settings status line
+        // only — it never reaches a workspace or tab title.
+        if let failure = string(params, "failure") {
+            context?.controlRecordAutoNamingFailure(
+                rawCategory: failure,
+                agent: string(params, "agent") ?? ""
+            )
+            return .ok(.object(["recorded": .bool(true), "enabled": .bool(true)]))
+        }
+
+        guard context?.controlWorkspaceRoutingResolvesTabManager(routing: routing) ?? false else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let workspaceID = uuid(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let title = string(params, "title") else {
+            return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+        }
+        let panelID = uuid(params, "panel_id")
+        let panelOnlyIfMultiple = bool(params, "panel_only_if_multiple") ?? false
+
+        let resolution = context?.controlApplyWorkspaceAutoTitle(
+            routing: routing,
+            workspaceID: workspaceID,
+            title: title,
+            panelID: panelID,
+            panelOnlyIfMultiple: panelOnlyIfMultiple
+        ) ?? .tabManagerUnavailable
+        switch resolution {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .notFound:
+            return .err(code: "not_found", message: "Workspace not found", data: .object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+            ]))
+        case .applied(let workspaceApplied, let panelApplied):
+            return .ok(.object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "title": .string(title),
+                "workspace_applied": .bool(workspaceApplied),
+                "panel_applied": panelApplied.map { JSONValue.bool($0) } ?? .null,
+                "enabled": .bool(true),
+            ]))
+        }
+    }
+
+    // MARK: - Env
+
+    /// `workspace.env` — read a workspace's user-defined environment
+    /// (issue #5995). A byte-faithful lift of the legacy `v2WorkspaceEnv`,
+    /// including its per-key explicit-target validation (the endpoint can print
+    /// secrets, so a malformed explicit target errors rather than falling back).
+    func workspaceEnv(_ params: [String: JSONValue]) -> ControlCallResult {
+        // Validate any explicit target before resolving. This endpoint can print
+        // secrets, so a malformed or stale explicit target must error rather than
+        // silently fall back to the selected workspace (unlike the generic
+        // resolution, which falls through to the selection).
+        for key in ["workspace_id", "surface_id", "terminal_id", "tab_id", "pane_id"] {
+            if hasNonNull(params, key), uuid(params, key) == nil {
+                return .err(code: "invalid_params", message: "Missing or invalid \(key)", data: nil)
+            }
+        }
+        let resolution = context?.controlWorkspaceEnv(routing: routingSelectors(params))
+            ?? .tabManagerUnavailable
+        switch resolution {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .notFound:
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        case .resolved(let windowID, let workspaceID, let env):
+            return .ok(.object([
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "env": .object(env.mapValues { JSONValue.string($0) }),
+                "count": .int(Int64(env.count)),
             ]))
         }
     }
