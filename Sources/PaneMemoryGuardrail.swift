@@ -16,6 +16,7 @@ final class PaneMemoryGuardrail {
     private static let enabledSetting = SettingCatalog().terminal.runawayMemoryGuardrailEnabled
     private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
     private static let pollInterval: TimeInterval = 4
+    private static let scopedScanInterval: TimeInterval = 15
     private static let defaultThresholdGB: Double = 8
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
     private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
@@ -46,7 +47,11 @@ final class PaneMemoryGuardrail {
     @ObservationIgnored
     private var lastSamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
     @ObservationIgnored
+    private var lastScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
+    @ObservationIgnored
     private var lastWarnedWorkspaceIds: Set<UUID> = []
+    @ObservationIgnored
+    private var lastScopedScanAt = Date.distantPast
     @ObservationIgnored
     private var pendingBanners: [PaneMemoryWarning] = []
     @ObservationIgnored
@@ -93,29 +98,65 @@ final class PaneMemoryGuardrail {
             return
         }
         let thresholdBytes = thresholdBytes()
+        let includeCMUXScope = consumeScopedScanIfDue(now: Date())
         isScanning = true
         let sampleTask = Task.detached(priority: .utility) {
-            Self.computeCachedSamples(descriptors: descriptors, thresholdBytes: thresholdBytes)
+            Self.computeCachedSamples(
+                descriptors: descriptors,
+                thresholdBytes: thresholdBytes,
+                includeCMUXScope: includeCMUXScope
+            )
         }
         scanApplyTask = Task { @MainActor [weak self] in
-            let samples = await sampleTask.value
+            let batch = await sampleTask.value
             guard !Task.isCancelled else { return }
-            self?.applySamples(samples, thresholdBytes: thresholdBytes)
+            self?.applySamples(
+                batch,
+                thresholdBytes: thresholdBytes
+            )
         }
     }
 
     nonisolated static func computeCachedSamples(
         descriptors: [PaneMemoryDescriptor],
-        thresholdBytes: Int64
-    ) -> [PaneMemorySample] {
-        computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes, snapshot: CmuxTopProcessSnapshot.captureCached(maximumAge: 2))
+        thresholdBytes: Int64,
+        includeCMUXScope: Bool = false
+    ) -> PaneMemoryGuardrailSampleBatch {
+        let snapshot = includeCMUXScope
+            ? CmuxTopProcessSnapshot.capture(includeCMUXScope: true)
+            : CmuxTopProcessSnapshot.captureCached(includeCMUXScope: false, maximumAge: 2)
+        let samples = computeSamples(
+            descriptors: descriptors,
+            thresholdBytes: thresholdBytes,
+            snapshot: snapshot
+        )
+        let scopedOnlySamples = snapshot.hasCMUXScope
+            ? computeScopedOnlySamples(
+                descriptors: descriptors,
+                thresholdBytes: thresholdBytes,
+                snapshot: snapshot
+            )
+            : []
+        return PaneMemoryGuardrailSampleBatch(
+            samples: samples,
+            scopedOnlySamplesByKey: Dictionary(
+                scopedOnlySamples.map { ($0.key, $0) },
+                uniquingKeysWith: { _, last in last }
+            ),
+            includesCMUXScope: snapshot.hasCMUXScope
+        )
     }
 
     nonisolated static func computeFreshSamples(
         descriptors: [PaneMemoryDescriptor],
-        thresholdBytes: Int64
+        thresholdBytes: Int64,
+        includeCMUXScope: Bool = false
     ) -> [PaneMemorySample] {
-        computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes, snapshot: CmuxTopProcessSnapshot.capture())
+        computeSamples(
+            descriptors: descriptors,
+            thresholdBytes: thresholdBytes,
+            snapshot: CmuxTopProcessSnapshot.capture(includeCMUXScope: includeCMUXScope)
+        )
     }
 
     nonisolated static func computeSamples(
@@ -126,6 +167,9 @@ final class PaneMemoryGuardrail {
         let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
         return descriptors.map { descriptor in
             var rootPIDs = snapshot.pids(forCMUXSurfaceID: descriptor.panelId)
+            if let foregroundPID = descriptor.foregroundPID {
+                rootPIDs.insert(foregroundPID)
+            }
             if let ttyName = descriptor.ttyName {
                 rootPIDs.formUnion(snapshot.pids(forTTYName: ttyName))
             }
@@ -146,6 +190,108 @@ final class PaneMemoryGuardrail {
                 foregroundCommand: foregroundCommand
             )
         }
+    }
+
+    nonisolated static func computeScopedOnlySamples(
+        descriptors: [PaneMemoryDescriptor],
+        thresholdBytes: Int64,
+        snapshot: CmuxTopProcessSnapshot
+    ) -> [PaneMemorySample] {
+        let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
+        return descriptors.map { descriptor in
+            let cheapPIDs = snapshot.expandedPIDs(rootPIDs: cheapRootPIDs(for: descriptor, in: snapshot))
+            let scopedPIDs = snapshot.expandedPIDs(rootPIDs: snapshot.pids(forCMUXSurfaceID: descriptor.panelId))
+            let scopedOnlyPIDs = scopedPIDs.subtracting(cheapPIDs)
+            let summary = snapshot.summary(for: scopedOnlyPIDs)
+            let pgids = memoryPressureProcessGroupIDs(
+                in: snapshot,
+                pids: scopedOnlyPIDs,
+                clearBytes: clearBytes
+            )
+            let foregroundCommand = descriptor.foregroundPID
+                .flatMap { snapshot.process(pid: $0)?.name }
+            return PaneMemorySample(
+                descriptor: descriptor,
+                memoryBytes: summary.memoryBytes,
+                residentBytes: summary.residentBytes,
+                memoryPressureProcessGroupIDs: pgids,
+                foregroundCommand: foregroundCommand
+            )
+        }
+    }
+
+    nonisolated static func cheapRootPIDs(
+        for descriptor: PaneMemoryDescriptor,
+        in snapshot: CmuxTopProcessSnapshot
+    ) -> Set<Int> {
+        var rootPIDs: Set<Int> = []
+        if let foregroundPID = descriptor.foregroundPID {
+            rootPIDs.insert(foregroundPID)
+        }
+        if let ttyName = descriptor.ttyName {
+            rootPIDs.formUnion(snapshot.pids(forTTYName: ttyName))
+        }
+        return rootPIDs
+    }
+
+    private func consumeScopedScanIfDue(now: Date) -> Bool {
+        guard now.timeIntervalSince(lastScopedScanAt) >= Self.scopedScanInterval else {
+            return false
+        }
+        lastScopedScanAt = now
+        return true
+    }
+
+    nonisolated static func reconcileScopedSamples(
+        samples: [PaneMemorySample],
+        currentScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample],
+        previousScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample],
+        includesCMUXScope: Bool,
+        clearBytes: Int64
+    ) -> (
+        samples: [PaneMemorySample],
+        scopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample]
+    ) {
+        let liveKeys = Set(samples.map(\.key))
+        let previousScopedOnlySamplesByKey = previousScopedOnlySamplesByKey.filter { liveKeys.contains($0.key) }
+
+        if includesCMUXScope {
+            let scopedOnlySamplesByKey = currentScopedOnlySamplesByKey.filter {
+                liveKeys.contains($0.key) && $0.value.memoryBytes > 0
+            }
+            return (samples, scopedOnlySamplesByKey)
+        }
+
+        let mergedSamples = samples.map { sample in
+            guard let scopedOnlySample = previousScopedOnlySamplesByKey[sample.key] else {
+                return sample
+            }
+            return addingScopedOnlySample(scopedOnlySample, to: sample)
+        }
+        return (mergedSamples, previousScopedOnlySamplesByKey)
+    }
+
+    nonisolated static func addingScopedOnlySample(
+        _ scopedOnlySample: PaneMemorySample,
+        to sample: PaneMemorySample
+    ) -> PaneMemorySample {
+        let memoryBytes = saturatingAdd(sample.memoryBytes, scopedOnlySample.memoryBytes)
+        let residentBytes = saturatingAdd(sample.residentBytes, scopedOnlySample.residentBytes)
+        let pgids = Array(Set(sample.memoryPressureProcessGroupIDs)
+            .union(scopedOnlySample.memoryPressureProcessGroupIDs))
+            .sorted()
+        return PaneMemorySample(
+            descriptor: sample.descriptor,
+            memoryBytes: memoryBytes,
+            residentBytes: residentBytes,
+            memoryPressureProcessGroupIDs: pgids,
+            foregroundCommand: sample.foregroundCommand
+        )
+    }
+
+    nonisolated private static func saturatingAdd(_ lhs: Int64, _ rhs: Int64) -> Int64 {
+        let result = lhs.addingReportingOverflow(rhs)
+        return result.overflow ? Int64.max : result.partialValue
     }
 
     nonisolated static func memoryPressureProcessGroupIDs(
@@ -184,7 +330,20 @@ final class PaneMemoryGuardrail {
         return selectedProcessGroups.sorted()
     }
 
-    private func applySamples(_ samples: [PaneMemorySample], thresholdBytes: Int64) {
+    private func applySamples(
+        _ batch: PaneMemoryGuardrailSampleBatch,
+        thresholdBytes: Int64
+    ) {
+        let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
+        let reconciled = Self.reconcileScopedSamples(
+            samples: batch.samples,
+            currentScopedOnlySamplesByKey: batch.scopedOnlySamplesByKey,
+            previousScopedOnlySamplesByKey: lastScopedOnlySamplesByKey,
+            includesCMUXScope: batch.includesCMUXScope,
+            clearBytes: clearBytes
+        )
+        lastScopedOnlySamplesByKey = reconciled.scopedOnlySamplesByKey
+        let samples = reconciled.samples
         isScanning = false
         scanApplyTask = nil
         let samplesByKey = Dictionary(samples.map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
@@ -199,7 +358,7 @@ final class PaneMemoryGuardrail {
         cmuxDebugLog(
             "paneMemGuard.scan panes=\(samples.count) maxMB=\(maxBytes / 1_048_576) " +
             "thresholdMB=\(thresholdBytes / 1_048_576) warned=\(output.warnedWorkspaceIds.count) " +
-            "fired=\(output.bannerToPresent != nil ? 1 : 0)"
+            "fired=\(output.bannerToPresent != nil ? 1 : 0) scope=\(batch.includesCMUXScope ? 1 : 0)"
         )
 #endif
 
@@ -257,7 +416,11 @@ final class PaneMemoryGuardrail {
         }
         let thresholdBytes = thresholdBytes()
         let sampleTask = Task.detached(priority: .userInitiated) {
-            Self.computeFreshSamples(descriptors: [descriptor], thresholdBytes: thresholdBytes).first
+            Self.computeFreshSamples(
+                descriptors: [descriptor],
+                thresholdBytes: thresholdBytes,
+                includeCMUXScope: true
+            ).first
         }
         presentNextPendingBannerIfNeeded()
         Task { @MainActor [weak self] in
@@ -291,7 +454,8 @@ final class PaneMemoryGuardrail {
             validateBeforeSIGKILL: {
                 let freshSample = Self.computeFreshSamples(
                     descriptors: [descriptor],
-                    thresholdBytes: thresholdBytes
+                    thresholdBytes: thresholdBytes,
+                    includeCMUXScope: true
                 ).first
                 guard let freshSample, freshSample.memoryBytes >= thresholdBytes else {
                     return []
@@ -341,6 +505,8 @@ final class PaneMemoryGuardrail {
         if activeBanner != nil { activeBanner = nil }
         pendingBanners.removeAll()
         lastSamplesByKey.removeAll()
+        lastScopedOnlySamplesByKey.removeAll()
+        lastScopedScanAt = .distantPast
         pendingKillTasksByKey.values.forEach { $0.task.cancel() }
         pendingKillTasksByKey.removeAll()
         if !lastWarnedWorkspaceIds.isEmpty {
