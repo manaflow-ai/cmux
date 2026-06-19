@@ -88,7 +88,15 @@ extension TerminalSurface {
         }
         #endif
 
-        if scaleChanged {
+        // Apply the cell-size (set_content_scale) and screen-px (set_size) updates
+        // in an order that never transiently shrinks the grid (= screen_px /
+        // cell_px). Scale-first is fine except on a DPI increase, where the bigger
+        // cell over the not-yet-resized screen collapses the grid and truncates a
+        // manual-IO mirror's buffer — and a DPI move leaves the remote PTY size
+        // unchanged, so nothing repaints it back. Defer the scale past set_size in
+        // that case.
+        let deferScaleUntilResized = scaleChanged && sizeChanged && (xScale > lastXScale || yScale > lastYScale)
+        if scaleChanged && !deferScaleUntilResized {
             ghostty_surface_set_content_scale(surface, xScale, yScale)
             lastXScale = xScale
             lastYScale = yScale
@@ -117,6 +125,14 @@ extension TerminalSurface {
                     writeProcessOutputData(Self.decawmEnableSequence, to: surface)
                 }
             }
+        }
+
+        // Deferred from above on a DPI increase: now that set_size grew the grid,
+        // applying the larger cell only shrinks it back to the final width.
+        if deferScaleUntilResized {
+            ghostty_surface_set_content_scale(surface, xScale, yScale)
+            lastXScale = xScale
+            lastYScale = yScale
         }
 
         // Remote tmux display surfaces: keep the remote tmux client sized to
