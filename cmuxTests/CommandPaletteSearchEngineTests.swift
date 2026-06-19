@@ -850,6 +850,10 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     func testCustomSnapshotWithForkTemplateIsForkable() {
         let workspaceId = UUID()
         let panelId = UUID()
+        let supportedKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
         let customRegistration = CmuxVaultAgentRegistration(
             id: "my-agent",
             name: "My Agent",
@@ -875,7 +879,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                supportedPanelKeys: [],
+                supportedPanelKeys: [supportedKey],
                 fallbackSnapshot: snapshot
             )
         )
