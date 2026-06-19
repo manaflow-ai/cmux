@@ -284,8 +284,11 @@ final class AgentChatTranscriptService {
     }
 
     private func scheduleTitleDetectedAdoption(_ change: GhosttyTitleChange) {
-        guard let titleKey = Self.claudeTitleDetectionKey(change.title) else { return }
         let surfaceID = change.surfaceId.uuidString
+        guard let titleKey = Self.claudeTitleDetectionKey(change.title) else {
+            clearTitleDetectionState(surfaceID: surfaceID)
+            return
+        }
         if pendingTitleChanges[surfaceID]?.titleKey == titleKey {
             return
         }
@@ -315,6 +318,13 @@ final class AgentChatTranscriptService {
         if titleAdoptionHandler?(pending.change) == true {
             deliveredTitleKeys[surfaceID] = pending.titleKey
         }
+    }
+
+    private func clearTitleDetectionState(surfaceID: String) {
+        pendingTitleChanges.removeValue(forKey: surfaceID)
+        titleChangeTasks[surfaceID]?.cancel()
+        titleChangeTasks[surfaceID] = nil
+        deliveredTitleKeys.removeValue(forKey: surfaceID)
     }
 
     private func scheduleClaudeTranscriptResolution(
@@ -512,13 +522,17 @@ final class AgentChatTranscriptService {
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
-        if stateChanged, record.state == .ended,
-           let tailer = tailers.removeValue(forKey: record.sessionID) {
-            // The transcript can no longer grow; release the file watcher
-            // and cache instead of holding them until app quit. Evicting
-            // only on the TRANSITION keeps unrelated record updates (title
-            // discovery while paging an ended session) from churning it.
-            Task { await tailer.stop() }
+        if stateChanged, record.state == .ended {
+            if let surfaceID = record.surfaceID {
+                clearTitleDetectionState(surfaceID: surfaceID)
+            }
+            if let tailer = tailers.removeValue(forKey: record.sessionID) {
+                // The transcript can no longer grow; release the file watcher
+                // and cache instead of holding them until app quit. Evicting
+                // only on the TRANSITION keeps unrelated record updates (title
+                // discovery while paging an ended session) from churning it.
+                Task { await tailer.stop() }
+            }
         }
         guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
         if transcriptBecameAvailable, record.state != .ended {

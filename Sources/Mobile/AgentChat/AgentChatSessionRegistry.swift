@@ -7,6 +7,7 @@ import Foundation
 @MainActor
 final class AgentChatSessionRegistry {
     private var records: [String: AgentChatSessionRecord] = [:]
+    private var liveSessionIDBySurfaceID: [String: String] = [:]
     private let hookStore: AgentChatHookSessionStore
 
     /// Called after a record mutation with the previous value (nil for a
@@ -65,9 +66,14 @@ final class AgentChatSessionRegistry {
     /// - Returns: A non-ended record bound to the surface, or `nil`.
     func liveSession(surfaceID: String) -> AgentChatSessionRecord? {
         sweepDeadProcesses()
-        return records.values
-            .filter { $0.surfaceID == surfaceID && $0.state != .ended }
-            .max { $0.lastActivityAt < $1.lastActivityAt }
+        guard let sessionID = liveSessionIDBySurfaceID[surfaceID],
+              let record = records[sessionID],
+              record.surfaceID == surfaceID,
+              record.state != .ended else {
+            refreshLiveSessionIndex(surfaceID: surfaceID)
+            return liveSessionIDBySurfaceID[surfaceID].flatMap { records[$0] }
+        }
+        return record
     }
 
     /// Every session id the registry already tracks. Title-detected adoption
@@ -109,6 +115,8 @@ final class AgentChatSessionRegistry {
         var record = previous
         mutate(&record)
         records[sessionID] = record
+        refreshLiveSessionIndex(surfaceID: previous.surfaceID)
+        refreshLiveSessionIndex(surfaceID: record.surfaceID)
         onRecordChanged?(record, previous)
     }
 
@@ -138,7 +146,7 @@ final class AgentChatSessionRegistry {
             for entry in hookStore.entries(agentSource: source) {
                 guard records[entry.sessionID] == nil else { continue }
                 let alive = entry.pid.map { kill(pid_t($0), 0) == 0 } ?? false
-                records[entry.sessionID] = AgentChatSessionRecord(
+                let record = AgentChatSessionRecord(
                     sessionID: entry.sessionID,
                     agentKind: kind,
                     workspaceID: entry.workspaceID,
@@ -150,6 +158,8 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: entry.pid
                 )
+                records[entry.sessionID] = record
+                refreshLiveSessionIndex(surfaceID: record.surfaceID)
             }
         }
     }
@@ -195,6 +205,7 @@ final class AgentChatSessionRegistry {
             pid: nil
         )
         records[sessionID] = record
+        refreshLiveSessionIndex(surfaceID: surfaceID)
         onRecordChanged?(record, nil)
         return record
     }
@@ -260,8 +271,21 @@ final class AgentChatSessionRegistry {
         let previous = records[sessionID]
         record.state = Self.nextState(previous: record.state, event: event)
         records[sessionID] = record
+        refreshLiveSessionIndex(surfaceID: previous?.surfaceID)
+        refreshLiveSessionIndex(surfaceID: record.surfaceID)
         onRecordChanged?(record, previous)
         return record
+    }
+
+    private func refreshLiveSessionIndex(surfaceID: String?) {
+        guard let surfaceID else { return }
+        if let newest = records.values
+            .filter({ $0.surfaceID == surfaceID && $0.state != .ended })
+            .max(by: { $0.lastActivityAt < $1.lastActivityAt }) {
+            liveSessionIDBySurfaceID[surfaceID] = newest.sessionID
+        } else {
+            liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
+        }
     }
 
     /// Strips an agent-name prefix from prefixed workstream ids
