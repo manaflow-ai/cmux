@@ -22955,7 +22955,8 @@ struct CMUXCLI {
                 didResolveCallerTTYBinding = true
                 callerTTYBindingCache = resolveAgentProcessTerminalBinding(
                     pid: claudeAgentPID(from: ProcessInfo.processInfo.environment),
-                    socketPath: client.socketPath
+                    socketPath: client.socketPath,
+                    socketPassword: socketPassword
                 ) ?? resolveCallerTerminalBindingByTTY(
                     client: client,
                     includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
@@ -24334,11 +24335,21 @@ struct CMUXCLI {
         return nil
     }
 
-    private func resolveAgentProcessTerminalBinding(pid: Int?, socketPath: String) -> CallerTerminalBinding? {
+    private func resolveAgentProcessTerminalBinding(pid: Int?, socketPath: String, socketPassword: String?) -> CallerTerminalBinding? {
         guard pid != nil else { return nil }
         let client = SocketClient(path: socketPath)
         defer { client.close() }
-        guard (try? client.connect()) != nil else { return nil }
+        do {
+            try client.connect()
+            try authenticateClientIfNeeded(
+                client,
+                explicitPassword: socketPassword,
+                socketPath: socketPath,
+                responseTimeout: 2.0
+            )
+        } catch {
+            return nil
+        }
         return resolveAgentProcessTerminalBinding(pid: pid, client: client)
     }
 

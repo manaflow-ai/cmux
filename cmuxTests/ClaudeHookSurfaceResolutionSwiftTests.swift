@@ -149,6 +149,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         let pidWorkspaceId = "77777777-7777-7777-7777-777777777777"
         let pidSurfaceId = "33333333-3333-3333-3333-333333333333"
         let claudePID = 42_424
+        let socketPassword = "claude-pid-secret"
         let sessionId = "claude-pid-surface-session"
 
         let serverHandled = startClaudeSurfaceResolutionServer(
@@ -162,13 +163,15 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             ],
             agentPID: claudePID,
             agentPIDWorkspaceId: pidWorkspaceId,
-            agentPIDSurfaceId: pidSurfaceId
+            agentPIDSurfaceId: pidSurfaceId,
+            requiredSocketPassword: socketPassword
         )
 
         let environment = [
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_SOCKET_PASSWORD": socketPassword,
             "CMUX_WORKSPACE_ID": leakedWorkspaceId,
             "CMUX_SURFACE_ID": leakedSurfaceId,
             "CMUX_CLAUDE_PID": "\(claudePID)",
@@ -203,6 +206,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         #expect(
             request["surface_id"] as? String == pidSurfaceId,
             "Claude PID binding must beat leaked ambient CMUX_SURFACE_ID when no TTY marker exists; params=\(request)"
+        )
+        #expect(
+            context.state.snapshot().contains("auth \(socketPassword)"),
+            "Claude PID probe must authenticate before reading system.top on password-protected sockets"
         )
     }
 
@@ -427,7 +434,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         return fd
     }
 
-    private func startMockServer(listenerFD: Int32, state: MockSocketServerState, handler: @escaping @Sendable (String) -> String) -> DispatchSemaphore {
+    private func startMockServer(
+        listenerFD: Int32,
+        state: MockSocketServerState,
+        requiredSocketPassword: String? = nil,
+        handler: @escaping @Sendable (String) -> String
+    ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             while true {
@@ -444,9 +456,18 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                 }
 
                 DispatchQueue.global(qos: .userInitiated).async {
+                    var authenticated = requiredSocketPassword == nil
+
                     defer {
                         Darwin.close(clientFD)
                         handled.signal()
+                    }
+
+                    func writeResponse(_ response: String) {
+                        let line = response + "\n"
+                        _ = line.withCString { ptr in
+                            Darwin.write(clientFD, ptr, strlen(ptr))
+                        }
                     }
 
                     var pending = Data()
@@ -465,10 +486,20 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                             pending.removeSubrange(0...newlineRange.lowerBound)
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             state.append(line)
-                            let response = handler(line) + "\n"
-                            _ = response.withCString { ptr in
-                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            if let requiredSocketPassword, line.hasPrefix("auth ") {
+                                if line == "auth \(requiredSocketPassword)" {
+                                    authenticated = true
+                                    writeResponse("OK")
+                                } else {
+                                    writeResponse("ERROR: Access denied")
+                                }
+                                continue
                             }
+                            guard authenticated else {
+                                writeResponse("ERROR: Access denied")
+                                continue
+                            }
+                            writeResponse(handler(line))
                         }
                     }
                 }
@@ -486,10 +517,15 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         surfacesByWorkspace: [String: [SurfaceFixture]]? = nil,
         agentPID: Int? = nil,
         agentPIDWorkspaceId: String? = nil,
-        agentPIDSurfaceId: String? = nil
+        agentPIDSurfaceId: String? = nil,
+        requiredSocketPassword: String? = nil
     ) -> DispatchSemaphore {
         let resolvedTTYWorkspaceId = ttyWorkspaceId ?? context.workspaceId
-        return startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+        return startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            requiredSocketPassword: requiredSocketPassword
+        ) { line in
             guard let payload = jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
