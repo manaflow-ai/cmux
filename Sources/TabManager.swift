@@ -770,15 +770,6 @@ class TabManager: ObservableObject {
         }
     }
 
-    func gitProbeDirectory(for workspace: Workspace, panelId: UUID) -> String? {
-        // Match the sidebar directory fallback chain so hidden/background panels can
-        // still probe git metadata before OSC 7 has reported a live cwd.
-        let rawDirectory = workspace.panelDirectories[panelId]
-            ?? workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory
-            ?? (workspace.focusedPanelId == panelId ? workspace.currentDirectory : nil)
-        return rawDirectory.flatMap(normalizedWorkingDirectory)
-    }
-
     func scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
         workspaceId: UUID,
         panelId: UUID,

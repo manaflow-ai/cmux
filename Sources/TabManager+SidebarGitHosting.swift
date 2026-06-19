@@ -42,7 +42,12 @@ extension TabManager: SidebarGitHosting {
 
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String? {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
-        return gitProbeDirectory(for: workspace, panelId: panelId)
+        // Match the sidebar directory fallback chain so hidden/background panels can
+        // still probe git metadata before OSC 7 has reported a live cwd.
+        let rawDirectory = workspace.panelDirectories[panelId]
+            ?? workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory
+            ?? (workspace.focusedPanelId == panelId ? workspace.currentDirectory : nil)
+        return rawDirectory.flatMap(normalizedWorkingDirectory)
     }
 
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch? {
