@@ -2,12 +2,12 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34179	CLI/cmux.swift
-17582	Sources/AppDelegate.swift
-15932	Sources/ContentView.swift
+17583	Sources/AppDelegate.swift
+15322	Sources/ContentView.swift
 13584	Sources/TerminalController.swift
 12565	Sources/Workspace.swift
-12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11736	Sources/GhosttyTerminalView.swift
+12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
+11698	Sources/GhosttyTerminalView.swift
 11411	Sources/Panels/BrowserPanel.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7988	Sources/Panels/BrowserPanelView.swift
@@ -168,7 +168,7 @@
 594	Sources/SessionIndexModels.swift
 594	cmuxTests/PortalTabDragRoutingTests.swift
 590	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
-588	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
+589	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 586	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+PortScan.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
@@ -194,6 +194,7 @@
 534	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 531	Sources/App/WorkspaceRuntimeSettings.swift
 530	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
+530	Packages/macOS/CmuxCommandPaletteUI/Sources/CmuxCommandPaletteUI/Overlay/WindowCommandPaletteOverlayController.swift
 529	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 528	cmuxTests/CLINotifyProcessTestSupport.swift
 528	cmuxUITests/AutomationSocketUITests.swift

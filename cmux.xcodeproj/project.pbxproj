@@ -225,6 +225,7 @@
 		C12985000000000000000004 /* CMUXCLISentryTelemetryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */; };
 		5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
 		5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
+		5E55500000000000000000F3 /* CmuxCommandPaletteUI in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000F2 /* CmuxCommandPaletteUI */; };
 		A5001650 /* CmuxConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001651 /* CmuxConfig.swift */; };
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
@@ -1955,6 +1956,7 @@
 				CA52A003CA52A003CA52A003 /* CmuxCanvas in Frameworks */,
 				CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */,
 				5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */,
+				5E55500000000000000000F3 /* CmuxCommandPaletteUI in Frameworks */,
 				C750100000000000000000A3 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A3 /* CmuxCore in Frameworks */,
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
@@ -3110,6 +3112,7 @@
 				CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */,
 				CDFEED0200000000CDFEED02 /* CmuxUpdater */,
 				CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */,
+				5E55500000000000000000F2 /* CmuxCommandPaletteUI */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
 				CC0DE10000000000000000A2 /* CmuxRemoteDaemon */,
@@ -3289,6 +3292,7 @@
 				CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */,
 				CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */,
 				CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */,
+				5E55500000000000000000F1 /* XCLocalSwiftPackageReference "CmuxCommandPaletteUI" */,
 				CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
 				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
@@ -4916,6 +4920,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxUpdaterUI;
 		};
+		5E55500000000000000000F1 /* XCLocalSwiftPackageReference "CmuxCommandPaletteUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxCommandPaletteUI;
+		};
 		CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCore;
@@ -5147,6 +5155,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */;
 			productName = CmuxUpdaterUI;
+		};
+		5E55500000000000000000F2 /* CmuxCommandPaletteUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E55500000000000000000F1 /* XCLocalSwiftPackageReference "CmuxCommandPaletteUI" */;
+			productName = CmuxCommandPaletteUI;
 		};
 		CC0DE00000000000000000A2 /* CmuxCore */ = {
 			isa = XCSwiftPackageProductDependency;
