@@ -1082,14 +1082,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
-    private var sessionAutosaveTimer: DispatchSourceTimer?
-    private var sessionAutosaveTickInFlight = false
-    private var sessionAutosaveDeferredRetryPending = false
     private var processDetectedSessionSaveGeneration: UInt64 = 0
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
+    /// Session-snapshot autosave cadence (CmuxWorkspaces); composition-root
+    /// owned. Owns the repeating-timer task, the typing-quiet deferral, and the
+    /// in-flight latch the legacy `DispatchSourceTimer` + serial-queue retry
+    /// used; `AppDelegate` conforms to ``SessionAutosaveScheduling`` and the
+    /// scheduler calls back through ``performScheduledAutosave(source:)``. The
+    /// `XCTest` suspension check matches the legacy guard in the old
+    /// `startSessionAutosaveTimerIfNeeded()`.
+    private lazy var sessionAutosaveScheduler: SessionAutosaveScheduler = {
+        let scheduler = SessionAutosaveScheduler(
+            interval: .seconds(Int64(SessionPersistencePolicy.autosaveInterval)),
+            isAutosaveSuspended: { [weak self] in
+                guard let self else { return true }
+                return self.isRunningUnderXCTest(ProcessInfo.processInfo.environment)
+            }
+        )
+        scheduler.attach(host: self)
+        return scheduler
+    }()
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
@@ -1116,12 +1131,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
-    private var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
-    private var isTerminatingApp = false
+    // Internal (not private) so the ``SessionAutosaveScheduling`` conformance
+    // can read it as the per-tick termination guard.
+    var isTerminatingApp = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
@@ -1140,7 +1156,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// escape suppression, selection, debug snapshot). This delegate resolves
     /// `NSWindow` values to identifiers and forwards into the store.
     let commandPaletteWindowStore = CommandPaletteWindowStore()
-    private static let sessionAutosaveTypingQuietPeriod: TimeInterval = 0.65
 
     var updateViewModel: UpdateStateModel {
         updateController.model
@@ -2554,29 +2569,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func startSessionAutosaveTimerIfNeeded() {
-        guard sessionAutosaveTimer == nil else { return }
-        let env = ProcessInfo.processInfo.environment
-        guard !isRunningUnderXCTest(env) else { return }
-
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        let interval = SessionPersistencePolicy.autosaveInterval
-        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .seconds(1))
-        timer.setEventHandler { [weak self] in
-            guard let self,
-                  Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp) else {
-                return
-            }
-            self.runSessionAutosaveTick(source: "timer")
-        }
-        sessionAutosaveTimer = timer
-        timer.resume()
+        sessionAutosaveScheduler.start()
     }
 
     private func stopSessionAutosaveTimer() {
-        sessionAutosaveTimer?.cancel()
-        sessionAutosaveTimer = nil
-        sessionAutosaveTickInFlight = false
-        sessionAutosaveDeferredRetryPending = false
+        sessionAutosaveScheduler.stop()
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
@@ -2895,55 +2892,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         false
     }
 
-    private func remainingSessionAutosaveTypingQuietPeriod(
-        nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
-    ) -> TimeInterval? {
-        guard lastTypingActivityAt > 0 else { return nil }
-        let elapsed = nowUptime - lastTypingActivityAt
-        guard elapsed < Self.sessionAutosaveTypingQuietPeriod else { return nil }
-        return Self.sessionAutosaveTypingQuietPeriod - elapsed
-    }
-
-    private func scheduleDeferredSessionAutosaveRetry(after delay: TimeInterval) {
-        guard delay.isFinite, delay > 0 else { return }
-        guard !sessionAutosaveDeferredRetryPending else { return }
-        sessionAutosaveDeferredRetryPending = true
-        sessionPersistenceQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.sessionAutosaveDeferredRetryPending = false
-                self.runSessionAutosaveTick(source: "typingQuietRetry")
-            }
-        }
-    }
-
-    private func runSessionAutosaveTick(source: String) {
-        guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
-        guard !sessionAutosaveTickInFlight else { return }
-        if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
-#if DEBUG
-            cmuxDebugLog(
-                "session.save.skipped reason=typing_recent includeScrollback=0 source=\(source) " +
-                "retryMs=\(Int((remainingQuietPeriod * 1000).rounded()))"
-            )
-#endif
-            scheduleDeferredSessionAutosaveRetry(after: remainingQuietPeriod)
-            return
-        }
-
-        sessionAutosaveTickInFlight = true
+    /// Performs one scheduled session-snapshot autosave, called by
+    /// ``SessionAutosaveScheduler`` after it has cleared the typing-quiet
+    /// deferral and taken the in-flight latch. Lifted from the legacy
+    /// `finishSessionAutosaveTick(source:generation:)`; the scheduler now owns
+    /// the latch, the typing-quiet check, and the retry, so this body keeps only
+    /// the app-coupled save: it allocates a process-detected scan generation,
+    /// loads the resume indexes, guards against a stale scan, applies the
+    /// unchanged-fingerprint skip, writes the snapshot, and records the new
+    /// autosave state. `nonisolated(unsafe)`-free; runs on the main actor.
+    func performScheduledAutosave(source: String) async {
         let generation = nextProcessDetectedSessionSaveGeneration()
-        Task { @MainActor in await self.finishSessionAutosaveTick(source: source, generation: generation) }
-    }
-
-    private func finishSessionAutosaveTick(source: String, generation: UInt64) async {
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
         let phaseStart = ProcessInfo.processInfo.systemUptime
         var fingerprintMs: Double = 0
         var saveMs: Double = 0
         defer {
-            sessionAutosaveTickInFlight = false
             let totalMs = (ProcessInfo.processInfo.systemUptime - phaseStart) * 1000.0
             CmuxTypingTiming.logBreakdown(
                 path: "session.autosaveTick.phase",
@@ -2961,8 +2926,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 extra: "source=\(source)"
             )
         }
-#else
-        defer { sessionAutosaveTickInFlight = false }
 #endif
 
         let now = Date()
@@ -3065,7 +3028,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     fileprivate func recordTypingActivity() {
-        lastTypingActivityAt = ProcessInfo.processInfo.systemUptime
+        sessionAutosaveScheduler.recordTypingActivity()
     }
 
     nonisolated static func shouldWriteSessionSnapshotSynchronously(
@@ -14068,8 +14031,8 @@ private extension NSWindow {
             CmuxTypingTiming.logEventDelay(path: "window.sendEvent", event: event)
         }
 #endif
-        // recordTypingActivity must run in all builds so runSessionAutosaveTick
-        // can honor the typing quiet period in release.
+        // recordTypingActivity must run in all builds so the session autosave
+        // scheduler can honor the typing quiet period in release.
         if event.type == .keyDown, let app = AppDelegate.shared, cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: app) { return }
         if event.type == .keyDown { AppDelegate.shared?.recordTypingActivity() }
         if event.type == .leftMouseDown,
@@ -15024,6 +14987,13 @@ extension AppDelegate {
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}
+
+// MARK: - CmuxWorkspaces session-autosave seam conformance
+
+// `isTerminatingApp` (the per-tick termination guard) and
+// `performScheduledAutosave(source:)` (the app-coupled snapshot save) are
+// declared on `AppDelegate` above; the scheduler drives them through this seam.
+extension AppDelegate: SessionAutosaveScheduling {}
 
 #if DEBUG
 // MARK: - CmuxTestSupport diagnostics seam conformance
