@@ -43,6 +43,19 @@ def test_web_only_runs_web_without_macos() -> None:
     assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True, go=False)
 
 
+def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
+    assert_areas(["webviews/src/agent-session/shared/message.test.ts"], macos=True, web=True, go=False)
+
+
+def test_markdown_viewer_resources_run_webviews_asset_guard() -> None:
+    assert_areas(
+        ["Resources/markdown-viewer/webviews-app/index.js", "Resources/markdown-viewer/marked.min.js"],
+        macos=True,
+        web=True,
+        go=False,
+    )
+
+
 def test_root_agent_web_dependencies_run_web_and_macos() -> None:
     assert_areas(["package.json", "bun.lock"], macos=True, web=True, go=False)
 
