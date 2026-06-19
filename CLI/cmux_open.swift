@@ -4487,16 +4487,14 @@ extension CMUXCLI {
             ),
             rootDirectory: rootDirectory
         )
-        FileHandle.standardOutput.write(Data("\(port)\n".utf8))
+        cliWriteStdout(Data("\(port)\n".utf8))
 
         while true {
-            let clientFD = accept(serverFD, nil, nil)
-            if clientFD < 0 {
-                if errno == EINTR {
-                    continue
-                }
-                throw CLIError(message: "Diff viewer server accept failed: \(posixErrorMessage(errno))")
-            }
+            guard let clientFD = try acceptCLISocketNoSIGPIPE(
+                serverFD,
+                acceptFailureMessage: "Diff viewer server accept failed: \(posixErrorMessage(errno))",
+                noSIGPIPEFailureMessage: "Failed to disable SIGPIPE on diff viewer client socket: \(posixErrorMessage(errno))"
+            ) else { continue }
             DispatchQueue.global(qos: .userInitiated).async {
                 self.handleDiffViewerHTTPConnection(
                     fileDescriptor: clientFD,
