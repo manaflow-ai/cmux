@@ -9108,8 +9108,8 @@ struct CMUXCLI {
         let text = ((payload["text"] as? String) ?? "").lowercased()
         let title = ((surface["title"] as? String) ?? "").lowercased()
         let initialCommand = ((surface["initial_command"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let vmNeedle = vmID.lowercased(); let alreadyOnVM = !vmNeedle.isEmpty && (title.contains(vmNeedle) || text.contains(vmNeedle))
-        let staleAuth = text.contains("password:") || text.contains("input_userauth_error") || text.contains("permission denied")
+        let vmNeedle = vmID.lowercased(); let lastStale = ["password:", "input_userauth_error", "permission denied"].compactMap { text.range(of: $0, options: .backwards)?.lowerBound }.max()
+        let lastPrompt = ["cmux@\(vmNeedle):", "cmux@\(vmNeedle)", "cmux@"].compactMap { text.range(of: $0, options: .backwards)?.lowerBound }.max(); let alreadyOnVM = !vmNeedle.isEmpty && (title.contains(vmNeedle) || lastPrompt != nil); let staleAuth = lastStale.map { stale in lastPrompt.map { $0 < stale } ?? true } ?? false
         guard staleAuth || (!alreadyOnVM && initialCommand.isEmpty) else { return }
         do {
             _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "ctrl+c"]) { _, new in new }); _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command]) { _, new in new }); _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "enter"]) { _, new in new })
