@@ -12180,18 +12180,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let paletteSelectionDelta = commandPaletteSelectionDeltaForKeyboardNavigation(flags: event.modifierFlags, chars: chars, keyCode: event.keyCode, nextShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext), previousShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious))
 
-        if shouldRouteCommandPaletteSelectionNavigation(
+        if CommandPaletteSelectionNavigation(
             delta: paletteSelectionDelta,
             isInteractive: commandPaletteInteractiveInTargetWindow,
             usesInlineTextHandling: paletteUsesInlineTextHandling
-        ),
+        ).shouldRoute,
            let delta = paletteSelectionDelta,
            let paletteWindow = commandPaletteShortcutWindow {
             NotificationCenter.default.post(name: .commandPaletteMoveSelection, object: paletteWindow, userInfo: ["delta": delta])
             return true
         }
 
-        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil && shouldRouteCommandPaletteSelectionNavigation(delta: 1, isInteractive: commandPaletteInteractiveInTargetWindow, usesInlineTextHandling: paletteUsesInlineTextHandling)
+        let shouldRouteConfiguredPaletteSelection = commandPaletteShortcutWindow != nil && CommandPaletteSelectionNavigation(delta: 1, isInteractive: commandPaletteInteractiveInTargetWindow, usesInlineTextHandling: paletteUsesInlineTextHandling).shouldRoute
 
         if shouldRouteConfiguredPaletteSelection, let paletteWindow = commandPaletteShortcutWindow {
             for (action, delta) in [(KeyboardShortcutSettings.Action.commandPaletteNext, 1), (.commandPalettePrevious, -1)] {
@@ -12214,11 +12214,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
 
-            let shouldSubmitPalette = shouldSubmitCommandPaletteWithReturn(
+            let shouldSubmitPalette = CommandPaletteKeystroke(
                 keyCode: event.keyCode,
-                flags: event.modifierFlags,
-                mode: paletteSnapshot.mode
-            )
+                modifierFlags: event.modifierFlags,
+                characters: chars
+            ).shouldSubmitWithReturn(mode: paletteSnapshot.mode)
 #if DEBUG
             if event.keyCode == 36 || event.keyCode == 76 {
                 cmuxDebugLog(
@@ -12293,12 +12293,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if shouldConsumeShortcutWhileCommandPaletteVisible(
-            isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
-            normalizedFlags: normalizedFlags,
-            chars: chars,
-            keyCode: event.keyCode
-        ) {
+        if CommandPaletteKeystroke(
+            keyCode: event.keyCode,
+            modifierFlags: normalizedFlags,
+            characters: chars
+        ).shouldConsumeWhilePaletteVisible(isPaletteVisible: commandPaletteEffectiveInTargetWindow) {
             return true
         }
 
