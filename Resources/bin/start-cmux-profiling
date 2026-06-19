@@ -471,6 +471,9 @@ export_toc() {
   fi
 }
 
+successful_traces=0
+failed_traces=0
+
 for template in "${templates[@]}"; do
   trace_name="$(safe_name "$template")"
   trace_path="$out_dir/${trace_name}.trace"
@@ -483,15 +486,35 @@ for template in "${templates[@]}"; do
       --attach "$pid" \
       --time-limit "${duration}s" \
       --output "$trace_path"; then
-    export_toc "$trace_path" "$out_dir/${trace_name}-toc.xml" "$out_dir/${trace_name}-toc.log" || true
+    if [ -e "$trace_path" ]; then
+      successful_traces=$((successful_traces + 1))
+      export_toc "$trace_path" "$out_dir/${trace_name}-toc.xml" "$out_dir/${trace_name}-toc.log" || true
+    else
+      failed_traces=$((failed_traces + 1))
+      echo "start-cmux-profiling: template did not produce a trace: $template. See $log_path" >&2
+    fi
   else
+    failed_traces=$((failed_traces + 1))
     echo "start-cmux-profiling: template failed: $template. See $log_path" >&2
   fi
 done
 
+if [ "$successful_traces" -eq 0 ]; then
+  cat >> "$out_dir/summary.md" <<EOF
+
+Failed: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Successful traces: 0
+Failed templates: $failed_traces
+EOF
+  echo "start-cmux-profiling: all profiling templates failed; capture not submitted. Output: $out_dir" >&2
+  exit 1
+fi
+
 cat >> "$out_dir/summary.md" <<EOF
 
 Completed: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Successful traces: $successful_traces
+Failed templates: $failed_traces
 EOF
 
 if [ "$submit_profile" = "true" ]; then

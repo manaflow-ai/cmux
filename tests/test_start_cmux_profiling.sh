@@ -166,6 +166,52 @@ if ! grep -Fq "Completed:" "$timeout_out/summary.md"; then
   cat "$timeout_out/summary.md" >&2
   exit 1
 fi
+if ! grep -Fq "Successful traces: 1" "$timeout_out/summary.md"; then
+  echo "FAIL: script did not count the successful trace" >&2
+  cat "$timeout_out/summary.md" >&2
+  exit 1
+fi
+
+fail_bin="$TMP_DIR/fail-bin"
+mkdir -p "$fail_bin"
+cat > "$fail_bin/xcrun" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${1:-}" = "-f" ]; then
+  echo "$0"
+  exit 0
+fi
+
+if [ "${1:-}" = "xctrace" ] && [ "${2:-}" = "record" ]; then
+  echo "record failed" >&2
+  exit 2
+fi
+
+exit 1
+EOF
+chmod +x "$fail_bin/xcrun"
+
+all_failed_out="$TMP_DIR/all-failed-out"
+if PATH="$fail_bin:$PATH" "$SCRIPT" \
+  --test-ps-file "$ps_file" \
+  --channel dev \
+  --tag dog \
+  --duration 1 \
+  --template "Time Profiler" \
+  --no-submit \
+  --out "$all_failed_out" >/tmp/cmux-profile-all-failed.log 2>&1; then
+  echo "FAIL: all-failed profiling run should exit nonzero" >&2
+  exit 1
+fi
+if ! grep -Fq "all profiling templates failed" /tmp/cmux-profile-all-failed.log ||
+   ! grep -Fq "Successful traces: 0" "$all_failed_out/summary.md" ||
+   grep -Fq "Completed:" "$all_failed_out/summary.md"; then
+  echo "FAIL: all-failed profiling run did not surface failure correctly" >&2
+  cat /tmp/cmux-profile-all-failed.log >&2
+  cat "$all_failed_out/summary.md" >&2
+  exit 1
+fi
 
 submit_output="$("$ROOT_DIR/Resources/bin/submit-cmux-profile" --dry-run --profile "$timeout_out" --target-name "cmux DEV dog" --target-pid 303 --channel dev --bundle-id com.cmuxterm.app.debug.dog)"
 if [[ "$submit_output" != *"Recipient: founders@manaflow.com"* ]] ||
