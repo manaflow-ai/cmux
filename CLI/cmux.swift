@@ -22947,6 +22947,7 @@ struct CMUXCLI {
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+        let preferCallerTTYRouting = hookWsFlag == nil && hookSurfaceFlag == nil
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
@@ -22984,6 +22985,7 @@ struct CMUXCLI {
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: nil,
                 fallback: workspaceArg,
+                preferCallerTTYOverFallback: preferCallerTTYRouting,
                 client: client
             )
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -23112,6 +23114,7 @@ struct CMUXCLI {
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
+                    preferCallerTTYOverFallback: preferCallerTTYRouting,
                     client: client
                 )
                 let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -23217,6 +23220,7 @@ struct CMUXCLI {
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
+                preferCallerTTYOverFallback: preferCallerTTYRouting,
                 client: client
             )
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -23325,6 +23329,7 @@ struct CMUXCLI {
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
+                    preferCallerTTYOverFallback: preferCallerTTYRouting,
                     client: client
                 )
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
@@ -23356,6 +23361,7 @@ struct CMUXCLI {
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
+                preferCallerTTYOverFallback: preferCallerTTYRouting,
                 client: client
             )
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
@@ -23461,6 +23467,7 @@ struct CMUXCLI {
                    let forkWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                        preferred: nil,
                        fallback: workspaceArg,
+                       preferCallerTTYOverFallback: preferCallerTTYRouting,
                        client: client
                    ),
                    let forkSurface = try? resolvePreferredSurfaceForClaudeHookDetailed(
@@ -23487,6 +23494,7 @@ struct CMUXCLI {
             let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
+                preferCallerTTYOverFallback: preferCallerTTYRouting,
                 client: client
             )
             let fallbackSurfaceId: String? = {
@@ -23562,6 +23570,7 @@ struct CMUXCLI {
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
+                preferCallerTTYOverFallback: preferCallerTTYRouting,
                 client: client
             )
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -23871,10 +23880,15 @@ struct CMUXCLI {
     private func resolvePreferredWorkspaceIdForClaudeHook(
         preferred: String?,
         fallback: String?,
+        preferCallerTTYOverFallback: Bool = false,
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
             return try resolveWorkspaceIdForClaudeHook(preferred, client: client)
+        }
+        if preferCallerTTYOverFallback,
+           let callerWorkspaceId = resolveCallerWorkspaceIdForClaudeHook(client: client) {
+            return callerWorkspaceId
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
             return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
@@ -24104,8 +24118,7 @@ struct CMUXCLI {
            (try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])) != nil {
             return candidate
         }
-        if let callerWorkspaceId = resolveCallerWorkspaceIdByTTY(client: client),
-           (try? client.sendV2(method: "surface.list", params: ["workspace_id": callerWorkspaceId])) != nil {
+        if let callerWorkspaceId = resolveCallerWorkspaceIdForClaudeHook(client: client) {
             return callerWorkspaceId
         }
         return try resolveWorkspaceId(nil, client: client)
@@ -24176,6 +24189,14 @@ struct CMUXCLI {
     private struct CallerTerminalBinding {
         let workspaceId: String
         let surfaceId: String
+    }
+
+    private func resolveCallerWorkspaceIdForClaudeHook(client: SocketClient) -> String? {
+        guard let callerWorkspaceId = resolveCallerWorkspaceIdByTTY(client: client),
+              (try? client.sendV2(method: "surface.list", params: ["workspace_id": callerWorkspaceId])) != nil else {
+            return nil
+        }
+        return callerWorkspaceId
     }
 
     private func resolveCallerWorkspaceIdByTTY(client: SocketClient) -> String? {
