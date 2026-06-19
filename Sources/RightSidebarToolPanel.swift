@@ -323,7 +323,7 @@ struct RightSidebarToolPanelView: View {
     }
 }
 
-private struct RightSidebarToolFocusAnchor: NSViewRepresentable {
+struct RightSidebarToolFocusAnchor: NSViewRepresentable {
     final class Coordinator {
         var onViewChange: (RightSidebarToolFocusAnchorView?) -> Void
         weak var attachedView: RightSidebarToolFocusAnchorView?
@@ -367,7 +367,7 @@ private struct RightSidebarToolFocusAnchor: NSViewRepresentable {
     }
 }
 
-fileprivate final class RightSidebarToolFocusAnchorView: NSView {
+final class RightSidebarToolFocusAnchorView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {

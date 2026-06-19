@@ -40,6 +40,10 @@ struct CustomSidebarPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: appearance.backgroundColor))
+        .background(
+            RightSidebarToolFocusAnchor(onViewChange: panel.attachFocusAnchor)
+                .frame(width: 0, height: 0)
+        )
         .overlay {
             focusFlashOverlay
         }

@@ -80,6 +80,7 @@ extension Workspace {
         }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
 
         let customPanel = CustomSidebarPanel(workspace: self, name: name, fileURL: fileURL)
         panels[customPanel.id] = customPanel
@@ -117,7 +118,7 @@ extension Workspace {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
                 splitPanelId: customPanel.id,
-                previousHostedView: nil
+                previousHostedView: previousHostedView
             )
         }
 
