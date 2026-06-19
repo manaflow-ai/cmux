@@ -330,6 +330,10 @@ final class AgentChatTranscriptService {
         titleChangeTasks[surfaceID]?.cancel()
         titleChangeTasks[surfaceID] = nil
         deliveredTitleKeys.removeValue(forKey: surfaceID)
+        transcriptResolutionTasks[surfaceID]?.cancel()
+        transcriptResolutionTasks[surfaceID] = nil
+        transcriptResolutionKeys.removeValue(forKey: surfaceID)
+        detectionScanAt.removeValue(forKey: surfaceID)
     }
 
     private func scheduleClaudeTranscriptResolution(
