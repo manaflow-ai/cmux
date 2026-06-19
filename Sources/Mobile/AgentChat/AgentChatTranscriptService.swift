@@ -365,9 +365,11 @@ final class AgentChatTranscriptService {
         transcriptResolutionKeys[surfaceID] = key
         transcriptResolutionTasks[surfaceID]?.cancel()
         let resolver = self.resolver
+        let scanQueue = self.scanQueue
         transcriptResolutionTasks[surfaceID] = Task { @MainActor [
             weak self,
             resolver,
+            scanQueue,
             key,
             workspaceID,
             workingDirectory,
@@ -601,8 +603,11 @@ final class AgentChatTranscriptService {
     }
 
     private static func claudeTitleDetectionKey(_ title: String?) -> String? {
-        guard let title,
-              title.lowercased().contains("claude") else {
+        guard let title else {
+            return nil
+        }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.lowercased().contains("claude") || trimmed.hasPrefix("✳") else {
             return nil
         }
         return specificClaudeTitleKey(title) ?? "generic:claude"
