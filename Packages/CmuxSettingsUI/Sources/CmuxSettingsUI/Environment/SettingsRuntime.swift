@@ -19,6 +19,7 @@ public struct SettingsRuntime: @unchecked Sendable {
     public let errorLog: SettingsErrorLog
     public let accountFlow: AccountFlow?
     public let hostActions: SettingsHostActions
+    public let bindableCommandCatalog: any BindableCommandCatalogProviding
 
     @MainActor
     public init(
@@ -28,7 +29,8 @@ public struct SettingsRuntime: @unchecked Sendable {
         secretStore: SecretFileStore,
         errorLog: SettingsErrorLog,
         accountFlow: AccountFlow? = nil,
-        hostActions: SettingsHostActions = NoopSettingsHostActions()
+        hostActions: SettingsHostActions = NoopSettingsHostActions(),
+        bindableCommandCatalog: any BindableCommandCatalogProviding = NoopBindableCommandCatalog()
     ) {
         self.catalog = catalog
         self.userDefaultsStore = userDefaultsStore
@@ -37,6 +39,7 @@ public struct SettingsRuntime: @unchecked Sendable {
         self.errorLog = errorLog
         self.accountFlow = accountFlow
         self.hostActions = hostActions
+        self.bindableCommandCatalog = bindableCommandCatalog
     }
 }
 

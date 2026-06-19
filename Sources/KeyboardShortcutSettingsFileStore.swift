@@ -71,6 +71,7 @@ final class CmuxSettingsFileStore {
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
+    private var commandShortcutsById: [String: StoredShortcut] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeLegacyDerivedManagedUserDefaultKeys: Set<String> = []
@@ -172,6 +173,7 @@ final class CmuxSettingsFileStore {
         synchronized {
             shortcutsByAction = resolved.shortcuts
             whenClausesByAction = resolved.whenClauses
+            commandShortcutsById = resolved.commandShortcutsById
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
             activeLegacyDerivedManagedUserDefaultKeys = resolved.legacyDerivedManagedUserDefaultKeys
@@ -189,6 +191,12 @@ final class CmuxSettingsFileStore {
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {
         synchronized { shortcutsByAction[action] }
+    }
+
+    /// The user's custom command-palette shortcut bindings parsed from
+    /// `shortcuts.commands`, keyed by command id. Empty when none are configured.
+    func commandShortcutOverrides() -> [String: StoredShortcut] {
+        synchronized { commandShortcutsById }
     }
 
     /// The `when`-clause override for an action parsed from `shortcuts.when` in
@@ -929,7 +937,7 @@ final class CmuxSettingsFileStore {
         }
 
         var bindings = section["bindings"] as? [String: Any] ?? [:]
-        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
+        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" && key != "commands" {
             bindings[key] = rawValue
         }
 
@@ -943,6 +951,16 @@ final class CmuxSettingsFileStore {
                 continue
             }
             snapshot.shortcuts[action] = shortcut
+        }
+
+        if let rawCommands = section["commands"] as? [String: Any] {
+            for (commandId, rawBinding) in rawCommands {
+                guard let shortcut = parseCommandShortcutBindingValue(rawBinding) else {
+                    cmuxSettingsFileStoreLogger.warning("ignoring invalid command shortcut binding for '\(commandId, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                    continue
+                }
+                snapshot.commandShortcutsById[commandId] = shortcut
+            }
         }
 
         parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
@@ -1010,6 +1028,66 @@ final class CmuxSettingsFileStore {
         // Settings-file parsing runs while the shared store may still be initializing.
         // Avoid the UI recorder's conflict lookup here because it reads the shared store.
         return action.normalizedSettingsFileShortcut(shortcut)
+    }
+
+    /// Parses one `shortcuts.commands` entry into a ``StoredShortcut``. Accepts
+    /// the same value forms as action bindings (string, string array for chords,
+    /// nested object, or `null` for unbound) but without per-action
+    /// normalization, since command bindings are not tied to an action.
+    private func parseCommandShortcutBindingValue(_ rawValue: Any) -> StoredShortcut? {
+        if rawValue is NSNull { return .unbound }
+        let parsed: StoredShortcut?
+        if let stroke = jsonString(rawValue) {
+            parsed = StoredShortcut.parseConfig(stroke, allowBareFirstStroke: false)
+        } else if let strokes = jsonStringArray(rawValue) {
+            parsed = strokes.isEmpty ? .unbound : StoredShortcut.parseConfig(
+                strokes: strokes,
+                allowBareFirstStroke: false
+            )
+        } else if let object = rawValue as? [String: Any] {
+            parsed = parseShortcutObjectForm(object)
+        } else {
+            parsed = nil
+        }
+        // Custom command shortcuts are single-stroke only. Reject any chord form
+        // (array-of-2 or object-with-second) so hand-written chord entries for
+        // commands in cmux.json are ignored rather than silently bound.
+        if let parsed, parsed.hasChord {
+            cmuxSettingsFileStoreLogger.warning("ignoring chord command shortcut (single-stroke only)")
+            return nil
+        }
+        return parsed
+    }
+
+    /// Decodes the nested-object binding shape
+    /// (`{ "first": { stroke }, "second": { stroke }? }`) without any per-action
+    /// normalization. Command bindings are not tied to a
+    /// ``KeyboardShortcutSettings/Action``, so a bare first stroke is rejected
+    /// (only the space key is allowed bare) and no action-specific rewrite runs.
+    private func parseShortcutObjectForm(_ object: [String: Any]) -> StoredShortcut? {
+        guard let firstValue = object["first"],
+              let first = parseShortcutStrokeObject(firstValue) else {
+            return nil
+        }
+        if first.key.isEmpty {
+            return .unbound
+        }
+        // Mirror StoredShortcut.parseConfig(strokes:allowBareFirstStroke:) with
+        // allowBareFirstStroke = false: a bare first stroke is only valid for the
+        // space key.
+        guard !first.modifierFlags.isEmpty || first.key == "space" else {
+            return nil
+        }
+        let second: ShortcutStroke?
+        if let secondValue = object["second"], !(secondValue is NSNull) {
+            guard let parsedSecond = parseShortcutStrokeObject(secondValue) else {
+                return nil
+            }
+            second = parsedSecond
+        } else {
+            second = nil
+        }
+        return StoredShortcut(first: first, second: second)
     }
 
     /// Decodes the nested-object binding the CmuxSettings package writes
@@ -1757,6 +1835,9 @@ private struct ResolvedSettingsSnapshot {
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
     /// binding to a focus context (see ``ShortcutWhenClause``).
     var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
+    /// User-defined command-palette shortcuts parsed from `shortcuts.commands`,
+    /// keyed by command id.
+    var commandShortcutsById: [String: StoredShortcut] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
     var legacyDerivedManagedUserDefaultKeys: Set<String> = []
     var managedCustomSettings = ManagedCustomSettings()
@@ -1773,6 +1854,7 @@ private struct ResolvedSettingsSnapshot {
         for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {
             whenClauses[action] = clause
         }
+        if commandShortcutsById.isEmpty { commandShortcutsById = fallback.commandShortcutsById }
         for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
             managedUserDefaults[key] = value
             if fallback.legacyDerivedManagedUserDefaultKeys.contains(key) {

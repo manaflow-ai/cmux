@@ -137,6 +137,9 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //     "toggleFileExplorer": "cmd+opt+b",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null
+  //   },
+  //   "commands": {
+  //     "palette.triggerFlash": "cmd+shift+0"
   //   }
   // },
 }`;
@@ -501,6 +504,31 @@ working-directory = ~/code`}</CodeBlock>
   }
 }`}</code>
       </pre>
+
+      <DocsHeading level={3} id="shortcuts-commands">
+        <code>shortcuts.commands</code>
+      </DocsHeading>
+      <p>
+        Bind a custom keyboard shortcut to any Command-Palette command that has no built-in
+        action shortcut. Keys are command ids (for example <code>palette.triggerFlash</code>);
+        values are a single-stroke shortcut string (such as <code>cmd+shift+0</code>) or{" "}
+        <code>null</code> to unbind. Unlike <code>shortcuts.bindings</code>, command shortcuts are
+        single-stroke only — tmux-style chords (the two-item array form) are not supported and are
+        ignored.
+      </p>
+      <pre className="not-prose overflow-x-auto rounded-xl border border-border/70 bg-background/40 p-4 text-sm">
+        <code>{`"shortcuts": {
+  "commands": {
+    "palette.triggerFlash": "cmd+shift+0"
+  }
+}`}</code>
+      </pre>
+      <p>
+        These bindings can also be managed from{" "}
+        <strong>Settings → Keyboard Shortcuts → Custom Commands</strong>.
+        See the <Link href="/docs/keyboard-shortcuts#custom-command-shortcuts">keyboard shortcuts page</Link>{" "}
+        for more detail.
+      </p>
     </>
   );
 }

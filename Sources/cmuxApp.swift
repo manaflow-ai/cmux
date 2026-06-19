@@ -135,7 +135,8 @@ struct cmuxApp: App {
                 coordinator: authComposition.coordinator,
                 browserSignIn: authComposition.browserSignIn
             ),
-            hostActions: HostSettingsActions(configFileURL: configFileURL)
+            hostActions: HostSettingsActions(configFileURL: configFileURL),
+            bindableCommandCatalog: HostBindableCommandCatalog()
         )
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
