@@ -76,17 +76,12 @@ final class ComposerDictationController {
     init(textMerger: ComposerDictationTextMerger = ComposerDictationTextMerger()) {
         self.textMerger = textMerger
         self.recognizer = SFSpeechRecognizer()
-        // A nil recognizer (unsupported locale) is terminal: the mic is disabled.
+        // A nil recognizer (unsupported locale) is terminal: taps cannot start
+        // recognition until the system can provide one.
         if recognizer == nil {
             state = .unavailable
         }
     }
-
-    /// Whether the mic button should be shown enabled. False only when the
-    /// recognizer is permanently unavailable (unsupported locale, denied, or
-    /// restricted); a transient busy state still leaves the button enabled so the
-    /// user can toggle it off.
-    var isAvailable: Bool { state != .unavailable }
 
     /// Whether dictation currently owns the composer text, so the field must be
     /// locked (non-editable) until dictation settles to idle. True while
@@ -159,9 +154,10 @@ final class ComposerDictationController {
             beginRecognition()
             return
         case .denied:
-            self.onText = nil
-            state = .unavailable
-            return
+            // Keep denial retryable. The OS may return `false` immediately after
+            // a prior denial, but the user's next tap should still invoke the
+            // permission APIs instead of short-circuiting into a disabled state.
+            break
         case .undetermined:
             // First-ever request: fall through to the async prompt below.
             break
@@ -182,10 +178,12 @@ final class ComposerDictationController {
                 // overwrites the user's idle state with `unavailable`.
                 guard self.state == .requestingPermission else { return }
                 guard granted else {
-                    // Denied or restricted: a terminal rest state that disables the
-                    // mic. The captured callback is dropped.
+                    // Denied or restricted: drop the captured callback, but settle
+                    // back to idle so the mic remains tappable and can request
+                    // permission again on the next press.
                     self.onText = nil
-                    self.state = .unavailable
+                    self.baseText = ""
+                    self.state = .retryablePermissionDenied
                     return
                 }
                 self.beginRecognition()

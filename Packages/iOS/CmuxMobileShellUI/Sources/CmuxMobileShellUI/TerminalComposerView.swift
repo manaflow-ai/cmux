@@ -372,8 +372,8 @@ struct TerminalComposerView: View {
 
     /// Mic button for on-device voice dictation, beside the attach button on the
     /// leading side. Tapping toggles dictation; while listening it shows a filled,
-    /// tinted mic. Disabled when the recognizer is unavailable or permission was
-    /// denied so the user is never left tapping a dead control.
+    /// tinted mic. The button stays enabled after permission denial so a later tap
+    /// can request authorization again.
     private var micButton: some View {
         let listening = dictation.state.isListening
         return Button {
@@ -387,7 +387,6 @@ struct TerminalComposerView: View {
         .buttonStyle(.plain)
         .foregroundStyle(listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)))
         .mobileGlassCircle()
-        .disabled(!dictation.isAvailable)
         .accessibilityIdentifier("MobileComposerMic")
         .accessibilityLabel(
             listening
