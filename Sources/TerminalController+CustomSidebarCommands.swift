@@ -56,16 +56,12 @@ extension TerminalController {
 
         let report = v2CustomSidebarValidationReport(name: name)
         guard let entry = report.entries.first else {
-            return .err(
-                code: "validation_failed",
-                message: String(localized: "socket.sidebar.custom.missing", defaultValue: "Sidebar file is missing."),
-                data: v2CustomSidebarReportPayload(report)
-            )
+            return .ok(v2CustomSidebarReportPayload(report))
         }
         if let errorMessage = entry.errorMessage {
             var payload = v2CustomSidebarReportPayload(report)
             payload["message"] = errorMessage
-            return .err(code: "validation_failed", message: errorMessage, data: payload)
+            return .ok(payload)
         }
 
         let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
