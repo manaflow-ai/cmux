@@ -253,14 +253,10 @@ jobs:
         run: bun run test:db:behavior
 
   tests:
-    # TEMPORARY (2026-06-18): pinned to hosted runners. The self-hosted austin
-    # mac-minis in the MACOS_RUNNER_15 pool cannot broker the XCTest control
-    # session with testmanagerd ("Timed out 120s initiating control session
-    # with daemon" -> Executed 0 tests -> idle-timeout), so this required check
-    # can never go green there. Revert to
-    # `${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}` once the austin
-    # runners are repaired (GUI login session + automation mode + unwedged
-    # testmanagerd). Tracked by the CI-flakiness handoff.
+    # macOS CI runs on paid managed runners only. The self-hosted Mac minis
+    # were retired (2026-06-18): with no logged-in GUI session, testmanagerd
+    # could not broker the XCTest control session and tests never ran there.
+    # All macOS jobs now use warp / depot / hosted runners.
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 75
     env:
@@ -667,7 +663,7 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+    runs-on: warp-macos-15-arm64-6x
     # A cold DerivedData cache (any project.pbxproj or Package.resolved change
     # mints a new cache key with no restore-keys fallback) forces a full
     # cmux build whose Swift codegen alone can run 20+ min. Project/package
@@ -677,7 +673,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          REQUESTED_RUNNER: warp-macos-15-arm64-6x
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -992,7 +988,7 @@ jobs:
           rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
 
   release-ghostty-cli-helper:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1057,7 +1053,7 @@ jobs:
     # Release builds need enough disk for a universal Release build plus the
     # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
     # of the generic persistent macOS 26 pool.
-    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'warp-macos-26-arm64-6x' }}
+    runs-on: warp-macos-26-arm64-6x
     timeout-minutes: 45
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1190,14 +1186,14 @@ jobs:
           [[ "$SDK_VERSION" == 26.* ]]
 
   ui-regressions:
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+    runs-on: warp-macos-15-arm64-6x
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
     timeout-minutes: 45
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          REQUESTED_RUNNER: warp-macos-15-arm64-6x
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
