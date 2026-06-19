@@ -120,4 +120,15 @@ public protocol ControlSystemContext: AnyObject {
     /// - Parameter token: The token to accept, or `nil` to disable.
     func controlMobileDevStackAuthSetToken(_ token: String?)
     #endif
+
+    // MARK: - v1 line-protocol help body
+
+    /// The v1 `help` body: the full human-readable command-reference text (with
+    /// its DEBUG-only trailing section). Returned verbatim — byte-identical to
+    /// the legacy `TerminalController.helpText`. The witness carries the text
+    /// app-side because the DEBUG/release split and the exact wording are frozen
+    /// app-resident copy.
+    ///
+    /// - Returns: The raw v1 help text.
+    func controlHelpTextV1() -> String
 }

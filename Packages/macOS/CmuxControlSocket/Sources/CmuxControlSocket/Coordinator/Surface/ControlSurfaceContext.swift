@@ -351,4 +351,77 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Returns: The bridged payload, or `nil` when unavailable.
     func controlDebugTerminals() -> JSONValue?
+
+    // MARK: - v1 line-protocol surface/input bodies
+
+    /// The v1 `list_surfaces` body: lists the ordered panels of the resolved
+    /// workspace (current when `tabArg` is empty), marking the focused one.
+    ///
+    /// The whole raw reply line is returned verbatim — byte-identical to the
+    /// legacy `TerminalController.listSurfaces`. The witness carries the
+    /// irreducibly app-coupled body (`TabManager` / `Workspace` ordered-panel
+    /// reads behind the legacy `v2MainSync` hop).
+    ///
+    /// - Parameter tabArg: The raw workspace selector argument (id or index),
+    ///   or empty for the current workspace.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceListV1(tabArg: String) -> String
+
+    /// The v1 `focus_surface` body: focuses a panel of the selected workspace by
+    /// UUID or 0-based index. Returns the raw v1 reply verbatim (legacy
+    /// `focusSurface`).
+    ///
+    /// - Parameter arg: The raw panel selector argument.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceFocusV1(arg: String) -> String
+
+    /// The v1 `send` body: sends (escape-unescaped) text to the focused terminal
+    /// of the selected workspace. Returns the raw v1 reply verbatim (legacy
+    /// `sendInput`).
+    ///
+    /// - Parameter text: The raw text argument.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceSendInputV1(text: String) -> String
+
+    /// The v1 `send_key` body: sends a named key to the focused terminal of the
+    /// selected workspace. Returns the raw v1 reply verbatim (legacy `sendKey`).
+    ///
+    /// - Parameter keyName: The raw key-name argument.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceSendKeyV1(keyName: String) -> String
+
+    /// The v1 `send_surface` body: sends (escape-unescaped) text to a specific
+    /// terminal by id or index. Returns the raw v1 reply verbatim (legacy
+    /// `sendInputToSurface`).
+    ///
+    /// - Parameter args: The raw `<id|idx> <text>` argument remainder.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceSendInputToSurfaceV1(args: String) -> String
+
+    /// The v1 `send_key_surface` body: sends a named key to a specific terminal
+    /// by id or index. Returns the raw v1 reply verbatim (legacy
+    /// `sendKeyToSurface`).
+    ///
+    /// - Parameter args: The raw `<id|idx> <key>` argument remainder.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceSendKeyToSurfaceV1(args: String) -> String
+
+    #if DEBUG
+    /// The DEBUG-only v1 `send_workspace` body: sends (escape-unescaped) text to
+    /// the selected terminal of an arbitrary workspace by UUID. Returns the raw
+    /// v1 reply verbatim (legacy `sendInputToWorkspace`).
+    ///
+    /// - Parameter args: The raw `<workspace_id> <text>` argument remainder.
+    /// - Returns: The raw v1 reply line.
+    func controlSurfaceSendInputToWorkspaceV1(args: String) -> String
+    #endif
+
+    /// The v1 `read_screen` body: reads plain-text terminal contents for the
+    /// resolved surface (with optional scrollback / line-limit options). Returns
+    /// the raw v1 reply verbatim (legacy `readScreenText`).
+    ///
+    /// - Parameter args: The raw `[id|idx] [--scrollback] [--lines N]` argument
+    ///   remainder.
+    /// - Returns: The decoded plain-text screen contents, or an `ERROR:` line.
+    func controlSurfaceReadScreenV1(args: String) -> String
 }

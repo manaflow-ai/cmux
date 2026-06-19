@@ -151,4 +151,55 @@ public protocol ControlNotificationContext: AnyObject {
     /// drop non-English localizations). The app conformance supplies them with
     /// the identical keys and default values the legacy bodies used.
     var notificationStrings: ControlNotificationStrings { get }
+
+    // MARK: - v1 line-protocol notification bodies
+
+    /// The v1 `notify` body: delivers a `<title>|<subtitle>|<body>` payload to
+    /// the focused surface of the selected workspace. Returns the raw v1 reply
+    /// verbatim (legacy `notifyCurrent`).
+    ///
+    /// - Parameter args: The raw payload argument.
+    /// - Returns: The raw v1 reply line.
+    func controlNotifyCurrentV1(args: String) -> String
+
+    /// The v1 `notify_surface` body: delivers a payload to a specific surface of
+    /// the selected workspace by id or index. Returns the raw v1 reply verbatim
+    /// (legacy `notifySurface`).
+    ///
+    /// - Parameter args: The raw `<id|idx> <payload>` argument remainder.
+    /// - Returns: The raw v1 reply line.
+    func controlNotifySurfaceV1(args: String) -> String
+
+    /// The v1 `notify_target` body: delivers a payload to a workspace+surface
+    /// target (UUIDs or selectors). Returns the raw v1 reply verbatim (legacy
+    /// `notifyTarget`).
+    ///
+    /// - Parameter args: The raw `<workspace_id> <surface_id> <payload>`
+    ///   argument remainder.
+    /// - Returns: The raw v1 reply line.
+    func controlNotifyTargetV1(args: String) -> String
+
+    /// The v1 `notify_target_async` body: enqueues a payload onto the mutation
+    /// bus for a workspace+surface UUID target. Returns the raw v1 reply verbatim
+    /// (legacy `notifyTargetQueued`).
+    ///
+    /// - Parameter args: The raw `<workspace_uuid> <surface_uuid> <payload>`
+    ///   argument remainder.
+    /// - Returns: The raw v1 reply line.
+    func controlNotifyTargetQueuedV1(args: String) -> String
+
+    /// The v1 `list_notifications` body: dumps every notification in store order
+    /// as pipe-delimited lines. Returns the raw v1 reply verbatim (legacy
+    /// `listNotifications`).
+    ///
+    /// - Returns: The raw v1 reply line.
+    func controlNotificationsListV1() -> String
+
+    /// The v1 `clear_notifications` body: clears all notifications, or scopes the
+    /// clear to a `--tab`/`--panel` target. Returns the raw v1 reply verbatim
+    /// (legacy `clearNotifications`).
+    ///
+    /// - Parameter args: The raw `[--tab=X] [--panel=ID]` argument remainder.
+    /// - Returns: The raw v1 reply line.
+    func controlNotificationsClearV1(args: String) -> String
 }

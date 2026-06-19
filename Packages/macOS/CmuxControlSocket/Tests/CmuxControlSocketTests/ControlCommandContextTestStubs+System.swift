@@ -48,4 +48,6 @@ extension ControlSystemContext {
     #if DEBUG
     func controlMobileDevStackAuthSetToken(_ token: String?) {}
     #endif
+
+    func controlHelpTextV1() -> String { "" }
 }

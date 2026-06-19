@@ -159,6 +159,13 @@ extension ControlNotificationContext {
             targetNotFound: ""
         )
     }
+
+    func controlNotifyCurrentV1(args: String) -> String { "" }
+    func controlNotifySurfaceV1(args: String) -> String { "" }
+    func controlNotifyTargetV1(args: String) -> String { "" }
+    func controlNotifyTargetQueuedV1(args: String) -> String { "" }
+    func controlNotificationsListV1() -> String { "" }
+    func controlNotificationsClearV1(args: String) -> String { "" }
 }
 
 extension ControlWorkspaceGroupContext {
@@ -484,6 +491,17 @@ extension ControlSurfaceContext {
     ) -> ControlSurfacePortsKickResolution { .workspaceNotFound }
 
     func controlDebugTerminals() -> JSONValue? { nil }
+
+    func controlSurfaceListV1(tabArg: String) -> String { "" }
+    func controlSurfaceFocusV1(arg: String) -> String { "" }
+    func controlSurfaceSendInputV1(text: String) -> String { "" }
+    func controlSurfaceSendKeyV1(keyName: String) -> String { "" }
+    func controlSurfaceSendInputToSurfaceV1(args: String) -> String { "" }
+    func controlSurfaceSendKeyToSurfaceV1(args: String) -> String { "" }
+    #if DEBUG
+    func controlSurfaceSendInputToWorkspaceV1(args: String) -> String { "" }
+    #endif
+    func controlSurfaceReadScreenV1(args: String) -> String { "" }
 }
 
 extension ControlMobileHostContext {

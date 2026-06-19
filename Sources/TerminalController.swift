@@ -1567,6 +1567,7 @@ class TerminalController {
             // switch below.
             if let coordinatorV1 = controlCommandCoordinator.handleSidebarV1(command: cmd, args: args)
                 ?? controlCommandCoordinator.handleBrowserPanelV1(command: cmd, args: args)
+                ?? controlCommandCoordinator.handleSurfaceSendNotifyV1(command: cmd, args: args)
                 ?? controlCommandCoordinator.handleDebugV1(command: cmd, args: args) {
                 return coordinatorV1
             }
@@ -1604,12 +1605,6 @@ class TerminalController {
 	        case "new_split":
 	            return newSplit(args)
 
-        case "list_surfaces":
-            return listSurfaces(args)
-
-        case "focus_surface":
-            return focusSurface(args)
-
         case "close_workspace":
             return closeWorkspace(args)
 
@@ -1619,41 +1614,14 @@ class TerminalController {
         case "current_workspace":
             return currentWorkspace()
 
-        case "send":
-            return sendInput(args)
-
-        case "send_key":
-            return sendKey(args)
-
-        case "send_surface":
-            return sendInputToSurface(args)
-
-        case "send_key_surface":
-            return sendKeyToSurface(args)
-
-        case "notify":
-            return notifyCurrent(args)
-
-        case "notify_surface":
-            return notifySurface(args)
-
-        case "notify_target":
-            return notifyTarget(args)
-
-        case "notify_target_async":
-            return notifyTargetQueued(args)
-
-        case "list_notifications":
-            return listNotifications()
-
-        case "clear_notifications":
-            return clearNotifications(args)
-
-        case "set_app_focus":
-            return setAppFocusOverride(args)
-
-        case "simulate_app_active":
-            return simulateAppDidBecomeActive()
+        // The v1 surface listing/focus (list_surfaces/focus_surface), the
+        // terminal-input commands (send/send_key/send_surface/send_key_surface,
+        // plus DEBUG send_workspace), the notification commands (notify/
+        // notify_surface/notify_target/notify_target_async/list_notifications/
+        // clear_notifications), the app-focus commands (set_app_focus/
+        // simulate_app_active), read_screen, and help are handled above by
+        // ControlCommandCoordinator.handleSurfaceSendNotifyV1, whose witnesses
+        // carry the app-coupled bodies.
 
         // Sidebar metadata/reporting commands (set_status/report_meta/
         // report_meta_block/clear_status/clear_meta/clear_meta_block/list_status/
@@ -1664,15 +1632,6 @@ class TerminalController {
         // report_pr_action/report_pwd/sidebar_state/reset_sidebar/right_sidebar)
         // handled by ControlCommandCoordinator.
 
-        case "read_screen":
-            return readScreenText(args)
-
-
-#if DEBUG
-        case "send_workspace":
-            return sendInputToWorkspace(args)
-#endif
-
         // The v1-only DEBUG synthetic-input / drag-overlay probes
         // (simulate_type/simulate_file_drop/seed_drag_pasteboard_*/
         // clear_drag_pasteboard/drop_hit_test/drag_hit_chain/overlay_hit_gate/
@@ -1680,9 +1639,6 @@ class TerminalController {
         // terminal_drop_overlay_probe) are handled above by
         // ControlCommandCoordinator.handleDebugV1, whose witnesses carry the
         // app-coupled bodies.
-
-        case "help":
-            return helpText()
 
         // Browser panel commands (open_browser/navigate/browser_back/browser_forward/
         // browser_reload/get_url/focus_webview/is_webview_focused) and the bonsplit
@@ -9353,7 +9309,7 @@ class TerminalController {
         return result
     }
 
-    private func readScreenText(_ args: String) -> String {
+    func readScreenText(_ args: String) -> String {
         let options: ReadScreenOptions
         switch parseReadScreenArgs(args) {
         case .success(let parsed):
@@ -9380,7 +9336,7 @@ class TerminalController {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private func helpText() -> String {
+    func helpText() -> String {
         var text = """
         Hierarchy: Workspace (sidebar tab) > Pane (split region) > Surface (nested tab) > Panel (terminal/browser)
 
@@ -10134,7 +10090,7 @@ class TerminalController {
         return result
     }
 
-    private func listSurfaces(_ tabArg: String) -> String {
+    func listSurfaces(_ tabArg: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         var result = ""
         v2MainSync {
@@ -10153,7 +10109,7 @@ class TerminalController {
         return result
     }
 
-    private func focusSurface(_ arg: String) -> String {
+    func focusSurface(_ arg: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Missing panel id or index" }
@@ -10185,7 +10141,7 @@ class TerminalController {
         return success ? "OK" : "ERROR: Panel not found"
     }
 
-    private func notifyCurrent(_ args: String) -> String {
+    func notifyCurrent(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var result = "OK"
@@ -10207,7 +10163,7 @@ class TerminalController {
         return result
     }
 
-    private func notifySurface(_ args: String) -> String {
+    func notifySurface(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Missing surface id or index" }
@@ -10239,7 +10195,7 @@ class TerminalController {
         return result
     }
 
-    private func notifyTarget(_ args: String) -> String {
+    func notifyTarget(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
@@ -10303,7 +10259,7 @@ class TerminalController {
         return result
     }
 
-    private func notifyTargetQueued(_ args: String) -> String {
+    func notifyTargetQueued(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
@@ -10341,7 +10297,7 @@ class TerminalController {
         return "OK"
     }
 
-    private func listNotifications() -> String {
+    func listNotifications() -> String {
         var result = ""
         v2MainSync {
             let lines = TerminalNotificationStore.shared.notifications.enumerated().map { index, notification in
@@ -10356,7 +10312,7 @@ class TerminalController {
         return result.isEmpty ? "No notifications" : result
     }
 
-    private func clearNotifications(_ args: String) -> String {
+    func clearNotifications(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             TerminalMutationBus.shared.enqueueClearAllNotifications()
@@ -10413,31 +10369,12 @@ class TerminalController {
         return "OK"
     }
 
-    private func setAppFocusOverride(_ arg: String) -> String {
-        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        switch trimmed {
-        case "active", "1", "true":
-            AppFocusState.overrideIsFocused = true
-            return "OK"
-        case "inactive", "0", "false":
-            AppFocusState.overrideIsFocused = false
-            return "OK"
-        case "clear", "none", "":
-            AppFocusState.overrideIsFocused = nil
-            return "OK"
-        default:
-            return "ERROR: Expected active, inactive, or clear"
-        }
-    }
-
-    private func simulateAppDidBecomeActive() -> String {
-        v2MainSync {
-            AppDelegate.shared?.applicationDidBecomeActive(
-                Notification(name: NSApplication.didBecomeActiveNotification)
-            )
-        }
-        return "OK"
-    }
+    // The v1 `set_app_focus` / `simulate_app_active` bodies moved onto
+    // ControlCommandCoordinator: the token table + dispatch live in
+    // `handleSurfaceSendNotifyV1`, and the `AppFocusState` write /
+    // `applicationDidBecomeActive` re-run resolve through the existing
+    // ``ControlAppFocusContext`` witnesses
+    // (`TerminalController+ControlAppFocusContext.swift`).
 
 #if DEBUG
     func focusFromNotification(_ args: String) -> String {
@@ -11149,7 +11086,7 @@ class TerminalController {
         return result.isEmpty ? "ERROR: No tab selected" : result
     }
 
-    private func sendInput(_ text: String) -> String {
+    func sendInput(_ text: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var success = false
@@ -11190,7 +11127,7 @@ class TerminalController {
         return success ? "OK" : "ERROR: Failed to send input"
     }
 
-    private func sendInputToWorkspace(_ args: String) -> String {
+    func sendInputToWorkspace(_ args: String) -> String {
         guard let tabManager else { return "ERROR: TabManager not available" }
         let parts = args.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return "ERROR: Usage: send_workspace <workspace_id> <text>" }
@@ -11284,7 +11221,7 @@ class TerminalController {
         return nil
     }
 
-    private func sendInputToSurface(_ args: String) -> String {
+    func sendInputToSurface(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         let parts = args.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return "ERROR: Usage: send_surface <id|idx> <text>" }
@@ -11326,7 +11263,7 @@ class TerminalController {
         return success ? "OK" : "ERROR: Failed to send input"
     }
 
-    private func sendKey(_ keyName: String) -> String {
+    func sendKey(_ keyName: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var success = false
@@ -11359,7 +11296,7 @@ class TerminalController {
         return success ? "OK" : "ERROR: Failed to send key"
     }
 
-    private func sendKeyToSurface(_ args: String) -> String {
+    func sendKeyToSurface(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         let parts = args.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return "ERROR: Usage: send_key_surface <id|idx> <key>" }
