@@ -55,13 +55,15 @@ struct WorkspaceChatPane: View {
                             titleOverride: workspaceName,
                             subtitle: tabName
                         )
-                        // The principal item is screen-centered and does not
-                        // reserve space for the back button + 3 trailing
-                        // toolbar buttons, so an unbounded long title overflows
-                        // under them. Bound it to the clear center gap (reserve
-                        // ~300pt for both bar-button clusters + margins) so the
-                        // name truncates instead of underlapping the toolbar.
-                        .frame(maxWidth: contentWidth > 0 ? max(96, contentWidth - 300) : 180)
+                        // Centered principal item: cap it to the clear center gap
+                        // so a long workspace name truncates instead of
+                        // underlapping the toolbar. The chat view always shows the
+                        // chat toggle in its trailing cluster. Reserve only the
+                        // real side clusters so the middle grows as much as it can.
+                        .frame(maxWidth: MobileNavTitleWidth.cap(
+                            contentWidth: contentWidth,
+                            hasChatToggle: true
+                        ))
                         // The header bar is cleared on iOS 26 so the transcript
                         // shows through it; back the header on its own Liquid
                         // Glass pill so it stays readable over the messages.

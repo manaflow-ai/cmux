@@ -253,14 +253,9 @@ jobs:
         run: bun run test:db:behavior
 
   tests:
-    # TEMPORARY (2026-06-18): pinned to hosted runners. The self-hosted austin
-    # mac-minis in the MACOS_RUNNER_15 pool cannot broker the XCTest control
-    # session with testmanagerd ("Timed out 120s initiating control session
-    # with daemon" -> Executed 0 tests -> idle-timeout), so this required check
-    # can never go green there. Revert to
-    # `${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}` once the austin
-    # runners are repaired (GUI login session + automation mode + unwedged
-    # testmanagerd). Tracked by the CI-flakiness handoff.
+    # App-host XCTest needs a runner that can broker testmanagerd control
+    # sessions. Keep this job on the hosted GUI-capable pool until the
+    # MACOS_RUNNER_15/Austin runner-infra issue is fixed separately.
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 75
     env:

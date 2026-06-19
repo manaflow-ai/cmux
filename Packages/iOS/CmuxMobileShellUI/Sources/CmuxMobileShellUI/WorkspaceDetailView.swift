@@ -457,12 +457,14 @@ struct WorkspaceDetailView: View {
             .lineLimit(1)
             .truncationMode(.tail)
             .foregroundStyle(TerminalPalette.foreground)
-            // The principal item is screen-centered and reserves no space for the
-            // back button + trailing controls, so an unbounded long title pill can
-            // extend under them. Cap it to the clear center gap (reserve ~300pt for
-            // both bar-button clusters + margins) so the name truncates instead,
-            // matching `WorkspaceChatPane`'s header.
-            .frame(maxWidth: contentWidth > 0 ? max(96, contentWidth - 300) : 180)
+            // Centered principal item: cap it to the clear center gap so a long
+            // name truncates instead of underlapping the bar buttons, but reserve
+            // only the actual side clusters (not a flat 300pt) so the middle grows
+            // as much as it safely can.
+            .frame(maxWidth: MobileNavTitleWidth.cap(
+                contentWidth: contentWidth,
+                hasChatToggle: isChatMode || sessionForSelectedTerminal != nil
+            ))
             .mobileGlassNavigationTitle()
     }
     #endif
