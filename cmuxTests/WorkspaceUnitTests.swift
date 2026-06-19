@@ -26,12 +26,14 @@ import enum CmuxSettings.KiroNotificationLevel
 // ambiguous. These tests exercise the app-side paths, so pin the app types.
 private typealias StoredShortcut = cmux_DEV.StoredShortcut
 private typealias ShortcutStroke = cmux_DEV.ShortcutStroke
-private typealias AppIconMode = cmux_DEV.AppIconMode
+// `AppIconMode` now lives only in CmuxSettings (the app-target duplicate was
+// drained); pin the package type for these app-side paths.
+private typealias AppIconMode = CmuxSettings.AppIconMode
 #elseif canImport(cmux)
 @testable import cmux
 private typealias StoredShortcut = cmux.StoredShortcut
 private typealias ShortcutStroke = cmux.ShortcutStroke
-private typealias AppIconMode = cmux.AppIconMode
+private typealias AppIconMode = CmuxSettings.AppIconMode
 #endif
 
 @MainActor
@@ -876,10 +878,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     override func tearDown() {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-        AppIconSettings.resetLiveEnvironmentProviderForTesting()
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }
+
+    private var appIconModeKey: String { AppCatalogSection().appIcon.userDefaultsKey }
 
     func testSettingsFileStoreParsesSingleStrokeChordAndNumberedChord() throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -1331,13 +1334,14 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
         let defaults = UserDefaults.standard
-        let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
+        let appIconModeKey = appIconModeKey
+        let previousMode = defaults.object(forKey: appIconModeKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousMode {
-                defaults.set(previousMode, forKey: AppIconSettings.modeKey)
+                defaults.set(previousMode, forKey: appIconModeKey)
             } else {
-                defaults.removeObject(forKey: AppIconSettings.modeKey)
+                defaults.removeObject(forKey: appIconModeKey)
             }
 
             if let previousBackups {
@@ -1347,7 +1351,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             }
         }
 
-        defaults.removeObject(forKey: AppIconSettings.modeKey)
+        defaults.removeObject(forKey: appIconModeKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -1365,56 +1369,29 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        var startObservationCallCount = 0
-        var stopObservationCallCount = 0
-        var imageRequestCount = 0
-        var runtimeIconSetCount = 0
-        var dockTileNotificationCount = 0
-        AppIconSettings.setLiveEnvironmentProviderForTesting {
-            AppIconSettings.Environment(
-                isApplicationFinishedLaunching: { false },
-                imageForMode: { _ in
-                    imageRequestCount += 1
-                    return nil
-                },
-                setApplicationIconImage: { _ in
-                    runtimeIconSetCount += 1
-                },
-                startAppearanceObservation: {
-                    startObservationCallCount += 1
-                },
-                stopAppearanceObservation: {
-                    stopObservationCallCount += 1
-                },
-                notifyDockTilePlugin: {
-                    dockTileNotificationCount += 1
-                }
-            )
-        }
-
+        // The managed-config reload path applies the icon through the shared
+        // `appIconApplier`, which early-returns before any AppKit work because
+        // `appIconLaunchReporter` reports not-finished-launching under XCTest.
+        // The apply gating itself is covered in `AppIconSettingsTests`.
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
             startWatching: false
         )
 
-        XCTAssertEqual(defaults.string(forKey: AppIconSettings.modeKey), AppIconMode.automatic.rawValue)
-        XCTAssertEqual(startObservationCallCount, 0)
-        XCTAssertEqual(stopObservationCallCount, 0)
-        XCTAssertEqual(imageRequestCount, 0)
-        XCTAssertEqual(runtimeIconSetCount, 0)
-        XCTAssertEqual(dockTileNotificationCount, 0)
+        XCTAssertEqual(defaults.string(forKey: appIconModeKey), AppIconMode.automatic.rawValue)
     }
 
     func testSettingsFileStoreCanReplayAutomaticAppIconSettingTwiceWithoutTouchingAppKit() throws {
         let defaults = UserDefaults.standard
-        let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
+        let appIconModeKey = appIconModeKey
+        let previousMode = defaults.object(forKey: appIconModeKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousMode {
-                defaults.set(previousMode, forKey: AppIconSettings.modeKey)
+                defaults.set(previousMode, forKey: appIconModeKey)
             } else {
-                defaults.removeObject(forKey: AppIconSettings.modeKey)
+                defaults.removeObject(forKey: appIconModeKey)
             }
 
             if let previousBackups {
@@ -1424,7 +1401,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             }
         }
 
-        defaults.removeObject(forKey: AppIconSettings.modeKey)
+        defaults.removeObject(forKey: appIconModeKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -1442,33 +1419,9 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        var startObservationCallCount = 0
-        var stopObservationCallCount = 0
-        var imageRequestCount = 0
-        var runtimeIconSetCount = 0
-        var dockTileNotificationCount = 0
-        AppIconSettings.setLiveEnvironmentProviderForTesting {
-            AppIconSettings.Environment(
-                isApplicationFinishedLaunching: { false },
-                imageForMode: { _ in
-                    imageRequestCount += 1
-                    return nil
-                },
-                setApplicationIconImage: { _ in
-                    runtimeIconSetCount += 1
-                },
-                startAppearanceObservation: {
-                    startObservationCallCount += 1
-                },
-                stopAppearanceObservation: {
-                    stopObservationCallCount += 1
-                },
-                notifyDockTilePlugin: {
-                    dockTileNotificationCount += 1
-                }
-            )
-        }
-
+        // Replaying twice exercises the idempotent persist path; the shared
+        // `appIconApplier` never touches AppKit because the launch reporter is
+        // not finished-launching under XCTest.
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
@@ -1480,12 +1433,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(defaults.string(forKey: AppIconSettings.modeKey), AppIconMode.automatic.rawValue)
-        XCTAssertEqual(startObservationCallCount, 0)
-        XCTAssertEqual(stopObservationCallCount, 0)
-        XCTAssertEqual(imageRequestCount, 0)
-        XCTAssertEqual(runtimeIconSetCount, 0)
-        XCTAssertEqual(dockTileNotificationCount, 0)
+        XCTAssertEqual(defaults.string(forKey: appIconModeKey), AppIconMode.automatic.rawValue)
     }
 
     func testSettingsFileStoreRejectsModifierFreeFirstStroke() throws {

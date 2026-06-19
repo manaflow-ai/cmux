@@ -1296,7 +1296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "telemetry": telemetryEnabled ? "1" : "0"
             ]
         )
-        AppIconLaunchState.markDidFinishLaunching()
+        appIconLaunchReporter.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
@@ -14803,8 +14803,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func ensureApplicationIcon() {
-        let mode = AppIconSettings.resolvedMode()
-        AppIconSettings.applyIcon(mode)
+        appIconApplier.applyResolvedMode()
     }
 
     private func scheduleLaunchServicesBundleRegistration(

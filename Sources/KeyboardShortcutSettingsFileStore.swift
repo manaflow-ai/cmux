@@ -420,7 +420,7 @@ final class CmuxSettingsFileStore {
                 logInvalid("app.appIcon", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[AppIconSettings.modeKey] = .string(mode.rawValue)
+            snapshot.managedUserDefaults[AppCatalogSection().appIcon.userDefaultsKey] = .string(mode.rawValue)
         }
         if let value = jsonBool(section["menuBarOnly"]) {
             snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value)
@@ -1590,8 +1590,10 @@ final class CmuxSettingsFileStore {
                         synchronizeTerminalTheme: change.synchronizeAppearanceTerminalTheme,
                         environment: self.appearanceEnvironment
                     )
-                } else if change.defaultsKey == AppIconSettings.modeKey {
-                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                } else if change.defaultsKey == AppCatalogSection().appIcon.userDefaultsKey {
+                    // `apply` runs only on the main thread (gated below), so the
+                    // `@MainActor` applier is safe to enter here.
+                    MainActor.assumeIsolated { appIconApplier.applyResolvedMode() }
                 }
             }
 

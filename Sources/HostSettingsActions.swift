@@ -55,7 +55,7 @@ final class HostSettingsActions: SettingsHostActions {
     private func startObservingAppIconMode() {
         // Apply once on construction so a value persisted before this
         // instance existed (e.g. from the config file) is reflected.
-        AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+        appIconApplier.applyResolvedMode()
 
         appIconModeObservation = UserDefaults.standard.observe(
             \.appIconMode,
@@ -64,7 +64,7 @@ final class HostSettingsActions: SettingsHostActions {
             // KVO delivers on the thread that mutated the key; @AppStorage
             // writes happen on the main actor, so hop to it to apply.
             Task { @MainActor in
-                AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                appIconApplier.applyResolvedMode()
             }
         }
     }
@@ -385,7 +385,7 @@ private extension UserDefaults {
     /// matching `@objc dynamic` property whose name equals the key, which
     /// lets ``HostSettingsActions`` observe App Icon changes the settings
     /// package writes via `@AppStorage`. The property name must stay equal
-    /// to ``AppIconSettings/modeKey`` (`"appIconMode"`).
+    /// to the `app.appIcon` catalog key's `userDefaultsKey` (`"appIconMode"`).
     @objc dynamic var appIconMode: String? {
         string(forKey: "appIconMode")
     }

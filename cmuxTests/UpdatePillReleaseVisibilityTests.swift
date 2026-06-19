@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import AppKit
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -563,6 +564,7 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
     }
 }
 
+@MainActor
 final class AppIconAppearanceObserverTests: XCTestCase {
     private final class ObservationToken: AppIconAppearanceObservation {
         private(set) var invalidateCallCount = 0
@@ -572,6 +574,7 @@ final class AppIconAppearanceObserverTests: XCTestCase {
         }
     }
 
+    @MainActor
     private final class Harness {
         var isFinishedLaunching = false
         var isDark = false
@@ -583,6 +586,7 @@ final class AppIconAppearanceObserverTests: XCTestCase {
         private(set) var didFinishLaunchingHandler: (() -> Void)?
         private(set) var appearanceHandler: (() -> Void)?
         let observation = ObservationToken()
+        let launchObservation = ObservationToken()
 
         lazy var environment = AppIconAppearanceObserver.Environment(
             isApplicationFinishedLaunching: { [unowned self] in
@@ -596,19 +600,16 @@ final class AppIconAppearanceObserverTests: XCTestCase {
             addDidFinishLaunchingObserver: { [unowned self] handler in
                 self.didFinishLaunchingObserverCount += 1
                 self.didFinishLaunchingHandler = handler
-                return NSObject()
+                return self.launchObservation
             },
-            removeObserver: { _ in },
             currentAppearanceIsDark: { [unowned self] in
                 self.currentAppearanceIsDarkCallCount += 1
                 return self.isDark
             },
-            imageForName: { [unowned self] imageName in
+            applyIconImage: { [unowned self] imageName in
                 self.imageRequests.append(imageName)
-                return NSImage(size: NSSize(width: 1, height: 1))
-            },
-            setApplicationIconImage: { [unowned self] _ in
                 self.appliedIconCount += 1
+                return true
             }
         )
 
