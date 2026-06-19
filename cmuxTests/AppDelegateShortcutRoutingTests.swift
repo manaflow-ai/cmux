@@ -104,7 +104,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     private static var retainedTextBoxRestoreViews: [TextBoxInputTextView] = []
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
-    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+    // Optional, not implicitly-unwrapped: setUpWithError() throws XCTSkip on
+    // headless CI runners BEFORE this is assigned, and XCTest still runs
+    // tearDown() afterwards. Force-unwrapping a nil here crashed the app-host
+    // (and triggered an 80s+ backtrace) once per skipped test in this class.
+    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore?
 
     // TEMPORARY (2026-06-18): These tests drive real NSWindow key/focus state and
     // assert that a shortcut routes to the *focused* window. On headless CI
@@ -291,7 +295,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         KeyboardShortcutSettings.shortcutLookupObserver = nil
         TextBoxSubmit.debugResetForTesting()
         #endif
-        KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        if let originalSettingsFileStore {
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        }
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
