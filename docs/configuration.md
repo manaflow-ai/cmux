@@ -2,6 +2,44 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## Configuration map
+
+Use the file that owns the behavior:
+
+- `~/.config/ghostty/config`: terminal rendering and chrome sizing, including `font-size`, `sidebar-font-size`, `surface-tab-bar-font-size`, themes, scrollback, cursor behavior, and Ghostty keybindings.
+- `~/.config/cmux/cmux.json`: global cmux app settings, shortcuts, browser behavior, notifications, automation, action wiring, plus-button behavior, workspace layouts, and surface tab bar buttons.
+- `.cmux/cmux.json`: project-scoped actions, commands, workspace layouts, surface tab bar buttons, plus-button menus, and notification hooks.
+- `.cmux/dock.json` or `~/.config/cmux/dock.json`: right-sidebar Dock controls.
+
+## Tab bar configuration
+
+The surface tab bar has two different configuration paths:
+
+- Text size belongs to Ghostty config:
+
+```ini
+surface-tab-bar-font-size = 12
+```
+
+- Action buttons belong to `cmux.json`:
+
+```json
+{
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "cmux.newBrowser",
+        "cmux.splitRight",
+        "cmux.splitDown"
+      ]
+    }
+  }
+}
+```
+
+`ui.surfaceTabBar.buttons` replaces the default button list when present. Include the built-ins you want to keep, and add custom action IDs or button objects for project tools. Project-local `.cmux/cmux.json` wins over global `~/.config/cmux/cmux.json`.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
