@@ -410,10 +410,18 @@ final class RemoteTmuxController {
     /// returning `true` would let socket callers report an accepted mutation
     /// that never reached tmux.
     ///
+    /// - Parameter workingDirectory: the directory the new tmux window should
+    ///   start in (the active tab's cwd, resolved by the caller), so a new tab
+    ///   inherits the active tab's directory the way local cmux does. A
+    ///   nil/blank/unsafe value omits `-c` and lets tmux pick its default-path.
     /// - Returns: `true` if routed to the remote; `false` if there is no live
     ///   mirror/connection (callers must still NOT create a local tab in a
     ///   mirror workspace — they report failure instead).
-    func handleMirrorNewTabRequested(workspaceId: UUID, placement: MirrorNewTabPlacement) -> Bool {
+    func handleMirrorNewTabRequested(
+        workspaceId: UUID,
+        placement: MirrorNewTabPlacement,
+        workingDirectory: String?
+    ) -> Bool {
         guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
               mirror.connection.connectionState == .connected else { return false }
         let afterWindowId: Int?
@@ -424,23 +432,32 @@ final class RemoteTmuxController {
             // nil (panel has no live window) falls back to end placement.
             afterWindowId = mirror.windowId(forPanel: panelId)
         }
-        return mirror.connection.send(Self.newWindowCommand(afterWindowId: afterWindowId))
+        return mirror.connection.send(
+            Self.newWindowCommand(afterWindowId: afterWindowId, workingDirectory: workingDirectory)
+        )
     }
 
     /// Builds the tmux `new-window` command for a mirror new-tab. Pure (testable).
     ///
-    /// - `afterWindowId == nil` → `new-window -a -t '{end}'`: `-a` inserts *after*
-    ///   the target and `'{end}'` resolves to the highest-indexed window, so the
-    ///   new window lands at the very end regardless of index gaps or which window
-    ///   tmux considers current. (`'{end}'` is an alias for `$`, available since
-    ///   tmux 2.1.) Plain `new-window` instead fills the lowest free index, landing
-    ///   mid-list when the session has gaps from closed windows.
-    /// - `afterWindowId == id` → `new-window -a -t @id`: insert right after that
-    ///   window. cmux never `select-window`s the remote, so the selected tab's
-    ///   window is targeted by id rather than relying on tmux's current window.
-    nonisolated static func newWindowCommand(afterWindowId: Int?) -> String {
-        guard let afterWindowId else { return "new-window -a -t '{end}'" }
-        return "new-window -a -t @\(afterWindowId)"
+    /// Placement (`afterWindowId`):
+    /// - nil → `new-window -a -t '{end}'`: `-a` inserts *after* the target and
+    ///   `'{end}'` resolves to the highest-indexed window, so the new window lands
+    ///   at the very end regardless of index gaps or which window tmux considers
+    ///   current. (`'{end}'` is an alias for `$`, available since tmux 2.1.) Plain
+    ///   `new-window` instead fills the lowest free index, landing mid-list when
+    ///   the session has gaps from closed windows.
+    /// - id → `new-window -a -t @id`: insert right after that window. cmux never
+    ///   `select-window`s the remote, so the selected tab's window is targeted by
+    ///   id rather than relying on tmux's current window.
+    ///
+    /// Working directory: when non-blank, appends `-c '<path>'` so the new tab
+    /// opens in the active tab's directory (like a local new tab). Without `-c`,
+    /// tmux uses its default-path. The path is single-quoted so spaces and shell
+    /// metacharacters survive tmux's parser (the quoting the `rename-*` commands
+    /// use on this stream); a path carrying CR/LF/control bytes that could
+    /// terminate the command line is dropped, leaving the placement-only command.
+    nonisolated static func newWindowCommand(afterWindowId: Int?, workingDirectory: String?) -> String {
+        afterWindowId.map { "new-window -a -t @\($0)" } ?? "new-window -a -t '{end}'"
     }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the

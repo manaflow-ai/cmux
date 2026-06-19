@@ -6528,6 +6528,17 @@ final class Workspace: Identifiable, ObservableObject {
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
     }
 
+    /// The directory a new tab (`new-window`) should inherit in a remote-tmux
+    /// mirror: strictly the source tab's last-reported `#{pane_current_path}`
+    /// (`panelDirectories[sourcePanelId]`), or nil when the remote has not
+    /// reported one yet.
+    ///
+    /// The directory a new tab (`new-window`) should inherit in a remote-tmux
+    /// mirror, based on the source tab.
+    func remoteTmuxNewWindowWorkingDirectory(forSourcePanelId sourcePanelId: UUID?) -> String? {
+        resolvedTerminalStartupWorkingDirectory(requestedWorkingDirectory: nil, sourcePanelId: sourcePanelId)
+    }
+
     /// Candidate terminal panels used as the source when creating inherited Ghostty config.
     /// Preference order:
     /// 1) explicitly preferred terminal panel (when the caller has one),
@@ -6991,8 +7002,25 @@ final class Workspace: Identifiable, ObservableObject {
                     placement = .end
                 }
             }
+            // Inherit the active tab's directory like a local new tab, sourcing it
+            // only from that tab's confirmed remote cwd (see
+            // remoteTmuxNewWindowWorkingDirectory). The socket/CLI layer rejects an
+            // explicit working_directory for mirror workspaces
+            // (mirrorRoutedUnsupportedOptions), so inheritance is the only source.
+            let resolvedWorkingDirectory: String?
+            if inheritWorkingDirectoryFallback {
+                let inheritSourcePanelId = workingDirectoryFallbackSourcePanelId
+                    ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
+                resolvedWorkingDirectory = remoteTmuxNewWindowWorkingDirectory(forSourcePanelId: inheritSourcePanelId)
+            } else {
+                resolvedWorkingDirectory = nil
+            }
             let routed = AppDelegate.shared?.remoteTmuxController
-                .handleMirrorNewTabRequested(workspaceId: id, placement: placement) ?? false
+                .handleMirrorNewTabRequested(
+                    workspaceId: id,
+                    placement: placement,
+                    workingDirectory: resolvedWorkingDirectory
+                ) ?? false
             return routed ? .routedToRemote : .failed
         }
         guard let panel = newTerminalSurfaceLocal(
