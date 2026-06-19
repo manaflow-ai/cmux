@@ -2261,6 +2261,45 @@ struct StoredShortcut: Codable, Equatable, Hashable {
         secondStroke != nil
     }
 
+    /// Whether the titlebar should surface this binding's shortcut hint.
+    ///
+    /// Forwards to ``CmuxSettings/StoredShortcut/titlebarHintShouldShow(alwaysShowShortcutHints:modifierPressed:)``,
+    /// the single source of truth for the rule, after bridging this app-target
+    /// binding into its persisted ``CmuxSettings/StoredShortcut`` form.
+    func titlebarHintShouldShow(
+        alwaysShowShortcutHints: Bool,
+        modifierPressed: Bool
+    ) -> Bool {
+        cmuxSettingsStoredShortcut.titlebarHintShouldShow(
+            alwaysShowShortcutHints: alwaysShowShortcutHints,
+            modifierPressed: modifierPressed
+        )
+    }
+
+    /// This binding as its persisted ``CmuxSettings/StoredShortcut`` value.
+    var cmuxSettingsStoredShortcut: CmuxSettings.StoredShortcut {
+        CmuxSettings.StoredShortcut(
+            first: CmuxSettings.ShortcutStroke(
+                key: key,
+                command: command,
+                shift: shift,
+                option: option,
+                control: control,
+                keyCode: keyCode
+            ),
+            second: chordKey.map { chordKey in
+                CmuxSettings.ShortcutStroke(
+                    key: chordKey,
+                    command: chordCommand,
+                    shift: chordShift,
+                    option: chordOption,
+                    control: chordControl,
+                    keyCode: chordKeyCode
+                )
+            }
+        )
+    }
+
     var displayString: String {
         if isUnbound {
             return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")

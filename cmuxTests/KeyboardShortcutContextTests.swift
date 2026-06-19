@@ -486,8 +486,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
 
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBack), remappedShortcut)
         XCTAssertTrue(
-            titlebarShortcutHintShouldShow(
-                shortcut: KeyboardShortcutSettings.shortcut(for: .focusHistoryBack),
+            KeyboardShortcutSettings.shortcut(for: .focusHistoryBack).titlebarHintShouldShow(
                 alwaysShowShortcutHints: false,
                 modifierPressed: true
             )
@@ -498,8 +497,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
 
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBack), .unbound)
         XCTAssertFalse(
-            titlebarShortcutHintShouldShow(
-                shortcut: KeyboardShortcutSettings.shortcut(for: .focusHistoryBack),
+            KeyboardShortcutSettings.shortcut(for: .focusHistoryBack).titlebarHintShouldShow(
                 alwaysShowShortcutHints: false,
                 modifierPressed: true
             )
