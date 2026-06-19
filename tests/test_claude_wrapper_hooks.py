@@ -1069,6 +1069,42 @@ def test_live_socket_resume_keeps_correct_claude_config_dir(failures: list[str])
     )
 
 
+def test_live_socket_resume_self_heal_ignores_prompt_text_after_double_dash(failures: list[str]) -> None:
+    # A fresh prompt can contain literal --resume text after `--`; that must not
+    # trigger resume self-healing or suppress cmux's generated --session-id.
+    session_id = "7e2f5010-98d4-465f-93f6-a01608943e5f"
+    expected: dict[str, str] = {}
+
+    def setup_env(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        default_root = home / ".claude"
+        (default_root / "projects" / "-work").mkdir(parents=True)
+        (default_root / "projects" / "-work" / f"{session_id}.jsonl").write_text(
+            "{}\n", encoding="utf-8"
+        )
+        foreign_root = home / ".codex-accounts" / "claude" / "_pforeign"
+        (foreign_root / "projects").mkdir(parents=True)
+        expected["path"] = str(foreign_root)
+        return {
+            "HOME": str(home),
+            "CLAUDE_CONFIG_DIR": str(foreign_root),
+        }
+
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--", "explain", "--resume", session_id],
+        inherited_env={},
+        setup_env=setup_env,
+    )
+    expect(code == 0, f"resume prompt text: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"],
+        "resume prompt text: expected CLAUDE_CONFIG_DIR to stay on the fresh prompt root "
+        f"{expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}",
+        failures,
+    )
+    expect("--session-id" in real_argv, f"resume prompt text: expected generated --session-id, got {real_argv}", failures)
+
+
 def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]) -> None:
     expected_auth_env = {
         "CLAUDE_CONFIG_DIR": "/tmp/resume-claude-config",
@@ -1480,6 +1516,7 @@ def main() -> int:
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_resume_self_heals_mismatched_claude_config_dir(failures)
     test_live_socket_resume_keeps_correct_claude_config_dir(failures)
+    test_live_socket_resume_self_heal_ignores_prompt_text_after_double_dash(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
