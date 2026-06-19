@@ -1286,7 +1286,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             mac.routes,
-            supportedKinds: supportedKinds
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
         ) else {
             // Found a Mac but no usable route to reach it: treat as no reconnect
             // target and fall through to add-device.
@@ -1773,7 +1774,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             instance.routes,
-            supportedKinds: supportedKinds
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             mobileShellLog.error(
                 "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
@@ -1877,7 +1879,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             target.routes,
-            supportedKinds: supportedKinds
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
             return
@@ -1923,20 +1926,53 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await loadPairedMacs()
     }
 
+    /// Whether route selection should avoid loopback routes. A loopback route
+    /// (`.debugLoopback`, `127.0.0.1`) names the host it runs on, so on a
+    /// physical device it can only ever reach the phone itself, never a remote
+    /// Mac. On the simulator `127.0.0.1` IS the host Mac, so loopback is valid
+    /// (and is how the dev/UI-test mock host attaches).
+    static var prefersNonLoopbackRoutes: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
+    }
+
+    /// The first reachable host/port route to a Mac, in priority order.
+    ///
+    /// When `preferNonLoopback` is set (physical devices), a real route
+    /// (`.tailscale` etc.) is always chosen over a `.debugLoopback` route even
+    /// if the loopback route has a lower (more-preferred) priority, because a
+    /// loopback route can never reach a remote Mac from a physical phone. A
+    /// loopback route is used only when it is the sole supported route — the
+    /// on-device XCUITest mock host, which serves a real listener on `127.0.0.1`
+    /// inside the test runner. This is what lets a restored Mac (whose published
+    /// routes include both `debug_loopback` and `tailscale`) actually connect
+    /// over Tailscale instead of dialing the phone's own loopback and failing.
     static func firstReconnectHostPortRoute(
         _ routes: [CmxAttachRoute],
-        supportedKinds: [CmxAttachTransportKind]
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool = false
     ) -> (String, Int)? {
         let supportedKinds = Set(supportedKinds)
-        for route in routes.sorted(by: routeSortsBefore) {
-            if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
-                continue
-            }
-            if case let .hostPort(host, port) = route.endpoint {
+        let ordered = routes.sorted(by: routeSortsBefore)
+        func firstHostPort(where predicate: (CmxAttachRoute) -> Bool) -> (String, Int)? {
+            for route in ordered {
+                if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
+                    continue
+                }
+                guard predicate(route), case let .hostPort(host, port) = route.endpoint else {
+                    continue
+                }
                 return (host, port)
             }
+            return nil
         }
-        return nil
+        if preferNonLoopback, let real = firstHostPort(where: { $0.kind != .debugLoopback }) {
+            return real
+        }
+        return firstHostPort(where: { _ in true })
     }
 
     /// Runs one paired-Mac store mutation on the serialized write chain.
