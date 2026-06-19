@@ -15875,10 +15875,10 @@ struct CMUXCLI {
               show                           Show the right sidebar
               hide                           Hide the right sidebar
               focus                          Focus the current right sidebar mode
-              set <files|find|vault|sessions|feed|dock>
+              set <files|find|vault|sessions|feed|dock|custom-sidebar-name>
                                              Show, switch mode, and focus
               mode                           Print {"visible":bool,"mode":string}
-              files|find|vault|sessions|feed|dock
+              files|find|vault|sessions|feed|dock|custom-sidebar-name
                                              Alias for show + set + focus
 
             Flags:
@@ -15891,6 +15891,7 @@ struct CMUXCLI {
               cmux right-sidebar set find
               cmux right-sidebar set vault --no-focus
               cmux right-sidebar mode
+              cmux right-sidebar set mine
             """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
@@ -16570,13 +16571,13 @@ struct CMUXCLI {
 
         case "set":
             guard parsed.positional.count == 2 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"))
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, or a custom sidebar name"))
             }
-            let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard isRightSidebarCLIMode(mode) else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownMode", defaultValue: "Unknown right-sidebar mode '\(parsed.positional[1])'"))
             }
-            var args = ["set", mode]
+            var args = ["set", normalizedRightSidebarCLIArgument(mode)]
             if parsed.noFocus {
                 args.append("--no-focus")
             }
@@ -16592,16 +16593,14 @@ struct CMUXCLI {
             return ["set", action]
 
         default:
-            throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'"))
-        }
-    }
-
-    private func isRightSidebarCLIMode(_ value: String) -> Bool {
-        switch value {
-        case "files", "find", "vault", "sessions", "feed", "dock":
-            return true
-        default:
-            return false
+            let rawAction = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard parsed.positional.count == 1, isRightSidebarCLIMode(rawAction) else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'"))
+            }
+            guard !parsed.noFocus else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
+            }
+            return ["set", normalizedRightSidebarCLIArgument(rawAction)]
         }
     }
 
@@ -34045,7 +34044,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           open-notification --id <uuid>
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
-          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|custom-sidebar-name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]

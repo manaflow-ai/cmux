@@ -9,6 +9,7 @@ import XCTest
 
 final class FileExplorerStateModePersistenceTests: XCTestCase {
     private let modeKey = "rightSidebar.mode"
+    private let customSidebarNameKey = "rightSidebar.customSidebarName"
     private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
     private let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
 
@@ -75,10 +76,12 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
     private func withSavedRightSidebarModeDefaults(_ body: () -> Void) {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: modeKey)
+        let previousCustomSidebarName = defaults.object(forKey: customSidebarNameKey)
         let previousFeedEnabled = defaults.object(forKey: feedEnabledKey)
         let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
         defer {
             restore(previousMode, forKey: modeKey)
+            restore(previousCustomSidebarName, forKey: customSidebarNameKey)
             restore(previousFeedEnabled, forKey: feedEnabledKey)
             restore(previousDockEnabled, forKey: dockEnabledKey)
         }

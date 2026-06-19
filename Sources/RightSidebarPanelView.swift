@@ -2,8 +2,12 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxFoundation
+import CmuxSidebarInterpreterClient
+import CmuxSidebarRemoteRender
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSwiftRender
+import CmuxSwiftRenderUI
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
@@ -18,6 +22,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case sessions
     case feed
     case dock
+    case customSidebar = "custom-sidebar"
 
     var label: String {
         switch self {
@@ -26,6 +31,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
 
@@ -36,6 +42,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return "books.vertical"
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
+        case .customSidebar: return "wand.and.stars"
         }
     }
 
@@ -46,6 +53,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
+        case .customSidebar: return nil
         }
     }
 }
@@ -70,7 +78,7 @@ nonisolated enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock:
+        case .sessions, .feed, .dock, .customSidebar:
             return false
         }
     }
@@ -110,73 +118,6 @@ extension RightSidebarMode {
     }
 }
 
-enum RightSidebarKeyboardNavigation {
-    enum DisclosureAction {
-        case collapse
-        case expand
-    }
-
-    static func moveDelta(for event: NSEvent) -> Int? {
-        guard event.type == .keyDown else { return nil }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let hasCommandOrOption = !flags.intersection([.command, .option]).isEmpty
-        if flags.contains(.control), !hasCommandOrOption {
-            switch event.keyCode {
-            case 45: return 1   // Ctrl+N
-            case 35: return -1  // Ctrl+P
-            default: break
-            }
-        }
-
-        guard flags.intersection([.command, .control, .option]).isEmpty else {
-            return nil
-        }
-        switch event.keyCode {
-        case 38, 125: return 1   // J or Down
-        case 40, 126: return -1  // K or Up
-        default: return nil
-        }
-    }
-
-    static func disclosureAction(for event: NSEvent) -> DisclosureAction? {
-        guard event.type == .keyDown else { return nil }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.intersection([.command, .control, .option]).isEmpty else {
-            return nil
-        }
-        switch event.keyCode {
-        case 4: return .collapse  // H
-        case 37: return .expand   // L
-        case 123: return .collapse  // Left
-        case 124: return .expand   // Right
-        default: return nil
-        }
-    }
-
-    static func isPlainSlash(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.intersection([.command, .control, .option]).isEmpty else {
-            return false
-        }
-        return event.keyCode == 44
-    }
-
-    static func isPlainPrintableText(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.intersection([.command, .control, .option]).isEmpty else {
-            return false
-        }
-        guard let text = event.charactersIgnoringModifiers, !text.isEmpty else {
-            return false
-        }
-        return text.unicodeScalars.allSatisfy {
-            !CharacterSet.controlCharacters.contains($0)
-        }
-    }
-}
-
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
     @ObservedObject var tabManager: TabManager
@@ -188,6 +129,10 @@ struct RightSidebarPanelView: View {
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
+    let customSidebarDataContext: (Date) -> [String: SwiftValue]
+    let customSidebarDispatch: SidebarActionDispatch
+    let customSidebarRenderer: CustomSidebarRendererMode
+    @Binding var customSidebarRenderWorkerClient: RenderWorkerClient?
     let onClose: () -> Void
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
@@ -219,6 +164,17 @@ struct RightSidebarPanelView: View {
 
     private var availableModes: [RightSidebarMode] {
         RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+    }
+
+    private var modeBarItems: [RightSidebarModeBarItem] {
+        var items = availableModes.map { RightSidebarModeBarItem(kind: .mode($0)) }
+        if CmuxExtensionSidebarSelection.customSidebarsEnabled {
+            items += CmuxExtensionSidebarSelection.customSidebarDescriptors.map { descriptor in
+                let name = String(descriptor.id.dropFirst(CmuxExtensionSidebarSelection.customSidebarProviderPrefix.count))
+                return RightSidebarModeBarItem(kind: .customSidebar(name: name, providerId: descriptor.id))
+            }
+        }
+        return items
     }
 
     private var focusShortcutHintAnimationValue: Bool {
@@ -300,12 +256,15 @@ struct RightSidebarPanelView: View {
             WindowDragHandleView()
 
             HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
-                ForEach(availableModes, id: \.rawValue) { mode in
-                    let shortcut = mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
+                ForEach(modeBarItems) { item in
+                    let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
                     ModeBarButton(
-                        mode: mode,
-                        isSelected: fileExplorerState.mode == mode,
-                        badgeCount: mode == .feed ? feedPendingCount : 0,
+                        item: item,
+                        isSelected: item.isSelected(
+                            mode: fileExplorerState.mode,
+                            customSidebarName: fileExplorerState.customSidebarName
+                        ),
+                        badgeCount: item.mode == .feed ? feedPendingCount : 0,
                         shortcutHint: shortcut,
                         showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
                             shortcut: shortcut,
@@ -314,12 +273,21 @@ struct RightSidebarPanelView: View {
                             modifierHoldHintsEnabled: showModifierHoldHints
                         )
                     ) {
-                        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                            mode: mode,
-                            focusFirstItem: true,
-                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                        ) != true {
-                            selectMode(mode)
+                        if let mode = item.mode {
+                            if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                                mode: mode,
+                                focusFirstItem: true,
+                                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                            ) != true {
+                                selectMode(mode)
+                            }
+                        } else if let name = item.customSidebarName {
+                            selectCustomSidebar(name)
+                            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                                mode: .customSidebar,
+                                focusFirstItem: true,
+                                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                            )
                         }
                     }
                 }
@@ -479,9 +447,34 @@ struct RightSidebarPanelView: View {
                 FeedPanelView()
             case .dock:
                 DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: dockStore)
+            case .customSidebar:
+                customSidebarContent
             }
         } else {
             Color.clear
+        }
+    }
+
+    @ViewBuilder
+    private var customSidebarContent: some View {
+        if let name = fileExplorerState.customSidebarName,
+           let url = CmuxExtensionSidebarSelection.customSidebarFileURL(
+               forProviderId: CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+           ) {
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                CustomSidebarSurface(
+                    fileURL: url,
+                    dataContext: customSidebarDataContext(timeline.date),
+                    dispatch: customSidebarDispatch,
+                    contentInsets: CustomSidebarContentInsets.zero,
+                    rendersInProcess: customSidebarRenderer == .inProcess,
+                    client: $customSidebarRenderWorkerClient
+                )
+            }
+        } else {
+            Text(String(localized: "rightSidebar.customSidebar.missing", defaultValue: "Custom sidebar not found"))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -518,6 +511,10 @@ struct RightSidebarPanelView: View {
                 sessionIndexStore.reload()
             }
         }
+    }
+
+    private func selectCustomSidebar(_ name: String) {
+        fileExplorerState.selectCustomSidebar(name: name)
     }
 
     private func refreshModeAvailabilityAndFocusIfNeeded() {
@@ -628,98 +625,5 @@ extension NSView {
             view = current.superview
         }
         return true
-    }
-}
-
-private struct ModeBarButton: View {
-    let mode: RightSidebarMode
-    let isSelected: Bool
-    var badgeCount: Int = 0
-    let shortcutHint: StoredShortcut
-    let showsShortcutHint: Bool
-    let action: () -> Void
-
-    @State private var isHovered: Bool = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: mode.symbolName)
-                    .symbolRenderingMode(.monochrome)
-                    .font(
-                        .system(
-                            size: RightSidebarChromeControlStyle.modeIconSize,
-                            weight: RightSidebarChromeControlStyle.iconWeight
-                        )
-                    )
-                    .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
-                        keyPrefix: "rightSidebarModeIcon_\(mode.rawValue)",
-                        isVisible: true
-                    )
-                Text(mode.label)
-                    .font(
-                        .system(
-                            size: RightSidebarChromeControlStyle.labelSize,
-                            weight: RightSidebarChromeControlStyle.labelWeight
-                        )
-                    )
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if badgeCount > 0 {
-                    pendingChip
-                }
-            }
-            .rightSidebarChromePill(
-                isSelected: isSelected,
-                isHovered: isHovered,
-                geometryKeyPrefix: "rightSidebarModeControl_\(mode.rawValue)"
-            )
-            .overlay(alignment: .trailing) {
-                if showsShortcutHint {
-                    ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
-                        .offset(x: 5)
-                        .shortcutHintTransition()
-                        .accessibilityIdentifier("rightSidebarModeShortcutHint.\(mode.rawValue)")
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .titlebarInteractiveControl()
-        .onHover { isHovered = $0 }
-        .help(helpText)
-        .accessibilityIdentifier("RightSidebarModeButton.\(mode.rawValue)")
-        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-    }
-
-    private var helpText: String {
-        if badgeCount > 0 {
-            return String(
-                localized: "rightSidebar.mode.pendingHelp",
-                defaultValue: "\(mode.label) · \(badgeCount) pending"
-            )
-        }
-        return mode.label
-    }
-
-    /// Subtle inline count chip that sits after the label instead of
-    /// floating a red capsule over the icon. Tinted orange (the "needs
-    /// attention" color used elsewhere in the Feed) and sized to match
-    /// the label's typography.
-    private var pendingChip: some View {
-        let countText = badgeCount > 9 ? "9+" : String(badgeCount)
-        return Text(countText)
-            .font(.system(size: 10, weight: .bold).monospacedDigit())
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: true)
-            .foregroundColor(.orange)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(Color.orange.opacity(0.20))
-            )
-            .fixedSize(horizontal: true, vertical: true)
-            .layoutPriority(2)
     }
 }

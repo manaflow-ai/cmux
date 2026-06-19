@@ -6524,7 +6524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch command {
         case .focus:
             requiresWindowFocus = true
-        case .setMode(_, let focus):
+        case .setMode(_, let focus), .setCustomSidebar(_, let focus):
             requiresWindowFocus = focus
         case .toggle, .show, .hide, .getState:
             requiresWindowFocus = false
@@ -6585,9 +6585,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context?.keyboardFocusCoordinator.rememberRightSidebarMode(mode)
             }
             return .ok
-
+        case .setCustomSidebar(let name, let focus): return applySetCustomRightSidebarRemoteCommand(name: name, focus: focus, state: state, context: context, preferredWindow: preferredWindow)
         case .getState:
-            return .state(.init(visible: state.isVisible, mode: state.mode))
+            return .state(.init(visible: state.isVisible, modeRawValue: state.rightSidebarRemoteModeRawValue))
         }
     }
 

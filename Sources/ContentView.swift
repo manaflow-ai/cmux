@@ -951,14 +951,6 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     }
 }
 
-func titlebarShortcutHintShouldShow(
-    shortcut: StoredShortcut,
-    alwaysShowShortcutHints: Bool,
-    modifierPressed: Bool
-) -> Bool {
-    !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
-}
-
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
@@ -984,6 +976,7 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1936,6 +1929,12 @@ struct ContentView: View {
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
             },
+            customSidebarDataContext: { date in
+                rightSidebarCustomSidebarDataContext(now: date)
+            },
+            customSidebarDispatch: makeCmuxSidebarActionDispatch(),
+            customSidebarRenderer: customSidebarRenderer,
+            customSidebarRenderWorkerClient: $sidebarRenderWorkerClient,
             onClose: {
                 #if DEBUG
                 cmuxDebugLog("rightSidebar.closeButton")

@@ -1,4 +1,7 @@
 import AppKit
+import CmuxSettings
+import CmuxSidebarInterpreterClient
+import CmuxSwiftRenderUI
 import SwiftUI
 import Testing
 
@@ -60,6 +63,7 @@ struct HiddenRightSidebarContentMountingTests {
         )
         defer { window.orderOut(nil) }
 
+        var customSidebarRenderWorkerClient: RenderWorkerClient?
         let rootView = RightSidebarPanelView(
             tabManager: TabManager(),
             fileExplorerStore: FileExplorerStore(),
@@ -70,6 +74,13 @@ struct HiddenRightSidebarContentMountingTests {
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
+            customSidebarDataContext: { _ in [:] },
+            customSidebarDispatch: .noop,
+            customSidebarRenderer: .inProcess,
+            customSidebarRenderWorkerClient: Binding(
+                get: { customSidebarRenderWorkerClient },
+                set: { customSidebarRenderWorkerClient = $0 }
+            ),
             onClose: {}
         )
         let hostingView = NSHostingView(rootView: rootView)

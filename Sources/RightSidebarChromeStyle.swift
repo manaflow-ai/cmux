@@ -1,5 +1,14 @@
 import CmuxAppKitSupportUI
+import CmuxSettings
 import SwiftUI
+
+func titlebarShortcutHintShouldShow(
+    shortcut: StoredShortcut,
+    alwaysShowShortcutHints: Bool,
+    modifierPressed: Bool
+) -> Bool {
+    !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
+}
 
 enum HeaderChromeIconStyle {
     static let opacity = 0.86
@@ -257,5 +266,158 @@ extension View {
         alignmentGuide(VerticalAlignment.center) { dimensions in
             dimensions[VerticalAlignment.center] + RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment
         }
+    }
+}
+
+nonisolated struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case mode(RightSidebarMode)
+        case customSidebar(name: String, providerId: String)
+    }
+
+    let kind: Kind
+
+    var id: String {
+        switch kind {
+        case .mode(let mode):
+            return mode.rawValue
+        case .customSidebar(_, let providerId):
+            return providerId
+        }
+    }
+
+    var label: String {
+        switch kind {
+        case .mode(let mode):
+            return mode.label
+        case .customSidebar(let name, _):
+            return name
+        }
+    }
+
+    var symbolName: String {
+        switch kind {
+        case .mode(let mode):
+            return mode.symbolName
+        case .customSidebar:
+            return "wand.and.stars"
+        }
+    }
+
+    var shortcutAction: KeyboardShortcutSettings.Action? {
+        switch kind {
+        case .mode(let mode):
+            return mode.shortcutAction
+        case .customSidebar:
+            return nil
+        }
+    }
+
+    var mode: RightSidebarMode? {
+        if case .mode(let mode) = kind { return mode }
+        return nil
+    }
+
+    var customSidebarName: String? {
+        if case .customSidebar(let name, _) = kind { return name }
+        return nil
+    }
+
+    func isSelected(mode: RightSidebarMode, customSidebarName: String?) -> Bool {
+        switch kind {
+        case .mode(let itemMode):
+            return mode == itemMode
+        case .customSidebar(let name, _):
+            return mode == .customSidebar && customSidebarName == name
+        }
+    }
+}
+
+struct ModeBarButton: View {
+    let item: RightSidebarModeBarItem
+    let isSelected: Bool
+    var badgeCount: Int = 0
+    let shortcutHint: StoredShortcut
+    let showsShortcutHint: Bool
+    let action: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: item.symbolName)
+                    .symbolRenderingMode(.monochrome)
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.modeIconSize,
+                            weight: RightSidebarChromeControlStyle.iconWeight
+                        )
+                    )
+                    .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                        keyPrefix: "rightSidebarModeIcon_\(item.id)",
+                        isVisible: true
+                    )
+                Text(item.label)
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.labelSize,
+                            weight: RightSidebarChromeControlStyle.labelWeight
+                        )
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if badgeCount > 0 {
+                    pendingChip
+                }
+            }
+            .rightSidebarChromePill(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)"
+            )
+            .overlay(alignment: .trailing) {
+                if showsShortcutHint {
+                    ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
+                        .offset(x: 5)
+                        .shortcutHintTransition()
+                        .accessibilityIdentifier("rightSidebarModeShortcutHint.\(item.id)")
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .titlebarInteractiveControl()
+        .onHover { isHovered = $0 }
+        .help(helpText)
+        .accessibilityIdentifier("RightSidebarModeButton.\(item.id)")
+        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+    }
+
+    private var helpText: String {
+        if badgeCount > 0 {
+            return String(
+                localized: "rightSidebar.mode.pendingHelp",
+                defaultValue: "\(item.label) · \(badgeCount) pending"
+            )
+        }
+        return item.label
+    }
+
+    private var pendingChip: some View {
+        let countText = badgeCount > 9 ? "9+" : String(badgeCount)
+        return Text(countText)
+            .font(.system(size: 10, weight: .bold).monospacedDigit())
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: true)
+            .foregroundColor(.orange)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.orange.opacity(0.20))
+            )
+            .fixedSize(horizontal: true, vertical: true)
+            .layoutPriority(2)
     }
 }
