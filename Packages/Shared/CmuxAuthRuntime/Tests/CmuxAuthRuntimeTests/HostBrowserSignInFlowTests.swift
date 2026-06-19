@@ -115,6 +115,38 @@ import Testing
         #expect(await attempt.value == false)
         #expect(harness.coordinator.isAuthenticated == false)
         #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(harness.flow.lastFailure == .invalidCallback)
+    }
+
+    @Test func externalCallbackStateMismatchRecordsInvalidCallbackFailure() async {
+        let harness = makeHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
+
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await waitForSession(harness.factory)
+
+        let result = await harness.flow.handleCallbackURL(callbackURL(state: "other-state"))
+
+        #expect(result == false)
+        #expect(harness.flow.isSigningIn)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(harness.flow.lastFailure == .invalidCallback)
+
+        harness.factory.sessions[0].cancel()
+        #expect(await attempt.value == false)
+    }
+
+    @Test func callbackTokensThatDoNotValidateRecordUnauthorizedFailure() async {
+        let harness = makeHarness(user: nil)
+
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await waitForSession(harness.factory)
+        harness.factory.sessions[0].deliver(callbackURL(state: callbackState(harness.factory.sessions[0])))
+
+        #expect(await attempt.value == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+        #expect(harness.flow.lastFailure == .unauthorized)
     }
 
     @Test func nonAuthBrowserCompletionWaitsForExternalCallback() async {
@@ -220,6 +252,7 @@ import Testing
         #expect(harness.factory.sessions[0].cancelled)
         #expect(harness.flow.isSigningIn == false)
         #expect(harness.coordinator.isAuthenticated == false)
+        #expect(harness.flow.lastFailure == .timedOut)
     }
 
     @Test func slowSignInSurfacesBrowserFallback() async throws {
