@@ -817,6 +817,7 @@
 		C0DE00000000000000000C74 /* TerminalController+ControlSidebarContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C73 /* TerminalController+ControlSidebarContext2.swift */; };
 		C0DE00000000000000000C76 /* TerminalController+ControlSidebarContext3.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C75 /* TerminalController+ControlSidebarContext3.swift */; };
 		C0DE00000000000000000C78 /* TerminalController+ControlSidebarContextSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C77 /* TerminalController+ControlSidebarContextSupport.swift */; };
+		C0DE00000000000000000FA1 /* TerminalController+ControlSidebarCustomReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000FA2 /* TerminalController+ControlSidebarCustomReading.swift */; };
 		C0DE00000000000000000C64 /* TerminalController+ControlSurfaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C63 /* TerminalController+ControlSurfaceContext.swift */; };
 		C0DE00000000000000000C66 /* TerminalController+ControlSurfaceContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C65 /* TerminalController+ControlSurfaceContext2.swift */; };
 		C0DE00000000000000000C68 /* TerminalController+ControlSurfaceContext3.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C67 /* TerminalController+ControlSurfaceContext3.swift */; };
@@ -1794,6 +1795,7 @@
 		C0DE00000000000000000C73 /* TerminalController+ControlSidebarContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContext2.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C75 /* TerminalController+ControlSidebarContext3.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContext3.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C77 /* TerminalController+ControlSidebarContextSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContextSupport.swift"; sourceTree = "<group>"; };
+		C0DE00000000000000000FA2 /* TerminalController+ControlSidebarCustomReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarCustomReading.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C63 /* TerminalController+ControlSurfaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C65 /* TerminalController+ControlSurfaceContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceContext2.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C67 /* TerminalController+ControlSurfaceContext3.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceContext3.swift"; sourceTree = "<group>"; };
@@ -2432,6 +2434,7 @@
 				C0DE00000000000000000D01 /* TerminalController+ControlSurfaceSendNotifyV1.swift */,
 				C0DE00000000000000000C43 /* TerminalController+ControlFeedContext.swift */,
 				C0DE00000000000000000F04 /* TerminalController+AuthStatusReading.swift */,
+				C0DE00000000000000000FA2 /* TerminalController+ControlSidebarCustomReading.swift */,
 				C0DE00000000000000000C45 /* TerminalController+ControlNotificationContext.swift */,
 				C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */,
 				D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */,
@@ -3941,6 +3944,7 @@
 				C0DE00000000000000000C74 /* TerminalController+ControlSidebarContext2.swift in Sources */,
 				C0DE00000000000000000C76 /* TerminalController+ControlSidebarContext3.swift in Sources */,
 				C0DE00000000000000000C78 /* TerminalController+ControlSidebarContextSupport.swift in Sources */,
+				C0DE00000000000000000FA1 /* TerminalController+ControlSidebarCustomReading.swift in Sources */,
 				C0DE00000000000000000C64 /* TerminalController+ControlSurfaceContext.swift in Sources */,
 				C0DE00000000000000000C66 /* TerminalController+ControlSurfaceContext2.swift in Sources */,
 				C0DE00000000000000000C68 /* TerminalController+ControlSurfaceContext3.swift in Sources */,
