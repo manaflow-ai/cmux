@@ -108,6 +108,20 @@ extension TerminalController {
         }
 
         return v2MainSync {
+            if v2HasNonNullParam(params, "window_id"), v2UUID(params, "window_id") == nil {
+                return .err(
+                    code: "invalid_params",
+                    message: "Missing or invalid window_id",
+                    data: nil
+                )
+            }
+            if v2HasNonNullParam(params, "workspace_id"), v2UUID(params, "workspace_id") == nil {
+                return .err(
+                    code: "invalid_params",
+                    message: "Missing or invalid workspace_id",
+                    data: nil
+                )
+            }
             guard let tabManager = v2CustomSidebarTabManager(params: params) else {
                 return .err(
                     code: "tab_manager_unavailable",

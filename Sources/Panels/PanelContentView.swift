@@ -98,6 +98,7 @@ struct PanelContentView: View {
                 CustomSidebarPanelView(
                     panel: customSidebarPanel,
                     isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
                     appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus
                 )

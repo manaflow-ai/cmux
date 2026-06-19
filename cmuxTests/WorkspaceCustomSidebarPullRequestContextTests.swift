@@ -105,6 +105,26 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
     }
 
     @MainActor
+    func testV2CustomSidebarOpenRejectsMalformedWorkspaceTarget() throws {
+        let sidebarName = "__cmux_target_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("\(sidebarName).swift")
+        try #"Text("Target")"#.write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        switch TerminalController.shared.v2CustomSidebarOpen(
+            params: ["name": sidebarName, "workspace_id": "not-a-workspace"]
+        ) {
+        case .err(let code, let message, _):
+            XCTAssertEqual(code, "invalid_params")
+            XCTAssertEqual(message, "Missing or invalid workspace_id")
+        case .ok(let payload):
+            XCTFail("Expected invalid_params, got \(payload)")
+        }
+    }
+
+    @MainActor
     func testValuesIncludePanelPullRequestWhenFocusedPanelMirrorIsNil() throws {
         let workspace = Workspace(
             title: "Tests",

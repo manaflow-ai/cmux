@@ -54,6 +54,7 @@ struct CustomSidebarPanelView: View {
     @EnvironmentObject private var tabManager: TabManager
     @EnvironmentObject private var sidebarUnread: SidebarUnreadModel
     let isFocused: Bool
+    let isVisibleInUI: Bool
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
@@ -63,15 +64,21 @@ struct CustomSidebarPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { timeline in
-            CustomSidebarSurface(
-                fileURL: panel.fileURL,
-                dataContext: customSidebarDataContext(now: timeline.date),
-                dispatch: makeCmuxSidebarActionDispatch(),
-                contentInsets: CustomSidebarContentInsets.zero,
-                rendersInProcess: customSidebarRenderer == .inProcess,
-                client: $renderWorkerClient
-            )
+        Group {
+            if isVisibleInUI {
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    CustomSidebarSurface(
+                        fileURL: panel.fileURL,
+                        dataContext: customSidebarDataContext(now: timeline.date),
+                        dispatch: makeCmuxSidebarActionDispatch(),
+                        contentInsets: CustomSidebarContentInsets.zero,
+                        rendersInProcess: customSidebarRenderer == .inProcess,
+                        client: $renderWorkerClient
+                    )
+                }
+            } else {
+                Color.clear
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: appearance.backgroundColor))
