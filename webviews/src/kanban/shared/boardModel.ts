@@ -26,6 +26,7 @@ export type KanbanCopy = {
   moveRight: string;
   dispatch: string;
   cancel: string;
+  openWorktree: string;
   emptyColumn: string;
   loading: string;
   requestFailed: string;
@@ -202,6 +203,20 @@ export async function cancelCard(
 ): Promise<void> {
   try {
     await callNativeKanban<{ cancelled: boolean }>("cancelCard", { cardId });
+  } catch (error) {
+    dispatch({ type: "error", message: messageForError(error, copy) });
+  }
+}
+
+/** Opens a terminal tab at the card's git worktree. The native side resolves
+ * the worktree path from the authoritative board, so this only sends the id. */
+export async function openWorktreeTerminal(
+  dispatch: Dispatch,
+  copy: KanbanCopy | null,
+  cardId: string,
+): Promise<void> {
+  try {
+    await callNativeKanban<{ opened: boolean }>("openWorktreeTerminal", { cardId });
   } catch (error) {
     dispatch({ type: "error", message: messageForError(error, copy) });
   }

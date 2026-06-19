@@ -16,6 +16,7 @@ import {
   initialState,
   loadInitialBoard,
   moveCard,
+  openWorktreeTerminal,
   reduceBoard,
   type KanbanCopy,
 } from "../shared/boardModel";
@@ -92,6 +93,7 @@ export function KanbanApp() {
             onMove={(cardId, target) => void moveCard(dispatch, copy, cardId, target)}
             onDispatch={(cardId) => void dispatchCard(dispatch, copy, cardId)}
             onCancel={(cardId) => void cancelCard(dispatch, copy, cardId)}
+            onOpenWorktree={(cardId) => void openWorktreeTerminal(dispatch, copy, cardId)}
           />
         ))}
       </div>
@@ -107,6 +109,7 @@ function KanbanColumnView({
   onMove,
   onDispatch,
   onCancel,
+  onOpenWorktree,
 }: {
   column: KanbanColumn;
   cards: KanbanCard[];
@@ -115,6 +118,7 @@ function KanbanColumnView({
   onMove: (cardId: string, target: KanbanColumn) => void;
   onDispatch: (cardId: string) => void;
   onCancel: (cardId: string) => void;
+  onOpenWorktree: (cardId: string) => void;
 }) {
   const label = copy ? copy[COLUMN_LABEL_KEYS[column]] : column;
   return (
@@ -136,6 +140,7 @@ function KanbanColumnView({
               onMove={onMove}
               onDispatch={onDispatch}
               onCancel={onCancel}
+              onOpenWorktree={onOpenWorktree}
             />
           ))
         )}
@@ -151,6 +156,7 @@ function KanbanCardView({
   onMove,
   onDispatch,
   onCancel,
+  onOpenWorktree,
 }: {
   card: KanbanCard;
   copy: KanbanCopy | null;
@@ -158,6 +164,7 @@ function KanbanCardView({
   onMove: (cardId: string, target: KanbanColumn) => void;
   onDispatch: (cardId: string) => void;
   onCancel: (cardId: string) => void;
+  onOpenWorktree: (cardId: string) => void;
 }) {
   const left = adjacentColumn(card.column, -1);
   const right = adjacentColumn(card.column, 1);
@@ -198,6 +205,15 @@ function KanbanCardView({
           </button>
         </div>
         <div className="kanban-card__actions">
+          {card.worktreePath ? (
+            <button
+              className="kanban-button kanban-button--worktree"
+              type="button"
+              onClick={() => onOpenWorktree(card.id)}
+            >
+              {copy?.openWorktree ?? "Worktree"}
+            </button>
+          ) : null}
           {canDispatch ? (
             <button
               className="kanban-button kanban-button--dispatch"

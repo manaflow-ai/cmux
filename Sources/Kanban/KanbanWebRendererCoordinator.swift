@@ -352,9 +352,37 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
             let cardId = try request.requiredUUID("cardId")
             try await startedEngine().cancel(cardId: cardId)
             return ["cancelled": true]
+        case "openWorktreeTerminal":
+            let cardId = try request.requiredUUID("cardId")
+            return ["opened": try await openWorktreeTerminal(cardId: cardId)]
         default:
             throw KanbanBridgeError.unsupportedMethod(request.method)
         }
+    }
+
+    /// Opens a terminal tab at the card's git worktree. The path is read from
+    /// the engine's authoritative board (never trusted from the webview); a card
+    /// without a provisioned worktree is a no-op that reports `opened: false`.
+    private func openWorktreeTerminal(cardId: UUID) async throws -> Bool {
+        let board = try await startedEngine().currentBoard()
+        guard let worktreePath = board.card(id: cardId)?.worktreePath,
+              !worktreePath.isEmpty else {
+            return false
+        }
+        guard let app = AppDelegate.shared,
+              let location = app.workspaceContainingPanel(
+                  panelId: panelId,
+                  preferredWorkspaceId: workspaceId
+              ),
+              let paneId = location.workspace.paneId(forPanelId: panelId) else {
+            return false
+        }
+        let terminal = location.workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: worktreePath
+        )
+        return terminal != nil
     }
 
     /// Returns the engine, creating and subscribing to it on first use and
@@ -442,6 +470,7 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
             "moveRight": String(localized: "kanban.web.moveRight", defaultValue: "Move right"),
             "dispatch": String(localized: "kanban.web.dispatch", defaultValue: "Run"),
             "cancel": String(localized: "kanban.web.cancel", defaultValue: "Cancel"),
+            "openWorktree": String(localized: "kanban.web.openWorktree", defaultValue: "Worktree"),
             "emptyColumn": String(localized: "kanban.web.emptyColumn", defaultValue: "No tasks"),
             "loading": String(localized: "kanban.web.loading", defaultValue: "Loading board…"),
             "requestFailed": String(localized: "kanban.web.requestFailed", defaultValue: "Board request failed.")
