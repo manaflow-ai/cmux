@@ -16391,18 +16391,12 @@ struct CMUXCLI {
         case "select", "open":
             guard !explicitAll else {
                 throw CLIError(
-                    message: String(
-                        localized: "cli.sidebar.error.namedActionAll",
-                        defaultValue: "sidebar \(action) does not support --all"
-                    )
+                    message: String(format: String(localized: "cli.sidebar.error.namedActionAll", defaultValue: "sidebar %@ does not support --all"), action)
                 )
             }
             guard remaining.count == 1 else {
                 throw CLIError(
-                    message: String(
-                        localized: "cli.sidebar.error.namedActionRequiresName",
-                        defaultValue: "sidebar \(action) requires one sidebar name"
-                    )
+                    message: String(format: String(localized: "cli.sidebar.error.namedActionRequiresName", defaultValue: "sidebar %@ requires one sidebar name"), action)
                 )
             }
             params["name"] = remaining[0]
