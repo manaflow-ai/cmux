@@ -5,6 +5,7 @@ import Observation
 struct PaneMemoryGuardrailSampleBatch: Sendable {
     let samples: [PaneMemorySample]
     let scopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample]
+    let includesCMUXScope: Bool
 }
 
 // MARK: - Monitor
@@ -117,8 +118,7 @@ final class PaneMemoryGuardrail {
             guard !Task.isCancelled else { return }
             self?.applySamples(
                 batch,
-                thresholdBytes: thresholdBytes,
-                includesCMUXScope: includeCMUXScope
+                thresholdBytes: thresholdBytes
             )
         }
     }
@@ -137,7 +137,7 @@ final class PaneMemoryGuardrail {
             thresholdBytes: thresholdBytes,
             snapshot: snapshot
         )
-        let scopedOnlySamples = includeCMUXScope
+        let scopedOnlySamples = snapshot.hasCMUXScope
             ? computeScopedOnlySamples(
                 descriptors: descriptors,
                 thresholdBytes: thresholdBytes,
@@ -149,7 +149,8 @@ final class PaneMemoryGuardrail {
             scopedOnlySamplesByKey: Dictionary(
                 scopedOnlySamples.map { ($0.key, $0) },
                 uniquingKeysWith: { _, last in last }
-            )
+            ),
+            includesCMUXScope: snapshot.hasCMUXScope
         )
     }
 
@@ -338,15 +339,14 @@ final class PaneMemoryGuardrail {
 
     private func applySamples(
         _ batch: PaneMemoryGuardrailSampleBatch,
-        thresholdBytes: Int64,
-        includesCMUXScope: Bool
+        thresholdBytes: Int64
     ) {
         let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
         let reconciled = Self.reconcileScopedSamples(
             samples: batch.samples,
             currentScopedOnlySamplesByKey: batch.scopedOnlySamplesByKey,
             previousScopedOnlySamplesByKey: lastScopedOnlySamplesByKey,
-            includesCMUXScope: includesCMUXScope,
+            includesCMUXScope: batch.includesCMUXScope,
             clearBytes: clearBytes
         )
         lastScopedOnlySamplesByKey = reconciled.scopedOnlySamplesByKey
@@ -365,7 +365,7 @@ final class PaneMemoryGuardrail {
         cmuxDebugLog(
             "paneMemGuard.scan panes=\(samples.count) maxMB=\(maxBytes / 1_048_576) " +
             "thresholdMB=\(thresholdBytes / 1_048_576) warned=\(output.warnedWorkspaceIds.count) " +
-            "fired=\(output.bannerToPresent != nil ? 1 : 0) scope=\(includesCMUXScope ? 1 : 0)"
+            "fired=\(output.bannerToPresent != nil ? 1 : 0) scope=\(batch.includesCMUXScope ? 1 : 0)"
         )
 #endif
 

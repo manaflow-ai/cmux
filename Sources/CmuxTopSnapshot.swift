@@ -208,6 +208,10 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         ]
     }
 
+    var hasCMUXScope: Bool {
+        includesCMUXScope
+    }
+
     private static func sortedMemorySources(
         in sources: [CmuxTopProcessMemorySource]
     ) -> [CmuxTopProcessMemorySource] {
