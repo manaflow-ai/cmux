@@ -75,10 +75,46 @@ safe_base="$(basename "$profile_dir" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^
 archive_dir="${TMPDIR:-/tmp}/cmux-profile-submissions"
 archive_path="${archive_dir}/${safe_base}.zip"
 
+language_source="${CMUX_PROFILE_LOCALE:-${LANG:-}}"
+if [ -z "$language_source" ] && [ -x /usr/bin/defaults ]; then
+  language_source="$(/usr/bin/defaults read -g AppleLanguages 2>/dev/null || true)"
+fi
+language_source="$(printf '%s' "$language_source" | tr '[:upper:]' '[:lower:]')"
+
+if [[ "$language_source" == *"ja"* ]]; then
+  subject_prefix="cmuxプロファイリングキャプチャ"
+  body_intro="cmuxプロファイリングキャプチャを添付しました。"
+  body_target_label="対象"
+  body_pid_label="PID"
+  body_channel_label="チャンネル"
+  body_bundle_label="バンドルID"
+  body_profile_label="プロファイルディレクトリ"
+  body_archive_label="アーカイブ"
+  body_notes_label="メモ"
+  dialog_text="cmuxはプロファイリングアーカイブを作成しました。状況を追記してから、アーカイブ付きのManaflow宛メール下書きを開いてください。"
+  cancel_button="キャンセル"
+  open_draft_button="下書きを開く"
+  dialog_title="cmuxプロファイルを送信"
+else
+  subject_prefix="cmux profiling capture"
+  body_intro="cmux profiling capture attached."
+  body_target_label="Target"
+  body_pid_label="PID"
+  body_channel_label="Channel"
+  body_bundle_label="Bundle ID"
+  body_profile_label="Profile directory"
+  body_archive_label="Archive"
+  body_notes_label="Notes"
+  dialog_text="cmux created a profiling archive. Add any context, then open an email draft to Manaflow with the archive attached."
+  cancel_button="Cancel"
+  open_draft_button="Open Draft"
+  dialog_title="Submit cmux Profile"
+fi
+
 if [ "$dry_run" = "true" ]; then
   printf 'Archive: %s\n' "$archive_path"
   printf 'Recipient: %s\n' "$recipient"
-  printf 'Subject: cmux profiling capture: %s\n' "$target_name"
+  printf 'Subject: %s: %s\n' "$subject_prefix" "$target_name"
   exit 0
 fi
 
@@ -86,19 +122,19 @@ mkdir -p "$archive_dir"
 rm -f "$archive_path"
 "$ditto_bin" -c -k --sequesterRsrc --keepParent "$profile_dir" "$archive_path"
 
-subject="cmux profiling capture: ${target_name}"
+subject="${subject_prefix}: ${target_name}"
 [ -n "$target_pid" ] && subject="${subject} pid ${target_pid}"
 body="$(cat <<EOF
-cmux profiling capture attached.
+${body_intro}
 
-Target: ${target_name}
-PID: ${target_pid:-unknown}
-Channel: ${channel}
-Bundle ID: ${bundle_id}
-Profile directory: ${profile_dir}
-Archive: ${archive_path}
+${body_target_label}: ${target_name}
+${body_pid_label}: ${target_pid:-unknown}
+${body_channel_label}: ${channel}
+${body_bundle_label}: ${bundle_id}
+${body_profile_label}: ${profile_dir}
+${body_archive_label}: ${archive_path}
 
-Notes:
+${body_notes_label}:
 EOF
 )"
 
@@ -111,9 +147,12 @@ on run argv
   set recipientAddress to item 2 of argv
   set messageSubject to item 3 of argv
   set baseBody to item 4 of argv
+  set dialogText to item 5 of argv
+  set cancelButton to item 6 of argv
+  set openDraftButton to item 7 of argv
+  set dialogTitle to item 8 of argv
 
-  set dialogText to "cmux created a profiling archive. Add any context, then open an email draft to Manaflow with the archive attached."
-  set dialogResult to display dialog dialogText default answer "" buttons {"Cancel", "Open Draft"} default button "Open Draft" cancel button "Cancel" with title "Submit cmux Profile"
+  set dialogResult to display dialog dialogText default answer "" buttons {cancelButton, openDraftButton} default button openDraftButton cancel button cancelButton with title dialogTitle
   set noteText to text returned of dialogResult
   set messageBody to baseBody & return & noteText
 
@@ -128,7 +167,7 @@ on run argv
 end run
 OSA
 
-if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body" 2>"$apple_error"; then
+if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" 2>"$apple_error"; then
   exit 0
 fi
 

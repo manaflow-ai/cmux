@@ -357,6 +357,10 @@ if [ -z "$test_ps_file" ] && ! ps -p "$pid" >/dev/null 2>&1; then
   exit 1
 fi
 
+safe_name() {
+  sanitize_path "$1"
+}
+
 if [ -z "$out_dir" ]; then
   profile_root="${HOME}/Desktop/cmux-profiles"
   if [ ! -d "${HOME}/Desktop" ]; then
@@ -365,11 +369,17 @@ if [ -z "$out_dir" ]; then
   out_dir="${profile_root}/cmux-profile-${pid}-$(date +%Y%m%d-%H%M%S)"
 fi
 
-mkdir -p "$out_dir"
+if [ "$dry_run" = "true" ]; then
+  echo "Target: pid=$pid channel=$channel bundle=${bundle_id:-unknown} name=$display_name app=${app_path:-unknown}"
+  for template in "${templates[@]}"; do
+    trace_name="$(safe_name "$template")"
+    echo "xcrun xctrace record --template \"$template\" --attach \"$pid\" --time-limit ${duration}s --output \"$out_dir/${trace_name}.trace\""
+  done
+  echo "Output: $out_dir"
+  exit 0
+fi
 
-safe_name() {
-  sanitize_path "$1"
-}
+mkdir -p "$out_dir"
 
 write_manifest() {
   cat > "$out_dir/summary.md" <<EOF
@@ -400,16 +410,6 @@ write_manifest
 
 if [ "$open_output" = "true" ] && command -v open >/dev/null 2>&1; then
   open "$out_dir" >/dev/null 2>&1 || true
-fi
-
-if [ "$dry_run" = "true" ]; then
-  echo "Target: pid=$pid channel=$channel bundle=${bundle_id:-unknown} name=$display_name app=${app_path:-unknown}"
-  for template in "${templates[@]}"; do
-    trace_name="$(safe_name "$template")"
-    echo "xcrun xctrace record --template \"$template\" --attach \"$pid\" --time-limit ${duration}s --output \"$out_dir/${trace_name}.trace\""
-  done
-  echo "Output: $out_dir"
-  exit 0
 fi
 
 if ! command -v xcrun >/dev/null 2>&1 || ! xcrun -f xctrace >/dev/null 2>&1; then

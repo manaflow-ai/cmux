@@ -89,6 +89,11 @@ if [[ "$dry_run" != *'--template "System Trace" --attach "303" --time-limit 7s'*
   echo "$dry_run" >&2
   exit 1
 fi
+if [ -e "$TMP_DIR/out" ]; then
+  echo "FAIL: dry run created the output directory" >&2
+  find "$TMP_DIR/out" -maxdepth 2 -type f -print >&2
+  exit 1
+fi
 
 if "$SCRIPT" --dry-run --test-ps-file "$ps_file" --out "$TMP_DIR/ambiguous" >/tmp/cmux-profile-ambiguous.log 2>&1; then
   echo "FAIL: unqualified selection should reject multiple cmux processes" >&2
@@ -211,5 +216,28 @@ CMUX_PROFILE_OSASCRIPT="$cancel_bin" CMUX_PROFILE_OPEN="$open_bin" CMUX_PROFILE_
   --target-pid 303 \
   --channel dev \
   --bundle-id com.cmuxterm.app.debug.dog
+
+capture_osascript="$TMP_DIR/capture-osascript"
+captured_args="$TMP_DIR/captured-osascript-args"
+cat > "$capture_osascript" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$captured_args"
+exit 0
+EOF
+chmod +x "$capture_osascript"
+
+CMUX_PROFILE_LOCALE=ja_JP CMUX_PROFILE_OSASCRIPT="$capture_osascript" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
+  --profile "$timeout_out" \
+  --target-name "cmux DEV dog" \
+  --target-pid 303 \
+  --channel dev \
+  --bundle-id com.cmuxterm.app.debug.dog
+if ! grep -Fq "cmuxプロファイルを送信" "$captured_args" ||
+   ! grep -Fq "下書きを開く" "$captured_args" ||
+   ! grep -Fq "cmuxプロファイリングキャプチャ" "$captured_args"; then
+  echo "FAIL: submit helper did not pass localized Japanese dialog/body strings" >&2
+  cat "$captured_args" >&2
+  exit 1
+fi
 
 echo "PASS: start-cmux-profiling target selection and default templates"
