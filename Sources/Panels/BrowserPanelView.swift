@@ -1,5 +1,5 @@
 import Bonsplit
-import CmuxBrowserImport
+import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
