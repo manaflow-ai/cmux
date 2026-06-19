@@ -64,6 +64,42 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
         )
     }
 
+    func testUnexpectedSocketTelemetryCaptureDoesNotSynchronouslyFlushSentry() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-sentry-flush-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketPath = "127.0.0.1:\(unusedRelayPort())"
+        let captureProbePath = root.appendingPathComponent("sentry-capture-probe.txt", isDirectory: false).path
+        let flushProbePath = root.appendingPathComponent("sentry-flush-probe.txt", isDirectory: false).path
+        var environment = sentryProbeEnvironment(socketPath: socketPath, probePath: captureProbePath)
+        environment["CMUX_CLI_SENTRY_FLUSH_PROBE_PATH"] = flushProbePath
+
+        let startedAt = Date()
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 2
+        )
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Missing relay auth metadata"), result.stdout)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: captureProbePath),
+            "Unexpected relay auth failures should still be captured as telemetry-worthy errors. Output: \(result.stdout)"
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: flushProbePath),
+            "CLI telemetry capture must not synchronously flush Sentry on the command's exit path."
+        )
+        XCTAssertLessThan(elapsed, 1.0, "CLI telemetry capture should return without waiting on Sentry upload.")
+    }
+
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
@@ -77,6 +113,10 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
         return environment
+    }
+
+    private func unusedRelayPort() -> Int {
+        49_152 + Int.random(in: 0..<10_000)
     }
 
     private func createStaleSocketFile(at path: String) throws {
