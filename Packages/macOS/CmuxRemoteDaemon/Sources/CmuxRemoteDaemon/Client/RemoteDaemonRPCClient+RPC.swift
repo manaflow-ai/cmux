@@ -204,8 +204,7 @@ extension RemoteDaemonRPCClient {
                 "client_attachment_token": attachmentToken,
                 "cols": max(1, cols),
                 "rows": max(1, rows),
-            ],
-            timeout: 8.0
+            ]
         )
     }
 
