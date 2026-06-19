@@ -1,4 +1,5 @@
 import XCTest
+import CmuxWorkspaces
 import CmuxSwiftRender
 
 #if canImport(cmux_DEV)
