@@ -624,9 +624,8 @@ extension Workspace {
             }
             return nil
         }()
-        let fallbackPlan = browserCloseFallbackPlan(
-            forPaneId: pane.id.uuidString,
-            in: bonsplitController.treeSnapshot()
+        let fallbackPlan = bonsplitController.treeSnapshot().browserCloseFallbackPlan(
+            forPaneId: pane.id.uuidString
         )
         let fallbackAnchorPanelId = fallbackPlan?.anchorPaneId.flatMap { anchorPaneId -> UUID? in
             guard let anchorPane = bonsplitController.allPaneIds.first(where: { $0.id == anchorPaneId }),
@@ -8400,12 +8399,6 @@ final class Workspace: Identifiable, ObservableObject {
         return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
     }
 
-    private struct BrowserCloseFallbackPlan {
-        let orientation: SplitOrientation
-        let insertFirst: Bool
-        let anchorPaneId: UUID?
-    }
-
     private func stageClosedBrowserRestoreSnapshotIfNeeded(for tab: Bonsplit.Tab, inPane pane: PaneID) {
         guard !suppressClosedPanelHistory else {
             pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
@@ -8418,9 +8411,8 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
 
-        let fallbackPlan = browserCloseFallbackPlan(
-            forPaneId: pane.id.uuidString,
-            in: bonsplitController.treeSnapshot()
+        let fallbackPlan = bonsplitController.treeSnapshot().browserCloseFallbackPlan(
+            forPaneId: pane.id.uuidString
         )
         let resolvedURL = browserPanel.currentURL
             ?? browserPanel.preferredURLStringForOmnibar().flatMap(URL.init(string:))
@@ -8443,78 +8435,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func clearStagedClosedBrowserRestoreSnapshot(for tabId: TabID) {
         pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
-    }
-
-    private func browserCloseFallbackPlan(
-        forPaneId targetPaneId: String,
-        in node: ExternalTreeNode
-    ) -> BrowserCloseFallbackPlan? {
-        switch node {
-        case .pane:
-            return nil
-        case .split(let splitNode):
-            if case .pane(let firstPane) = splitNode.first, firstPane.id == targetPaneId {
-                return BrowserCloseFallbackPlan(
-                    orientation: splitNode.orientation.lowercased() == "vertical" ? .vertical : .horizontal,
-                    insertFirst: true,
-                    anchorPaneId: browserNearestPaneId(
-                        in: splitNode.second,
-                        targetCenter: browserPaneCenter(firstPane)
-                    )
-                )
-            }
-
-            if case .pane(let secondPane) = splitNode.second, secondPane.id == targetPaneId {
-                return BrowserCloseFallbackPlan(
-                    orientation: splitNode.orientation.lowercased() == "vertical" ? .vertical : .horizontal,
-                    insertFirst: false,
-                    anchorPaneId: browserNearestPaneId(
-                        in: splitNode.first,
-                        targetCenter: browserPaneCenter(secondPane)
-                    )
-                )
-            }
-
-            if let nested = browserCloseFallbackPlan(forPaneId: targetPaneId, in: splitNode.first) {
-                return nested
-            }
-            return browserCloseFallbackPlan(forPaneId: targetPaneId, in: splitNode.second)
-        }
-    }
-
-    private func browserPaneCenter(_ pane: ExternalPaneNode) -> (x: Double, y: Double) {
-        (
-            x: pane.frame.x + (pane.frame.width * 0.5),
-            y: pane.frame.y + (pane.frame.height * 0.5)
-        )
-    }
-
-    private func browserNearestPaneId(
-        in node: ExternalTreeNode,
-        targetCenter: (x: Double, y: Double)?
-    ) -> UUID? {
-        var panes: [ExternalPaneNode] = []
-        node.browserCollectPaneNodes(into: &panes)
-        guard !panes.isEmpty else { return nil }
-
-        let bestPane: ExternalPaneNode?
-        if let targetCenter {
-            bestPane = panes.min { lhs, rhs in
-                let lhsCenter = browserPaneCenter(lhs)
-                let rhsCenter = browserPaneCenter(rhs)
-                let lhsDistance = pow(lhsCenter.x - targetCenter.x, 2) + pow(lhsCenter.y - targetCenter.y, 2)
-                let rhsDistance = pow(rhsCenter.x - targetCenter.x, 2) + pow(rhsCenter.y - targetCenter.y, 2)
-                if lhsDistance != rhsDistance {
-                    return lhsDistance < rhsDistance
-                }
-                return lhs.id < rhs.id
-            }
-        } else {
-            bestPane = panes.first
-        }
-
-        guard let bestPane else { return nil }
-        return UUID(uuidString: bestPane.id)
     }
 
     @discardableResult
