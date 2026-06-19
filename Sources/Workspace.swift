@@ -298,35 +298,10 @@ extension Workspace {
         _ node: SessionWorkspaceLayoutSnapshot,
         keeping panelIdsToKeep: Set<UUID>
     ) -> SessionWorkspaceLayoutSnapshot? {
-        switch node {
-        case .pane(let pane):
-            let panelIds = pane.panelIds.filter { panelIdsToKeep.contains($0) }
-            guard !panelIds.isEmpty else { return nil }
-            let selectedPanelId = pane.selectedPanelId.flatMap {
-                panelIdsToKeep.contains($0) ? $0 : nil
-            } ?? panelIds.first
-            return .pane(SessionPaneLayoutSnapshot(panelIds: panelIds, selectedPanelId: selectedPanelId))
-        case .split(let split):
-            let first = prunedSessionLayoutSnapshot(split.first, keeping: panelIdsToKeep)
-            let second = prunedSessionLayoutSnapshot(split.second, keeping: panelIdsToKeep)
-            switch (first, second) {
-            case (.some(let first), .some(let second)):
-                return .split(
-                    SessionSplitLayoutSnapshot(
-                        orientation: split.orientation,
-                        dividerPosition: split.dividerPosition,
-                        first: first,
-                        second: second
-                    )
-                )
-            case (.some(let first), .none):
-                return first
-            case (.none, .some(let second)):
-                return second
-            case (.none, .none):
-                return nil
-            }
-        }
+        // The recursive prune algorithm lives in CmuxWorkspaces behind the
+        // SessionLayoutPruning seam; SessionWorkspaceLayoutSnapshot conforms
+        // in the app target, keeping the wire format owned here.
+        node.sessionLayoutPruned(keeping: panelIdsToKeep)
     }
 
     private func sessionPanelIDs(for pane: ExternalPaneNode) -> [UUID] {
