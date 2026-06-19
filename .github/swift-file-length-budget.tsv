@@ -152,8 +152,8 @@
 654	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 653	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Import/Detection/BrowserInstalledBrowserDetector.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
+642	Sources/Mobile/AgentChat/AgentChatTranscriptService.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
-638	Sources/Mobile/AgentChat/AgentChatTranscriptService.swift
 636	Sources/TerminalController+ControlPaneContext.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift

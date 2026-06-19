@@ -60,6 +60,7 @@ struct AgentChatTranscriptResolver: Sendable {
         excludingSessionIDs: Set<String> = [],
         titleHint: String? = nil
     ) -> (sessionID: String, path: String)? {
+        guard !Task.isCancelled else { return nil }
         let fileManager = FileManager.default
         // The home project dir is a junk drawer of every home-rooted claude
         // conversation, so newest-by-mtime there is almost never *this*
@@ -75,6 +76,7 @@ struct AgentChatTranscriptResolver: Sendable {
             .filter { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path != home }
         let normalizedTitleHint = Self.normalizedClaudeTitle(titleHint)
         for cwd in candidates {
+            guard !Task.isCancelled else { return nil }
             let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
             let dir = homeDirectory
                 .appendingPathComponent(".claude", isDirectory: true)
@@ -85,18 +87,17 @@ struct AgentChatTranscriptResolver: Sendable {
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]
             ) else { continue }
-            let transcriptCandidates = entries
-                .filter {
-                    $0.pathExtension == "jsonl"
-                        && !excludingSessionIDs.contains($0.deletingPathExtension().lastPathComponent)
-                }
-                .map { url in
-                    (
-                        url: url,
-                        date: (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast,
-                        title: Self.claudeTranscriptTitle(at: url)
-                    )
-                }
+            var transcriptCandidates: [(url: URL, date: Date, title: String?)] = []
+            for url in entries where url.pathExtension == "jsonl" {
+                guard !Task.isCancelled else { return nil }
+                let sessionID = url.deletingPathExtension().lastPathComponent
+                guard !excludingSessionIDs.contains(sessionID) else { continue }
+                transcriptCandidates.append((
+                    url: url,
+                    date: (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast,
+                    title: Self.claudeTranscriptTitle(at: url)
+                ))
+            }
             let newest: URL?
             if let normalizedTitleHint {
                 newest = transcriptCandidates
@@ -214,5 +215,21 @@ struct AgentChatTranscriptResolver: Sendable {
             return object["aiTitle"] as? String
         }
         return nil
+    }
+}
+
+actor AgentChatTranscriptScanQueue {
+    func newestClaudeTranscript(
+        resolver: AgentChatTranscriptResolver,
+        workingDirectory: String,
+        excludingSessionIDs: Set<String>,
+        titleHint: String?
+    ) -> (sessionID: String, path: String)? {
+        guard !Task.isCancelled else { return nil }
+        return resolver.newestClaudeTranscript(
+            workingDirectory: workingDirectory,
+            excludingSessionIDs: excludingSessionIDs,
+            titleHint: titleHint
+        )
     }
 }

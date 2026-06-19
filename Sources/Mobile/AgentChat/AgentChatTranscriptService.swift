@@ -12,6 +12,7 @@ final class AgentChatTranscriptService {
 
     private let registry: AgentChatSessionRegistry
     private let resolver: AgentChatTranscriptResolver
+    private let scanQueue: AgentChatTranscriptScanQueue
     private let coding = ChatWireCoding()
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     /// Sessions whose transcript could not be resolved; skipped until an
@@ -50,10 +51,12 @@ final class AgentChatTranscriptService {
     ///   - resolver: Transcript path resolver.
     init(
         registry: AgentChatSessionRegistry,
-        resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver()
+        resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver(),
+        scanQueue: AgentChatTranscriptScanQueue = AgentChatTranscriptScanQueue()
     ) {
         self.registry = registry
         self.resolver = resolver
+        self.scanQueue = scanQueue
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
         }
@@ -293,7 +296,8 @@ final class AgentChatTranscriptService {
             return
         }
         if pendingTitleChanges[surfaceID] == nil,
-           deliveredTitleKeys[surfaceID] == titleKey {
+           deliveredTitleKeys[surfaceID] == titleKey,
+           registry.liveSession(surfaceID: surfaceID)?.transcriptPath != nil {
             return
         }
 
@@ -315,7 +319,8 @@ final class AgentChatTranscriptService {
         guard let pending = pendingTitleChanges.removeValue(forKey: surfaceID) else {
             return
         }
-        if titleAdoptionHandler?(pending.change) == true {
+        if titleAdoptionHandler?(pending.change) == true,
+           registry.liveSession(surfaceID: surfaceID)?.transcriptPath != nil {
             deliveredTitleKeys[surfaceID] = pending.titleKey
         }
     }
@@ -370,13 +375,12 @@ final class AgentChatTranscriptService {
             titleHint,
             claimed
         ] in
-            let resolved = await Task.detached(priority: .utility) {
-                resolver.newestClaudeTranscript(
-                    workingDirectory: workingDirectory,
-                    excludingSessionIDs: claimed,
-                    titleHint: titleHint
-                )
-            }.value
+            let resolved = await scanQueue.newestClaudeTranscript(
+                resolver: resolver,
+                workingDirectory: workingDirectory,
+                excludingSessionIDs: claimed,
+                titleHint: titleHint
+            )
             guard !Task.isCancelled else { return }
             self?.applyClaudeTranscriptResolution(
                 resolved,
