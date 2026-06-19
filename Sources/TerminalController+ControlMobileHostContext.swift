@@ -18,9 +18,10 @@ import Foundation
 /// `Localizable.xcstrings`: the coordinator never calls `String(localized:)` for
 /// this domain, so no non-English translation is dropped.
 ///
-/// Both the coordinator (`processV2Command`) and the mobile RPC handler
-/// (`mobileHostHandleRPC`) drive the same private bodies, so the wire behavior is
-/// shared across both entrypoints.
+/// These witnesses serve only the v2 control socket (`processV2Command` →
+/// ``ControlCommandCoordinator/handleMobileHost(_:)``). The mobile data-plane RPC
+/// (`mobileHostHandleRPC`) dispatches the same `v2Mobile*` bodies directly, with
+/// no `ControlCallResult` round-trip, so it does not transit this seam.
 extension TerminalController: ControlMobileHostContext {
     func controlMobileHostStatus(params: [String: JSONValue]) -> ControlCallResult {
         // `processV2Command` called `v2MobileHostStatus(params:)` with the
@@ -54,6 +55,14 @@ extension TerminalController: ControlMobileHostContext {
 
     func controlMobileTerminalMouse(params: [String: JSONValue]) -> ControlCallResult {
         bridgeMobileResult(v2MobileTerminalMouse(params: foundationParams(params)))
+    }
+
+    func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult {
+        bridgeMobileResult(v2MobileTerminalPaste(params: foundationParams(params)))
+    }
+
+    func controlMobileChatSessionsDump() -> ControlCallResult {
+        bridgeMobileResult(v2ChatSessionsDump())
     }
 
     /// Reconstructs the legacy `[String: Any]` params from the coordinator's
