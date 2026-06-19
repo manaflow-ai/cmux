@@ -3,6 +3,20 @@ import Foundation
 import CmuxWorkspaces
 
 extension Workspace {
+    func customSidebarSessionSnapshot(for panel: any Panel) -> SessionCustomSidebarPanelSnapshot? {
+        guard let customSidebarPanel = panel as? CustomSidebarPanel else { return nil }
+        return SessionCustomSidebarPanelSnapshot(name: customSidebarPanel.name)
+    }
+
+    func restoreCustomSidebarPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
+        guard let name = snapshot.customSidebar?.name,
+              let customSidebarPanel = newCustomSidebarSurface(inPane: paneId, name: name, focus: false) else {
+            return nil
+        }
+        applySessionPanelMetadata(snapshot, toPanelId: customSidebarPanel.id)
+        return customSidebarPanel.id
+    }
+
     @discardableResult
     func openOrFocusCustomSidebarSurface(
         inPane paneId: PaneID,

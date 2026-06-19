@@ -433,12 +433,11 @@ extension Workspace {
             listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
         }
         let ttyName = surfaceTTYNames[panelId]
-
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
-        let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
+        let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?; var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?
         switch panel.panelType {
@@ -570,7 +569,9 @@ extension Workspace {
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .customSidebar:
-            return nil
+            guard let snapshot = customSidebarSessionSnapshot(for: panel) else { return nil }
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil; rightSidebarToolSnapshot = nil
+            customSidebarSnapshot = snapshot; agentSessionSnapshot = nil; projectSnapshot = nil
         case .agentSession:
             guard let agentPanel = panel as? AgentSessionPanel else { return nil }
             terminalSnapshot = nil
@@ -602,7 +603,6 @@ extension Workspace {
         case .extensionBrowser:
             return nil
         }
-
         return SessionPanelSnapshot(
             id: panelId,
             type: panel.panelType,
@@ -623,6 +623,7 @@ extension Workspace {
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot,
+            customSidebar: customSidebarSnapshot,
             agentSession: agentSessionSnapshot,
             project: projectSnapshot
         )
@@ -1378,8 +1379,7 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
             return toolPanel.id
-        case .customSidebar:
-            return nil
+        case .customSidebar: return restoreCustomSidebarPanel(from: snapshot, inPane: paneId)
         case .agentSession:
             guard let agentSession = snapshot.agentSession,
                   let agentPanel = newAgentSessionSurface(
@@ -1409,7 +1409,7 @@ extension Workspace {
         }
     }
 
-    private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+    func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
         }

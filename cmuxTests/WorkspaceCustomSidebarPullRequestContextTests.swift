@@ -9,6 +9,39 @@ import CmuxSwiftRender
 
 final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
     @MainActor
+    func testCustomSidebarSurfacePersistsAndRestoresAsPane() throws {
+        let sidebarName = "__cmux_restore_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("\(sidebarName).swift")
+        try #"Text("Restored")"#.write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let panel = try XCTUnwrap(
+            workspace.newCustomSidebarSurface(inPane: paneId, name: sidebarName, focus: true)
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id })
+        XCTAssertEqual(panelSnapshot.type, .customSidebar)
+        XCTAssertEqual(panelSnapshot.customSidebar?.name, sidebarName)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanel = try XCTUnwrap(
+            restored.panels.values.compactMap { $0 as? CustomSidebarPanel }.first { $0.name == sidebarName }
+        )
+        XCTAssertEqual(restoredPanel.panelType, .customSidebar)
+        XCTAssertEqual(
+            restored.surfaceIdFromPanelId(restoredPanel.id).flatMap { restored.bonsplitController.tab($0)?.kind },
+            SurfaceKind.customSidebar.rawValue
+        )
+    }
+
+    @MainActor
     func testValuesIncludePanelPullRequestWhenFocusedPanelMirrorIsNil() throws {
         let workspace = Workspace(
             title: "Tests",
