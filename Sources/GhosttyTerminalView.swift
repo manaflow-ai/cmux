@@ -7010,7 +7010,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         momentumPhase: NSEvent.Phase
     ) -> Bool {
         guard hasPreciseScrollingDeltas else { return false }
-        return true
+        return !phase.isEmpty || !momentumPhase.isEmpty
     }
 
     override func scrollWheel(with event: NSEvent) {
