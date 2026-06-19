@@ -4,7 +4,8 @@ set -euo pipefail
 usage() {
   cat >&2 <<'USAGE'
 Usage: submit-cmux-profile --profile <dir> [--target-name <name>] [--target-pid <pid>]
-                           [--channel <channel>] [--bundle-id <id>] [--dry-run]
+                           [--channel <channel>] [--bundle-id <id>]
+                           [--reply-to <email>] [--note <text>] [--skip-dialog] [--dry-run]
 
 Package a cmux profiling directory and open a separate submission window. The
 window creates an email draft to founders@manaflow.com with the archive attached.
@@ -16,6 +17,9 @@ target_name="cmux"
 target_pid=""
 channel="unknown"
 bundle_id="unknown"
+reply_to=""
+note_text=""
+skip_dialog="false"
 dry_run="false"
 recipient="${CMUX_PROFILE_FEEDBACK_EMAIL:-founders@manaflow.com}"
 osascript_bin="${CMUX_PROFILE_OSASCRIPT:-/usr/bin/osascript}"
@@ -48,6 +52,20 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --bundle-id requires a value" >&2; exit 2; }
       bundle_id="$2"
       shift 2
+      ;;
+    --reply-to)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --reply-to requires a value" >&2; exit 2; }
+      reply_to="$2"
+      shift 2
+      ;;
+    --note)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --note requires a value" >&2; exit 2; }
+      note_text="$2"
+      shift 2
+      ;;
+    --skip-dialog)
+      skip_dialog="true"
+      shift
       ;;
     --dry-run)
       dry_run="true"
@@ -88,6 +106,7 @@ if [[ "$language_source" == *"ja"* ]]; then
   body_pid_label="PID"
   body_channel_label="チャンネル"
   body_bundle_label="バンドルID"
+  body_contact_label="連絡先メール"
   body_profile_label="プロファイルディレクトリ"
   body_archive_label="アーカイブ"
   body_notes_label="メモ"
@@ -102,6 +121,7 @@ else
   body_pid_label="PID"
   body_channel_label="Channel"
   body_bundle_label="Bundle ID"
+  body_contact_label="Contact Email"
   body_profile_label="Profile directory"
   body_archive_label="Archive"
   body_notes_label="Notes"
@@ -114,6 +134,7 @@ fi
 if [ "$dry_run" = "true" ]; then
   printf 'Archive: %s\n' "$archive_path"
   printf 'Recipient: %s\n' "$recipient"
+  [ -n "$reply_to" ] && printf 'Reply-to: %s\n' "$reply_to"
   printf 'Subject: %s: %s\n' "$subject_prefix" "$target_name"
   exit 0
 fi
@@ -131,6 +152,7 @@ ${body_target_label}: ${target_name}
 ${body_pid_label}: ${target_pid:-unknown}
 ${body_channel_label}: ${channel}
 ${body_bundle_label}: ${bundle_id}
+${body_contact_label}: ${reply_to:-unknown}
 ${body_profile_label}: ${profile_dir}
 ${body_archive_label}: ${archive_path}
 
@@ -151,9 +173,15 @@ on run argv
   set cancelButton to item 6 of argv
   set openDraftButton to item 7 of argv
   set dialogTitle to item 8 of argv
+  set suppliedNote to item 9 of argv
+  set skipDialog to item 10 of argv
 
-  set dialogResult to display dialog dialogText default answer "" buttons {cancelButton, openDraftButton} default button openDraftButton cancel button cancelButton with title dialogTitle
-  set noteText to text returned of dialogResult
+  if skipDialog is "true" then
+    set noteText to suppliedNote
+  else
+    set dialogResult to display dialog dialogText default answer suppliedNote buttons {cancelButton, openDraftButton} default button openDraftButton cancel button cancelButton with title dialogTitle
+    set noteText to text returned of dialogResult
+  end if
   set messageBody to baseBody & return & noteText
 
   tell application "Mail"
@@ -167,7 +195,7 @@ on run argv
 end run
 OSA
 
-if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" 2>"$apple_error"; then
+if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" "$note_text" "$skip_dialog" 2>"$apple_error"; then
   exit 0
 fi
 

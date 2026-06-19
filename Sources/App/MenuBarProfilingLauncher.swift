@@ -12,6 +12,10 @@ enum MenuBarProfilingLauncher {
         bundle.url(forResource: "start-cmux-profiling", withExtension: nil, subdirectory: "bin")
     }
 
+    static func bundledSubmitterURL(bundle: Bundle = .main) -> URL? {
+        bundle.url(forResource: "submit-cmux-profile", withExtension: nil, subdirectory: "bin")
+    }
+
     static func estimatedCaptureSeconds(
         durationSeconds: Int = defaultDurationSeconds,
         templateCount: Int = defaultUsefulTemplateCount
@@ -22,11 +26,15 @@ enum MenuBarProfilingLauncher {
     static func arguments(
         pid: Int32 = ProcessInfo.processInfo.processIdentifier,
         durationSeconds: Int = defaultDurationSeconds,
-        openOutput: Bool = false
+        openOutput: Bool = false,
+        submitProfile: Bool = true
     ) -> [String] {
         var args = ["--pid", String(pid), "--duration", String(durationSeconds)]
         if openOutput {
             args.append("--open-output")
+        }
+        if !submitProfile {
+            args.append("--no-submit")
         }
         return args
     }

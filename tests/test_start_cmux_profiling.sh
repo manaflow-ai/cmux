@@ -213,8 +213,9 @@ if ! grep -Fq "all profiling templates failed" /tmp/cmux-profile-all-failed.log 
   exit 1
 fi
 
-submit_output="$("$ROOT_DIR/Resources/bin/submit-cmux-profile" --dry-run --profile "$timeout_out" --target-name "cmux DEV dog" --target-pid 303 --channel dev --bundle-id com.cmuxterm.app.debug.dog)"
+submit_output="$("$ROOT_DIR/Resources/bin/submit-cmux-profile" --dry-run --profile "$timeout_out" --target-name "cmux DEV dog" --target-pid 303 --channel dev --bundle-id com.cmuxterm.app.debug.dog --reply-to "user@example.com")"
 if [[ "$submit_output" != *"Recipient: founders@manaflow.com"* ]] ||
+   [[ "$submit_output" != *"Reply-to: user@example.com"* ]] ||
    [[ "$submit_output" != *"Subject: cmux profiling capture: cmux DEV dog"* ]]; then
   echo "FAIL: submit helper dry run did not describe the founders draft" >&2
   echo "$submit_output" >&2
@@ -277,10 +278,16 @@ CMUX_PROFILE_LOCALE=ja_JP CMUX_PROFILE_OSASCRIPT="$capture_osascript" CMUX_PROFI
   --target-name "cmux DEV dog" \
   --target-pid 303 \
   --channel dev \
-  --bundle-id com.cmuxterm.app.debug.dog
+  --bundle-id com.cmuxterm.app.debug.dog \
+  --reply-to "user@example.com" \
+  --note "profile note" \
+  --skip-dialog
 if ! grep -Fq "cmuxプロファイルを送信" "$captured_args" ||
    ! grep -Fq "下書きを開く" "$captured_args" ||
-   ! grep -Fq "cmuxプロファイリングキャプチャ" "$captured_args"; then
+   ! grep -Fq "cmuxプロファイリングキャプチャ" "$captured_args" ||
+   ! grep -Fq "user@example.com" "$captured_args" ||
+   ! grep -Fq "profile note" "$captured_args" ||
+   ! grep -Fq "true" "$captured_args"; then
   echo "FAIL: submit helper did not pass localized Japanese dialog/body strings" >&2
   cat "$captured_args" >&2
   exit 1

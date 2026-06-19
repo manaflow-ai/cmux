@@ -1,25 +1,37 @@
 import AppKit
+import CmuxFeedback
 import Foundation
 
 @MainActor
 final class MenuBarProfilingProgressWindowController: NSWindowController {
     static let shared = MenuBarProfilingProgressWindowController()
 
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let countdownLabel = NSTextField(labelWithString: "")
-    private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let statusLabel = NSTextField(wrappingLabelWithString: "")
-    private let progressIndicator = NSProgressIndicator()
-    private let openFolderButton = NSButton()
-    private let closeButton = NSButton()
+    let feedbackSettings = FeedbackComposerSettings()
+    let titleLabel = NSTextField(labelWithString: "")
+    let countdownLabel = NSTextField(labelWithString: "")
+    let detailLabel = NSTextField(wrappingLabelWithString: "")
+    let permissionLabel = NSTextField(wrappingLabelWithString: "")
+    let statusLabel = NSTextField(wrappingLabelWithString: "")
+    let progressIndicator = NSProgressIndicator()
+    let emailField = NSTextField()
+    let emailErrorLabel = NSTextField(labelWithString: "")
+    let noteTextView = NSTextView()
+    let previewTextView = NSTextView()
+    let openFolderButton = NSButton()
+    let submitButton = NSButton()
+    let closeButton = NSButton()
 
     private var process: Process?
+    private var submitProcess: Process?
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
+    private var submitErrorPipe: Pipe?
     private var countdownTimer: Timer?
     private var startedAt: Date?
     private var scriptOutput = ""
+    private var submitErrorOutput = ""
     private var outputURL: URL?
+    private var captureComplete = false
 
     private var estimatedSeconds: Int {
         MenuBarProfilingLauncher.estimatedCaptureSeconds()
@@ -27,8 +39,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 260),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 620),
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
@@ -69,7 +81,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         let outputPipe = Pipe()
         let errorPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [scriptURL.path] + MenuBarProfilingLauncher.arguments(pid: pid)
+        process.arguments = [scriptURL.path] + MenuBarProfilingLauncher.arguments(pid: pid, submitProfile: false)
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
@@ -117,15 +129,22 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
     private func buildInterface() {
         guard let contentView = window?.contentView else { return }
 
-        titleLabel.stringValue = String(localized: "statusMenu.profiling.title", defaultValue: "Profiling cmux")
-        titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
+        titleLabel.stringValue = String(localized: "statusMenu.profiling.reviewTitle", defaultValue: "Capture a cmux profile")
+        titleLabel.font = .systemFont(ofSize: 24, weight: .semibold)
         titleLabel.lineBreakMode = .byTruncatingTail
 
-        countdownLabel.font = .monospacedDigitSystemFont(ofSize: 32, weight: .semibold)
+        countdownLabel.font = .monospacedDigitSystemFont(ofSize: 34, weight: .semibold)
         countdownLabel.alignment = .left
 
         detailLabel.font = .systemFont(ofSize: 13)
         detailLabel.textColor = .secondaryLabelColor
+
+        permissionLabel.stringValue = String(
+            localized: "statusMenu.profiling.permissionExplanation",
+            defaultValue: "macOS may ask for administrator permission because Instruments attaches to the running cmux process and samples its threads. cmux uses that access only to create this diagnostic profile."
+        )
+        permissionLabel.font = .systemFont(ofSize: 12)
+        permissionLabel.textColor = .secondaryLabelColor
 
         statusLabel.font = .systemFont(ofSize: 13)
         statusLabel.textColor = .secondaryLabelColor
@@ -135,15 +154,42 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         progressIndicator.maxValue = Double(estimatedSeconds)
         progressIndicator.controlSize = .regular
 
+        configureEmailField()
+        configureTextView(noteTextView, editable: true)
+        configureTextView(previewTextView, editable: false)
+
         openFolderButton.title = String(localized: "statusMenu.profiling.openFolder", defaultValue: "Open Folder")
         openFolderButton.target = self
         openFolderButton.action = #selector(openOutputFolder)
+
+        submitButton.title = String(localized: "statusMenu.profiling.openDraft", defaultValue: "Open Email Draft")
+        submitButton.target = self
+        submitButton.action = #selector(openEmailDraft)
 
         closeButton.title = String(localized: "statusMenu.profiling.close", defaultValue: "Close")
         closeButton.target = self
         closeButton.action = #selector(closeWindow)
 
-        let buttonStack = NSStackView(views: [openFolderButton, closeButton])
+        let reviewStack = NSStackView(views: [
+            labeledView(
+                label: String(localized: "statusMenu.profiling.emailLabel", defaultValue: "Your email"),
+                view: emailField
+            ),
+            emailErrorLabel,
+            labeledView(
+                label: String(localized: "statusMenu.profiling.noteLabel", defaultValue: "Anything else we should know?"),
+                view: scrollView(for: noteTextView, height: 74)
+            ),
+            labeledView(
+                label: String(localized: "statusMenu.profiling.previewLabel", defaultValue: "Review before sending"),
+                view: scrollView(for: previewTextView, height: 170)
+            ),
+        ])
+        reviewStack.orientation = .vertical
+        reviewStack.alignment = .leading
+        reviewStack.spacing = 8
+
+        let buttonStack = NSStackView(views: [openFolderButton, submitButton, closeButton])
         buttonStack.orientation = .horizontal
         buttonStack.spacing = 8
         buttonStack.alignment = .centerY
@@ -152,8 +198,10 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
             titleLabel,
             countdownLabel,
             detailLabel,
+            permissionBox(),
             progressIndicator,
             statusLabel,
+            reviewStack,
             buttonStack,
         ])
         stack.orientation = .vertical
@@ -170,21 +218,27 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
             detailLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             statusLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
             progressIndicator.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            reviewStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
     }
 
     private func resetInterface() {
         scriptOutput = ""
+        submitErrorOutput = ""
         outputURL = nil
+        captureComplete = false
         progressIndicator.maxValue = Double(estimatedSeconds)
         progressIndicator.doubleValue = 0
         openFolderButton.isHidden = true
+        submitButton.isEnabled = false
         closeButton.isEnabled = true
+        emailField.isEnabled = true
         countdownLabel.stringValue = remainingText(estimatedSeconds)
+        noteTextView.string = ""
         detailLabel.stringValue = String(
             format: String(
                 localized: "statusMenu.profiling.bodyFormat",
-                defaultValue: "cmux is running Time Profiler, SwiftUI, Allocations, and System Trace for %d seconds each. Finder stays closed while the capture records. When it finishes, cmux opens a submission draft with the profile attached."
+                defaultValue: "cmux is running Time Profiler, SwiftUI, Allocations, and System Trace for %d seconds each. Finder stays closed while the capture records. Review the profile before opening the email draft."
             ),
             MenuBarProfilingLauncher.defaultDurationSeconds
         )
@@ -192,6 +246,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
             localized: "statusMenu.profiling.starting",
             defaultValue: "Starting Instruments..."
         )
+        updatePreview()
+        updateSubmitState()
     }
 
     private func showWindow() {
@@ -246,6 +302,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
             }
         }
         openFolderButton.isHidden = outputURL == nil
+        updatePreview()
+        updateSubmitState()
     }
 
     private func finish(terminationStatus: Int32) {
@@ -256,10 +314,11 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         progressIndicator.doubleValue = Double(estimatedSeconds)
 
         if terminationStatus == 0 {
+            captureComplete = true
             countdownLabel.stringValue = String(localized: "statusMenu.profiling.completeTitle", defaultValue: "Capture complete")
             statusLabel.stringValue = String(
-                localized: "statusMenu.profiling.completeBody",
-                defaultValue: "The profile archive is ready. cmux is opening the submission draft now."
+                localized: "statusMenu.profiling.readyToReview",
+                defaultValue: "Review the summary and files below, add context, then open the email draft."
             )
         } else {
             countdownLabel.stringValue = String(localized: "statusMenu.profiling.failedTitle", defaultValue: "Profiling failed")
@@ -267,6 +326,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
             NSSound.beep()
         }
         openFolderButton.isHidden = outputURL == nil
+        updatePreview()
+        updateSubmitState()
     }
 
     private func finishWithLaunchFailure(_ message: String) {
@@ -278,6 +339,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         countdownLabel.stringValue = String(localized: "statusMenu.profiling.failedTitle", defaultValue: "Profiling failed")
         statusLabel.stringValue = message
         openFolderButton.isHidden = true
+        updatePreview()
+        updateSubmitState()
         NSSound.beep()
     }
 
@@ -300,9 +363,134 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         return tail.isEmpty ? base : base + "\n" + tail
     }
 
+    func updatePreview() {
+        guard let outputURL else {
+            previewTextView.string = String(
+                localized: "statusMenu.profiling.previewWaiting",
+                defaultValue: "The preview will appear here after the profiler writes the capture folder."
+            )
+            return
+        }
+
+        let summary = summaryText(for: outputURL)
+        previewTextView.string = MenuBarProfilingProfilePreview.text(
+            outputURL: outputURL,
+            email: trimmedEmailText(),
+            summary: summary
+        )
+    }
+
+    private func summaryText(for outputURL: URL) -> String {
+        MenuBarProfilingProfilePreview.summaryText(for: outputURL)
+    }
+
+    func updateSubmitState() {
+        let validEmail = isValidEmail(trimmedEmailText())
+        emailErrorLabel.stringValue = validEmail || emailField.stringValue.isEmpty
+            ? ""
+            : String(localized: "statusMenu.profiling.invalidEmail", defaultValue: "Enter a valid email address so we can follow up.")
+        emailErrorLabel.isHidden = emailErrorLabel.stringValue.isEmpty
+        submitButton.isEnabled = captureComplete && outputURL != nil && validEmail && submitProcess == nil
+    }
+
+    private func trimmedEmailText() -> String {
+        emailField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func isValidEmail(_ rawValue: String) -> Bool {
+        let email = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard email.isEmpty == false else { return false }
+        let pattern = #"^[A-Z0-9a-z._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"#
+        return NSPredicate(format: "SELF MATCHES %@", pattern).evaluate(with: email)
+    }
+
     @objc private func openOutputFolder() {
         guard let outputURL else { return }
         NSWorkspace.shared.open(outputURL)
+    }
+
+    @objc private func openEmailDraft() {
+        guard let outputURL else { return }
+        let email = trimmedEmailText()
+        guard isValidEmail(email) else {
+            updateSubmitState()
+            NSSound.beep()
+            return
+        }
+        guard let submitterURL = MenuBarProfilingLauncher.bundledSubmitterURL() else {
+            statusLabel.stringValue = String(
+                localized: "statusMenu.profiling.submitterMissing",
+                defaultValue: "The bundled profile submission helper is missing."
+            )
+            NSSound.beep()
+            return
+        }
+
+        UserDefaults.standard.set(email, forKey: feedbackSettings.storedEmailKey)
+        submitErrorOutput = ""
+        submitButton.isEnabled = false
+        submitButton.title = String(localized: "statusMenu.profiling.openingDraft", defaultValue: "Opening...")
+        statusLabel.stringValue = String(localized: "statusMenu.profiling.openingDraftStatus", defaultValue: "Packaging the profile and opening an email draft.")
+
+        let process = Process()
+        let errorPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [submitterURL.path] + MenuBarProfilingProfilePreview.submitArguments(
+            profileURL: outputURL,
+            email: email,
+            note: noteTextView.string
+        )
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = errorPipe
+        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            Task { @MainActor [weak self] in
+                self?.submitErrorOutput += text
+            }
+        }
+        process.terminationHandler = { [weak self] process in
+            Task { @MainActor [weak self] in
+                self?.finishSubmit(terminationStatus: process.terminationStatus)
+            }
+        }
+
+        do {
+            submitProcess = process
+            submitErrorPipe = errorPipe
+            try process.run()
+        } catch {
+            submitProcess = nil
+            submitErrorPipe?.fileHandleForReading.readabilityHandler = nil
+            submitErrorPipe = nil
+            submitButton.title = String(localized: "statusMenu.profiling.openDraft", defaultValue: "Open Email Draft")
+            statusLabel.stringValue = String(
+                localized: "statusMenu.profiling.submitLaunchFailed",
+                defaultValue: "Unable to open the email draft."
+            ) + " " + error.localizedDescription
+            updateSubmitState()
+            NSSound.beep()
+        }
+    }
+
+    private func finishSubmit(terminationStatus: Int32) {
+        submitErrorPipe?.fileHandleForReading.readabilityHandler = nil
+        submitErrorPipe = nil
+        submitProcess = nil
+        submitButton.title = String(localized: "statusMenu.profiling.openDraft", defaultValue: "Open Email Draft")
+
+        if terminationStatus == 0 {
+            statusLabel.stringValue = String(localized: "statusMenu.profiling.draftOpened", defaultValue: "The email draft is open.")
+        } else {
+            let base = String(localized: "statusMenu.profiling.draftFailed", defaultValue: "The email draft could not be opened.")
+            let tail = submitErrorOutput
+                .split(separator: "\n")
+                .suffix(2)
+                .joined(separator: "\n")
+            statusLabel.stringValue = tail.isEmpty ? base : base + "\n" + tail
+            NSSound.beep()
+        }
+        updateSubmitState()
     }
 
     @objc private func closeWindow() {
