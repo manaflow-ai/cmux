@@ -729,12 +729,18 @@ check_no_self_hosted_fleet_runners() {
     fi
   done
 
-  local hits=""
+  local hits="" line content
   # Only runner-selection lines: runs-on:, matrix `os:`, and scalar dispatch
   # options (`  - <label>` with no colon). Free-text descriptions and step
-  # lists (`- name:` / `- uses:`) are excluded.
-  hits+="$(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[^:]+:[0-9]+:[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows" \
-            | grep -E "($fleet)" | grep -Ev "($allowed)" || true)"
+  # lists (`- name:` / `- uses:`) are excluded. Match the YAML value only, never
+  # the `path:lineno:` prefix grep -rn prepends (the checkout path contains
+  # "cmux", which would otherwise match the bare `cmux` label alternative).
+  while IFS= read -r line; do
+    content="${line#*:*:}"
+    printf '%s\n' "$content" | grep -Eq "($fleet)" || continue
+    printf '%s\n' "$content" | grep -Eq "($allowed)" && continue
+    hits+="$line"$'\n'
+  done < <(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[^:]+:[0-9]+:[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   hits+="$(grep -rnE "runs-on:[[:space:]]*\[?[[:space:]]*(self-hosted|macOS|ARM64)([[:space:],]|\]|$)" "$ROOT_DIR/.github/workflows" || true)"
   if [[ -n "$hits" ]]; then
     echo "FAIL: workflow references a self-hosted mac fleet label or bare self-hosted runner in a runner-selection position."

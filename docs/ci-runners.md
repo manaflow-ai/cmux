@@ -37,12 +37,15 @@ green there. These stay on Warp or Depot on purpose:
   need a GUI-capable runner. A Depot identity guard validates these.
 
 `MACOS_RUNNER_IOS` defaults to Blacksmith and its baked-in fallback is also
-`blacksmith-6vcpu-macos-26`. It deliberately does NOT fall back to the bare
+`blacksmith-6vcpu-macos-26`. Unlike macOS app-host XCTest, iOS simulator XCTest
+runs inside the Simulator (not a foregrounded Mac app), so the Blacksmith
+foreground limitation does not apply, and the iOS lanes are verified green on
+`blacksmith-6vcpu-macos-26`. The fallback deliberately does NOT use the bare
 GitHub-hosted `macos-26` label: our self-hosted fleet carries `macos-26`, and
 GitHub prefers a matching self-hosted runner, so `macos-26` would route iOS jobs
-to a mini. If an iOS job wedges on Blacksmith, break-glass to a GUI-capable
-cloud runner (`gh variable set MACOS_RUNNER_IOS -b depot-macos-latest`), not to
-`macos-26`.
+to a mini. If an iOS lane ever does need a non-Blacksmith runner, break-glass to
+a cloud runner (`gh variable set MACOS_RUNNER_IOS -b depot-macos-latest`), never
+to `macos-26`.
 
 ## Break-glass: switch a runner type off Blacksmith
 
