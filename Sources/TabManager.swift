@@ -459,6 +459,14 @@ class TabManager: ObservableObject {
     // Stateless split-geometry application (equalize/resize divider moves);
     // the pure planning lives in CmuxPanes' ExternalTreeNode extensions.
     let paneLayout = PaneLayoutService()
+    // Pure workspace-group snapshot math for session persistence
+    // (CmuxWorkspaces): assemble persisted group snapshots at save and rebuild
+    // groups at restore. The app shell gathers live state and applies results.
+    let sessionSnapshotGroups = SessionSnapshotGroupCoordinator()
+    // Pure planner for the closed-panel-history workspace-id remaps a restore
+    // requires (CmuxWorkspaces); the app shell applies each op to the closed-
+    // item history store and flushes once.
+    let closedPanelHistoryRemapPlanner = ClosedPanelHistoryRemapPlanner()
     // Reorder/pin flows over the workspaces model (CmuxWorkspaces); owns
     // the pure batch-reorder planner.
     let workspaceReordering: WorkspaceReorderCoordinator<Workspace>
@@ -5814,25 +5822,11 @@ extension TabManager {
             }
             return map
         }()
-        let groupSnapshots: [SessionWorkspaceGroupSnapshot]? = {
-            let snapshots = workspaceGroups
-                .filter { occupiedGroupIds.contains($0.id) }
-                .map { group in
-                    let memberIds = restorableMembersByGroupId[group.id] ?? []
-                    let anchorIndex = memberIds.firstIndex(of: group.anchorWorkspaceId)
-                    return SessionWorkspaceGroupSnapshot(
-                        id: group.id,
-                        name: group.name,
-                        isCollapsed: group.isCollapsed,
-                        anchorWorkspaceId: group.anchorWorkspaceId,
-                        anchorMemberIndex: anchorIndex,
-                        isPinned: group.isPinned,
-                        customColor: group.customColor,
-                        iconSymbol: group.iconSymbol
-                    )
-                }
-            return snapshots.isEmpty ? nil : snapshots
-        }()
+        let groupSnapshots = sessionSnapshotGroups.assembleGroupSnapshots(
+            groups: workspaceGroups,
+            occupiedGroupIds: occupiedGroupIds,
+            restorableMemberIdsByGroupId: restorableMembersByGroupId
+        )
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             workspaces: workspaceSnapshots,
@@ -5933,47 +5927,19 @@ extension TabManager {
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
-        let restoredGroups: [WorkspaceGroup] = {
-            guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
-            let workspaceIdsByGroupId: [UUID: [UUID]] = {
-                var map: [UUID: [UUID]] = [:]
-                for workspace in newTabs {
-                    if let gid = workspace.groupId {
-                        map[gid, default: []].append(workspace.id)
-                    }
+        let workspaceIdsByGroupId: [UUID: [UUID]] = {
+            var map: [UUID: [UUID]] = [:]
+            for workspace in newTabs {
+                if let gid = workspace.groupId {
+                    map[gid, default: []].append(workspace.id)
                 }
-                return map
-            }()
-            var seen: Set<UUID> = []
-            return groupSnapshots.compactMap { groupSnapshot in
-                guard let members = workspaceIdsByGroupId[groupSnapshot.id], !members.isEmpty,
-                      seen.insert(groupSnapshot.id).inserted else { return nil }
-                // Resolve anchor: prefer the restore-stable index (since each
-                // restored workspace gets a fresh UUID, the old
-                // anchorWorkspaceId rarely matches). Fall back to the in-process
-                // UUID hint, then to "first member by tab order" for very old
-                // snapshots that pre-date both fields.
-                let anchorId: UUID = {
-                    if let index = groupSnapshot.anchorMemberIndex,
-                       members.indices.contains(index) {
-                        return members[index]
-                    }
-                    if let stored = groupSnapshot.anchorWorkspaceId, members.contains(stored) {
-                        return stored
-                    }
-                    return members[0]
-                }()
-                return WorkspaceGroup(
-                    id: groupSnapshot.id,
-                    name: groupSnapshot.name,
-                    isCollapsed: groupSnapshot.isCollapsed,
-                    isPinned: groupSnapshot.isPinned ?? false,
-                    anchorWorkspaceId: anchorId,
-                    customColor: groupSnapshot.customColor,
-                    iconSymbol: groupSnapshot.iconSymbol
-                )
             }
+            return map
         }()
+        let restoredGroups = sessionSnapshotGroups.restoreGroups(
+            groupSnapshots: snapshot.workspaceGroups,
+            memberIdsByGroupId: workspaceIdsByGroupId
+        )
         // Clear any group references on restored workspaces that no longer correspond
         // to a known group (older snapshots, manual edits, etc.).
         let knownGroupIds = Set(restoredGroups.map(\.id))
@@ -6018,51 +5984,42 @@ extension TabManager {
         originalWorkspaceIds: [UUID?],
         restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
     ) {
-        let count = min(originalWorkspaceIds.count, tabs.count)
-        guard count > 0 else { return }
-        var didRequestHistoryRemap = false
-        for index in 0..<count {
-            guard let originalWorkspaceId = originalWorkspaceIds[index],
-                  originalWorkspaceId != tabs[index].id else {
-                continue
-            }
-            didRequestHistoryRemap = true
-            let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
-                ? restoredPanelIdsByWorkspaceIndex[index]
-                : [:]
-            ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
-                from: originalWorkspaceId,
-                to: tabs[index].id,
-                panelIdMap: panelIdMap
-            )
-        }
-        if didRequestHistoryRemap {
-            ClosedItemHistoryStore.shared.flushPendingSaves()
-        }
+        let operations = closedPanelHistoryRemapPlanner.planSessionRestoreRemaps(
+            originalWorkspaceIds: originalWorkspaceIds,
+            restoredWorkspaceIds: tabs.map(\.id),
+            panelIdMapsByIndex: restoredPanelIdsByWorkspaceIndex
+        )
+        applyClosedPanelHistoryRemaps(operations)
     }
 
     func remapClosedPanelHistoryAfterWindowRestore(
         originalWorkspaceIds: [UUID],
         restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
     ) {
-        guard !originalWorkspaceIds.isEmpty else { return }
-        let count = min(originalWorkspaceIds.count, tabs.count)
-        guard count > 0 else { return }
-        var didRequestHistoryRemap = false
-        for index in 0..<count {
-            didRequestHistoryRemap = true
-            let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
-                ? restoredPanelIdsByWorkspaceIndex[index]
-                : [:]
+        let operations = closedPanelHistoryRemapPlanner.planWindowRestoreRemaps(
+            originalWorkspaceIds: originalWorkspaceIds,
+            restoredWorkspaceIds: tabs.map(\.id),
+            panelIdMapsByIndex: restoredPanelIdsByWorkspaceIndex
+        )
+        applyClosedPanelHistoryRemaps(operations)
+    }
+
+    // Applies the planned closed-panel-history workspace-id remaps to the
+    // shared history store and flushes once when any op ran, matching the
+    // legacy `didRequestHistoryRemap` gate. `ClosedItemHistoryStore.shared`
+    // stays app-side; its de-singletonization is deferred to a later slice.
+    private func applyClosedPanelHistoryRemaps(
+        _ operations: [ClosedPanelHistoryRemapOperation]
+    ) {
+        guard !operations.isEmpty else { return }
+        for operation in operations {
             ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
-                from: originalWorkspaceIds[index],
-                to: tabs[index].id,
-                panelIdMap: panelIdMap
+                from: operation.fromWorkspaceId,
+                to: operation.toWorkspaceId,
+                panelIdMap: operation.panelIdMap
             )
         }
-        if didRequestHistoryRemap {
-            ClosedItemHistoryStore.shared.flushPendingSaves()
-        }
+        ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 }
 

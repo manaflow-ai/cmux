@@ -16,7 +16,7 @@
 6317	cmuxTests/SessionPersistenceTests.swift
 6218	cmuxTests/GhosttyConfigTests.swift
 6151	CLI/cmux_open.swift
-6120	Sources/TabManager.swift
+6077	Sources/TabManager.swift
 6072	Sources/TextBoxInput.swift
 5922	cmuxTests/TerminalAndGhosttyTests.swift
 5566	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
@@ -45,7 +45,7 @@
 2257	Sources/TerminalNotificationStore.swift
 2257	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
-2082	Sources/SessionPersistence.swift
+2067	Sources/SessionPersistence.swift
 2047	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1940	Sources/KeyboardShortcutSettingsFileStore.swift
