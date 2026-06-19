@@ -2032,6 +2032,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSessions(workspaceID: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
+        startPaneMemoryGuardrailIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
@@ -2056,6 +2057,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // keeps working. No-op when already set or the legacy file is absent.
         Task { await DevWindowDisplayDefault.migrateLegacyFileIfNeeded(runtime: settingsRuntime) }
 #endif
+    }
+
+    /// Starts the per-pane runaway-memory guardrail: a background timer that
+    /// attributes each pane's process-tree memory by controlling tty and warns
+    /// (sidebar badge + dismissible banner with a kill action) before a single
+    /// leaking pane can OOM-suspend the whole app (issue #6313).
+    private func startPaneMemoryGuardrailIfNeeded(notificationStore: TerminalNotificationStore) {
+        let guardrail = PaneMemoryGuardrail.shared
+        guardrail.paneProvider = { [weak self] in
+            self?.paneMemoryGuardrailDescriptors() ?? []
+        }
+        guardrail.onWarnedWorkspacesChanged = { [weak notificationStore] ids in
+            notificationStore?.sidebarUnread.setMemoryWarningWorkspaceIds(ids)
+        }
+        guardrail.onRequestClosePane = { [weak self] workspaceId, panelId in
+            _ = self?.closePaneForMemoryGuardrail(workspaceId: workspaceId, panelId: panelId)
+        }
+        guardrail.start()
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {

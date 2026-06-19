@@ -60,6 +60,7 @@
 		D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */; };
 		4EDE10010000000000000001 /* AppDelegate+NotificationDeliverySeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */; };
 		2907B0012907B0012907B001 /* AppDelegate+NotificationNavSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */; };
+		6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */; };
 		2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */; };
 		6419A0016419A0016419A001 /* AppDelegate+ShortcutRoutingTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */; };
 		6419A0036419A0036419A003 /* AppDelegate+ShortcutRoutingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */; };
@@ -558,6 +559,16 @@
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */; };
 		C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44550000000000000000002 /* PanelOwnedNativeViewSessionTests.swift */; };
+		6313B1A0 /* PaneMemoryDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B1A1 /* PaneMemoryDescriptor.swift */; };
+		6313A1A0 /* PaneMemoryGuardrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313A1A1 /* PaneMemoryGuardrail.swift */; };
+		6313A2A0 /* PaneMemoryGuardrailBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313A2A1 /* PaneMemoryGuardrailBannerView.swift */; };
+		6313B2A0 /* PaneMemoryGuardrailEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B2A1 /* PaneMemoryGuardrailEngine.swift */; };
+		6313B3A0 /* PaneMemoryGuardrailEngineOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B3A1 /* PaneMemoryGuardrailEngineOutput.swift */; };
+		6313FACE0000000000000000 /* PaneMemoryGuardrailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313FACE0000000000000001 /* PaneMemoryGuardrailTests.swift */; };
+		6313B4A0 /* PaneMemoryPaneKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B4A1 /* PaneMemoryPaneKey.swift */; };
+		6313A3A0 /* PaneMemoryProcessKiller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313A3A1 /* PaneMemoryProcessKiller.swift */; };
+		6313B5A0 /* PaneMemorySample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B5A1 /* PaneMemorySample.swift */; };
+		6313B6A0 /* PaneMemoryWarning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B6A1 /* PaneMemoryWarning.swift */; };
 		A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001424 /* PDFPreviewChromeDebugWindowController.swift */; };
 		D1F0A00400000000000000D1 /* PhoneForwardingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */; };
 		D1F0A00100000000000000A1 /* PhonePushClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000A2 /* PhonePushClient.swift */; };
@@ -1077,6 +1088,7 @@
 		D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationDeliverySeams.swift"; sourceTree = "<group>"; };
 		2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationNavSeams.swift"; sourceTree = "<group>"; };
+		6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneMemoryGuardrail.swift"; sourceTree = "<group>"; };
 		2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+RecoverableMainWindowRoutes.swift"; sourceTree = "<group>"; };
 		6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ShortcutRoutingTesting.swift"; sourceTree = "<group>"; };
 		6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ShortcutRoutingWindow.swift"; sourceTree = "<group>"; };
@@ -1522,6 +1534,16 @@
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelOwnedNativeViewSession.swift; sourceTree = "<group>"; };
 		C44550000000000000000002 /* PanelOwnedNativeViewSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelOwnedNativeViewSessionTests.swift; sourceTree = "<group>"; };
+		6313B1A1 /* PaneMemoryDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryDescriptor.swift; sourceTree = "<group>"; };
+		6313A1A1 /* PaneMemoryGuardrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryGuardrail.swift; sourceTree = "<group>"; };
+		6313A2A1 /* PaneMemoryGuardrailBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryGuardrailBannerView.swift; sourceTree = "<group>"; };
+		6313B2A1 /* PaneMemoryGuardrailEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryGuardrailEngine.swift; sourceTree = "<group>"; };
+		6313B3A1 /* PaneMemoryGuardrailEngineOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryGuardrailEngineOutput.swift; sourceTree = "<group>"; };
+		6313FACE0000000000000001 /* PaneMemoryGuardrailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryGuardrailTests.swift; sourceTree = "<group>"; };
+		6313B4A1 /* PaneMemoryPaneKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryPaneKey.swift; sourceTree = "<group>"; };
+		6313A3A1 /* PaneMemoryProcessKiller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryProcessKiller.swift; sourceTree = "<group>"; };
+		6313B5A1 /* PaneMemorySample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemorySample.swift; sourceTree = "<group>"; };
+		6313B6A1 /* PaneMemoryWarning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryWarning.swift; sourceTree = "<group>"; };
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
 		D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneForwardingMode.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000A2 /* PhonePushClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushClient.swift; sourceTree = "<group>"; };
@@ -2419,6 +2441,15 @@
 				C7A503000000000000000001 /* TaskManagerSnapshot.swift */,
 				C7A504000000000000000001 /* TaskManagerTypes.swift */,
 				A5001541 /* PortScanner.swift */,
+				6313B1A1 /* PaneMemoryDescriptor.swift */,
+				6313A1A1 /* PaneMemoryGuardrail.swift */,
+				6313A2A1 /* PaneMemoryGuardrailBannerView.swift */,
+				6313B2A1 /* PaneMemoryGuardrailEngine.swift */,
+				6313B3A1 /* PaneMemoryGuardrailEngineOutput.swift */,
+				6313B4A1 /* PaneMemoryPaneKey.swift */,
+				6313A3A1 /* PaneMemoryProcessKiller.swift */,
+				6313B5A1 /* PaneMemorySample.swift */,
+				6313B6A1 /* PaneMemoryWarning.swift */,
 				A5001544 /* TerminalImageTransfer.swift */,
 				A5001545 /* TerminalSSHSessionDetector.swift */,
 				E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */,
@@ -2440,6 +2471,7 @@
 				2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */,
 				6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */,
 				6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */,
+				6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */,
 				C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */,
 				C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */,
 				604500100000000000000006 /* AppDelegate+WindowIdentity.swift */,
@@ -2895,6 +2927,7 @@
 				A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */,
 				A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */,
 				A11EAA000000000000000001 /* AppearanceSettingsTests.swift */,
+				6313FACE0000000000000001 /* PaneMemoryGuardrailTests.swift */,
 				C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */,
 				6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */,
 				6042B0016042B0016042B001 /* ShortcutHintModifierPolicyTests.swift */,
@@ -3461,6 +3494,7 @@
 				D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */,
 				4EDE10010000000000000001 /* AppDelegate+NotificationDeliverySeams.swift in Sources */,
 				2907B0012907B0012907B001 /* AppDelegate+NotificationNavSeams.swift in Sources */,
+				6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */,
 				2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */,
 				6419A0016419A0016419A001 /* AppDelegate+ShortcutRoutingTesting.swift in Sources */,
 				6419A0036419A0036419A003 /* AppDelegate+ShortcutRoutingWindow.swift in Sources */,
@@ -3703,6 +3737,15 @@
 				A5001400 /* Panel.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */,
+				6313B1A0 /* PaneMemoryDescriptor.swift in Sources */,
+				6313A1A0 /* PaneMemoryGuardrail.swift in Sources */,
+				6313A2A0 /* PaneMemoryGuardrailBannerView.swift in Sources */,
+				6313B2A0 /* PaneMemoryGuardrailEngine.swift in Sources */,
+				6313B3A0 /* PaneMemoryGuardrailEngineOutput.swift in Sources */,
+				6313B4A0 /* PaneMemoryPaneKey.swift in Sources */,
+				6313A3A0 /* PaneMemoryProcessKiller.swift in Sources */,
+				6313B5A0 /* PaneMemorySample.swift in Sources */,
+				6313B6A0 /* PaneMemoryWarning.swift in Sources */,
 				A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */,
 				D1F0A00400000000000000D1 /* PhoneForwardingMode.swift in Sources */,
 				D1F0A00100000000000000A1 /* PhonePushClient.swift in Sources */,
@@ -4209,6 +4252,7 @@
 				0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */,
 				A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,
 				C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */,
+				6313FACE0000000000000000 /* PaneMemoryGuardrailTests.swift in Sources */,
 				D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */,
 					B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
 					D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */,
