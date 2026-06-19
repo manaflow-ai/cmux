@@ -9112,7 +9112,7 @@ struct CMUXCLI {
         let lastPrompt = ["cmux@\(vmNeedle):", "cmux@\(vmNeedle)", "cmux@"].compactMap { text.range(of: $0, options: .backwards)?.lowerBound }.max(); let alreadyOnVM = !vmNeedle.isEmpty && (title.contains(vmNeedle) || lastPrompt != nil); let staleAuth = lastStale.map { stale in lastPrompt.map { $0 < stale } ?? true } ?? false
         guard staleAuth || (!alreadyOnVM && initialCommand.isEmpty) else { return }
         do {
-            _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "ctrl+c"]) { _, new in new }); _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command + "\n"]) { _, new in new })
+            _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "ctrl+c"]) { _, new in new }); usleep(300000); _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command + "\n"]) { _, new in new })
         } catch let error as CLIError where error.message.contains("process_exited") { _ = try client.sendV2(method: "surface.respawn", params: target.merging(["command": "/bin/zsh -l"]) { _, new in new }); usleep(300000); _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command + "\n"]) { _, new in new }) }
     }
 
