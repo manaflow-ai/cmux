@@ -2,7 +2,14 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { App } from "../src/App";
+import {
+  App,
+  activeFileTabIdForReviewTab,
+  commentNavigationPlan,
+  effectiveReviewTabId,
+  fileSelectionPlan,
+  recollapseExpandedContextSeparator,
+} from "../src/App";
 import { createDiffViewerStatus } from "../src/status";
 
 type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
@@ -52,10 +59,177 @@ test("App renders the React-owned shell without starting a patch fetch for statu
   );
 
   expect(dom.window.document.getElementById("toolbar")).toBeTruthy();
+  expect(dom.window.document.querySelector("#review-tabs [aria-selected='true']")?.textContent).toContain("Review");
+  expect(dom.window.document.getElementById("commit-or-push-button")?.getAttribute("disabled")).not.toBeNull();
+  expect(dom.window.document.getElementById("create-pr-button")?.getAttribute("disabled")).not.toBeNull();
+  expect(dom.window.document.getElementById("checks-status")?.textContent).toContain("Checks unavailable");
   expect(dom.window.document.getElementById("source-detail")).toBeNull();
   expect(dom.window.document.getElementById("files-sidebar")).toBeTruthy();
   expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Waiting for diff");
   expect(fetched).toBe(false);
+});
+
+test("App surfaces check status from payload data", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          checks: [
+            { name: "lint", conclusion: "success" },
+            { name: "tests", status: "queued" },
+          ],
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  const checks = dom.window.document.getElementById("checks-status");
+  expect(checks?.getAttribute("data-status")).toBe("pending");
+  expect(checks?.textContent).toContain("Checks pending");
+  expect(checks?.textContent).toContain("1/2");
+});
+
+test("App treats skipped and neutral checks as terminal non-failing results", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          checks: [
+            { name: "lint", conclusion: "success" },
+            { name: "docs", conclusion: "skipped" },
+            { name: "review", conclusion: "neutral" },
+          ],
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  const checks = dom.window.document.getElementById("checks-status");
+  expect(checks?.getAttribute("data-status")).toBe("pass");
+  expect(checks?.textContent).toContain("Checks passing");
+  expect(checks?.textContent).toContain("3/3");
+});
+
+test("context separator click passes through when the hunk is not already expanded", () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  const harness = contextSeparatorToggleHarness();
+
+  const handled = recollapseExpandedContextSeparator(harness.event, harness.codeView);
+
+  expect(handled).toBe(false);
+  expect(harness.preventDefaultCount()).toBe(0);
+  expect(harness.stopPropagationCount()).toBe(0);
+  expect(harness.stopImmediatePropagationCount()).toBe(0);
+  expect(harness.instanceChangedCount()).toBe(0);
+});
+
+test("context separator click re-collapses an already expanded hunk", () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  const harness = contextSeparatorToggleHarness({ fromEnd: 10, fromStart: 0 });
+
+  const handled = recollapseExpandedContextSeparator(harness.event, harness.codeView);
+
+  expect(handled).toBe(true);
+  expect(harness.expandedHunks.has(4)).toBe(false);
+  expect(harness.renderCacheCleared()).toBe(true);
+  expect(harness.forceRenderOverride()).toBe(true);
+  expect(harness.resetLayoutOptions()).toEqual({ includeEstimatedHeights: true });
+  expect(harness.instanceChangedCount()).toBe(1);
+  expect(harness.instanceChangedLayoutDirty()).toBe(true);
+  expect(harness.preventDefaultCount()).toBe(1);
+  expect(harness.stopPropagationCount()).toBe(1);
+  expect(harness.stopImmediatePropagationCount()).toBe(1);
+});
+
+test("context separator expand button keeps native progressive expansion", () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  const harness = contextSeparatorToggleHarness({ fromEnd: 10, fromStart: 0 }, { expandButton: true });
+
+  const handled = recollapseExpandedContextSeparator(harness.event, harness.codeView);
+
+  expect(handled).toBe(false);
+  expect(harness.expandedHunks.has(4)).toBe(true);
+  expect(harness.renderCacheCleared()).toBe(false);
+  expect(harness.preventDefaultCount()).toBe(0);
+  expect(harness.stopPropagationCount()).toBe(0);
+  expect(harness.stopImmediatePropagationCount()).toBe(0);
+});
+
+test("comment navigation switches file tabs when the target is filtered out", () => {
+  const entry = {
+    anchor: { line: 12, state: "anchored" },
+    comment: { id: "comment-1", side: "additions" },
+    itemId: "file-b",
+    pending: false,
+  } as any;
+  const items = [{ id: "file-a" }, { id: "file-b" }] as any;
+
+  expect(commentNavigationPlan(entry, items, "")).toEqual({
+    shouldOpenFileTab: false,
+    targetItemId: "file-b",
+  });
+  expect(commentNavigationPlan(entry, items, "file-a")).toEqual({
+    shouldOpenFileTab: true,
+    targetItemId: "file-b",
+  });
+  expect(commentNavigationPlan(entry, items, "file-b")).toEqual({
+    shouldOpenFileTab: false,
+    targetItemId: "file-b",
+  });
+  expect(commentNavigationPlan({ ...entry, itemId: null }, items, "file-a")).toBeNull();
+});
+
+test("file selection opens a tab when the review tab add flow is armed", () => {
+  const items = [{ id: "file-a" }, { id: "file-b" }] as any;
+
+  expect(fileSelectionPlan("file-b", items, "", false)).toEqual({
+    shouldOpenFileTab: false,
+    targetItemId: "file-b",
+  });
+  expect(fileSelectionPlan("file-b", items, "", true)).toEqual({
+    shouldOpenFileTab: true,
+    targetItemId: "file-b",
+  });
+  expect(fileSelectionPlan("file-b", items, "file-a", false)).toEqual({
+    shouldOpenFileTab: true,
+    targetItemId: "file-b",
+  });
+  expect(fileSelectionPlan("missing", [], "", true)).toBeNull();
+});
+
+test("review tab state treats a root file named overview as a file tab", () => {
+  const items = [{ id: "overview" }, { id: "src/app.ts" }] as any;
+
+  const tab = effectiveReviewTabId("overview", items);
+
+  expect(tab).toBe("overview");
+  expect(activeFileTabIdForReviewTab(tab)).toBe("overview");
+  expect(activeFileTabIdForReviewTab(effectiveReviewTabId("missing", items))).toBe("");
 });
 
 test("App still starts diff rendering when statusMessage is an empty string", async () => {
@@ -229,6 +403,80 @@ function copyGitApplyButton(): HTMLButtonElement | undefined {
 
 function contentFilesWidth(): string | undefined {
   return dom?.window.document.getElementById("content")?.style.getPropertyValue("--cmux-diff-files-width");
+}
+
+function contextSeparatorToggleHarness(
+  region?: { fromEnd?: number; fromStart?: number },
+  options: { expandButton?: boolean } = {},
+) {
+  const itemElement = dom!.window.document.createElement("diffs-container");
+  const separator = dom!.window.document.createElement("div");
+  const control = dom!.window.document.createElement("span");
+  separator.setAttribute("data-expand-index", "4");
+  control.setAttribute(options.expandButton ? "data-expand-button" : "data-unmodified-lines", "");
+  separator.appendChild(control);
+  itemElement.appendChild(separator);
+  dom!.window.document.body.appendChild(itemElement);
+
+  const expandedHunks = new Map<number, { fromEnd?: number; fromStart?: number }>();
+  if (region) {
+    expandedHunks.set(4, region);
+  }
+  let renderCacheCleared = false;
+  let resetLayoutOptions: { includeEstimatedHeights?: boolean } | undefined;
+  let instanceChangedCount = 0;
+  let instanceChangedLayoutDirty = false;
+  let preventDefaultCount = 0;
+  let stopPropagationCount = 0;
+  let stopImmediatePropagationCount = 0;
+  const instance: any = {
+    forceRenderOverride: false,
+    hunksRenderer: {
+      clearRenderCache: () => {
+        renderCacheCleared = true;
+      },
+      getExpandedHunksMap: () => expandedHunks,
+    },
+    resetLayoutCache: (options?: { includeEstimatedHeights?: boolean }) => {
+      resetLayoutOptions = options;
+    },
+  };
+  const codeView: any = {
+    getInstance: () => ({
+      getRenderedItems: () => [{ element: itemElement, instance, type: "diff" }],
+      instanceChanged: (_instance: any, layoutDirty: boolean) => {
+        expect(_instance).toBe(instance);
+        instanceChangedCount += 1;
+        instanceChangedLayoutDirty = layoutDirty;
+      },
+    }),
+  };
+  return {
+    codeView,
+    event: {
+      nativeEvent: {
+        composedPath: () => [control, separator, itemElement],
+        stopImmediatePropagation: () => {
+          stopImmediatePropagationCount += 1;
+        },
+      } as any,
+      preventDefault: () => {
+        preventDefaultCount += 1;
+      },
+      stopPropagation: () => {
+        stopPropagationCount += 1;
+      },
+    },
+    expandedHunks,
+    forceRenderOverride: () => instance.forceRenderOverride,
+    instanceChangedCount: () => instanceChangedCount,
+    instanceChangedLayoutDirty: () => instanceChangedLayoutDirty,
+    preventDefaultCount: () => preventDefaultCount,
+    renderCacheCleared: () => renderCacheCleared,
+    resetLayoutOptions: () => resetLayoutOptions,
+    stopImmediatePropagationCount: () => stopImmediatePropagationCount,
+    stopPropagationCount: () => stopPropagationCount,
+  };
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {

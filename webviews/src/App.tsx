@@ -6,6 +6,7 @@ import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
+import { DiffFileHeader } from "./diff-file-header";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
 import {
   applyCommentAnnotations,
@@ -55,6 +56,7 @@ type ConfigProps = {
 
 type AppState = {
   activeItemId: string;
+  activeReviewTab: string;
   activeTreePath: string;
   comments: DiffCommentRecord[];
   copyFeedback: string;
@@ -65,6 +67,8 @@ type AppState = {
   items: DiffItem[];
   languages: string[];
   metrics: StreamMetrics | null;
+  openNextFileSelectionInTab: boolean;
+  openFileTabIds: string[];
   options: DiffViewerOptions;
   optionsOpen: boolean;
   status: DiffViewerStatus;
@@ -73,9 +77,11 @@ type AppState = {
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "open-file-tab"; itemId: string; treePath?: string }
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
+  | { type: "set-active-review-tab"; tab: string }
   | { type: "set-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
@@ -83,22 +89,42 @@ type AppAction =
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
+  | { type: "set-open-next-file-selection-in-tab"; open: boolean }
   | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
   | { type: "set-options-open"; open: boolean }
   | { type: "set-status"; status: DiffViewerStatus }
   | { type: "set-tree-source"; source: FileTreeSource }
+  | { type: "toggle-item-collapsed"; itemId: string }
   | { type: "upsert-comment"; comment: DiffCommentRecord };
+
+type CommentNavigationPlan = {
+  shouldOpenFileTab: boolean;
+  targetItemId: string;
+};
+
+type FileSelectionPlan = {
+  shouldOpenFileTab: boolean;
+  targetItemId: string;
+};
+
+type PendingCommentNavigation = {
+  entry: SidebarCommentEntry;
+  targetItemId: string;
+};
 
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
 const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
 const persistedLayoutKey = "cmux.diffViewer.layout";
+// Git paths cannot contain NUL, so this tab id cannot collide with a file path.
+const overviewReviewTabId = "\0overview";
 type DiffViewerLayout = DiffViewerOptions["layout"];
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
   return {
     activeItemId: "",
+    activeReviewTab: overviewReviewTabId,
     activeTreePath: "",
     comments: [],
     copyFeedback: "",
@@ -109,6 +135,8 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     items: [],
     languages: ["text"],
     metrics: null,
+    openNextFileSelectionInTab: false,
+    openFileTabIds: [],
     options: {
       collapsed: false,
       diffIndicators: "bars",
@@ -142,6 +170,18 @@ function reducer(state: AppState, action: AppAction): AppState {
       status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
     };
   }
+  case "open-file-tab":
+    return {
+      ...state,
+      activeItemId: action.itemId,
+      activeReviewTab: action.itemId,
+      activeTreePath: action.treePath ?? state.treeSource?.treePathByItemId.get(action.itemId) ?? state.activeTreePath,
+      fileSearchOpen: false,
+      openNextFileSelectionInTab: false,
+      openFileTabIds: state.openFileTabIds.includes(action.itemId)
+        ? state.openFileTabIds
+        : [...state.openFileTabIds, action.itemId],
+    };
   case "remove-comment": {
     const comments = state.comments.filter((comment) => comment.id !== action.id);
     return {
@@ -154,9 +194,11 @@ function reducer(state: AppState, action: AppAction): AppState {
     return {
       ...state,
       activeItemId: state.activeItemId === action.oldId ? action.newId : state.activeItemId,
+      activeReviewTab: state.activeReviewTab === action.oldId ? action.newId : state.activeReviewTab,
       draft: state.draft?.itemId === action.oldId
         ? { ...state.draft, itemId: action.newId }
         : state.draft,
+      openFileTabIds: state.openFileTabIds.map((id) => (id === action.oldId ? action.newId : id)),
       items: state.items.map((item) => (
         item.id === action.oldId || item.id === action.newId
           ? { ...item, id: action.newId, version: (item.version ?? 0) + 1 }
@@ -168,6 +210,15 @@ function reducer(state: AppState, action: AppAction): AppState {
       ...state,
       activeItemId: action.itemId,
       activeTreePath: action.treePath ?? state.activeTreePath,
+    };
+  case "set-active-review-tab":
+    return {
+      ...state,
+      activeReviewTab: action.tab,
+      activeItemId: isOverviewReviewTab(action.tab) ? state.activeItemId : action.tab,
+      activeTreePath: isOverviewReviewTab(action.tab)
+        ? state.activeTreePath
+        : state.treeSource?.treePathByItemId.get(action.tab) ?? state.activeTreePath,
     };
   case "set-comments":
     return {
@@ -184,13 +235,20 @@ function reducer(state: AppState, action: AppAction): AppState {
       items: applyCommentAnnotations(state.items, state.comments, action.draft),
     };
   case "set-file-search-open":
-    return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
+    return {
+      ...state,
+      fileSearchOpen: action.open,
+      filesVisible: action.open ? true : state.filesVisible,
+      openNextFileSelectionInTab: action.open ? state.openNextFileSelectionInTab : false,
+    };
   case "set-files-width":
     return { ...state, filesWidth: action.width };
   case "set-files-visible":
     return { ...state, filesVisible: action.visible };
   case "set-metrics":
     return { ...state, metrics: action.metrics };
+  case "set-open-next-file-selection-in-tab":
+    return { ...state, openNextFileSelectionInTab: action.open };
   case "set-option":
     if (action.key === "collapsed") {
       return {
@@ -217,6 +275,13 @@ function reducer(state: AppState, action: AppAction): AppState {
       treeSource: source,
     };
   }
+  case "toggle-item-collapsed":
+    return {
+      ...state,
+      items: state.items.map((item) => item.id === action.itemId
+        ? { ...item, collapsed: item.collapsed !== true, version: (item.version ?? 0) + 1 }
+        : item),
+    };
   case "upsert-comment": {
     const exists = state.comments.some((comment) => comment.id === action.comment.id);
     const comments = exists
@@ -241,6 +306,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingCommentNavigationRef = useRef<PendingCommentNavigation | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
@@ -287,41 +353,82 @@ export function App({ config, initialStatus }: ConfigProps) {
 
   const diffStreamComplete = Number.isFinite(state.metrics?.completedAt) && (state.metrics?.completedAt ?? 0) > 0;
   const commentEntries = sidebarCommentEntries(state.items, state.comments, diffStreamComplete);
-  const selectCommentEntry = (entry: SidebarCommentEntry) => {
-    if (entry.itemId == null) {
-      return;
-    }
+  const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
+  const effectiveReviewTab = effectiveReviewTabId(state.activeReviewTab, state.items);
+  const activeFileTabId = activeFileTabIdForReviewTab(effectiveReviewTab);
+  const visibleItems = activeFileTabId === ""
+    ? state.items
+    : state.items.filter((item) => item.id === activeFileTabId);
+  const openFileInTab = (itemId: string) => {
+    dispatch({
+      type: "open-file-tab",
+      itemId,
+      treePath: state.treeSource?.treePathByItemId.get(itemId),
+    });
+  };
+  const scrollToCommentEntry = useCallback((entry: SidebarCommentEntry, targetItemId: string) => {
     if (entry.anchor.state === "outdated") {
-      codeViewRef.current?.scrollTo({ type: "item", id: entry.itemId, align: "start", behavior: "smooth-auto" });
+      codeViewRef.current?.scrollTo({ type: "item", id: targetItemId, align: "start", behavior: "smooth-auto" });
     } else {
       codeViewRef.current?.scrollTo({
         type: "line",
-        id: entry.itemId,
+        id: targetItemId,
         lineNumber: entry.anchor.line,
         side: entry.comment.side,
         align: "center",
         behavior: "smooth-auto",
       });
     }
-    dispatch({
-      type: "set-active-item",
-      itemId: entry.itemId,
-      treePath: state.treeSource?.treePathByItemId.get(entry.itemId),
-    });
-  };
-
-  const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
-  const scrollToItem = (itemId: string) => {
-    const target = scrollTargetForItem(itemId, state.items);
-    if (!target) {
+  }, []);
+  const selectCommentEntry = (entry: SidebarCommentEntry) => {
+    const plan = commentNavigationPlan(entry, state.items, activeFileTabId);
+    if (!plan) {
       return;
     }
-    codeViewRef.current?.scrollTo({ type: "item", id: target, align: "start", behavior: "smooth-auto" });
+    if (plan.shouldOpenFileTab) {
+      pendingCommentNavigationRef.current = { entry, targetItemId: plan.targetItemId };
+      openFileInTab(plan.targetItemId);
+      return;
+    }
+    scrollToCommentEntry(entry, plan.targetItemId);
     dispatch({
       type: "set-active-item",
-      itemId: target,
-      treePath: state.treeSource?.treePathByItemId.get(target),
+      itemId: plan.targetItemId,
+      treePath: state.treeSource?.treePathByItemId.get(plan.targetItemId),
     });
+  };
+  useEffect(() => {
+    const pending = pendingCommentNavigationRef.current;
+    if (!pending) {
+      return;
+    }
+    if (activeFileTabId !== "" && activeFileTabId !== pending.targetItemId) {
+      return;
+    }
+    if (!visibleItems.some((item) => item.id === pending.targetItemId)) {
+      return;
+    }
+    pendingCommentNavigationRef.current = null;
+    scrollToCommentEntry(pending.entry, pending.targetItemId);
+  }, [activeFileTabId, scrollToCommentEntry, visibleItems]);
+  const scrollToItem = (itemId: string, options: { openInTab?: boolean } = {}) => {
+    const plan = fileSelectionPlan(itemId, state.items, activeFileTabId, options.openInTab === true);
+    if (!plan) {
+      return;
+    }
+    if (plan.shouldOpenFileTab) {
+      openFileInTab(plan.targetItemId);
+      return;
+    }
+    codeViewRef.current?.scrollTo({ type: "item", id: plan.targetItemId, align: "start", behavior: "smooth-auto" });
+    dispatch({
+      type: "set-active-item",
+      itemId: plan.targetItemId,
+      treePath: state.treeSource?.treePathByItemId.get(plan.targetItemId),
+    });
+  };
+  const selectFileTreeItem = (itemId: string) => {
+    scrollToItem(itemId, { openInTab: state.openNextFileSelectionInTab });
   };
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
@@ -353,6 +460,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         onReload={() => window.location.reload()}
         onSetLayout={setLayout}
         dispatch={dispatch}
+        effectiveReviewTab={effectiveReviewTab}
         state={state}
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
@@ -362,12 +470,16 @@ export function App({ config, initialStatus }: ConfigProps) {
           hasDraft={state.draft != null}
           label={label}
           onSelectComment={selectCommentEntry}
-          onSelectItem={scrollToItem}
+          onSelectItem={selectFileTreeItem}
           selectedPath={selectedTreePath}
           dispatch={dispatch}
           state={state}
         />
-        <main id="viewer" aria-label={label("diffViewer")}>
+        <main
+          id="viewer"
+          aria-label={label("diffViewer")}
+          onClickCapture={(event) => recollapseExpandedContextSeparator(event, codeViewRef.current)}
+        >
           {state.items.length > 0 ? (
             <WorkerPoolContextProvider
               poolOptions={workerPoolOptions}
@@ -375,11 +487,21 @@ export function App({ config, initialStatus }: ConfigProps) {
             >
               <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
               <CodeView
+                key={effectiveReviewTab}
                 ref={codeViewRef}
                 className="code-view-root"
                 containerRef={viewerContainerRef}
-                items={state.items}
+                items={visibleItems}
                 options={renderedCodeViewOptions}
+                renderCustomHeader={(item: any) => (
+                  <DiffFileHeader
+                    collapsed={item.collapsed === true}
+                    fileDiff={item.fileDiff}
+                    label={label}
+                    onOpenInTab={() => openFileInTab(item.id)}
+                    onToggleCollapsed={() => dispatch({ type: "toggle-item-collapsed", itemId: item.id })}
+                  />
+                )}
                 renderAnnotation={(annotation, item) =>
                   renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
               />
@@ -397,6 +519,106 @@ export function App({ config, initialStatus }: ConfigProps) {
       />
     </div>
   );
+}
+
+type ContextSeparatorToggleEvent = {
+  nativeEvent: Event & {
+    composedPath?: () => EventTarget[];
+    stopImmediatePropagation?: () => void;
+  };
+  preventDefault(): void;
+  stopPropagation(): void;
+};
+
+type ExpandedHunkRegion = {
+  fromEnd?: number;
+  fromStart?: number;
+};
+
+type HunkRendererLike = {
+  clearRenderCache?: () => void;
+  getExpandedHunksMap?: () => Map<number, ExpandedHunkRegion>;
+};
+
+type VirtualizedDiffInstanceLike = {
+  forceRenderOverride?: boolean;
+  hunksRenderer?: HunkRendererLike;
+  resetLayoutCache?: (options?: { includeEstimatedHeights?: boolean }) => void;
+};
+
+type CodeViewInstanceLike = {
+  getRenderedItems?: () => Array<{
+    element: HTMLElement;
+    instance: VirtualizedDiffInstanceLike;
+    type: string;
+  }>;
+  instanceChanged?: (instance: VirtualizedDiffInstanceLike, layoutDirty: boolean) => void;
+};
+
+function isHTMLElement(value: EventTarget | null | undefined): value is HTMLElement {
+  return typeof HTMLElement !== "undefined" && value instanceof HTMLElement;
+}
+
+function eventPath(event: Event): EventTarget[] {
+  if (typeof event.composedPath === "function") {
+    return event.composedPath().filter((node): node is EventTarget => node != null);
+  }
+  const path: EventTarget[] = [];
+  let node = event.target;
+  while (node != null) {
+    path.push(node);
+    node = isHTMLElement(node) ? node.parentElement : null;
+  }
+  return path;
+}
+
+export function recollapseExpandedContextSeparator(
+  event: ContextSeparatorToggleEvent,
+  codeView: Pick<CodeViewHandle<any>, "getInstance"> | null,
+): boolean {
+  const path = eventPath(event.nativeEvent);
+  const clickedExpandButton = path.some((node) => isHTMLElement(node) && node.hasAttribute("data-expand-button"));
+  if (clickedExpandButton) {
+    return false;
+  }
+
+  const clickedUnmodifiedLines = path.find((node) => isHTMLElement(node) && node.hasAttribute("data-unmodified-lines"));
+  if (!clickedUnmodifiedLines) {
+    return false;
+  }
+
+  const separator = path.find((node) => isHTMLElement(node) && node.hasAttribute("data-expand-index"));
+  const hunkIndexText = isHTMLElement(separator) ? separator.getAttribute("data-expand-index") : null;
+  const hunkIndex = hunkIndexText != null ? Number.parseInt(hunkIndexText, 10) : NaN;
+  if (Number.isNaN(hunkIndex)) {
+    return false;
+  }
+
+  const codeViewInstance = codeView?.getInstance() as CodeViewInstanceLike | undefined;
+  const renderedItem = codeViewInstance?.getRenderedItems?.()
+    .find((item) => item.type === "diff" && path.includes(item.element));
+  const instance = renderedItem?.instance;
+  const hunkRenderer = instance?.hunksRenderer;
+  const expandedHunks = hunkRenderer?.getExpandedHunksMap?.();
+  const region = expandedHunks?.get(hunkIndex);
+  if (!region || ((region.fromStart ?? 0) <= 0 && (region.fromEnd ?? 0) <= 0)) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  event.nativeEvent.stopImmediatePropagation?.();
+
+  expandedHunks?.delete(hunkIndex);
+  hunkRenderer?.clearRenderCache?.();
+  if (instance) {
+    // @pierre/diffs only exposes expandHunk publicly. For re-collapse, use the
+    // same virtualizer invalidation path the library uses after an expansion.
+    instance.forceRenderOverride = true;
+    instance.resetLayoutCache?.({ includeEstimatedHeights: true });
+    codeViewInstance?.instanceChanged?.(instance, true);
+  }
+  return true;
 }
 
 function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
@@ -541,6 +763,7 @@ function WorkerRenderOptionsSync({
 function Toolbar({
   config,
   dispatch,
+  effectiveReviewTab,
   label,
   onCopyGitApply,
   onJump,
@@ -551,6 +774,7 @@ function Toolbar({
 }: {
   config: DiffViewerConfig;
   dispatch: React.Dispatch<AppAction>;
+  effectiveReviewTab: string;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
   onJump: (itemId: string) => void;
@@ -560,62 +784,114 @@ function Toolbar({
   state: AppState;
 }) {
   const payload = config.payload ?? {};
+  const checksSummary = resolveChecksSummary(payload);
+  const commitOrPushAction = resolveGitAction(payload, "commitOrPush");
+  const createPRAction = resolveGitAction(payload, "createPR");
   return (
     <header id="toolbar">
-      <SourceControls label={label} onNavigate={onNavigate} payload={payload} />
-      <div className="toolbar-middle flex min-w-0 flex-1 items-center justify-center gap-1.5">
-        <JumpSelect items={state.items} label={label} onJump={onJump} selectedItemId={state.activeItemId} />
-      </div>
-      <div className="toolbar-actions flex shrink-0 items-center gap-1.5">
-        {typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? (
-          <a
-            id="external-link"
+      <ReviewTabs
+        activeTab={effectiveReviewTab}
+        dispatch={dispatch}
+        items={state.items}
+        label={label}
+        openFileTabIds={state.openFileTabIds}
+      />
+      <div id="toolbar-main">
+        <SourceControls label={label} onNavigate={onNavigate} payload={payload} />
+        <ReviewStats label={label} source={state.treeSource} />
+        <ChecksStatus label={label} summary={checksSummary} />
+        <div className="toolbar-middle flex min-w-0 flex-1 items-center justify-center gap-1.5">
+          <JumpSelect items={state.items} label={label} onJump={onJump} selectedItemId={state.activeItemId} />
+        </div>
+        <div className="toolbar-actions flex shrink-0 items-center gap-1.5">
+          <button
+            id="toolbar-search"
             className="toolbar-icon"
-            href={payload.externalURL}
-            target="_blank"
-            rel="noreferrer"
-            title={label("openSourceURL")}
-            aria-label={label("openSourceURL")}
+            type="button"
+            title={state.fileSearchOpen ? label("hideFileSearch") : label("showFileSearch")}
+            aria-label={state.fileSearchOpen ? label("hideFileSearch") : label("showFileSearch")}
+            aria-pressed={state.fileSearchOpen}
+            onClick={() => dispatch({ type: "set-file-search-open", open: !state.fileSearchOpen })}
           >
-            <Icon name="external" />
-          </a>
-        ) : null}
-        <button
-          id="layout-toggle"
-          className="toolbar-icon"
-          type="button"
-          title={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
-          aria-label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
-          onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")}
-        >
-          <Icon name={state.options.layout} />
-        </button>
-        <button
-          id="options-button"
-          className="toolbar-icon"
-          type="button"
-          title={label("options")}
-          aria-label={label("options")}
-          aria-expanded={state.optionsOpen}
-          aria-controls="options-menu"
-          onClick={() => dispatch({ type: "set-options-open", open: !state.optionsOpen })}
-        >
-          <Icon name="dots" />
-        </button>
-        <button
-          id="files-toggle"
-          className="toolbar-icon"
-          type="button"
-          title={state.filesVisible ? label("hideFiles") : label("showFiles")}
-          aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
-          aria-pressed={state.filesVisible}
-          onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
-        >
-          <Icon name="files" />
-        </button>
-        <span id="copy-feedback" className="visually-hidden" aria-live="polite">
-          {state.copyFeedback}
-        </span>
+            <Icon name="search" />
+          </button>
+          {typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? (
+            <a
+              id="external-link"
+              className="toolbar-icon"
+              href={payload.externalURL}
+              target="_blank"
+              rel="noreferrer"
+              title={label("openSourceURL")}
+              aria-label={label("openSourceURL")}
+            >
+              <Icon name="external" />
+            </a>
+          ) : null}
+          <button
+            id="copy-patch-button"
+            className="toolbar-icon"
+            type="button"
+            title={label("copyGitApplyCommand")}
+            aria-label={label("copyGitApplyCommand")}
+            onClick={onCopyGitApply}
+          >
+            <Icon name="clipboard" />
+          </button>
+          <button
+            id="layout-toggle"
+            className="toolbar-icon"
+            type="button"
+            title={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
+            aria-label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
+            onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")}
+          >
+            <Icon name={state.options.layout} />
+          </button>
+          <GitActionButton
+            id="commit-or-push-button"
+            action={commitOrPushAction}
+            icon="commit"
+            label={label("commitOrPush")}
+            unavailableLabel={label("gitActionUnavailable")}
+            onNavigate={onNavigate}
+            prominent
+          />
+          <GitActionButton
+            id="create-pr-button"
+            action={createPRAction}
+            icon="gitPullRequest"
+            label={label("createPR")}
+            unavailableLabel={label("gitActionUnavailable")}
+            onNavigate={onNavigate}
+          />
+          <button
+            id="options-button"
+            className="toolbar-icon"
+            type="button"
+            title={label("options")}
+            aria-label={label("options")}
+            aria-expanded={state.optionsOpen}
+            aria-controls="options-menu"
+            onClick={() => dispatch({ type: "set-options-open", open: !state.optionsOpen })}
+          >
+            <Icon name="dots" />
+          </button>
+          <button
+            id="files-toggle"
+            className="toolbar-icon"
+            type="button"
+            title={state.filesVisible ? label("hideFiles") : label("showFiles")}
+            aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
+            aria-pressed={state.filesVisible}
+            onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
+          >
+            <Icon name="files" />
+          </button>
+          <span id="copy-feedback" className="visually-hidden" aria-live="polite">
+            {state.copyFeedback}
+          </span>
+        </div>
       </div>
       {state.optionsOpen ? (
         <OptionsMenu
@@ -627,6 +903,245 @@ function Toolbar({
         />
       ) : null}
     </header>
+  );
+}
+
+function ReviewTabs({
+  activeTab,
+  dispatch,
+  items,
+  label,
+  openFileTabIds,
+}: {
+  activeTab: string;
+  dispatch: React.Dispatch<AppAction>;
+  items: DiffItem[];
+  label: DiffViewerLabelResolver;
+  openFileTabIds: string[];
+}) {
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const openItems = openFileTabIds
+    .map((id) => itemById.get(id))
+    .filter((item): item is DiffItem => item != null);
+  return (
+    <div id="review-tabs">
+      <div className="review-tab-list" role="tablist" aria-label={label("diffViewer")}>
+        <button
+          type="button"
+          className="review-tab"
+          role="tab"
+          aria-selected={isOverviewReviewTab(activeTab)}
+          onClick={() => dispatch({ type: "set-active-review-tab", tab: overviewReviewTabId })}
+        >
+          <Icon name="documentPlus" />
+          <span>{label("reviewTab")}</span>
+        </button>
+        {openItems.map((item) => {
+          const name = fileName(item.fileDiff, label("untitled"));
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className="review-tab review-tab-file"
+              role="tab"
+              aria-selected={activeTab === item.id}
+              title={name}
+              onClick={() => dispatch({ type: "set-active-review-tab", tab: item.id })}
+            >
+              <Icon name="code" />
+              <span>{name}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        id="review-tab-add"
+        className="review-tab-icon"
+        title={label("openFileTab")}
+        aria-label={label("openFileTab")}
+        onClick={() => {
+          dispatch({ type: "set-open-next-file-selection-in-tab", open: true });
+          dispatch({ type: "set-file-search-open", open: true });
+        }}
+      >
+        <Icon name="plus" />
+      </button>
+    </div>
+  );
+}
+
+function ReviewStats({ label, source }: { label: DiffViewerLabelResolver; source: FileTreeSource | null }) {
+  const stats = source?.diffStats;
+  if (!stats) {
+    return null;
+  }
+  return (
+    <span id="review-stats" aria-label={label("diffStats")}>
+      <span className="stat-add">+{stats.addedLines}</span>
+      <span className="stat-del">−{stats.deletedLines}</span>
+    </span>
+  );
+}
+
+type GitAction = {
+  enabled: boolean;
+  url: string | null;
+};
+
+function resolveGitAction(payload: any, key: "commitOrPush" | "createPR"): GitAction {
+  const action = payload.gitActions?.[key];
+  const url = typeof action?.url === "string" && action.url.length > 0 ? action.url : null;
+  return {
+    // TODO(diff-viewer): enable native commit/push/PR hooks once the host
+    // includes real cmux git action URLs or bridge commands in this payload.
+    enabled: Boolean(action?.enabled === true && url),
+    url,
+  };
+}
+
+function GitActionButton({
+  action,
+  icon,
+  id,
+  label,
+  onNavigate,
+  prominent,
+  unavailableLabel,
+}: {
+  action: GitAction;
+  icon: IconName;
+  id: string;
+  label: string;
+  onNavigate: (url: string) => void;
+  prominent?: boolean;
+  unavailableLabel: string;
+}) {
+  const className = prominent ? "git-action-button git-action-button-primary" : "git-action-button";
+  return (
+    <button
+      id={id}
+      className={className}
+      type="button"
+      disabled={!action.enabled || action.url == null}
+      title={action.enabled && action.url != null ? label : unavailableLabel}
+      onClick={() => {
+        if (action.enabled && action.url != null) {
+          onNavigate(action.url);
+        }
+      }}
+    >
+      <Icon name={icon} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+type ChecksSummary = {
+  failed: number;
+  pending: number;
+  passed: number;
+  status: "pass" | "fail" | "pending" | "unavailable";
+  total: number;
+};
+
+function resolveChecksSummary(payload: any): ChecksSummary {
+  const rawChecks = Array.isArray(payload.checks)
+    ? payload.checks
+    : Array.isArray(payload.ciChecks)
+      ? payload.ciChecks
+      : Array.isArray(payload.checkRuns)
+        ? payload.checkRuns
+        : [];
+  if (rawChecks.length === 0) {
+    const status = normalizeCheckStatus(payload.checkStatus ?? payload.ciStatus ?? payload.prChecksStatus);
+    return status == null
+      ? { failed: 0, passed: 0, pending: 0, status: "unavailable", total: 0 }
+      : {
+        failed: status === "fail" ? 1 : 0,
+        passed: status === "pass" ? 1 : 0,
+        pending: status === "pending" ? 1 : 0,
+        status,
+        total: 1,
+      };
+  }
+
+  let failed = 0;
+  let passed = 0;
+  let pending = 0;
+  for (const check of rawChecks) {
+    const status = normalizeCheckRecordStatus(check);
+    if (status === "fail") {
+      failed += 1;
+    } else if (status === "pass") {
+      passed += 1;
+    } else {
+      pending += 1;
+    }
+  }
+  return {
+    failed,
+    passed,
+    pending,
+    status: failed > 0 ? "fail" : pending > 0 ? "pending" : "pass",
+    total: rawChecks.length,
+  };
+}
+
+function normalizeCheckRecordStatus(check: any): ChecksSummary["status"] {
+  return normalizeCheckConclusion(check?.conclusion) ??
+    normalizeCheckStatus(check?.bucket) ??
+    normalizeCheckStatus(check?.state) ??
+    normalizeCheckStatus(check?.status) ??
+    "pending";
+}
+
+function normalizeCheckConclusion(value: unknown): ChecksSummary["status"] | null {
+  const status = normalizeCheckStatus(value);
+  if (status != null) {
+    return status;
+  }
+  return typeof value === "string" && value.trim() !== "" ? "fail" : null;
+}
+
+function normalizeCheckStatus(value: unknown): ChecksSummary["status"] | null {
+  const status = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (["pass", "passed", "success", "successful", "neutral", "skipped"].includes(status)) {
+    return "pass";
+  }
+  if ([
+    "fail",
+    "failed",
+    "failure",
+    "error",
+    "cancelled",
+    "timed_out",
+    "action_required",
+    "startup_failure",
+    "stale",
+  ].includes(status)) {
+    return "fail";
+  }
+  if (["pending", "queued", "running", "in_progress", "waiting"].includes(status)) {
+    return "pending";
+  }
+  return null;
+}
+
+function ChecksStatus({ label, summary }: { label: DiffViewerLabelResolver; summary: ChecksSummary }) {
+  const text = summary.status === "pass"
+    ? label("checksPassing")
+    : summary.status === "fail"
+      ? label("checksFailing")
+      : summary.status === "pending"
+        ? label("checksPending")
+        : label("checksUnavailable");
+  return (
+    <span id="checks-status" data-status={summary.status} title={label("checks")}>
+      <span className="checks-dot" aria-hidden="true" />
+      <span>{text}</span>
+      {summary.total > 0 ? <span className="checks-count">{summary.passed}/{summary.total}</span> : null}
+    </span>
   );
 }
 
@@ -1470,6 +1985,54 @@ function scrollTargetForItem(itemId: string, items: DiffItem[]): string {
     return itemId;
   }
   return items[0]?.id ?? "";
+}
+
+export function fileSelectionPlan(
+  itemId: string,
+  items: DiffItem[],
+  activeFileTabId: string,
+  openInTab: boolean,
+): FileSelectionPlan | null {
+  const targetItemId = scrollTargetForItem(itemId, items);
+  if (!targetItemId) {
+    return null;
+  }
+  return {
+    shouldOpenFileTab: openInTab || (activeFileTabId !== "" && activeFileTabId !== targetItemId),
+    targetItemId,
+  };
+}
+
+export function effectiveReviewTabId(activeReviewTab: string, items: Array<Pick<DiffItem, "id">>): string {
+  return isOverviewReviewTab(activeReviewTab) || items.some((item) => item.id === activeReviewTab)
+    ? activeReviewTab
+    : overviewReviewTabId;
+}
+
+export function activeFileTabIdForReviewTab(tab: string): string {
+  return isOverviewReviewTab(tab) ? "" : tab;
+}
+
+function isOverviewReviewTab(tab: string): boolean {
+  return tab === overviewReviewTabId;
+}
+
+export function commentNavigationPlan(
+  entry: SidebarCommentEntry,
+  items: DiffItem[],
+  activeFileTabId: string,
+): CommentNavigationPlan | null {
+  if (entry.itemId == null) {
+    return null;
+  }
+  const targetItemId = scrollTargetForItem(entry.itemId, items);
+  if (!targetItemId) {
+    return null;
+  }
+  return {
+    shouldOpenFileTab: activeFileTabId !== "" && activeFileTabId !== targetItemId,
+    targetItemId,
+  };
 }
 
 function getInitialFileTreeRowCount(): number {

@@ -13,12 +13,30 @@ export type DiffViewerOptions = {
   wordWrap: boolean;
 };
 
+// Fixed height of the custom Graphite-style file header, in px. The CodeView
+// virtualizer estimates each file's height from the `diffHeaderHeight` metric
+// (it never remeasures the header DOM), so the header element is pinned to this
+// exact height in `codeViewUnsafeCSS` AND reported via `itemMetrics` below.
+// Keeping the two in lockstep is what prevents per-file layout drift. The header
+// content itself is the <DiffFileHeader> React component, wired through the
+// `renderCustomHeader` prop on <CodeView> (see App.tsx) — the React layer
+// portals it into the virtualized file's header slot, which is why it cannot be
+// passed here as a plain option.
+export const DIFF_HEADER_HEIGHT = 44;
+
 export function codeViewOptions(
   options: DiffViewerOptions,
   appearance: DiffViewerAppearance,
 ): CodeViewOptions<any> {
   return {
-    layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
+    itemMetrics: { diffHeaderHeight: DIFF_HEADER_HEIGHT },
+    // Graphite-style per-file cards: vertical gap between files plus a little
+    // breathing room at the very top/bottom of the scroll content. The
+    // virtualizer applies `gap`/padding as item margins, so this is the safe,
+    // library-sanctioned way to separate cards without perturbing height
+    // measurement. The card frame itself (radius + hairline ring) lives in
+    // styles.css on `#viewer diffs-container`.
+    layout: { paddingTop: 10, gap: 10, paddingBottom: 16 },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
@@ -57,33 +75,72 @@ export function codeViewUnsafeCSS(): string {
     :host {
       --diffs-light-bg: var(--cmux-diff-bg);
       --diffs-dark-bg: var(--cmux-diff-bg);
-      --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
-      --diffs-bg-context-override: var(--cmux-diff-bg);
-      --diffs-bg-context-gutter-override: var(--cmux-diff-bg);
-      --cmux-diff-surface-bg: light-dark(
-        color-mix(in srgb, var(--cmux-diff-bg) 96%, #f5f5f0),
-        color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)
-      );
-      --diffs-bg-separator-override: var(--cmux-diff-surface-bg);
+      --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 10%, transparent);
+      --diffs-bg-context-override: var(--cmux-diff-card-bg);
+      --diffs-bg-context-gutter-override: color-mix(in lab, var(--cmux-diff-card-bg) 94%, var(--cmux-diff-fg));
+      --cmux-diff-surface-bg: var(--cmux-diff-card-header-bg);
+      --diffs-bg-separator-override: color-mix(in lab, var(--cmux-diff-card-bg) 96%, var(--cmux-diff-fg));
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
       --diffs-fg-number-addition-override: var(--diffs-addition-base);
       --diffs-fg-number-deletion-override: var(--diffs-deletion-base);
-      --diffs-bg-addition-override: color-mix(in srgb, var(--diffs-addition-base) 34%, transparent);
-      --diffs-bg-deletion-override: color-mix(in srgb, var(--diffs-deletion-base) 34%, transparent);
-      --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--diffs-addition-base) 30%, transparent);
-      --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--diffs-deletion-base) 30%, transparent);
+      /* Muted, low-contrast line-number gutter (Graphite keeps the gutter quiet
+         so the code reads first). The library default is 65% toward the
+         foreground; pull it back toward the background for a calmer column. */
+      --diffs-fg-number-override: light-dark(
+        color-mix(in lab, var(--cmux-diff-fg) 50%, var(--cmux-diff-bg)),
+        color-mix(in lab, var(--cmux-diff-fg) 46%, var(--cmux-diff-bg))
+      );
+      /* Soft, desaturated full-line tints with a visibly darker tint on the
+         changed tokens (word/intraline emphasis), matching Graphite's
+         translucent diff fills. The library default makes the emphasis tint
+         *weaker* than the line tint; invert that so changed tokens stand out. */
+      --diffs-bg-addition-override: light-dark(
+        color-mix(in lab, var(--diffs-addition-base) 18%, transparent),
+        color-mix(in lab, var(--diffs-addition-base) 24%, transparent)
+      );
+      --diffs-bg-deletion-override: light-dark(
+        color-mix(in lab, var(--diffs-deletion-base) 18%, transparent),
+        color-mix(in lab, var(--diffs-deletion-base) 24%, transparent)
+      );
+      --diffs-bg-addition-emphasis-override: light-dark(
+        color-mix(in lab, var(--diffs-addition-base) 44%, transparent),
+        color-mix(in lab, var(--diffs-addition-base) 52%, transparent)
+      );
+      --diffs-bg-deletion-emphasis-override: light-dark(
+        color-mix(in lab, var(--diffs-deletion-base) 44%, transparent),
+        color-mix(in lab, var(--diffs-deletion-base) 52%, transparent)
+      );
     }
     :host,
     pre,
     code {
-      background-color: var(--cmux-diff-bg);
+      background-color: var(--cmux-diff-card-bg);
     }
     [data-diffs-header] {
       container-type: scroll-state;
       container-name: sticky-header;
-      min-height: 30px;
+      /* Pinned to the exact \`diffHeaderHeight\` metric (see DIFF_HEADER_HEIGHT):
+         the virtualizer estimates file heights from that constant and never
+         remeasures the header, so a fixed height keeps the per-file layout from
+         drifting. The divider is an inset shadow rather than a border-bottom for
+         the same reason (a border would add a pixel the metric doesn't know
+         about). */
+      height: ${DIFF_HEADER_HEIGHT}px;
+      min-height: ${DIFF_HEADER_HEIGHT}px;
+      padding-inline: 14px !important;
+      display: flex;
+      align-items: center;
       background-color: var(--cmux-diff-surface-bg) !important;
+      box-shadow: inset 0 -1px 0 var(--cmux-diff-hairline);
+    }
+    /* The custom header (renderDiffFileHeader) is projected through this slot
+       wrapper, which @pierre/diffs creates in the *light* DOM — so the wrapper
+       and the header itself are styled from styles.css, not here. Make the slot
+       stretch across the band. */
+    ::slotted([slot='header-custom']) {
+      flex: 1 1 auto;
+      min-width: 0;
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-addition-base);
@@ -103,8 +160,13 @@ export function codeViewUnsafeCSS(): string {
         var(--diffs-bg-buffer) 5.656px
       );
     }
+    [data-line-type='change-addition'] [data-column-number],
+    [data-line-type='change-deletion'] [data-column-number] {
+      font-weight: 500;
+    }
     [data-separator='line-info'] {
       background-color: var(--diffs-bg-separator);
+      cursor: pointer;
     }
     [data-utility-button] {
       display: inline-flex;
@@ -132,6 +194,63 @@ export function codeViewUnsafeCSS(): string {
     [data-separator='line-info'] [data-separator-content],
     [data-separator='line-info'] [data-expand-button] {
       background-color: transparent;
+    }
+    [data-separator='line-info'] [data-separator-wrapper] {
+      min-height: calc(var(--diffs-line-height, 20px) + 10px);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-inline: 8px;
+    }
+    /* "Expand context" / show-more-lines affordances between hunks: quiet by
+       default, clearly interactive on hover (a deliberate control rather than a
+       default-styled link). */
+    [data-separator='line-info'] [data-separator-content],
+    [data-separator='line-info'] [data-expand-button] {
+      color: var(--diffs-fg-number);
+    }
+    [data-separator='line-info'] [data-separator-content] {
+      min-height: 22px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 6px;
+      padding-inline: 7px;
+    }
+    [data-separator='line-info'] [data-separator-content]::before {
+      content: "";
+      width: 11px;
+      height: 11px;
+      flex: 0 0 auto;
+      background: currentColor;
+      opacity: 0.72;
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 8 5 5 5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 8 5 5 5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+    [data-separator='line-info'] [data-unmodified-lines] {
+      cursor: pointer;
+    }
+    [data-separator='line-info'] [data-expand-button] {
+      border-radius: 6px;
+      min-width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    [data-expand-index] [data-separator-content]:hover {
+      color: var(--cmux-diff-fg);
+      background-color: var(--cmux-diff-hover-bg);
+      text-decoration: none;
+    }
+    [data-expand-index]:hover [data-separator-content] {
+      color: var(--cmux-diff-fg);
+      background-color: var(--cmux-diff-hover-bg);
+    }
+    [data-expand-button]:hover {
+      color: var(--cmux-diff-fg);
+      background-color: var(--cmux-diff-hover-bg);
     }
     [data-diffs-header=default],
     [data-diffs-header=default] [data-additions-count],

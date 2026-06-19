@@ -35,6 +35,7 @@ mock.module("@vercel/firewall", () => ({
 }));
 
 mock.module("../db/client", () => ({
+  closeCloudDbForTests: async () => {},
   cloudDb,
 }));
 

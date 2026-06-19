@@ -6,22 +6,43 @@ test("code view CSS gives Pierre diff body surfaces the editor background", () =
 
   expect(css).toContain("--diffs-light-bg: var(--cmux-diff-bg)");
   expect(css).toContain("--diffs-dark-bg: var(--cmux-diff-bg)");
-  expect(css).toContain("--diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent)");
-  expect(css).toContain("--diffs-bg-context-override: var(--cmux-diff-bg)");
-  expect(css).toContain("--diffs-bg-context-gutter-override: var(--cmux-diff-bg)");
-  expect(css).toContain("background-color: var(--cmux-diff-bg)");
-  expect(css).toContain("--cmux-diff-surface-bg: light-dark(");
-  expect(css).toContain("color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)");
+  expect(css).toContain("--diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 10%, transparent)");
+  expect(css).toContain("--diffs-bg-context-override: var(--cmux-diff-card-bg)");
+  expect(css).toContain("--diffs-bg-context-gutter-override: color-mix(in lab, var(--cmux-diff-card-bg) 94%, var(--cmux-diff-fg))");
+  expect(css).toContain("background-color: var(--cmux-diff-card-bg)");
+  expect(css).toContain("--cmux-diff-surface-bg: var(--cmux-diff-card-header-bg)");
   expect(css).not.toContain("[data-diffs-header][data-sticky]");
-  expect(css).toContain("--diffs-bg-addition-override: color-mix");
-  expect(css).toContain("--diffs-bg-deletion-override: color-mix");
+  // Soft, desaturated full-line tints (Graphite-style translucent fills).
+  expect(css).toContain("--diffs-bg-addition-override: light-dark(");
+  expect(css).toContain("--diffs-bg-deletion-override: light-dark(");
+  // Changed-token (intraline) emphasis must be stronger than the line tint so
+  // edited tokens stand out, not weaker (the library default is inverted).
+  expect(css).toContain("--diffs-bg-addition-emphasis-override: light-dark(");
+  expect(css).toContain("--diffs-bg-deletion-emphasis-override: light-dark(");
+  expect(css).toContain("color-mix(in lab, var(--diffs-addition-base) 52%, transparent)");
+  expect(css).toContain("color-mix(in lab, var(--diffs-deletion-base) 52%, transparent)");
+  // Muted, low-contrast line-number gutter.
+  expect(css).toContain("--diffs-fg-number-override: light-dark(");
   expect(css).toContain("[data-diffs-header] {");
   expect(css).toContain("background-color: var(--cmux-diff-surface-bg) !important");
-  expect(css).toContain("min-height: 30px");
+  // Header is pinned to the fixed metric height so the virtualizer's per-file
+  // layout does not drift, and the divider is a non-layout-affecting inset
+  // shadow (a real border-bottom would add a pixel the metric does not know).
+  expect(css).toContain("height: 44px");
+  expect(css).toContain("box-shadow: inset 0 -1px 0 var(--cmux-diff-hairline)");
+  expect(css).not.toContain("border-bottom: 1px solid var(--cmux-diff-border)");
   expect(css).not.toContain("border-block: 1px solid var(--cmux-diff-border)");
+  // The custom header band flex-centers the projected slot (the header itself is
+  // light-DOM and styled from styles.css, not here).
+  expect(css).toContain("::slotted([slot='header-custom'])");
   expect(css).not.toContain("@container sticky-header scroll-state");
+  // Expand-context affordances get an explicit hover treatment.
+  expect(css).toContain("[data-expand-button]:hover {");
   expect(css).toContain("[data-separator='line-info'] {");
+  expect(css).toContain("cursor: pointer");
   expect(css).toContain("[data-separator='line-info'] [data-separator-wrapper]");
+  expect(css).toContain("[data-separator='line-info'] [data-separator-content]::before");
+  expect(css).toContain("[data-separator='line-info'] [data-unmodified-lines]");
   expect(css).toContain("[data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer])");
   expect(css).toContain("[data-line-type='change-deletion']:where([data-column-number], [data-gutter-buffer])");
   expect(css).toContain("[data-gutter-buffer='buffer']");
