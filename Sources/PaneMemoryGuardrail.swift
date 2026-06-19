@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 import Observation
 
@@ -12,8 +13,8 @@ import Observation
 final class PaneMemoryGuardrail {
     static let shared = PaneMemoryGuardrail()
 
-    private static let enabledDefaultsKey = "terminal.runawayMemoryGuardrail.enabled"
-    private static let thresholdGBDefaultsKey = "terminal.runawayMemoryGuardrail.thresholdGB"
+    private static let enabledSetting = SettingCatalog().terminal.runawayMemoryGuardrailEnabled
+    private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
     private static let pollInterval: TimeInterval = 4
     private static let defaultThresholdGB: Double = 8
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
@@ -69,12 +70,11 @@ final class PaneMemoryGuardrail {
     // MARK: Settings
 
     private var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: Self.enabledDefaultsKey) as? Bool ?? true
+        Self.enabledSetting.value(in: .standard)
     }
 
     private func thresholdBytes() -> Int64 {
-        let raw = UserDefaults.standard.object(forKey: Self.thresholdGBDefaultsKey) as? Double
-            ?? Self.defaultThresholdGB
+        let raw = Self.thresholdGBSetting.value(in: .standard)
         let gb = raw.isFinite ? min(max(raw, Self.thresholdRangeGB.lowerBound), Self.thresholdRangeGB.upperBound) : Self.defaultThresholdGB
         return Int64(gb * Self.bytesPerGB)
     }
