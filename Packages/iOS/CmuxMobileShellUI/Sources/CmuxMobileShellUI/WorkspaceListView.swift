@@ -45,6 +45,21 @@ struct WorkspaceListView: View {
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
+
+    /// Machines present in the (aggregated) workspace list, for the filter's
+    /// machine multi-select. Single-machine yields no machine section. Names
+    /// come from the device tree (registry or paired Macs), falling back to id.
+    private var filterMachines: [WorkspaceFilterMachine] {
+        let ids = MobileWorkspaceListFilter.machineIDs(in: workspaces)
+        guard ids.count > 1 else { return [] }
+        var names: [String: String] = [:]
+        for device in store?.deviceTreeDevices ?? [] {
+            if let name = device.displayName, !name.isEmpty {
+                names[device.deviceId] = name
+            }
+        }
+        return ids.map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? $0) }
+    }
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -165,12 +180,12 @@ struct WorkspaceListView: View {
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceListFilterMenu(filter: $filter)
+                WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
                 newWorkspaceButton
             }
             #else
             ToolbarItemGroup {
-                WorkspaceListFilterMenu(filter: $filter)
+                WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
                 newWorkspaceButton
             }
             #endif
