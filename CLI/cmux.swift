@@ -22953,7 +22953,13 @@ struct CMUXCLI {
         func callerTTYBinding() -> CallerTerminalBinding? {
             if !didResolveCallerTTYBinding {
                 didResolveCallerTTYBinding = true
-                callerTTYBindingCache = resolveCallerTerminalBindingByTTY(client: client)
+                callerTTYBindingCache = resolveAgentProcessTerminalBinding(
+                    pid: claudeAgentPID(from: ProcessInfo.processInfo.environment),
+                    client: client
+                ) ?? resolveCallerTerminalBindingByTTY(
+                    client: client,
+                    includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
+                )
             }
             return callerTTYBindingCache
         }
@@ -24280,8 +24286,8 @@ struct CMUXCLI {
         return binding?.surfaceId
     }
 
-    private func resolveCallerTerminalBindingByTTY(client: SocketClient) -> CallerTerminalBinding? {
-        guard let ttyName = resolveCallerTTYName() else {
+    private func resolveCallerTerminalBindingByTTY(client: SocketClient, includeAmbientTTY: Bool = true) -> CallerTerminalBinding? {
+        guard let ttyName = resolveCallerTTYName(includeAmbientTTY: includeAmbientTTY) else {
             return nil
         }
         return resolveTerminalBinding(ttyName: ttyName, client: client)
@@ -24361,9 +24367,9 @@ struct CMUXCLI {
         return nil
     }
 
-    private func resolveCallerTTYName() -> String? {
+    private func resolveCallerTTYName(includeAmbientTTY: Bool = true) -> String? {
         let env = ProcessInfo.processInfo.environment
-        for key in ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY"] {
+        for key in includeAmbientTTY ? ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY"] : ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"] {
             if let ttyName = normalizedTTYName(env[key]) {
                 return ttyName
             }
