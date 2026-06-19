@@ -53,6 +53,26 @@ import Testing
         #expect(unreadAnyMac.matches(workspace("b", hasUnread: true, mac: nil)))
     }
 
+    @Test func machineIDsAreDistinctInFirstAppearanceOrder() {
+        let rows = [
+            workspace("a", hasUnread: false, mac: "mac-2"),
+            workspace("b", hasUnread: false, mac: "mac-1"),
+            workspace("c", hasUnread: false, mac: "mac-2"), // dup
+            workspace("d", hasUnread: false, mac: nil),      // skipped
+        ]
+        #expect(MobileWorkspaceListFilter.machineIDs(in: rows) == ["mac-2", "mac-1"])
+    }
+
+    @Test func pruneMachinesDropsAbsentSelections() {
+        var filter = MobileWorkspaceListFilter(readState: .unread, machines: ["mac-1", "mac-gone"])
+        let changed = filter.pruneMachines(notIn: ["mac-1", "mac-2"])
+        #expect(changed)
+        #expect(filter.machines == ["mac-1"])
+        // Idempotent when nothing to prune.
+        let secondChange = filter.pruneMachines(notIn: ["mac-1", "mac-2"])
+        #expect(!secondChange)
+    }
+
     @Test func toggleMachineAddsThenRemoves() {
         var filter = MobileWorkspaceListFilter.all
         filter.toggleMachine("mac-1")

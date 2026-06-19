@@ -58,4 +58,33 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
             machines.insert(macDeviceID)
         }
     }
+
+    /// The distinct machine ids present in a workspace list, in first-appearance
+    /// order. Drives the machine multi-select in the filter menu: only machines
+    /// that actually have rows are offered, and the menu hides the section
+    /// entirely when there are fewer than two. Workspaces with no known machine
+    /// are skipped (they can't be filtered by machine).
+    public static func machineIDs(in workspaces: [MobileWorkspacePreview]) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for workspace in workspaces {
+            guard let macDeviceID = workspace.macDeviceID else { continue }
+            if seen.insert(macDeviceID).inserted {
+                ordered.append(macDeviceID)
+            }
+        }
+        return ordered
+    }
+
+    /// Drop any selected machines that are no longer present in the list, so a
+    /// machine filter for a Mac that disconnected/disappeared does not silently
+    /// hide everything. Returns whether the filter changed.
+    @discardableResult
+    public mutating func pruneMachines(notIn present: [String]) -> Bool {
+        let presentSet = Set(present)
+        let kept = machines.intersection(presentSet)
+        guard kept != machines else { return false }
+        machines = kept
+        return true
+    }
 }
