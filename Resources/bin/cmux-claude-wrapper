@@ -200,8 +200,13 @@ cmux_claude_config_dir_has_session() {
     local root="$1" sid="$2"
     [[ -n "$root" && -d "$root/projects" ]] || return 1
     local transcript
-    for transcript in "$root"/projects/*/"$sid".jsonl; do
-        [[ -e "$transcript" ]] && return 0
+    for transcript in \
+        "$root"/projects/*/"$sid".jsonl \
+        "$root"/projects/*/*/"$sid".jsonl \
+        "$root"/projects/*/*/*/"$sid".jsonl \
+        "$root"/projects/*/*/*/*/"$sid".jsonl \
+        "$root"/projects/*/*/*/*/*/"$sid".jsonl; do
+        [[ -f "$transcript" && -s "$transcript" ]] && return 0
     done
     return 1
 }
@@ -332,6 +337,7 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
         unset CLAUDECODE
     fi
     clear_inherited_claude_auth_selection_env
+    reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec "$REAL_CLAUDE" "$@"
 fi
@@ -343,6 +349,7 @@ if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
         unset CLAUDECODE
     fi
     clear_inherited_claude_auth_selection_env
+    reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec_real_claude_passthrough "$@"
 fi

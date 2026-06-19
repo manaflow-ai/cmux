@@ -1357,28 +1357,55 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> (sessionId: String, path: String)? {
         var best: (sessionId: String, path: String, modifiedAt: TimeInterval)?
         for projectDir in projectDirs {
-            guard let children = try? fileManager.contentsOfDirectory(atPath: projectDir) else {
-                continue
-            }
-            for child in children where child.hasSuffix(".jsonl") {
-                let sessionId = String(child.dropLast(".jsonl".count))
-                guard sessionId != excludedSessionId,
-                      claudeSessionIdIsSafeFilename(sessionId) else {
-                    continue
-                }
-                let path = (projectDir as NSString).appendingPathComponent(child)
-                guard regularNonEmptyFileExists(atPath: path, fileManager: fileManager) else {
-                    continue
-                }
-                let modifiedAt = ((try? fileManager.attributesOfItem(atPath: path)[.modificationDate]) as? Date)?
-                    .timeIntervalSince1970 ?? 0
-                if best == nil || modifiedAt > best!.modifiedAt {
-                    best = (sessionId, path, modifiedAt)
-                }
-            }
+            newestClaudeTranscript(
+                inDirectory: projectDir,
+                excludingSessionId: excludedSessionId,
+                remainingDirectoryDepth: 4,
+                fileManager: fileManager,
+                best: &best
+            )
         }
         guard let best else { return nil }
         return (best.sessionId, best.path)
+    }
+
+    private static func newestClaudeTranscript(
+        inDirectory directory: String,
+        excludingSessionId excludedSessionId: String,
+        remainingDirectoryDepth: Int,
+        fileManager: FileManager,
+        best: inout (sessionId: String, path: String, modifiedAt: TimeInterval)?
+    ) {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let children = try? fileManager.contentsOfDirectory(atPath: directory) else {
+            return
+        }
+        for child in children {
+            let childPath = (directory as NSString).appendingPathComponent(child)
+            if child.hasSuffix(".jsonl") {
+                let sessionId = String(child.dropLast(".jsonl".count))
+                guard sessionId != excludedSessionId,
+                      claudeSessionIdIsSafeFilename(sessionId),
+                      regularNonEmptyFileExists(atPath: childPath, fileManager: fileManager) else {
+                    continue
+                }
+                let modifiedAt = ((try? fileManager.attributesOfItem(atPath: childPath)[.modificationDate]) as? Date)?
+                    .timeIntervalSince1970 ?? 0
+                if best == nil || modifiedAt > best!.modifiedAt {
+                    best = (sessionId, childPath, modifiedAt)
+                }
+            } else if remainingDirectoryDepth > 0 {
+                newestClaudeTranscript(
+                    inDirectory: childPath,
+                    excludingSessionId: excludedSessionId,
+                    remainingDirectoryDepth: remainingDirectoryDepth - 1,
+                    fileManager: fileManager,
+                    best: &best
+                )
+            }
+        }
     }
 
     private static func claudeTranscriptExists(
@@ -1491,8 +1518,12 @@ struct RestorableAgentSessionIndex: Sendable {
         // so the candidate whose encoding matches it is the one Claude can resume from.
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
             let expandedTranscriptPath = (transcriptPath as NSString).expandingTildeInPath
-            let projectDir = (expandedTranscriptPath as NSString).deletingLastPathComponent
-            let expectedProjectDirName = (projectDir as NSString).lastPathComponent
+            let roots = lookup.configRoots(for: record)
+            let expectedProjectDirName = claudeProjectDirName(
+                containingTranscriptPath: expandedTranscriptPath,
+                configRoots: roots
+            ) ?? (((expandedTranscriptPath as NSString).deletingLastPathComponent) as NSString)
+                .lastPathComponent
             if !expectedProjectDirName.isEmpty,
                let matched = candidates.first(where: {
                    encodeClaudeProjectDir($0) == expectedProjectDirName
@@ -1542,8 +1573,11 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> Bool {
         let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
         let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDirName)
-        let path = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
-        return regularNonEmptyFileExists(atPath: path, fileManager: fileManager)
+        return claudeTranscriptFileExists(
+            inProjectRoot: projectRoot,
+            sessionId: sessionId,
+            fileManager: fileManager
+        )
     }
 
     private static func claudeTranscriptFileExistsInAnyProject(
@@ -1555,8 +1589,75 @@ struct RestorableAgentSessionIndex: Sendable {
         let projectsRoot = (configRoot as NSString).appendingPathComponent("projects")
         for projectDir in lookup.projectDirs(configRoot: configRoot) {
             let projectRoot = (projectsRoot as NSString).appendingPathComponent(projectDir)
-            let path = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
-            if regularNonEmptyFileExists(atPath: path, fileManager: fileManager) {
+            if claudeTranscriptFileExists(
+                inProjectRoot: projectRoot,
+                sessionId: sessionId,
+                fileManager: fileManager
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func claudeProjectDirName(containingTranscriptPath path: String, configRoots: [String]) -> String? {
+        let standardizedPath = (path as NSString).standardizingPath
+        for root in configRoots {
+            let projectsRoot = ((root as NSString).appendingPathComponent("projects") as NSString)
+                .standardizingPath
+            let prefix = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
+            guard standardizedPath.hasPrefix(prefix) else { continue }
+            let relativePath = String(standardizedPath.dropFirst(prefix.count))
+            guard let projectDirName = relativePath.split(separator: "/", maxSplits: 1).first,
+                  !projectDirName.isEmpty else {
+                continue
+            }
+            return String(projectDirName)
+        }
+        return nil
+    }
+
+    private static func claudeTranscriptFileExists(
+        inProjectRoot projectRoot: String,
+        sessionId: String,
+        fileManager: FileManager
+    ) -> Bool {
+        claudeTranscriptFileExists(
+            inDirectory: projectRoot,
+            sessionId: sessionId,
+            remainingDirectoryDepth: 4,
+            fileManager: fileManager
+        )
+    }
+
+    private static func claudeTranscriptFileExists(
+        inDirectory directory: String,
+        sessionId: String,
+        remainingDirectoryDepth: Int,
+        fileManager: FileManager
+    ) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return false
+        }
+
+        let directPath = (directory as NSString).appendingPathComponent("\(sessionId).jsonl")
+        if regularNonEmptyFileExists(atPath: directPath, fileManager: fileManager) {
+            return true
+        }
+        guard remainingDirectoryDepth > 0,
+              let children = try? fileManager.contentsOfDirectory(atPath: directory) else {
+            return false
+        }
+        for child in children {
+            let childPath = (directory as NSString).appendingPathComponent(child)
+            if claudeTranscriptFileExists(
+                inDirectory: childPath,
+                sessionId: sessionId,
+                remainingDirectoryDepth: remainingDirectoryDepth - 1,
+                fileManager: fileManager
+            ) {
                 return true
             }
         }
