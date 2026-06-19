@@ -233,6 +233,13 @@ class TerminalController {
     /// `init`; its `context` is wired to `self` once `self` is available.
     let controlCommandCoordinator = ControlCommandCoordinator()
 
+    /// The worker-lane `auth.*` RPC handler (CmuxControlSocket), reading live
+    /// auth state through the ``AuthStatusReading`` seam conformed over this
+    /// controller's `authCoordinator` / `browserSignInFlow`. Built in `init`
+    /// once `self` is available (the seam conformer holds `self` weakly). Read
+    /// from the nonisolated socket-worker lane, so stored `nonisolated`.
+    nonisolated(unsafe) var controlAuthWorker: ControlAuthWorker?
+
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
         let selector: String
@@ -328,6 +335,7 @@ class TerminalController {
         }
         serverEventTarget.controller = self
         controlCommandCoordinator.context = self
+        controlAuthWorker = ControlAuthWorker(reading: TerminalControllerAuthReading(owner: self))
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
             object: nil,
@@ -918,18 +926,26 @@ class TerminalController {
         let id: Any?
         let method: String
         let params: [String: Any]
+        /// The typed request envelope this bridges from. Retained so worker-lane
+        /// handlers moved into CmuxControlSocket (e.g. `ControlAuthWorker`) can
+        /// read typed `JSONValue` params without a Foundation round-trip.
+        let control: ControlRequest
 
         init(bridging request: ControlRequest) {
             id = request.id.map(\.foundationObject)
             method = request.method
             params = request.params.mapValues { $0.foundationObject }
+            control = request
         }
     }
 
     /// Wire-protocol helpers (parse/encode) shared with the package;
     /// stateless, so single instances serve every thread.
     private nonisolated static let v2Parser = ControlRequestParser()
-    private nonisolated static let v2Encoder = ControlResponseEncoder()
+    // `internal` (not `private`): the worker-lane auth conformance lives in a
+    // separate extension file (`TerminalController+AuthStatusReading.swift`),
+    // which cannot reach a `private` member.
+    nonisolated static let v2Encoder = ControlResponseEncoder()
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
         ControlCommandExecutionPolicy(forMethod: method)
@@ -976,46 +992,19 @@ class TerminalController {
 
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
-        case "auth.status":
-            let semaphore = DispatchSemaphore(value: 0)
-            Task { @MainActor [weak self] in
-                await self?.authCoordinator?.awaitBootstrapped()
-                semaphore.signal()
-            }
-            semaphore.wait()
-            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
-        case "auth.sign_in_url":
-            var signInURL: String?
-            v2MainSync {
-                MainActor.assumeIsolated {
-                    signInURL = self.browserSignInFlow?.manualSignInURL.absoluteString
-                }
-            }
-            var result: [String: Any] = [:]
-            if let signInURL {
-                result["url"] = signInURL
-            }
-            return v2Ok(id: request.id, result: result)
-        case "auth.begin_sign_in":
-            let timeoutSeconds = (request.params["timeout_seconds"] as? Double) ?? 300
-            let semaphore = DispatchSemaphore(value: 0)
-            nonisolated(unsafe) var signedIn = false
-            Task { @MainActor [weak self] in
-                signedIn = await self?.browserSignInFlow?.signIn(
-                    timeout: timeoutSeconds
-                ) ?? false
-                semaphore.signal()
-            }
-            semaphore.wait()
-            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: !signedIn))
-        case "auth.sign_out":
-            let semaphore = DispatchSemaphore(value: 0)
-            Task { @MainActor [weak self] in
-                await self?.browserSignInFlow?.signOut(timeout: 5)
-                semaphore.signal()
-            }
-            semaphore.wait()
-            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.status", "auth.sign_in_url", "auth.begin_sign_in", "auth.sign_out":
+            // The `auth.*` command bodies live in CmuxControlSocket's
+            // `ControlAuthWorker`, reading live auth state through the
+            // `AuthStatusReading` seam (conformed by `TerminalControllerAuthReading`
+            // over `authCoordinator` / `browserSignInFlow`). The worker is `async`
+            // (it replaced the per-command `DispatchSemaphore` + `Task { @MainActor }`
+            // / `v2MainSync` bridges with the seam's async surface). This single
+            // semaphore is the one remaining worker-thread→async bridge: the
+            // worker lane is a synchronous `nonisolated` contract, so we block it
+            // here exactly as the legacy bodies blocked on their per-command
+            // semaphores. The decoded typed request is reused so the worker reads
+            // typed `JSONValue` params (no Foundation round-trip).
+            return runAuthWorker(request.control)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
@@ -2484,51 +2473,6 @@ class TerminalController {
 
     // MARK: - V2 Helpers (encoding + result plumbing)
     // MARK: - V2 Helpers (encoding + result plumbing)
-
-    private nonisolated func v2AuthStatusPayload(timedOut: Bool) -> [String: Any] {
-        var result: [String: Any] = [:]
-        v2MainSync {
-            MainActor.assumeIsolated {
-                guard let coordinator = self.authCoordinator else {
-                    result = [
-                        "signed_in": false,
-                        "is_restoring_session": false,
-                        "is_loading": false,
-                        "timed_out": timedOut
-                    ]
-                    return
-                }
-                let isSigningIn = self.browserSignInFlow?.isSigningIn ?? false
-                var status: [String: Any] = [
-                    "signed_in": coordinator.isAuthenticated,
-                    "is_restoring_session": coordinator.isRestoringSession,
-                    "is_loading": coordinator.isLoading || isSigningIn,
-                    "timed_out": timedOut
-                ]
-                if let user = coordinator.currentUser {
-                    var userDict: [String: Any] = ["id": user.id]
-                    if let email = user.primaryEmail { userDict["email"] = email }
-                    if let name = user.displayName { userDict["display_name"] = name }
-                    status["user"] = userDict
-                }
-                if let teamID = coordinator.resolvedTeamID {
-                    status["selected_team_id"] = teamID
-                }
-                if !coordinator.availableTeams.isEmpty {
-                    status["teams"] = coordinator.availableTeams.map { team -> [String: Any] in
-                        var dict: [String: Any] = [
-                            "id": team.id,
-                            "display_name": team.displayName
-                        ]
-                        if let slug = team.slug { dict["slug"] = slug }
-                        return dict
-                    }
-                }
-                result = status
-            }
-        }
-        return result
-    }
 
     nonisolated func v2OrNull(_ value: Any?) -> Any {
         // Avoid relying on `?? NSNull()` inference (Swift toolchains can disagree).
