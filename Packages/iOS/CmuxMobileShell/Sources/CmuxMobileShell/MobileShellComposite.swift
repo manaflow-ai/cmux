@@ -2006,10 +2006,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return nil
         }
-        if preferNonLoopback, let real = firstHostPort(where: { $0.kind != .debugLoopback }) {
-            return real
+        if preferNonLoopback {
+            // Among non-loopback routes, prefer one whose host is a numeric IP: a
+            // raw tailscale/LAN IP is dialable without DNS, whereas a MagicDNS
+            // hostname (e.g. "<node>.<tailnet>.ts.net") depends on the client
+            // having tailscale DNS active and resolving it. On devices where
+            // MagicDNS isn't resolving, dialing the hostname times out and the Mac
+            // silently drops out of the list, even though its IP route is fine.
+            if let ip = firstHostPort(where: { route in
+                guard route.kind != .debugLoopback,
+                      case let .hostPort(host, _) = route.endpoint else { return false }
+                return Self.isIPLiteralHost(host)
+            }) {
+                return ip
+            }
+            if let real = firstHostPort(where: { $0.kind != .debugLoopback }) {
+                return real
+            }
         }
         return firstHostPort(where: { _ in true })
+    }
+
+    /// Whether `host` is a numeric IP literal (IPv4 or IPv6) rather than a name
+    /// that needs DNS resolution. Used to prefer directly-dialable IP routes over
+    /// MagicDNS hostnames, which fail to resolve on some clients.
+    static func isIPLiteralHost(_ host: String) -> Bool {
+        if host.contains(":") { return true } // IPv6 literal
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+        return octets.count == 4 && octets.allSatisfy { part in
+            guard let value = Int(part), (0...255).contains(value), !part.isEmpty else { return false }
+            return String(value) == part // reject leading zeros / non-canonical
+        }
     }
 
     /// Runs one paired-Mac store mutation on the serialized write chain.
