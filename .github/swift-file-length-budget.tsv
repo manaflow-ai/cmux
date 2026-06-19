@@ -38,7 +38,7 @@
 2585	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
-2520	cmuxTests/CommandPaletteSearchEngineTests.swift
+2524	cmuxTests/CommandPaletteSearchEngineTests.swift
 2395	Sources/Mobile/MobileHostService.swift
 2355	Sources/FileExplorerView.swift
 2328	cmuxTests/CJKIMEInputTests.swift
@@ -201,6 +201,7 @@
 526	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
 524	Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/HostBrowserSignInFlowTests.swift
+524	Sources/PaneMemoryGuardrail.swift
 522	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift

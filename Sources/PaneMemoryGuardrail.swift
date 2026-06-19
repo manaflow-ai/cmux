@@ -241,10 +241,6 @@ final class PaneMemoryGuardrail {
     }
 
     private func consumeScopedScanIfDue(now: Date) -> Bool {
-        guard lastScopedOnlySamplesByKey.isEmpty else {
-            lastScopedScanAt = now
-            return true
-        }
         guard now.timeIntervalSince(lastScopedScanAt) >= Self.scopedScanInterval else {
             return false
         }
