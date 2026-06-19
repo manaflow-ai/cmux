@@ -18,17 +18,35 @@ struct PaneMemoryProcessKiller {
         for pgid in pgids {
             _ = kill(pid_t(-pgid), SIGTERM)
         }
-        let delayNanoseconds = UInt64(max(0, graceSeconds) * 1_000_000_000)
         return Task.detached(priority: .userInitiated) { [pgids] in
             // Bounded SIGTERM grace period before escalation; cancellation suppresses SIGKILL.
-            if delayNanoseconds > 0 {
-                try? await Task.sleep(nanoseconds: delayNanoseconds)
-            }
+            await Self.waitForGracePeriod(seconds: graceSeconds)
             guard !Task.isCancelled else { return }
             let validatedPGIDs = validateBeforeSIGKILL()
             for pgid in pgids where validatedPGIDs.contains(pgid) {
                 _ = kill(pid_t(-pgid), SIGKILL)
             }
+        }
+    }
+
+    private static func waitForGracePeriod(seconds: TimeInterval) async {
+        let delay = max(0, seconds)
+        guard delay > 0 else { return }
+
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInitiated))
+        timer.schedule(deadline: .now() + delay)
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                timer.setEventHandler {
+                    timer.cancel()
+                }
+                timer.setCancelHandler {
+                    continuation.resume()
+                }
+                timer.resume()
+            }
+        } onCancel: {
+            timer.cancel()
         }
     }
 }

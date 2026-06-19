@@ -2179,13 +2179,13 @@ final class SidebarUnreadModel: ObservableObject {
     @Published private(set) var focusedReadIndicatorByWorkspaceId: [UUID: UUID] = [:]
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
     /// Workspaces with at least one pane over the runaway-memory threshold.
-    /// Updated independently by `PaneMemoryGuardrail`; mirrored here so the
-    /// sidebar re-renders the warning badge through the same coalesced
-    /// observation path as unread state (snapshot-boundary rule).
-    @Published private(set) var memoryWarningWorkspaceIds: Set<UUID> = []
+    /// Mirrored here so the sidebar re-renders the warning badge through the
+    /// same coalesced observation path as unread state (snapshot-boundary rule).
+    private(set) var memoryWarningWorkspaceIds: Set<UUID> = []
 
     func setMemoryWarningWorkspaceIds(_ ids: Set<UUID>) {
         if memoryWarningWorkspaceIds != ids {
+            objectWillChange.send()
             memoryWarningWorkspaceIds = ids
         }
     }

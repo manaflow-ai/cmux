@@ -5560,7 +5560,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var isApplyingHostedInspectorLayout = false
         private var hostedInspectorReapplyWorkItem: DispatchWorkItem?
         private var hostedInspectorDockConfigurationSyncWorkItem: DispatchWorkItem?
-        private var hostedInspectorSideDockPromotionWorkItem: DispatchWorkItem?
+        private var hostedInspectorSideDockPromotionTask: Task<Void, Never>?
+        private var hostedInspectorSideDockPromotionTaskID: UUID?
         private var adaptiveBottomDockRequestCooldownDeadline: Date?
         private var recordedHostedInspectorSideDockWidth: CGFloat?
         private var lastHostedInspectorManualSideDockAllowed: Bool?
@@ -5573,7 +5574,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         deinit {
             hostedInspectorReapplyWorkItem?.cancel()
             hostedInspectorDockConfigurationSyncWorkItem?.cancel()
-            hostedInspectorSideDockPromotionWorkItem?.cancel()
+            hostedInspectorSideDockPromotionTask?.cancel()
             if let trackingArea {
                 removeTrackingArea(trackingArea)
             }
@@ -6173,19 +6174,24 @@ struct WebViewRepresentable: NSViewRepresentable {
         /// lookup here is read-only; the deferred work re-validates all state
         /// before mutating, so it is safe even if the layout changes in between.
         private func scheduleHostedInspectorSideDockPromotionIfNeeded() {
-            guard hostedInspectorSideDockPromotionWorkItem == nil else { return }
+            guard hostedInspectorSideDockPromotionTask == nil else { return }
             guard !isHostedInspectorSideDockActive(),
                   let slotView = localInlineSlotView,
                   hostedInspectorDividerCandidateUsingKnownWebViews(in: slotView) != nil else {
                 return
             }
-            let workItem = DispatchWorkItem { [weak self] in
+            let taskID = UUID()
+            hostedInspectorSideDockPromotionTaskID = taskID
+            let task = Task { @MainActor [weak self] in
+                await Task.yield()
                 guard let self else { return }
-                self.hostedInspectorSideDockPromotionWorkItem = nil
+                guard self.hostedInspectorSideDockPromotionTaskID == taskID else { return }
+                self.hostedInspectorSideDockPromotionTask = nil
+                self.hostedInspectorSideDockPromotionTaskID = nil
+                guard !Task.isCancelled else { return }
                 _ = self.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
             }
-            hostedInspectorSideDockPromotionWorkItem = workItem
-            DispatchQueue.main.async(execute: workItem)
+            hostedInspectorSideDockPromotionTask = task
         }
 
         private func deactivateHostedInspectorSideDockIfNeeded(reparentTo slotView: WindowBrowserSlotView?) {
@@ -6398,10 +6404,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return
             }
-            // Promoting the hosted-inspector side dock mutates the view hierarchy.
-            // Doing that inside `layout()` can re-enter AppKit layout and crash:
-            // constraint recursion (#653) or a mid-layout use-after-free (#6150).
-            // Defer to the next runloop tick; promotion re-checks adaptive bottom dock.
+            // Defer this hierarchy mutation out of `layout()` to avoid #6150.
             scheduleHostedInspectorSideDockPromotionIfNeeded()
             if let previousSize = lastHostedInspectorLayoutBoundsSize,
                Self.sizeApproximatelyEqual(previousSize, bounds.size, epsilon: 0.5) {

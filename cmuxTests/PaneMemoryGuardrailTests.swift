@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,7 +7,8 @@ import XCTest
 @testable import cmux
 #endif
 
-final class PaneMemoryGuardrailTests: XCTestCase {
+@Suite
+struct PaneMemoryGuardrailTests {
     private let gb: Int64 = 1024 * 1024 * 1024
     private var threshold: Int64 { 8 * gb }
 
@@ -35,29 +37,32 @@ final class PaneMemoryGuardrailTests: XCTestCase {
         )
     }
 
-    func testStaysSilentBelowThreshold() {
+    @Test
+    func staysSilentBelowThreshold() {
         var engine = PaneMemoryGuardrailEngine()
         let ws = UUID(), pane = UUID()
         let output = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 1)], thresholdBytes: threshold)
-        XCTAssertNil(output.bannerToPresent)
-        XCTAssertTrue(output.warnedWorkspaceIds.isEmpty)
+        #expect(output.bannerToPresent == nil)
+        #expect(output.warnedWorkspaceIds.isEmpty)
     }
 
-    func testEdgeTriggersOnceOnCrossing() {
+    @Test
+    func edgeTriggersOnceOnCrossing() {
         var engine = PaneMemoryGuardrailEngine()
         let ws = UUID(), pane = UUID()
 
         let first = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 9)], thresholdBytes: threshold)
-        XCTAssertEqual(first.bannerToPresent?.panelId, pane)
-        XCTAssertEqual(first.warnedWorkspaceIds, [ws])
+        #expect(first.bannerToPresent?.panelId == pane)
+        #expect(first.warnedWorkspaceIds == [ws])
 
         // Still high next tick: no new banner (edge-trigger), badge persists.
         let second = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 9)], thresholdBytes: threshold)
-        XCTAssertNil(second.bannerToPresent)
-        XCTAssertEqual(second.warnedWorkspaceIds, [ws])
+        #expect(second.bannerToPresent == nil)
+        #expect(second.warnedWorkspaceIds == [ws])
     }
 
-    func testDismissSuppressesBannerButKeepsBadge() {
+    @Test
+    func dismissSuppressesBannerButKeepsBadge() {
         var engine = PaneMemoryGuardrailEngine()
         let ws = UUID(), pane = UUID()
         _ = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 9)], thresholdBytes: threshold)
@@ -65,11 +70,12 @@ final class PaneMemoryGuardrailTests: XCTestCase {
         engine.dismiss(PaneMemoryPaneKey(workspaceId: ws, panelId: pane))
         // Drop into the hysteresis band so the pane re-evaluates without clearing.
         let banded = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 7)], thresholdBytes: threshold)
-        XCTAssertNil(banded.bannerToPresent)
-        XCTAssertEqual(banded.warnedWorkspaceIds, [ws], "badge persists through the hysteresis band")
+        #expect(banded.bannerToPresent == nil)
+        #expect(banded.warnedWorkspaceIds == [ws], "badge persists through the hysteresis band")
     }
 
-    func testHysteresisClearsBelowClearLevelThenReWarns() {
+    @Test
+    func hysteresisClearsBelowClearLevelThenReWarns() {
         var engine = PaneMemoryGuardrailEngine()
         let ws = UUID(), pane = UUID()
         let key = PaneMemoryPaneKey(workspaceId: ws, panelId: pane)
@@ -79,29 +85,31 @@ final class PaneMemoryGuardrailTests: XCTestCase {
 
         // 7 GB is in the band (6.4–8): still warned.
         let banded = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 7)], thresholdBytes: threshold)
-        XCTAssertEqual(banded.warnedWorkspaceIds, [ws])
+        #expect(banded.warnedWorkspaceIds == [ws])
 
         // 5 GB is below clear (0.8 × 8 = 6.4): clears and resets dismissal.
         let cleared = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 5)], thresholdBytes: threshold)
-        XCTAssertTrue(cleared.clearedPanes.contains(key))
-        XCTAssertTrue(cleared.warnedWorkspaceIds.isEmpty)
+        #expect(cleared.clearedPanes.contains(key))
+        #expect(cleared.warnedWorkspaceIds.isEmpty)
 
         // Re-crossing fires the banner again.
         let reWarn = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 9)], thresholdBytes: threshold)
-        XCTAssertEqual(reWarn.bannerToPresent?.panelId, pane)
+        #expect(reWarn.bannerToPresent?.panelId == pane)
     }
 
-    func testClosedPaneDropsBadge() {
+    @Test
+    func closedPaneDropsBadge() {
         var engine = PaneMemoryGuardrailEngine()
         let ws = UUID(), pane = UUID()
         _ = engine.ingest(samples: [sample(workspace: ws, pane: pane, memoryGB: 9)], thresholdBytes: threshold)
 
         // Pane is gone from the live set: warned state must not linger.
         let output = engine.ingest(samples: [], thresholdBytes: threshold)
-        XCTAssertTrue(output.warnedWorkspaceIds.isEmpty)
+        #expect(output.warnedWorkspaceIds.isEmpty)
     }
 
-    func testSingleBannerWithMultipleSimultaneousCrossings() {
+    @Test
+    func singleBannerWithMultipleSimultaneousCrossings() {
         var engine = PaneMemoryGuardrailEngine()
         let wsA = UUID(), paneA = UUID(), wsB = UUID(), paneB = UUID()
         let output = engine.ingest(
@@ -111,12 +119,13 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             ],
             thresholdBytes: threshold
         )
-        XCTAssertNotNil(output.bannerToPresent)
-        XCTAssertEqual(output.bannersToPresent.count, 2)
-        XCTAssertEqual(output.warnedWorkspaceIds, [wsA, wsB])
+        #expect(output.bannerToPresent != nil)
+        #expect(output.bannersToPresent.count == 2)
+        #expect(output.warnedWorkspaceIds == [wsA, wsB])
     }
 
-    func testEverySimultaneousCrossingIsDeliveredOnce() {
+    @Test
+    func everySimultaneousCrossingIsDeliveredOnce() {
         var engine = PaneMemoryGuardrailEngine()
         let wsA = UUID(), paneA = UUID(), wsB = UUID(), paneB = UUID()
         let first = engine.ingest(
@@ -126,7 +135,7 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             ],
             thresholdBytes: threshold
         )
-        XCTAssertEqual(Set(first.bannersToPresent.map(\.panelId)), [paneA, paneB])
+        #expect(Set(first.bannersToPresent.map(\.panelId)) == [paneA, paneB])
 
         let second = engine.ingest(
             samples: [
@@ -135,12 +144,13 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             ],
             thresholdBytes: threshold
         )
-        XCTAssertTrue(second.bannersToPresent.isEmpty)
+        #expect(second.bannersToPresent.isEmpty)
     }
 
     // MARK: - tty-based attribution summation (the guardrail's core measurement)
 
-    func testProcessTreeMemorySummationByTTY() {
+    @Test
+    func processTreeMemorySummationByTTY() {
         let tty: Int64 = 0x1600_0003
         func proc(_ pid: Int, ppid: Int, mem: Int64, pgid: Int, tpgid: Int) -> CmuxTopProcessInfo {
             CmuxTopProcessInfo(
@@ -172,7 +182,7 @@ final class PaneMemoryGuardrailTests: XCTestCase {
 
         let panePIDs: Set<Int> = [100, 200]
         let summary = snapshot.summary(for: panePIDs)
-        XCTAssertEqual(summary.memoryBytes, 9_005_000_000, "tree memory excludes the other tty")
+        #expect(summary.memoryBytes == 9_005_000_000, "tree memory excludes the other tty")
 
         // The kill target is the high-memory process group (200), not the small
         // shell group (100) that only shares the tty.
@@ -181,10 +191,11 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             pids: panePIDs,
             clearBytes: Int64(Double(threshold) * PaneMemoryGuardrailEngine.clearFraction)
         )
-        XCTAssertEqual(pgids, [200])
+        #expect(pgids == [200])
     }
 
-    func testProcessTreeMemoryIncludesDetachedSurfaceDescendantWithoutTTY() {
+    @Test
+    func processTreeMemoryIncludesDetachedSurfaceDescendantWithoutTTY() {
         let ws = UUID(), pane = UUID()
         func proc(
             _ pid: Int,
@@ -227,12 +238,13 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             snapshot: snapshot
         ).first
 
-        XCTAssertEqual(sample?.memoryBytes, 9_010_000_000)
-        XCTAssertEqual(sample?.memoryPressureProcessGroupIDs, [200])
-        XCTAssertEqual(sample?.foregroundCommand, "zsh")
+        #expect(sample?.memoryBytes == 9_010_000_000)
+        #expect(sample?.memoryPressureProcessGroupIDs == [200])
+        #expect(sample?.foregroundCommand == "zsh")
     }
 
-    func testMemoryPressureProcessGroupsAreEmptyAfterPressureClears() {
+    @Test
+    func memoryPressureProcessGroupsAreEmptyAfterPressureClears() {
         let tty: Int64 = 0x1600_0003
         let shell = CmuxTopProcessInfo(
             pid: 100, parentPID: 1, name: "zsh", path: nil, ttyDevice: tty,
@@ -253,6 +265,6 @@ final class PaneMemoryGuardrailTests: XCTestCase {
             pids: [100],
             clearBytes: Int64(Double(threshold) * PaneMemoryGuardrailEngine.clearFraction)
         )
-        XCTAssertTrue(pgids.isEmpty)
+        #expect(pgids.isEmpty)
     }
 }

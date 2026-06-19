@@ -1,150 +1,6 @@
 import Foundation
 import Observation
 
-// MARK: - Value types
-
-/// Stable identity of a single pane (workspace + panel) for guardrail tracking.
-struct PaneMemoryPaneKey: Hashable, Sendable {
-    let workspaceId: UUID
-    let panelId: UUID
-}
-
-/// Main-actor snapshot of one live pane gathered before an off-main memory scan.
-/// `ttyName` / `foregroundPID` come from libghostty (see
-/// `TerminalSurface.controllingTTYName()` / `foregroundProcessID()`).
-struct PaneMemoryDescriptor: Sendable {
-    let workspaceId: UUID
-    let panelId: UUID
-    let workspaceTitle: String
-    let paneTitle: String
-    let ttyName: String?
-    let foregroundPID: Int?
-
-    var key: PaneMemoryPaneKey { PaneMemoryPaneKey(workspaceId: workspaceId, panelId: panelId) }
-}
-
-/// Result of summing a pane's process-tree memory off the main thread.
-struct PaneMemorySample: Sendable {
-    let descriptor: PaneMemoryDescriptor
-    /// Physical-footprint bytes summed across every process sharing the pane's
-    /// controlling tty. This is what macOS aggregates for "out of application
-    /// memory", so it is the signal the threshold is compared against.
-    let memoryBytes: Int64
-    /// Resident bytes summed across the same process set (informational).
-    let residentBytes: Int64
-    /// Process-group ids that contribute enough memory to clear this pane's warning.
-    let memoryPressureProcessGroupIDs: [Int]
-    let foregroundCommand: String?
-
-    var key: PaneMemoryPaneKey { descriptor.key }
-
-    var warning: PaneMemoryWarning {
-        PaneMemoryWarning(
-            workspaceId: descriptor.workspaceId,
-            panelId: descriptor.panelId,
-            workspaceTitle: descriptor.workspaceTitle,
-            paneTitle: descriptor.paneTitle,
-            memoryBytes: memoryBytes,
-            foregroundCommand: foregroundCommand
-        )
-    }
-}
-
-/// The content surfaced in the dismissible warning banner.
-struct PaneMemoryWarning: Equatable, Identifiable, Sendable {
-    let workspaceId: UUID
-    let panelId: UUID
-    let workspaceTitle: String
-    let paneTitle: String
-    let memoryBytes: Int64
-    let foregroundCommand: String?
-
-    var id: UUID { panelId }
-    var key: PaneMemoryPaneKey { PaneMemoryPaneKey(workspaceId: workspaceId, panelId: panelId) }
-}
-
-// MARK: - Pure edge-trigger engine (unit-tested in isolation)
-
-/// Stateless-per-call decision core for the guardrail. Owns only the
-/// warned/dismissed sets so the threshold crossing logic (edge-trigger +
-/// hysteresis) is testable without timers, ghostty, or libproc.
-struct PaneMemoryGuardrailEngine {
-    /// Banner clears once a warned pane drops below `clearFraction × threshold`.
-    /// The gap between warn and clear is hysteresis so a pane hovering at the
-    /// threshold does not flap the badge/banner every tick.
-    static let clearFraction = 0.8
-
-    private(set) var warnedPanes: Set<PaneMemoryPaneKey> = []
-    private(set) var dismissedPanes: Set<PaneMemoryPaneKey> = []
-
-    var warnedWorkspaceIds: Set<UUID> { Set(warnedPanes.map(\.workspaceId)) }
-
-    struct Output: Equatable {
-        /// Panes that crossed the threshold this tick and whose banners have not
-        /// been dismissed — present each once (edge-trigger).
-        var bannersToPresent: [PaneMemoryWarning]
-        /// Workspaces that currently own at least one warned pane (badge set).
-        var warnedWorkspaceIds: Set<UUID>
-        /// Panes currently in warned state.
-        var warnedPaneKeys: Set<PaneMemoryPaneKey>
-        /// Panes that dropped below the clear level this tick.
-        var clearedPanes: Set<PaneMemoryPaneKey>
-
-        var bannerToPresent: PaneMemoryWarning? { bannersToPresent.first }
-    }
-
-    mutating func ingest(samples: [PaneMemorySample], thresholdBytes: Int64) -> Output {
-        let clearBytes = Int64(Double(thresholdBytes) * Self.clearFraction)
-        let liveKeys = Set(samples.map(\.key))
-        // Forget panes that no longer exist so closed panes never keep a badge.
-        warnedPanes.formIntersection(liveKeys)
-        dismissedPanes.formIntersection(liveKeys)
-
-        var bannersToPresent: [PaneMemoryWarning] = []
-        var clearedPanes: Set<PaneMemoryPaneKey> = []
-
-        for sample in samples {
-            let key = sample.key
-            if sample.memoryBytes >= thresholdBytes {
-                if warnedPanes.insert(key).inserted, !dismissedPanes.contains(key) {
-                    // First crossing (or first since it cleared) — fire once.
-                    bannersToPresent.append(sample.warning)
-                }
-            } else if sample.memoryBytes < clearBytes {
-                warnedPanes.remove(key)
-                dismissedPanes.remove(key)
-                clearedPanes.insert(key)
-            }
-            // In the hysteresis band [clearBytes, thresholdBytes): keep state.
-        }
-
-        return Output(
-            bannersToPresent: bannersToPresent,
-            warnedWorkspaceIds: warnedWorkspaceIds,
-            warnedPaneKeys: warnedPanes,
-            clearedPanes: clearedPanes
-        )
-    }
-
-    /// User dismissed the banner for `key`; suppress re-firing while it stays
-    /// high. The badge persists until the pane drops below the clear level.
-    mutating func dismiss(_ key: PaneMemoryPaneKey) {
-        dismissedPanes.insert(key)
-    }
-
-    /// The pane's runaway tree was killed; drop its warned/dismissed state so a
-    /// future leak re-warns cleanly.
-    mutating func acknowledgeHandled(_ key: PaneMemoryPaneKey) {
-        warnedPanes.remove(key)
-        dismissedPanes.remove(key)
-    }
-
-    mutating func reset() {
-        warnedPanes.removeAll()
-        dismissedPanes.removeAll()
-    }
-}
-
 // MARK: - Monitor
 
 /// One instance owns the background poll timer, scans every live pane each tick,
@@ -156,11 +12,8 @@ struct PaneMemoryGuardrailEngine {
 final class PaneMemoryGuardrail {
     static let shared = PaneMemoryGuardrail()
 
-    enum DefaultsKeys {
-        static let enabled = "terminal.runawayMemoryGuardrail.enabled"
-        static let thresholdGB = "terminal.runawayMemoryGuardrail.thresholdGB"
-    }
-
+    private static let enabledDefaultsKey = "terminal.runawayMemoryGuardrail.enabled"
+    private static let thresholdGBDefaultsKey = "terminal.runawayMemoryGuardrail.thresholdGB"
     private static let pollInterval: TimeInterval = 4
     private static let defaultThresholdGB: Double = 8
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
@@ -216,11 +69,11 @@ final class PaneMemoryGuardrail {
     // MARK: Settings
 
     private var isEnabled: Bool {
-        UserDefaults.standard.object(forKey: DefaultsKeys.enabled) as? Bool ?? true
+        UserDefaults.standard.object(forKey: Self.enabledDefaultsKey) as? Bool ?? true
     }
 
     private func thresholdBytes() -> Int64 {
-        let raw = UserDefaults.standard.object(forKey: DefaultsKeys.thresholdGB) as? Double
+        let raw = UserDefaults.standard.object(forKey: Self.thresholdGBDefaultsKey) as? Double
             ?? Self.defaultThresholdGB
         let gb = raw.isFinite ? min(max(raw, Self.thresholdRangeGB.lowerBound), Self.thresholdRangeGB.upperBound) : Self.defaultThresholdGB
         return Int64(gb * Self.bytesPerGB)
