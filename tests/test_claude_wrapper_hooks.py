@@ -986,6 +986,89 @@ def test_live_socket_normalizes_subrouter_claude_config_dir(failures: list[str])
     expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"], f"normalize config dir: expected {expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
 
 
+def test_live_socket_resume_self_heals_mismatched_claude_config_dir(failures: list[str]) -> None:
+    # Regression for https://github.com/manaflow-ai/cmux/issues/6194: when cmux is
+    # launched with a foreign CLAUDE_CONFIG_DIR (e.g. the .app was opened from a
+    # terminal whose agent set one), a restored `claude --resume <id>` must still
+    # find the session by self-healing CLAUDE_CONFIG_DIR to the config root that
+    # actually holds the transcript, instead of reporting "No conversation found"
+    # and dropping the user back to a bare shell.
+    session_id = "aee7524f-3fc9-4a78-be26-ccd6400fe5d1"
+    expected: dict[str, str] = {}
+
+    def setup_env(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        # The session transcript actually lives under the DEFAULT config dir.
+        default_root = home / ".claude"
+        (default_root / "projects" / "-Users-austinwang").mkdir(parents=True)
+        (default_root / "projects" / "-Users-austinwang" / f"{session_id}.jsonl").write_text(
+            "{}\n", encoding="utf-8"
+        )
+        # A FOREIGN config dir is inherited: a valid config dir that does NOT hold
+        # this session (mirrors the cmux app inheriting an agent's CLAUDE_CONFIG_DIR).
+        foreign_root = home / ".codex-accounts" / "claude" / "_pforeign"
+        (foreign_root / "projects").mkdir(parents=True)
+        expected["path"] = str(default_root)
+        return {
+            "HOME": str(home),
+            "CLAUDE_CONFIG_DIR": str(foreign_root),
+        }
+
+    code, auth_env, _, stderr = run_wrapper_auth_env(
+        argv=["--resume", session_id],
+        inherited_env={},
+        setup_env=setup_env,
+    )
+    expect(code == 0, f"resume self-heal: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"],
+        "resume self-heal: expected CLAUDE_CONFIG_DIR reset to the transcript's config root "
+        f"{expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}",
+        failures,
+    )
+
+
+def test_live_socket_resume_keeps_correct_claude_config_dir(failures: list[str]) -> None:
+    # The self-heal must NOT override a CLAUDE_CONFIG_DIR that already holds the
+    # session (no false positives that would repoint a correct resume).
+    session_id = "bd83f291-c63e-46ce-bb65-753a76e5fbff"
+    expected: dict[str, str] = {}
+
+    def setup_env(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        # The current (custom) config dir DOES hold the session.
+        current_root = home / ".codex-accounts" / "claude" / "_pcurrent"
+        (current_root / "projects" / "-work").mkdir(parents=True)
+        (current_root / "projects" / "-work" / f"{session_id}.jsonl").write_text(
+            "{}\n", encoding="utf-8"
+        )
+        # A same-id transcript also exists under the default dir; the current dir
+        # must still win because it already has it.
+        default_root = home / ".claude"
+        (default_root / "projects" / "-work").mkdir(parents=True)
+        (default_root / "projects" / "-work" / f"{session_id}.jsonl").write_text(
+            "{}\n", encoding="utf-8"
+        )
+        expected["path"] = str(current_root)
+        return {
+            "HOME": str(home),
+            "CLAUDE_CONFIG_DIR": str(current_root),
+        }
+
+    code, auth_env, _, stderr = run_wrapper_auth_env(
+        argv=["--resume", session_id],
+        inherited_env={},
+        setup_env=setup_env,
+    )
+    expect(code == 0, f"resume keep-correct: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"],
+        "resume keep-correct: expected CLAUDE_CONFIG_DIR left at the holding root "
+        f"{expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}",
+        failures,
+    )
+
+
 def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]) -> None:
     expected_auth_env = {
         "CLAUDE_CONFIG_DIR": "/tmp/resume-claude-config",
@@ -1395,6 +1478,8 @@ def main() -> int:
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
+    test_live_socket_resume_self_heals_mismatched_claude_config_dir(failures)
+    test_live_socket_resume_keeps_correct_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
