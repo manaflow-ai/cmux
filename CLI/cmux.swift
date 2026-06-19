@@ -11682,12 +11682,15 @@ struct CMUXCLI {
             let size = CMUXCLI.currentCLITerminalSize()
             var shouldScheduleWorker = false
             stateLock.lock()
-            if !isCancelled,
-               force || !Self.sameSize(size, lastSentSize) {
-                pendingSize = size
-                if !isWorkerScheduled {
-                    isWorkerScheduled = true
-                    shouldScheduleWorker = true
+            if !isCancelled {
+                if force || !Self.sameSize(size, lastSentSize) {
+                    pendingSize = size
+                    if !isWorkerScheduled {
+                        isWorkerScheduled = true
+                        shouldScheduleWorker = true
+                    }
+                } else {
+                    pendingSize = nil
                 }
             }
             stateLock.unlock()
@@ -11725,9 +11728,11 @@ struct CMUXCLI {
                 }
                 if sent {
                     lastSentSize = size
-                    if let pending = pendingSize,
-                       Self.sameSize(pending, lastSentSize) {
+                    let currentSize = CMUXCLI.currentCLITerminalSize()
+                    if Self.sameSize(currentSize, lastSentSize) {
                         pendingSize = nil
+                    } else {
+                        pendingSize = currentSize
                     }
                     if pendingSize == nil {
                         isWorkerScheduled = false

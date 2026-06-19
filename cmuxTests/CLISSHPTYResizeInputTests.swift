@@ -157,7 +157,17 @@ struct CLISSHPTYResizeInputTests {
             process.waitUntilExit()
             exited.signal()
         }
-        #expect(exited.wait(timeout: .now() + 5) == .success)
+        let didExit = exited.wait(timeout: .now() + 5) == .success
+        #expect(didExit, "Expected ssh-pty-attach to exit")
+        guard didExit else {
+            if process.isRunning {
+                process.terminate()
+            }
+            socketHandled.stop()
+            Darwin.close(listenerFD)
+            listenerFD = -1
+            return
+        }
         socketHandled.stop()
         Darwin.close(listenerFD)
         listenerFD = -1
