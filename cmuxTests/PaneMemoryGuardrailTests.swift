@@ -267,4 +267,49 @@ struct PaneMemoryGuardrailTests {
         )
         #expect(pgids.isEmpty)
     }
+
+    @MainActor
+    @Test
+    func appDelegateGuardrailDescriptorsUseRegisteredWindowManagers() throws {
+        let app = AppDelegate()
+        let bootstrapManager = TabManager()
+        let firstWindowManager = TabManager()
+        let secondWindowManager = TabManager()
+        app.tabManager = bootstrapManager
+
+        let firstWindowId = app.registerMainWindowContextForTesting(tabManager: firstWindowManager)
+        let secondWindowId = app.registerMainWindowContextForTesting(tabManager: secondWindowManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: firstWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+        }
+
+        let bootstrapWorkspace = try #require(bootstrapManager.selectedWorkspace)
+        let firstWindowWorkspace = try #require(firstWindowManager.selectedWorkspace)
+        let secondWindowWorkspace = try #require(secondWindowManager.selectedWorkspace)
+
+        let workspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
+        #expect(workspaceIds.contains(bootstrapWorkspace.id))
+        #expect(workspaceIds.contains(firstWindowWorkspace.id))
+        #expect(workspaceIds.contains(secondWindowWorkspace.id))
+    }
+
+    @MainActor
+    @Test
+    func appDelegateGuardrailCloseRoutesThroughOwningWindowManager() throws {
+        let app = AppDelegate()
+        let bootstrapManager = TabManager()
+        let owningManager = TabManager()
+        app.tabManager = bootstrapManager
+
+        let windowId = app.registerMainWindowContextForTesting(tabManager: owningManager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let workspace = try #require(owningManager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+
+        #expect(app.closePaneForMemoryGuardrail(workspaceId: workspace.id, panelId: panelId))
+        #expect(workspace.panels[panelId] == nil)
+        #expect(bootstrapManager.selectedWorkspace?.panels[panelId] == nil)
+    }
 }

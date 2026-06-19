@@ -2031,7 +2031,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSessions(workspaceID: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
-        startPaneMemoryGuardrailIfNeeded(tabManager: tabManager, notificationStore: notificationStore)
+        startPaneMemoryGuardrailIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
@@ -2062,40 +2062,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// attributes each pane's process-tree memory by controlling tty and warns
     /// (sidebar badge + dismissible banner with a kill action) before a single
     /// leaking pane can OOM-suspend the whole app (issue #6313).
-    private func startPaneMemoryGuardrailIfNeeded(
-        tabManager: TabManager,
-        notificationStore: TerminalNotificationStore
-    ) {
+    private func startPaneMemoryGuardrailIfNeeded(notificationStore: TerminalNotificationStore) {
         let guardrail = PaneMemoryGuardrail.shared
-        guardrail.paneProvider = { [weak tabManager] in
-            guard let tabManager else { return [] }
-            var descriptors: [PaneMemoryDescriptor] = []
-            for workspace in tabManager.tabs {
-                let workspaceTitle = workspace.title
-                for panel in workspace.panels.values {
-                    guard let terminalPanel = panel as? TerminalPanel else { continue }
-                    let surface = terminalPanel.surface
-                    let hasLiveSurface = surface.hasLiveSurface
-                    let ttyName = hasLiveSurface ? surface.controllingTTYName()?
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        : nil
-                    descriptors.append(PaneMemoryDescriptor(
-                        workspaceId: workspace.id,
-                        panelId: terminalPanel.id,
-                        workspaceTitle: workspaceTitle,
-                        paneTitle: terminalPanel.displayTitle,
-                        ttyName: ttyName?.isEmpty == false ? ttyName : nil,
-                        foregroundPID: hasLiveSurface ? surface.foregroundProcessID() : nil
-                    ))
-                }
-            }
-            return descriptors
+        guardrail.paneProvider = { [weak self] in
+            self?.paneMemoryGuardrailDescriptors() ?? []
         }
         guardrail.onWarnedWorkspacesChanged = { [weak notificationStore] ids in
             notificationStore?.sidebarUnread.setMemoryWarningWorkspaceIds(ids)
         }
-        guardrail.onRequestClosePane = { [weak tabManager] workspaceId, panelId in
-            _ = tabManager?.closeSurface(tabId: workspaceId, surfaceId: panelId)
+        guardrail.onRequestClosePane = { [weak self] workspaceId, panelId in
+            _ = self?.closePaneForMemoryGuardrail(workspaceId: workspaceId, panelId: panelId)
         }
         guardrail.start()
     }
