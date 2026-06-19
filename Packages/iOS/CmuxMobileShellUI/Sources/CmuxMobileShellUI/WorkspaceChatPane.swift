@@ -62,6 +62,10 @@ struct WorkspaceChatPane: View {
                         // ~300pt for both bar-button clusters + margins) so the
                         // name truncates instead of underlapping the toolbar.
                         .frame(maxWidth: contentWidth > 0 ? max(96, contentWidth - 300) : 180)
+                        // The header bar is cleared on iOS 26 so the transcript
+                        // shows through it; back the header on its own Liquid
+                        // Glass pill so it stays readable over the messages.
+                        .mobileGlassNavigationTitle()
                     }
                 }
             } else {

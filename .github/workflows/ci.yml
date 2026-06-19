@@ -404,6 +404,19 @@ jobs:
           )
           xcrun xctest "$DERIVED_DATA_PATH/Build/Products/Debug/CmuxTerminalCoreTests.xctest"
 
+      - name: Enable XCTest automation mode
+        run: |
+          set -euo pipefail
+          if ! command -v automationmodetool >/dev/null 2>&1; then
+            echo "::warning::automationmodetool is unavailable; XCTest will use its default automation-mode setup"
+            exit 0
+          fi
+          if sudo -n true 2>/dev/null; then
+            sudo -n automationmodetool enable-automationmode-without-authentication
+          else
+            echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
+          fi
+
       - name: Run browser system proxy mirror regression
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/5888.
@@ -414,7 +427,8 @@ jobs:
           # unconditional gate.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          scripts/ci/run-app-host-xcodebuild.sh \
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
             -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
@@ -434,7 +448,8 @@ jobs:
           # regression an unconditional gate.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          scripts/ci/run-app-host-xcodebuild.sh \
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
             -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
@@ -455,7 +470,8 @@ jobs:
             # When that happens, Swift's crash/backtrace handling or the stale
             # app-host process keeps xcodebuild alive until the job-level timeout,
             # hiding the actual unit test summary.
-            scripts/ci/xcodebuild_noninteractive.py \
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
@@ -853,6 +869,11 @@ jobs:
             export CMUX_VDISPLAY_LOCK_DIR CMUX_VDISPLAY_LOCK_TOKEN
             echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR" >> "$GITHUB_ENV"
             echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN" >> "$GITHUB_ENV"
+
+            # Now that we hold the lock, reap any leaked display helper so a
+            # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
+            # this create on persistent self-hosted runners.
+            scripts/ci/virtual-display-lock.sh reap-strays || true
 
             "$HELPER_PATH" \
               --ready-path "$VDISPLAY_READY" \
@@ -1399,6 +1420,11 @@ jobs:
 
             acquire_display_lock
 
+            # Reap any leaked display helper now that we hold the lock, so a
+            # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
+            # this create on persistent self-hosted runners.
+            scripts/ci/virtual-display-lock.sh reap-strays || true
+
             # Launch display helper from shell (non-sandboxed).
             # Use --start-delay-ms instead of --start-path because the XCTest
             # runner is sandboxed and can't write to /tmp/ for the start signal.
@@ -1562,6 +1588,11 @@ jobs:
           VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-vdisplay-persistent.id"
           VDISPLAY_LOG="$RUNNER_TEMP/cmux-vdisplay-persistent.log"
           rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+
+          # Now that we hold the lock, reap any leaked display helper so a
+          # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
+          # this create on persistent self-hosted runners.
+          scripts/ci/virtual-display-lock.sh reap-strays || true
 
           "$HELPER_PATH" \
             --modes "1920x1080" \
