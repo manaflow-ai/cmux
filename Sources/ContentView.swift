@@ -360,7 +360,7 @@ struct ContentView: View {
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
-    @State private var isFeedbackComposerPresented = false
+    @State private var feedbackComposerCoordinator = FeedbackComposerCoordinator()
     @AppStorage(AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
     private var commandPaletteRenameSelectAllOnFocus = AppCatalogSection().renameSelectsExistingName.defaultValue
     @AppStorage(AppCatalogSection().commandPaletteSearchesAllSurfaces.userDefaultsKey)
@@ -980,7 +980,7 @@ struct ContentView: View {
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
             windowId: windowId,
-            onSendFeedback: presentFeedbackComposer,
+            onSendFeedback: feedbackComposerCoordinator.present,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
                 AppDelegate.shared?.performNewWorkspaceAction(
@@ -2259,7 +2259,7 @@ struct ContentView: View {
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
             ) else { return }
-            presentFeedbackComposer()
+            feedbackComposerCoordinator.present()
         })
 
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
@@ -2417,8 +2417,8 @@ struct ContentView: View {
         })
 
         view = AnyView(view.ignoresSafeArea())
-        view = AnyView(view.sheet(isPresented: $isFeedbackComposerPresented) {
-            SidebarFeedbackComposerSheet()
+        view = AnyView(view.sheet(isPresented: $feedbackComposerCoordinator.isPresented) {
+            feedbackComposerCoordinator.composerSheet()
         })
 
         view = AnyView(view.onDisappear {
@@ -7093,12 +7093,6 @@ struct ContentView: View {
             "focusFlag=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0)"
         )
 #endif
-    }
-
-    private func presentFeedbackComposer() {
-        DispatchQueue.main.async {
-            isFeedbackComposerPresented = true
-        }
     }
 
     static func shouldHandleCommandPaletteRequest(
