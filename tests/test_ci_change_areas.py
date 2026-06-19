@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
 assert spec and spec.loader
@@ -82,6 +83,15 @@ def test_app_source_runs_macos() -> None:
 
 def test_workflow_changes_run_everything() -> None:
     assert_areas([".github/workflows/ci.yml"], macos=True, web=True, go=True)
+
+
+def test_workflow_has_trusted_self_change_guard() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "CI router changed; running all CI areas." in workflow
+    assert "--files-from /tmp/cmux-ci-changed-files.txt" in workflow
+    assert r"\.github/workflows/ci\.yml" in workflow
+    assert r"scripts/ci/detect_ci_change_areas\.py" in workflow
+    assert r"tests/test_ci_change_areas\.py" in workflow
 
 
 def test_router_changes_run_everything() -> None:
