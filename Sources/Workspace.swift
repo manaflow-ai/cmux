@@ -2047,7 +2047,7 @@ final class SharedLiveAgentIndex: ObservableObject {
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
-final class Workspace: Identifiable, ObservableObject {
+final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting {
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
@@ -2317,26 +2317,37 @@ final class Workspace: Identifiable, ObservableObject {
     /// restored from older snapshots; absent provenance is treated as `.user`.
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
-    @Published var manualUnreadPanelIds: Set<UUID> = [] {
-        didSet {
-            guard manualUnreadPanelIds != oldValue else { return }
-            syncPanelDerivedWorkspaceUnread()
-        }
+    /// The per-workspace unread / attention-indicator sub-model (CmuxNotifications):
+    /// owns the unread state the legacy `Workspace` god object kept as loose
+    /// `@Published` stored properties (`manualUnreadPanelIds`,
+    /// `restoredUnreadPanelIndicators`, `manualUnreadMarkedAt`) plus the badge-sync
+    /// and indicator state-transition logic. The legacy accessors and methods below
+    /// forward here. Those properties were `@Published` and SwiftUI views observed
+    /// them on this `ObservableObject`, so the model fires `willChange` (wired in
+    /// `init` to `objectWillChange.send()`) at `willSet` time to preserve the
+    /// `@Published` emission moment. `Workspace` conforms to
+    /// `WorkspaceUnreadHosting` for the live panel / bonsplit / notification-store
+    /// reads the transitions need.
+    let unreadModel = WorkspaceUnreadModel()
+    var manualUnreadPanelIds: Set<UUID> {
+        get { unreadModel.manualUnreadPanelIds }
+        set { unreadModel.manualUnreadPanelIds = newValue }
     }
-    @Published private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] = [:] {
-        didSet {
-            guard restoredUnreadPanelIndicators != oldValue else { return }
-            syncPanelDerivedWorkspaceUnread()
-        }
+    private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] {
+        get { unreadModel.restoredUnreadPanelIndicators }
+        set { unreadModel.restoredUnreadPanelIndicators = newValue }
     }
     var restoredUnreadPanelIds: Set<UUID> {
-        Set(restoredUnreadPanelIndicators.keys)
+        unreadModel.restoredUnreadPanelIds
     }
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
-    var manualUnreadMarkedAt: [UUID: Date] = [:]
+    var manualUnreadMarkedAt: [UUID: Date] {
+        get { unreadModel.manualUnreadMarkedAt }
+        set { unreadModel.manualUnreadMarkedAt = newValue }
+    }
     /// The sidebar-metadata sub-model (CmuxSidebar): owns the
     /// sidebar status entries, metadata blocks, log entries, progress, and
     /// git-branch / pull-request presentation state. The legacy accessors below
@@ -3016,6 +3027,8 @@ final class Workspace: Identifiable, ObservableObject {
         self.bonsplitController = BonsplitController(configuration: config)
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
+        unreadModel.attach(host: self)
+        unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
@@ -3855,36 +3868,19 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func syncUnreadBadgeStateForPanel(_ panelId: UUID) {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
-        let notificationStore = AppDelegate.shared?.notificationStore
-        let shouldShowUnread = Self.shouldShowUnreadIndicator(
-            hasUnreadNotification: hasVisibleNotificationIndicator(panelId: panelId),
-            hasPanelUnreadIndicator: manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId),
-            isWorkspaceManuallyUnread: notificationStore?.hasManualUnread(forTabId: id) ?? false,
-            isWorkspaceManualUnreadRepresentative: representativePanelIdForWorkspaceManualUnread() == panelId
-        )
-        if let existing = bonsplitController.tab(tabId), existing.showsNotificationBadge == shouldShowUnread {
-            return
-        }
-        bonsplitController.updateTab(tabId, showsNotificationBadge: shouldShowUnread)
+        unreadModel.syncUnreadBadgeStateForPanel(panelId)
     }
 
     private func syncUnreadBadgeStateForAllPanels() {
-        for panelId in panels.keys {
-            syncUnreadBadgeStateForPanel(panelId)
-        }
+        unreadModel.syncUnreadBadgeStateForAllPanels()
     }
 
     func syncPanelDerivedWorkspaceUnread() {
-        AppDelegate.shared?.notificationStore?.setPanelDerivedUnread(
-            !manualUnreadPanelIds.isEmpty ||
-                hasWorkspaceContributingRestoredUnreadIndicator,
-            forTabId: id
-        )
+        unreadModel.syncPanelDerivedWorkspaceUnread()
     }
 
     var hasWorkspaceContributingRestoredUnreadIndicator: Bool {
-        restoredUnreadPanelIndicators.values.contains { $0.contributesToWorkspaceUnread }
+        unreadModel.hasWorkspaceContributingRestoredUnreadIndicator
     }
 
     private func normalizePinnedTabs(in paneId: PaneID) {
@@ -4072,113 +4068,50 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func markPanelUnread(_ panelId: UUID) {
-        guard panels[panelId] != nil else { return }
-        let didClearRestored = restoredUnreadPanelIndicators.removeValue(forKey: panelId) != nil
-        let didInsertManual = manualUnreadPanelIds.insert(panelId).inserted
-        guard didInsertManual || didClearRestored else { return }
-        manualUnreadMarkedAt[panelId] = Date()
-        syncUnreadBadgeStateForPanel(panelId)
+        unreadModel.markPanelUnread(panelId)
     }
 
     func preferredUnreadPanelIdForJump() -> UUID? {
-        let latestManualPanelId = manualUnreadMarkedAt
-            .filter { manualUnreadPanelIds.contains($0.key) && panels[$0.key] != nil }
-            .max { $0.value < $1.value }?
-            .key
-        if let latestManualPanelId {
-            return latestManualPanelId
-        }
-        if let manualPanelId = manualUnreadPanelIds.first(where: { panels[$0] != nil }) {
-            return manualPanelId
-        }
-        if let restoredPanelId = restoredUnreadPanelIds.first(where: { panels[$0] != nil }) {
-            return restoredPanelId
-        }
-        return representativePanelIdForWorkspaceManualUnread()
+        unreadModel.preferredUnreadPanelIdForJump()
     }
 
     func markPanelRead(_ panelId: UUID) {
-        guard panels[panelId] != nil else { return }
-        let notificationStore = AppDelegate.shared?.notificationStore
-        notificationStore?.markRead(forTabId: id, surfaceId: panelId)
-        _ = clearManualUnreadState(panelId: panelId)
-        let restoredIndicator = restoredUnreadPanelIndicators[panelId]
-        let didClearRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
-        if didClearRestored,
-           restoredIndicator?.contributesToWorkspaceUnread == true,
-           !hasWorkspaceContributingRestoredUnreadIndicator {
-            _ = notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
-        }
-        syncUnreadBadgeStateForPanel(panelId)
+        unreadModel.markPanelRead(panelId)
     }
 
     func clearUnreadAfterJump(panelId: UUID?) {
-        if let panelId,
-           manualUnreadPanelIds.contains(panelId) || restoredUnreadPanelIds.contains(panelId) {
-            markPanelRead(panelId)
-            return
-        }
-        AppDelegate.shared?.notificationStore?.markRead(forTabId: id)
+        unreadModel.clearUnreadAfterJump(panelId: panelId)
     }
 
     func clearManualUnread(panelId: UUID) {
-        let didRemoveManual = clearManualUnreadState(panelId: panelId)
-        let didRemoveRestored = clearRestoredUnreadIndicatorState(panelId: panelId)
-        guard didRemoveManual || didRemoveRestored else { return }
-        syncUnreadBadgeStateForPanel(panelId)
+        unreadModel.clearManualUnread(panelId: panelId)
     }
 
     @discardableResult
     func clearAllPanelUnreadIndicatorsForWorkspaceRead() -> Bool {
-        let hadLocalUnreadIndicators = !manualUnreadPanelIds.isEmpty || !restoredUnreadPanelIds.isEmpty
-        let affectedPanelIds = Set(panels.keys)
-            .union(manualUnreadPanelIds)
-            .union(restoredUnreadPanelIds)
-        guard !affectedPanelIds.isEmpty else { return false }
-        manualUnreadPanelIds.removeAll()
-        restoredUnreadPanelIndicators.removeAll()
-        manualUnreadMarkedAt.removeAll()
-        for panelId in affectedPanelIds {
-            syncUnreadBadgeStateForPanel(panelId)
-        }
-        return hadLocalUnreadIndicators
-    }
-
-    private func clearManualUnreadState(panelId: UUID) -> Bool {
-        let didRemoveUnread = manualUnreadPanelIds.remove(panelId) != nil
-        manualUnreadMarkedAt.removeValue(forKey: panelId)
-        return didRemoveUnread
+        unreadModel.clearAllPanelUnreadIndicatorsForWorkspaceRead()
     }
 
     func restorePanelUnreadIndicator(
         _ panelId: UUID,
         contributesToWorkspaceUnread: Bool = true
     ) {
-        guard panels[panelId] != nil else { return }
-        let nextIndicator = RestoredPanelUnreadIndicator(
+        unreadModel.restorePanelUnreadIndicator(
+            panelId,
             contributesToWorkspaceUnread: contributesToWorkspaceUnread
         )
-        guard restoredUnreadPanelIndicators[panelId] != nextIndicator else { return }
-        restoredUnreadPanelIndicators[panelId] = nextIndicator
-        syncUnreadBadgeStateForPanel(panelId)
     }
 
     func clearRestoredUnreadIndicator(panelId: UUID) {
-        let didRemoveUnread = clearRestoredUnreadIndicatorState(panelId: panelId)
-        guard didRemoveUnread else { return }
-        syncUnreadBadgeStateForPanel(panelId)
+        unreadModel.clearRestoredUnreadIndicator(panelId: panelId)
     }
 
     func hasRestoredUnreadIndicator(panelId: UUID) -> Bool {
-        restoredUnreadPanelIds.contains(panelId)
+        unreadModel.hasRestoredUnreadIndicator(panelId: panelId)
     }
 
     func restoredUnreadIndicatorContributesToWorkspace(panelId: UUID) -> Bool? {
-        restoredUnreadPanelIndicators[panelId]?.contributesToWorkspaceUnread
-    }
-
-    private func clearRestoredUnreadIndicatorState(panelId: UUID) -> Bool {
-        restoredUnreadPanelIndicators.removeValue(forKey: panelId) != nil
+        unreadModel.restoredUnreadIndicatorContributesToWorkspace(panelId: panelId)
     }
 
     static func shouldShowUnreadIndicator(
@@ -4187,9 +4120,62 @@ final class Workspace: Identifiable, ObservableObject {
         isWorkspaceManuallyUnread: Bool = false,
         isWorkspaceManualUnreadRepresentative: Bool = false
     ) -> Bool {
-        hasUnreadNotification ||
-            hasPanelUnreadIndicator ||
-            (isWorkspaceManuallyUnread && isWorkspaceManualUnreadRepresentative)
+        WorkspaceUnreadModel.shouldShowUnreadIndicator(
+            hasUnreadNotification: hasUnreadNotification,
+            hasPanelUnreadIndicator: hasPanelUnreadIndicator,
+            isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+            isWorkspaceManualUnreadRepresentative: isWorkspaceManualUnreadRepresentative
+        )
+    }
+
+    // MARK: - WorkspaceUnreadHosting (live seam for WorkspaceUnreadModel)
+
+    func workspaceUnreadPanelExists(_ panelId: UUID) -> Bool {
+        panels[panelId] != nil
+    }
+
+    func workspaceUnreadPanelIds() -> Set<UUID> {
+        Set(panels.keys)
+    }
+
+    func workspaceUnreadPanelHasTab(_ panelId: UUID) -> Bool {
+        surfaceIdFromPanelId(panelId) != nil
+    }
+
+    func workspaceUnreadHasVisibleNotificationIndicator(panelId: UUID) -> Bool {
+        hasVisibleNotificationIndicator(panelId: panelId)
+    }
+
+    func workspaceUnreadNotificationHasManualUnread() -> Bool {
+        AppDelegate.shared?.notificationStore?.hasManualUnread(forTabId: id) ?? false
+    }
+
+    func workspaceUnreadRepresentativePanelId() -> UUID? {
+        representativePanelIdForWorkspaceManualUnread()
+    }
+
+    func workspaceUnreadApplyBadge(panelId: UUID, showsNotificationBadge: Bool) {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        if let existing = bonsplitController.tab(tabId), existing.showsNotificationBadge == showsNotificationBadge {
+            return
+        }
+        bonsplitController.updateTab(tabId, showsNotificationBadge: showsNotificationBadge)
+    }
+
+    func workspaceUnreadSetPanelDerivedUnread(_ isUnread: Bool) {
+        AppDelegate.shared?.notificationStore?.setPanelDerivedUnread(isUnread, forTabId: id)
+    }
+
+    func workspaceUnreadNotificationMarkRead(panelId: UUID) {
+        AppDelegate.shared?.notificationStore?.markRead(forTabId: id, surfaceId: panelId)
+    }
+
+    func workspaceUnreadNotificationMarkReadWorkspace() {
+        AppDelegate.shared?.notificationStore?.markRead(forTabId: id)
+    }
+
+    func workspaceUnreadNotificationClearRestoredUnreadIndicator() {
+        _ = AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
     }
 
     // MARK: - Title Management
