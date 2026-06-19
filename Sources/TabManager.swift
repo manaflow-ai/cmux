@@ -5902,7 +5902,7 @@ extension TabManager {
         // restored ones. Tear the old graph down after the atomic swap so late
         // panel/socket callbacks cannot keep mutating hidden pre-restore state.
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.teardownAllPanels()
+        workspace.teardownAllPanels(killOwnedTmuxSessions: false)
         workspace.teardownRemoteConnection()
         workspace.owningTabManager = nil
     }

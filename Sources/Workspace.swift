@@ -7,6 +7,7 @@ import CmuxRemoteSession
 import CmuxRemoteWorkspace
 import CmuxWorkspaces
 import CmuxTerminal
+import CmuxTerminalCore
 import SwiftUI
 import AppKit
 import CmuxFoundation
@@ -395,7 +396,9 @@ extension Workspace {
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
             }
         }
-        let hibernationState = (panel as? TerminalPanel)?.agentHibernationState
+        let terminalPanelForSnapshot = panel as? TerminalPanel
+        let ownedTmuxSessionName = terminalPanelForSnapshot?.surface.debugOwnedTmuxSessionName()
+        let hibernationState = ownedTmuxSessionName == nil ? terminalPanelForSnapshot?.agentHibernationState : nil
         let effectiveHibernationState = hibernationState.flatMap { state in
             Self.restorableAgentForSessionRestore(
                 state.agent,
@@ -470,7 +473,7 @@ extension Workspace {
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
-            let restorableTmuxStartCommand = effectiveRestorableAgent == nil
+            let restorableTmuxStartCommand = effectiveRestorableAgent == nil && ownedTmuxSessionName == nil
                 ? sessionRestorePolicy.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
             let agentWasRunning: Bool? = {
@@ -484,8 +487,9 @@ extension Workspace {
                     return nil
                 }
             }()
+            let snapshotResumeBinding = resumeBinding
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
-                resumeBinding,
+                snapshotResumeBinding,
                 autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled() && (agentWasRunning ?? true),
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
@@ -496,7 +500,7 @@ extension Workspace {
             )
             let shouldPersistScrollback = sessionRestorePolicy.shouldPersistSessionScrollback(
                 closeConfirmationRequired: closeConfirmationRequired
-            ) && sessionRestorePolicy.shouldReplaySessionScrollback(
+            ) && ownedTmuxSessionName == nil && sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: effectiveRestorableAgent != nil,
                 tmuxStartCommand: restorableTmuxStartCommand,
                 hasResumeStartupWork: resumeStartupInput != nil
@@ -524,14 +528,18 @@ extension Workspace {
                 workingDirectory: directory,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
-                tmuxStartCommand: restorableTmuxStartCommand,
+                tmuxStartCommand: ownedTmuxSessionName.map {
+                    CmuxTerminalCore.CmuxOwnedTmuxSession.attachCommand(sessionName: $0)
+                }
+                    ?? restorableTmuxStartCommand,
+                ownedTmuxSessionName: ownedTmuxSessionName,
                 hibernation: effectiveHibernationState.map {
                     SessionAgentHibernationSnapshot(
                         hibernatedAt: $0.hibernatedAt.timeIntervalSince1970,
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
                 },
-                resumeBinding: resumeBinding,
+                resumeBinding: snapshotResumeBinding,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
@@ -1190,6 +1198,9 @@ extension Workspace {
     ) -> UUID? {
         switch snapshot.type {
         case .terminal:
+            let ownedTmuxSessionName = snapshot.terminal?.ownedTmuxSessionName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
             let snapshotRestorableAgent = snapshot.terminal?.agent
             let resumeBinding = Self.resumeBindingForSessionRestore(
                 snapshot.terminal?.resumeBinding,
@@ -1199,7 +1210,9 @@ extension Workspace {
                 snapshotRestorableAgent,
                 resumeBinding: resumeBinding
             )
-            let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
+            let restoredHibernation = ownedTmuxSessionName == nil && restorableAgent != nil
+                ? snapshot.terminal?.hibernation
+                : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
@@ -1237,7 +1250,7 @@ extension Workspace {
                 ?? snapshot.directory
             let workingDirectory = savedWorkingDirectory
                 ?? currentDirectory
-            let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
+            let restorableTmuxStartCommand = ownedTmuxSessionName == nil && restorableAgent == nil && restoredBindingLaunch == nil
                 ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
@@ -1262,7 +1275,7 @@ extension Workspace {
                 } else {
                     nil
                 }
-            let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
+            let shouldReplayScrollback = ownedTmuxSessionName == nil && sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
@@ -1363,7 +1376,8 @@ extension Workspace {
                 runtimeSpawnPolicy: .pacedSessionRestore,
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-                restoredSurfaceId: reusableSurfaceId
+                restoredSurfaceId: reusableSurfaceId,
+                ownedTmuxSessionName: ownedTmuxSessionName
             ) else {
                 return nil
             }
@@ -3069,13 +3083,31 @@ final class Workspace: Identifiable, ObservableObject {
             installBrowserPanelSubscription(browserPanel)
         } else {
             // Create initial terminal panel
+            let terminalPanelId = UUID()
+            let initialWorkingDirectory = hasWorkingDirectory ? trimmedWorkingDirectory : nil
+            let ownedTmuxLaunch = ownedTmuxTerminalLaunch(
+                panelId: terminalPanelId,
+                requestedSessionName: nil,
+                workingDirectory: initialWorkingDirectory,
+                startupCommand: initialTerminalCommand,
+                tmuxStartCommand: nil,
+                isRemoteTerminal: false
+            )
+            if ownedTmuxLaunch != nil {
+                var template = resolvedConfigTemplate ?? CmuxSurfaceConfigTemplate()
+                template.waitAfterCommand = true
+                resolvedConfigTemplate = template
+            }
             let terminalPanel = TerminalPanel(
+                id: terminalPanelId,
                 workspaceId: id,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB,
                 configTemplate: resolvedConfigTemplate,
-                workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
+                workingDirectory: initialWorkingDirectory,
                 portOrdinal: portOrdinal,
-                initialCommand: initialTerminalCommand,
+                initialCommand: ownedTmuxLaunch?.initialCommand ?? initialTerminalCommand,
+                tmuxStartCommand: ownedTmuxLaunch?.tmuxStartCommand,
+                ownedTmuxSessionName: ownedTmuxLaunch?.sessionName,
                 initialInput: initialTerminalInput,
                 initialEnvironmentOverrides: Self.startupEnvironment(
                     workspaceEnvironment: sanitizedWorkspaceEnvironment,
@@ -6734,6 +6766,70 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    private struct OwnedTmuxTerminalLaunch {
+        let initialCommand: String
+        let tmuxStartCommand: String
+        let sessionName: String
+    }
+
+    private func ownedTmuxTerminalLaunch(
+        panelId: UUID,
+        requestedSessionName: String?,
+        workingDirectory: String?,
+        startupCommand: String?,
+        tmuxStartCommand: String?,
+        isRemoteTerminal: Bool
+    ) -> OwnedTmuxTerminalLaunch? {
+        guard !isRemoteTerminal else { return nil }
+        let startupCommand = normalizedOwnedTmuxStartupCommand(startupCommand)
+            ?? normalizedOwnedTmuxStartupCommand(tmuxStartCommand)
+        let sessionName = requestedSessionName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? CmuxTerminalCore.CmuxOwnedTmuxSession.sessionName(
+                workspaceTitle: customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? title,
+                workspaceDirectory: workingDirectory ?? currentDirectory,
+                workspaceId: id,
+                panelTitle: Self.ownedTmuxPanelTitle(startupCommand: startupCommand),
+                panelId: panelId
+            )
+        do {
+            let scriptURL = try CmuxTerminalCore.CmuxOwnedTmuxSession.writeLauncherScript(
+                sessionName: sessionName,
+                workspaceId: id,
+                panelId: panelId,
+                workingDirectory: workingDirectory ?? currentDirectory,
+                startupCommand: startupCommand
+            )
+            return OwnedTmuxTerminalLaunch(
+                initialCommand: scriptURL.path,
+                tmuxStartCommand: CmuxTerminalCore.CmuxOwnedTmuxSession.attachCommand(sessionName: sessionName),
+                sessionName: sessionName
+            )
+        } catch {
+#if DEBUG
+            cmuxDebugLog(
+                "ownedTmux.launcher.write.failed workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) error=\(error.localizedDescription)"
+            )
+#endif
+            return nil
+        }
+    }
+
+    private func normalizedOwnedTmuxStartupCommand(_ command: String?) -> String? {
+        let trimmed = command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func ownedTmuxPanelTitle(startupCommand: String?) -> String? {
+        guard let startupCommand else { return nil }
+        let lowercased = startupCommand.lowercased()
+        for candidate in ["claude", "codex", "opencode", "gemini", "cursor", "amp", "oh-my-codex", "omx"] where lowercased.contains(candidate) {
+            return candidate
+        }
+        let firstToken = startupCommand.split(whereSeparator: \.isWhitespace).first.map(String.init)
+        return firstToken.map { URL(fileURLWithPath: $0).lastPathComponent }
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -6884,21 +6980,37 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
         // Create the new terminal panel.
+        let newPanelId = UUID()
+        let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
+        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        let ownedTmuxLaunch = ownedTmuxTerminalLaunch(
+            panelId: newPanelId,
+            requestedSessionName: nil,
+            workingDirectory: splitWorkingDirectory,
+            startupCommand: startupCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            isRemoteTerminal: tracksRemoteTerminalSurface
+        )
+        if ownedTmuxLaunch != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
         let newPanel = TerminalPanel(
+            id: newPanelId,
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand,
+            initialCommand: ownedTmuxLaunch?.initialCommand ?? startupCommand,
+            tmuxStartCommand: ownedTmuxLaunch?.tmuxStartCommand ?? tmuxStartCommand,
+            ownedTmuxSessionName: ownedTmuxLaunch?.sessionName,
             additionalEnvironment: effectiveStartupEnvironment
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -7010,6 +7122,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
+        ownedTmuxSessionName: String? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil
     ) -> TerminalPanel? {
@@ -7027,6 +7140,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
+            ownedTmuxSessionName: ownedTmuxSessionName,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId
         ).panel
@@ -7049,6 +7163,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
+        ownedTmuxSessionName: String? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil
     ) -> TerminalPanelCreationOutcome {
@@ -7078,6 +7193,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
+            ownedTmuxSessionName: ownedTmuxSessionName,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId
         ) else { return .failed }
@@ -7098,6 +7214,7 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
+        ownedTmuxSessionName: String?,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?
     ) -> TerminalPanel? {
@@ -7136,15 +7253,32 @@ final class Workspace: Identifiable, ObservableObject {
         // surface id (the panel/surface id IS the ghostty surface id, a
         // Swift-side UUID), so a session's terminal binding survives relaunch
         // and restore. The caller only passes an id it has verified is free.
+        let newPanelId = restoredSurfaceId ?? UUID()
+        let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
+        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        let ownedTmuxLaunch = ownedTmuxTerminalLaunch(
+            panelId: newPanelId,
+            requestedSessionName: ownedTmuxSessionName,
+            workingDirectory: requestedWorkingDirectory,
+            startupCommand: startupCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            isRemoteTerminal: tracksRemoteTerminalSurface
+        )
+        if ownedTmuxLaunch != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
         let newPanel = TerminalPanel(
-            id: restoredSurfaceId ?? UUID(),
+            id: newPanelId,
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: requestedWorkingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand,
+            initialCommand: ownedTmuxLaunch?.initialCommand ?? startupCommand,
+            tmuxStartCommand: ownedTmuxLaunch?.tmuxStartCommand ?? tmuxStartCommand,
+            ownedTmuxSessionName: ownedTmuxLaunch?.sessionName,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: runtimeSpawnPolicy
@@ -7152,8 +7286,6 @@ final class Workspace: Identifiable, ObservableObject {
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -7374,7 +7506,7 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
 
-        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory,
             sourcePanelId: panelId
@@ -7389,6 +7521,9 @@ final class Workspace: Identifiable, ObservableObject {
         let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
         let focusPlacement = oldPanel.surface.focusPlacement
         let launchContext = oldPanel.surface.launchContext
+        let ownedTmuxSessionName = oldPanel.surface.ownedTmuxSessionName
+        let wasRemoteTerminal = activeRemoteTerminalSurfaceIds.contains(panelId) ||
+            remotePTYSessionIDsByPanelId[panelId] != nil
         // Drop env this surface inherited from its (possibly previous) workspace,
         // then re-fold the current workspace's env below, so a terminal moved
         // between workspaces respawns with the destination's variables rather than
@@ -7424,6 +7559,19 @@ final class Workspace: Identifiable, ObservableObject {
         GhosttyApp.terminalSurfaceRegistry.unregister(oldPanel.surface)
         oldPanel.surface.teardownSurface()
 
+        let ownedTmuxLaunch = ownedTmuxTerminalLaunch(
+            panelId: panelId,
+            requestedSessionName: ownedTmuxSessionName,
+            workingDirectory: requestedWorkingDirectory,
+            startupCommand: trimmedCommand,
+            tmuxStartCommand: replacementTmuxStartCommand,
+            isRemoteTerminal: wasRemoteTerminal
+        )
+        if ownedTmuxLaunch != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
         let replacementPanel = TerminalPanel(
             id: panelId,
             workspaceId: id,
@@ -7431,8 +7579,9 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: requestedWorkingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: trimmedCommand,
-            tmuxStartCommand: replacementTmuxStartCommand,
+            initialCommand: ownedTmuxLaunch?.initialCommand ?? trimmedCommand,
+            tmuxStartCommand: ownedTmuxLaunch?.tmuxStartCommand ?? replacementTmuxStartCommand,
+            ownedTmuxSessionName: ownedTmuxLaunch?.sessionName,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement
@@ -8300,7 +8449,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
-    func teardownAllPanels() {
+    func teardownAllPanels(killOwnedTmuxSessions: Bool = true) {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
@@ -8317,7 +8466,8 @@ final class Workspace: Identifiable, ObservableObject {
                 publishSurfaceClosedEvent: true,
                 clearSurfaceNotifications: true,
                 requestTransferredRemoteCleanup: true,
-                cleanupControllerSurfaceState: true
+                cleanupControllerSurfaceState: true,
+                killOwnedTmuxSession: killOwnedTmuxSessions
             )
         }
         pruneSurfaceMetadata(validSurfaceIds: [])
@@ -9686,12 +9836,29 @@ final class Workspace: Identifiable, ObservableObject {
             config.waitAfterCommand = true
             replacementConfig = config
         }
+        let newPanelId = UUID()
+        let ownedTmuxLaunch = ownedTmuxTerminalLaunch(
+            panelId: newPanelId,
+            requestedSessionName: nil,
+            workingDirectory: nil,
+            startupCommand: replacementInitialCommand,
+            tmuxStartCommand: nil,
+            isRemoteTerminal: false
+        )
+        if ownedTmuxLaunch != nil {
+            var config = replacementConfig ?? CmuxSurfaceConfigTemplate()
+            config.waitAfterCommand = true
+            replacementConfig = config
+        }
         let newPanel = TerminalPanel(
+            id: newPanelId,
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: replacementConfig,
             portOrdinal: portOrdinal,
-            initialCommand: replacementInitialCommand,
+            initialCommand: ownedTmuxLaunch?.initialCommand ?? replacementInitialCommand,
+            tmuxStartCommand: ownedTmuxLaunch?.tmuxStartCommand,
+            ownedTmuxSessionName: ownedTmuxLaunch?.sessionName,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )
         configureNewTerminalPanel(newPanel)
@@ -10765,13 +10932,30 @@ final class Workspace: Identifiable, ObservableObject {
             inheritedConfig = template
         }
 
+        let newPanelId = UUID()
+        let ownedTmuxLaunch = ownedTmuxTerminalLaunch(
+            panelId: newPanelId,
+            requestedSessionName: nil,
+            workingDirectory: workingDirectory,
+            startupCommand: startupCommand,
+            tmuxStartCommand: nil,
+            isRemoteTerminal: startupCommand != nil
+        )
+        if ownedTmuxLaunch != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
         let newPanel = TerminalPanel(
+            id: newPanelId,
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
+            initialCommand: ownedTmuxLaunch?.initialCommand ?? startupCommand,
+            tmuxStartCommand: ownedTmuxLaunch?.tmuxStartCommand,
+            ownedTmuxSessionName: ownedTmuxLaunch?.sessionName,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment
         )
@@ -12255,13 +12439,31 @@ extension Workspace: BonsplitDelegate {
                     // Keep the existing placeholder tab identity and replace only the panel mapping.
                     // This avoids an extra create+close tab churn that can transiently render an
                     // empty pane during drag-to-split of a single-tab pane.
-                    let inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
+                    var inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
+                    let replacementPanelId = UUID()
+                    let ownedTmuxLaunch = ownedTmuxTerminalLaunch(
+                        panelId: replacementPanelId,
+                        requestedSessionName: nil,
+                        workingDirectory: nil,
+                        startupCommand: nil,
+                        tmuxStartCommand: nil,
+                        isRemoteTerminal: false
+                    )
+                    if ownedTmuxLaunch != nil {
+                        var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+                        template.waitAfterCommand = true
+                        inheritedConfig = template
+                    }
 
                     let replacementPanel = TerminalPanel(
+                        id: replacementPanelId,
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
                         portOrdinal: portOrdinal,
+                        initialCommand: ownedTmuxLaunch?.initialCommand,
+                        tmuxStartCommand: ownedTmuxLaunch?.tmuxStartCommand,
+                        ownedTmuxSessionName: ownedTmuxLaunch?.sessionName,
                         additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
                     )
                     configureNewTerminalPanel(replacementPanel)
@@ -12321,16 +12523,34 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
 
-        let inheritedConfig = inheritedTerminalConfig(
+        var inheritedConfig = inheritedTerminalConfig(
             preferredPanelId: sourcePanelId,
             inPane: originalPane
         )
+        let newPanelId = UUID()
+        let ownedTmuxLaunch = ownedTmuxTerminalLaunch(
+            panelId: newPanelId,
+            requestedSessionName: nil,
+            workingDirectory: nil,
+            startupCommand: nil,
+            tmuxStartCommand: nil,
+            isRemoteTerminal: false
+        )
+        if ownedTmuxLaunch != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
 
         let newPanel = TerminalPanel(
+            id: newPanelId,
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal,
+            initialCommand: ownedTmuxLaunch?.initialCommand,
+            tmuxStartCommand: ownedTmuxLaunch?.tmuxStartCommand,
+            ownedTmuxSessionName: ownedTmuxLaunch?.sessionName,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )
         configureNewTerminalPanel(newPanel)

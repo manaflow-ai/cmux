@@ -4,6 +4,7 @@ import CmuxCore
 import Darwin
 import Foundation
 import CmuxSidebar
+import CmuxTerminalCore
 
 extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
@@ -296,7 +297,8 @@ extension Workspace {
         publishSurfaceClosedEvent: Bool,
         clearSurfaceNotifications: Bool,
         requestTransferredRemoteCleanup: Bool,
-        cleanupControllerSurfaceState: Bool = false
+        cleanupControllerSurfaceState: Bool = false,
+        killOwnedTmuxSession: Bool = true
     ) -> WorkspaceRemoteConfiguration? {
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -310,6 +312,15 @@ extension Workspace {
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
+        }
+        if closePanel, killOwnedTmuxSession,
+           let terminalPanel = panel as? TerminalPanel,
+           let ownedTmuxSessionName = terminalPanel.surface.ownedTmuxSessionName {
+            CmuxOwnedTmuxSessionTerminator.killIfOwned(
+                sessionName: ownedTmuxSessionName,
+                workspaceId: id,
+                panelId: panelId
+            )
         }
         if closePanel {
             panel?.close()
@@ -377,5 +388,51 @@ extension Workspace {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
         return transferredRemoteCleanupConfiguration
+    }
+}
+
+private enum CmuxOwnedTmuxSessionTerminator {
+    static func killIfOwned(sessionName: String, workspaceId: UUID, panelId: UUID) {
+        let sessionName = sessionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sessionName.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            guard tmux(["has-session", "-t", sessionName]).status == 0 else { return }
+            let owned = trimmedOutput(
+                tmux(["show-options", "-qv", "-t", sessionName, CmuxTerminalCore.CmuxOwnedTmuxSession.ownedOption])
+            )
+            let workspace = trimmedOutput(
+                tmux(["show-options", "-qv", "-t", sessionName, CmuxTerminalCore.CmuxOwnedTmuxSession.workspaceOption])
+            )
+            let panel = trimmedOutput(
+                tmux(["show-options", "-qv", "-t", sessionName, CmuxTerminalCore.CmuxOwnedTmuxSession.panelOption])
+            )
+            guard owned == "1",
+                  workspace == workspaceId.uuidString,
+                  panel == panelId.uuidString else {
+                return
+            }
+            _ = tmux(["kill-session", "-t", sessionName])
+        }
+    }
+
+    private static func tmux(_ arguments: [String]) -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux"] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return (process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+        } catch {
+            return (127, "")
+        }
+    }
+
+    private static func trimmedOutput(_ result: (status: Int32, output: String)) -> String {
+        result.output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

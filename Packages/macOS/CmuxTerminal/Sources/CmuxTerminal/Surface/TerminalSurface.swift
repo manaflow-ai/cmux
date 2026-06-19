@@ -149,6 +149,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The tmux bootstrap command captured for respawn, if any.
     public let tmuxStartCommand: String?
 
+    /// The Cmux-owned tmux session that backs this terminal surface, if any.
+    public let ownedTmuxSessionName: String?
+
     /// Text written to the surface immediately after the first spawn, if any.
     public let initialInput: String?
     var nextRuntimeInitialInput: String?
@@ -375,6 +378,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         portOrdinal: Int = 0,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
+        ownedTmuxSessionName: String? = nil,
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
@@ -394,6 +398,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
         let trimmedTmuxStartCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.tmuxStartCommand = (trimmedTmuxStartCommand?.isEmpty == false) ? trimmedTmuxStartCommand : nil
+        let trimmedOwnedTmuxSessionName = ownedTmuxSessionName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.ownedTmuxSessionName = (trimmedOwnedTmuxSessionName?.isEmpty == false) ? trimmedOwnedTmuxSessionName : nil
         let trimmedInput = initialInput?.isEmpty == false ? initialInput : nil
         self.initialInput = trimmedInput
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
