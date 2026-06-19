@@ -5,10 +5,10 @@ import Testing
 @Suite(.serialized)
 struct CLISSHPTYResizeInputTests {
     @Test
-    func attachReportsPTYSizeChangeBeforeForwardingInputWithoutSIGWINCH() throws {
+    func attachReportsPTYSizeChangeFromInputWithoutBlockingInputOnResizeResponse() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyinputresize")
-        let listenerFD = try bindUnixSocket(at: socketPath)
+        var listenerFD = try bindUnixSocket(at: socketPath)
         let bridge = try bindLoopbackTCP()
         let state = MockSocketServerState()
         let workspaceId = "22222222-2222-2222-2222-222222222222"
@@ -17,6 +17,7 @@ struct CLISSHPTYResizeInputTests {
         let token = "bridge-token"
         let resizeRequestReceived = DispatchSemaphore(value: 0)
         let inputForwarded = DispatchSemaphore(value: 0)
+        let inputForwardedForResizeResponse = DispatchSemaphore(value: 0)
         let bridgeReady = DispatchSemaphore(value: 0)
         let closeBridge = DispatchSemaphore(value: 0)
         let bridgeCloseObserved = DispatchSemaphore(value: 0)
@@ -28,7 +29,7 @@ struct CLISSHPTYResizeInputTests {
         defer {
             if masterFD >= 0 { Darwin.close(masterFD) }
             if slaveFD >= 0 { Darwin.close(slaveFD) }
-            Darwin.close(listenerFD)
+            if listenerFD >= 0 { Darwin.close(listenerFD) }
             Darwin.close(bridge.fd)
             unlink(socketPath)
         }
@@ -63,6 +64,7 @@ struct CLISSHPTYResizeInputTests {
                 capturedResizeParams.store(params)
                 eventRecorder.append("resize")
                 resizeRequestReceived.signal()
+                _ = inputForwardedForResizeResponse.wait(timeout: .now() + 5)
                 return v2Response(id: id, ok: true, result: [:])
             case "workspace.remote.pty_sessions":
                 return v2Response(id: id, ok: true, result: ["sessions": []])
@@ -90,6 +92,7 @@ struct CLISSHPTYResizeInputTests {
             bridge: bridge,
             bridgeReady: bridgeReady,
             inputForwarded: inputForwarded,
+            inputForwardedForResizeResponse: inputForwardedForResizeResponse,
             closeBridge: closeBridge,
             bridgeCloseObserved: bridgeCloseObserved,
             eventRecorder: eventRecorder
@@ -138,12 +141,12 @@ struct CLISSHPTYResizeInputTests {
         try setPTYSize(masterFD: masterFD, cols: 120, rows: 40)
         writeAll(fd: masterFD, data: Data("stty size\n".utf8))
         #expect(
-            inputForwarded.wait(timeout: .now() + 5) == .success,
-            "Expected ssh-pty-attach to forward typed input to the bridge"
+            resizeRequestReceived.wait(timeout: .now() + 5) == .success,
+            "Expected ssh-pty-attach to report PTY size changes from an input edge"
         )
         #expect(
-            resizeRequestReceived.wait(timeout: .now() + 5) == .success,
-            "Expected ssh-pty-attach to report PTY size changes before forwarding typed input"
+            inputForwarded.wait(timeout: .now() + 5) == .success,
+            "Expected ssh-pty-attach to forward typed input without waiting for the resize RPC response"
         )
 
         closeBridge.signal()
@@ -155,7 +158,10 @@ struct CLISSHPTYResizeInputTests {
             exited.signal()
         }
         #expect(exited.wait(timeout: .now() + 5) == .success)
-        #expect(socketHandled.wait(timeout: .now() + 5) == .success)
+        socketHandled.stop()
+        Darwin.close(listenerFD)
+        listenerFD = -1
+        #expect(socketHandled.handled.wait(timeout: .now() + 5) == .success)
         #expect(bridgeHandled.wait(timeout: .now() + 5) == .success)
 
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -164,7 +170,9 @@ struct CLISSHPTYResizeInputTests {
         #expect(resizeParams?["attachment_token"] as? String == "attach-token")
         #expect(resizeParams?["cols"] as? Int == 120)
         #expect(resizeParams?["rows"] as? Int == 40)
-        #expect(Array(eventRecorder.snapshot().prefix(2)) == ["resize", "input"])
+        let events = eventRecorder.snapshot()
+        #expect(events.contains("resize"))
+        #expect(events.contains("input"))
     }
 
     private final class BundleToken {}
@@ -226,6 +234,26 @@ struct CLISSHPTYResizeInputTests {
         }
     }
 
+    // Lock-protected stop flag for the multi-client mock socket accept loop.
+    private final class MockSocketServer: @unchecked Sendable {
+        let handled = DispatchSemaphore(value: 0)
+        private let lock = NSLock()
+        private var stopped = false
+
+        func stop() {
+            lock.lock()
+            stopped = true
+            lock.unlock()
+        }
+
+        var isStopped: Bool {
+            lock.lock()
+            let result = stopped
+            lock.unlock()
+            return result
+        }
+    }
+
     private struct LoopbackTCPListener {
         let fd: Int32
         let port: Int
@@ -275,7 +303,7 @@ struct CLISSHPTYResizeInputTests {
             Darwin.close(fd)
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
-        guard Darwin.listen(fd, 1) == 0 else {
+        guard Darwin.listen(fd, 8) == 0 else {
             Darwin.close(fd)
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
@@ -330,48 +358,84 @@ struct CLISSHPTYResizeInputTests {
         listenerFD: Int32,
         state: MockSocketServerState,
         handler: @escaping @Sendable (String) -> Data
-    ) -> DispatchSemaphore {
-        let handled = DispatchSemaphore(value: 0)
+    ) -> MockSocketServer {
+        let server = MockSocketServer()
+        let flags = fcntl(listenerFD, F_GETFL, 0)
+        if flags >= 0 {
+            _ = fcntl(listenerFD, F_SETFL, flags | O_NONBLOCK)
+        }
         DispatchQueue.global(qos: .userInitiated).async {
-            defer { handled.signal() }
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                }
+            let clientGroup = DispatchGroup()
+            defer {
+                clientGroup.wait()
+                server.handled.signal()
             }
-            guard clientFD >= 0 else { return }
-            defer { Darwin.close(clientFD) }
 
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
-                while let newlineIndex = pending.firstIndex(of: 0x0A) {
-                    let lineData = pending[..<newlineIndex]
-                    pending.removeSubrange(pending.startIndex...newlineIndex)
-                    let line = String(data: Data(lineData), encoding: .utf8) ?? ""
-                    state.append(line)
-                    writeAll(fd: clientFD, data: handler(line))
+            while !server.isStopped {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD >= 0 {
+                    clientGroup.enter()
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        defer {
+                            Darwin.close(clientFD)
+                            clientGroup.leave()
+                        }
+                        handleMockSocketClient(clientFD: clientFD, state: state, handler: handler)
+                    }
+                    continue
                 }
 
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count > 0 {
-                    pending.append(buffer, count: count)
-                } else if count == 0 {
-                    return
-                } else if errno != EINTR {
-                    return
+                if errno == EINTR {
+                    continue
                 }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    usleep(10_000)
+                    continue
+                }
+                return
             }
         }
-        return handled
+        return server
+    }
+
+    private func handleMockSocketClient(
+        clientFD: Int32,
+        state: MockSocketServerState,
+        handler: @escaping @Sendable (String) -> Data
+    ) {
+        var pending = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            while let newlineIndex = pending.firstIndex(of: 0x0A) {
+                let lineData = pending[..<newlineIndex]
+                pending.removeSubrange(pending.startIndex...newlineIndex)
+                let line = String(data: Data(lineData), encoding: .utf8) ?? ""
+                state.append(line)
+                writeAll(fd: clientFD, data: handler(line))
+            }
+
+            let count = Darwin.read(clientFD, &buffer, buffer.count)
+            if count > 0 {
+                pending.append(buffer, count: count)
+            } else if count == 0 {
+                return
+            } else if errno != EINTR {
+                return
+            }
+        }
     }
 
     private func startBridgeServer(
         bridge: LoopbackTCPListener,
         bridgeReady: DispatchSemaphore,
         inputForwarded: DispatchSemaphore,
+        inputForwardedForResizeResponse: DispatchSemaphore,
         closeBridge: DispatchSemaphore,
         bridgeCloseObserved: DispatchSemaphore,
         eventRecorder: EventRecorder
@@ -411,6 +475,7 @@ struct CLISSHPTYResizeInputTests {
                 if count > 0 {
                     eventRecorder.append("input")
                     inputForwarded.signal()
+                    inputForwardedForResizeResponse.signal()
                     break
                 }
                 if count == 0 { return }
