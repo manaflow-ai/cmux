@@ -7086,10 +7086,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // pre-Ghostty tick unit so sub-1x values can slow ordinary wheels.
         let effectiveTicks = rawDelta > 0 ? max(rawDelta, 1) : min(rawDelta, -1)
         pending += effectiveTicks * multiplier
-        guard abs(pending) >= 1 else { return 0 }
-        let scaledDelta = pending
-        pending = 0
-        return scaledDelta
+        let wholeTicks = pending > 0 ? floor(pending) : ceil(pending)
+        guard wholeTicks != 0 else { return 0 }
+        pending -= wholeTicks
+        return wholeTicks
     }
 
     deinit {
