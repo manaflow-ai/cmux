@@ -1,44 +1,50 @@
-import CmuxSettings
-import Foundation
+public import Foundation
 import Observation
-
-// MARK: - Monitor
+#if DEBUG
+import CMUXDebugLog
+#endif
 
 /// One instance owns the background poll timer, scans every live pane each tick,
 /// attributes process-tree memory by controlling tty, and drives the per-pane
 /// warning badge + dismissible banner. The heavy libproc scan runs off the main
-/// thread; only the small state updates touch `@MainActor`.
+/// thread via the injected `PaneMemorySampleProviding` seam; only the small
+/// state updates touch `@MainActor`.
+///
+/// Constructed and wired at the app composition root: the sample provider wraps
+/// the app-target process snapshot, the settings reader wraps the live
+/// `SettingCatalog`, and the callbacks reach back into window/notification state.
+/// There is no shared singleton.
 @MainActor
 @Observable
-final class PaneMemoryGuardrail {
-    static let shared = PaneMemoryGuardrail()
-
-    private static let enabledSetting = SettingCatalog().terminal.runawayMemoryGuardrailEnabled
-    private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
+public final class PaneMemoryGuardrailService {
     private static let pollInterval: TimeInterval = 4
     private static let defaultThresholdGB: Double = 8
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
     private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
 
     /// The banner content for the most recent un-dismissed crossing, or nil.
-    private(set) var activeBanner: PaneMemoryWarning?
+    public private(set) var activeBanner: PaneMemoryWarning?
 
     /// Supplies the live pane set each tick (main-actor; reads ghostty/tty).
     @ObservationIgnored
-    var paneProvider: (@MainActor () -> [PaneMemoryDescriptor])?
+    public var paneProvider: (@MainActor () -> [PaneMemoryDescriptor])?
     /// Pushes the set of workspaces that should show a warning badge.
     @ObservationIgnored
-    var onWarnedWorkspacesChanged: (@MainActor (Set<UUID>) -> Void)?
+    public var onWarnedWorkspacesChanged: (@MainActor (Set<UUID>) -> Void)?
     /// Fallback when a pane has no high-memory process group to signal: close it.
     @ObservationIgnored
-    var onRequestClosePane: (@MainActor (_ workspaceId: UUID, _ panelId: UUID) -> Void)?
+    public var onRequestClosePane: (@MainActor (_ workspaceId: UUID, _ panelId: UUID) -> Void)?
 
+    @ObservationIgnored
+    private let sampleProvider: any PaneMemorySampleProviding
+    @ObservationIgnored
+    private let settings: any PaneMemoryGuardrailSettingsReading
     @ObservationIgnored
     private var engine = PaneMemoryGuardrailEngine()
     @ObservationIgnored
     private let timerQueue = DispatchQueue(label: "com.cmux.pane-memory-guardrail", qos: .utility)
     @ObservationIgnored
-    private var timer: DispatchSourceTimer?
+    private var timer: (any DispatchSourceTimer)?
     @ObservationIgnored
     private var isScanning = false
     @ObservationIgnored
@@ -52,7 +58,15 @@ final class PaneMemoryGuardrail {
     @ObservationIgnored
     private var pendingKillTasksByKey: [PaneMemoryPaneKey: (id: UUID, task: Task<Void, Never>)] = [:]
 
-    func start() {
+    public init(
+        sampleProvider: any PaneMemorySampleProviding,
+        settings: any PaneMemoryGuardrailSettingsReading
+    ) {
+        self.sampleProvider = sampleProvider
+        self.settings = settings
+    }
+
+    public func start() {
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(
@@ -70,11 +84,11 @@ final class PaneMemoryGuardrail {
     // MARK: Settings
 
     private var isEnabled: Bool {
-        Self.enabledSetting.value(in: .standard)
+        settings.isEnabled
     }
 
     private func thresholdBytes() -> Int64 {
-        let raw = Self.thresholdGBSetting.value(in: .standard)
+        let raw = settings.rawThresholdGB
         let gb = raw.isFinite ? min(max(raw, Self.thresholdRangeGB.lowerBound), Self.thresholdRangeGB.upperBound) : Self.defaultThresholdGB
         return Int64(gb * Self.bytesPerGB)
     }
@@ -94,94 +108,15 @@ final class PaneMemoryGuardrail {
         }
         let thresholdBytes = thresholdBytes()
         isScanning = true
+        let sampleProvider = sampleProvider
         let sampleTask = Task.detached(priority: .utility) {
-            Self.computeCachedSamples(descriptors: descriptors, thresholdBytes: thresholdBytes)
+            sampleProvider.cachedSamples(descriptors: descriptors, thresholdBytes: thresholdBytes)
         }
         scanApplyTask = Task { @MainActor [weak self] in
             let samples = await sampleTask.value
             guard !Task.isCancelled else { return }
             self?.applySamples(samples, thresholdBytes: thresholdBytes)
         }
-    }
-
-    nonisolated static func computeCachedSamples(
-        descriptors: [PaneMemoryDescriptor],
-        thresholdBytes: Int64
-    ) -> [PaneMemorySample] {
-        computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes, snapshot: CmuxTopProcessSnapshot.captureCached(maximumAge: 2))
-    }
-
-    nonisolated static func computeFreshSamples(
-        descriptors: [PaneMemoryDescriptor],
-        thresholdBytes: Int64
-    ) -> [PaneMemorySample] {
-        computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes, snapshot: CmuxTopProcessSnapshot.capture())
-    }
-
-    nonisolated static func computeSamples(
-        descriptors: [PaneMemoryDescriptor],
-        thresholdBytes: Int64,
-        snapshot: CmuxTopProcessSnapshot
-    ) -> [PaneMemorySample] {
-        let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
-        return descriptors.map { descriptor in
-            var rootPIDs = snapshot.pids(forCMUXSurfaceID: descriptor.panelId)
-            if let ttyName = descriptor.ttyName {
-                rootPIDs.formUnion(snapshot.pids(forTTYName: ttyName))
-            }
-            let pids = snapshot.expandedPIDs(rootPIDs: rootPIDs)
-            let summary = snapshot.summary(for: pids)
-            let pgids = memoryPressureProcessGroupIDs(
-                in: snapshot,
-                pids: pids,
-                clearBytes: clearBytes
-            )
-            let foregroundCommand = descriptor.foregroundPID
-                .flatMap { snapshot.process(pid: $0)?.name }
-            return PaneMemorySample(
-                descriptor: descriptor,
-                memoryBytes: summary.memoryBytes,
-                residentBytes: summary.residentBytes,
-                memoryPressureProcessGroupIDs: pgids,
-                foregroundCommand: foregroundCommand
-            )
-        }
-    }
-
-    nonisolated static func memoryPressureProcessGroupIDs(
-        in snapshot: CmuxTopProcessSnapshot,
-        pids: Set<Int>,
-        clearBytes: Int64
-    ) -> [Int] {
-        var totalBytes: Int64 = 0
-        var bytesByProcessGroup: [Int: Int64] = [:]
-        for pid in pids {
-            guard let process = snapshot.process(pid: pid) else { continue }
-            let memoryBytes = max(0, process.memoryBytes)
-            totalBytes = totalBytes.addingReportingOverflow(memoryBytes).overflow
-                ? Int64.max
-                : totalBytes + memoryBytes
-            guard let processGroupID = process.processGroupID, processGroupID > 1 else { continue }
-            let current = bytesByProcessGroup[processGroupID] ?? 0
-            bytesByProcessGroup[processGroupID] = current.addingReportingOverflow(memoryBytes).overflow
-                ? Int64.max
-                : current + memoryBytes
-        }
-
-        guard totalBytes > clearBytes else { return [] }
-        var selectedBytes: Int64 = 0
-        var selectedProcessGroups: [Int] = []
-        for (processGroupID, memoryBytes) in bytesByProcessGroup.sorted(by: {
-            if $0.value == $1.value { return $0.key < $1.key }
-            return $0.value > $1.value
-        }) where memoryBytes > 0 {
-            selectedProcessGroups.append(processGroupID)
-            selectedBytes = selectedBytes.addingReportingOverflow(memoryBytes).overflow
-                ? Int64.max
-                : selectedBytes + memoryBytes
-            if totalBytes - selectedBytes < clearBytes { break }
-        }
-        return selectedProcessGroups.sorted()
     }
 
     private func applySamples(_ samples: [PaneMemorySample], thresholdBytes: Int64) {
@@ -196,7 +131,7 @@ final class PaneMemoryGuardrail {
         let output = engine.ingest(samples: samples, thresholdBytes: thresholdBytes)
 #if DEBUG
         let maxBytes = samples.map(\.memoryBytes).max() ?? 0
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "paneMemGuard.scan panes=\(samples.count) maxMB=\(maxBytes / 1_048_576) " +
             "thresholdMB=\(thresholdBytes / 1_048_576) warned=\(output.warnedWorkspaceIds.count) " +
             "fired=\(output.bannerToPresent != nil ? 1 : 0)"
@@ -229,7 +164,7 @@ final class PaneMemoryGuardrail {
 
     // MARK: Banner actions
 
-    func dismissActiveBanner() {
+    public func dismissActiveBanner() {
         guard let active = activeBanner else { return }
         engine.dismiss(active.key)
         pendingBanners.removeAll { $0.key == active.key }
@@ -237,9 +172,9 @@ final class PaneMemoryGuardrail {
         presentNextPendingBannerIfNeeded()
     }
 
-    func killActivePaneProcess() { if let active = activeBanner { killPaneProcess(for: active) } }
+    public func killActivePaneProcess() { if let active = activeBanner { killPaneProcess(for: active) } }
 
-    func killPaneProcess(for warning: PaneMemoryWarning) {
+    public func killPaneProcess(for warning: PaneMemoryWarning) {
         let key = warning.key
         let descriptor = paneProvider?().first { $0.key == key }
         engine.acknowledgeHandled(key)
@@ -256,8 +191,9 @@ final class PaneMemoryGuardrail {
             return
         }
         let thresholdBytes = thresholdBytes()
+        let sampleProvider = sampleProvider
         let sampleTask = Task.detached(priority: .userInitiated) {
-            Self.computeFreshSamples(descriptors: [descriptor], thresholdBytes: thresholdBytes).first
+            sampleProvider.freshSamples(descriptors: [descriptor], thresholdBytes: thresholdBytes).first
         }
         presentNextPendingBannerIfNeeded()
         Task { @MainActor [weak self] in
@@ -286,10 +222,11 @@ final class PaneMemoryGuardrail {
         pendingKillTasksByKey[key]?.task.cancel()
         let descriptor = sample.descriptor
         let killer = PaneMemoryProcessKiller()
+        let sampleProvider = sampleProvider
         guard let task = killer.terminate(
             processGroupIDs: pgids,
             validateBeforeSIGKILL: {
-                let freshSample = Self.computeFreshSamples(
+                let freshSample = sampleProvider.freshSamples(
                     descriptors: [descriptor],
                     thresholdBytes: thresholdBytes
                 ).first

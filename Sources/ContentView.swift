@@ -1131,7 +1131,9 @@ struct ContentView: View {
         }
         .padding(.top, effectiveTitlebarPadding)
         .overlay(alignment: .top) {
-            PaneMemoryGuardrailBanner(guardrail: PaneMemoryGuardrail.shared, tabManager: tabManager)
+            if let guardrail = AppDelegate.shared?.paneMemoryGuardrail {
+                PaneMemoryGuardrailBanner(guardrail: guardrail, tabManager: tabManager)
+            }
         }
     }
 
