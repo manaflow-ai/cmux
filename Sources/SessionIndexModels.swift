@@ -601,7 +601,7 @@ extension NotesSessionMarker {
     /// attacker-influenceable, so only plain token ids may cross this
     /// boundary into a `SessionEntry`.
     static func isSafeSessionId(_ value: String) -> Bool {
-        !value.isEmpty && value.unicodeScalars.allSatisfy { scalar in
+        !value.isEmpty && !value.hasPrefix("-") && value.unicodeScalars.allSatisfy { scalar in
             switch scalar {
             case "a"..."z", "A"..."Z", "0"..."9", ".", "_", "-", ":":
                 return true

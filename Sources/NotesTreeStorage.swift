@@ -517,7 +517,7 @@ enum NotesTreeStorage {
     /// Read the `_session.json` marker inside `directory`, if present and valid.
     static func sessionMarker(inDirectory directory: String) -> NotesSessionMarker? {
         let markerPath = (directory as NSString).appendingPathComponent(sessionMarkerName)
-        return try? readJSON(fromPath: markerPath)
+        return isSymlink(directory) ? nil : try? readJSON(fromPath: markerPath)
     }
 
     // MARK: Mutations
@@ -646,7 +646,7 @@ enum NotesTreeStorage {
         if let names = try? fm.contentsOfDirectory(atPath: root) {
             for name in names where !name.hasPrefix(".") {
                 let dir = (root as NSString).appendingPathComponent(name)
-                guard let marker = sessionMarker(inDirectory: dir) else { continue }
+                guard !isSymlink(dir), let marker = sessionMarker(inDirectory: dir) else { continue }
                 let key = sessionKey(agent: marker.agent, sessionId: marker.sessionId)
                 if marker.userCreated != true, !recentKeys.contains(key), isEmptySessionFolder(dir) {
                     try? fm.removeItem(atPath: dir)
@@ -748,7 +748,7 @@ enum NotesTreeStorage {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return nil }
         for name in names where !name.hasPrefix(".") {
             let dir = (folder as NSString).appendingPathComponent(name)
-            if let marker = sessionMarker(inDirectory: dir),
+            if !isSymlink(dir), let marker = sessionMarker(inDirectory: dir),
                marker.agent == agent,
                marker.sessionId == sessionId {
                 return dir
