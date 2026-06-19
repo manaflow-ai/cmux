@@ -4073,7 +4073,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.identifier = browserOmnibarTextFieldIdentifier
         field.panelId = browserPanelId
         field.stringValue = "ㄉㄚˋ"
-        contentView.addSubview(field)
+        attachTestResponder(field, to: window)
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
 
         defer {
@@ -4137,7 +4137,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
@@ -6307,7 +6306,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
@@ -6904,7 +6902,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
