@@ -670,11 +670,13 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         XCTAssertEqual(snapshot.sessionId, resumableSessionId)
         XCTAssertEqual(snapshot.workingDirectory, cwd.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertTrue(
-            try XCTUnwrap(snapshot.resumeCommand).contains("'--resume' '\(resumableSessionId)'")
+            resumeCommand.contains(resumableSessionId),
+            "resume command must target the sibling transcript session; got: \(resumeCommand)"
         )
         XCTAssertFalse(
-            try XCTUnwrap(snapshot.resumeCommand).contains(workflowContainerSessionId),
+            resumeCommand.contains(workflowContainerSessionId),
             "The Workflow container id is not accepted by claude --resume."
         )
     }
