@@ -39,14 +39,13 @@ import Testing
     @Test func parsesHSplitViewColumns() {
         let node = interp.evaluate("""
         HSplitView {
-            VStack { Text("left") }
-            VStack { Text("right") }
+            VStack { Text("left") }; VStack { Text("right") }; VStack { Text("deep") }; VStack { Text("info") }
         }
         """)
         #expect(node?.kind == .hsplit)
-        #expect(node?.children.count == 2)
+        #expect(node?.children.count == 4)
         #expect(node?.children.first?.kind == .vstack)
-        #expect(node?.children.last?.children.first?.text == "right")
+        #expect(node?.children.last?.children.first?.text == "info")
     }
 
     @Test func parsesShapesAndLabeledFrameAndBackground() {

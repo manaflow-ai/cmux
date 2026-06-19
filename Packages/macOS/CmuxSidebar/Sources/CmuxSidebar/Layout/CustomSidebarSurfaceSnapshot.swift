@@ -12,6 +12,8 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     public let panelId: UUID
     /// The surface title (`tabs[i].title`).
     public let title: String
+    /// The surface kind (`tabs[i].kind`), e.g. terminal/browser/markdown.
+    public let kind: String
     /// Whether this surface is the workspace's focused panel (`tabs[i].focused`).
     public let isFocused: Bool
     /// Whether the surface's panel is pinned (`tabs[i].pinned`).
@@ -31,6 +33,7 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     public init(
         panelId: UUID,
         title: String,
+        kind: String,
         isFocused: Bool,
         isPinned: Bool,
         directory: String?,
@@ -40,6 +43,7 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     ) {
         self.panelId = panelId
         self.title = title
+        self.kind = kind
         self.isFocused = isFocused
         self.isPinned = isPinned
         self.directory = directory

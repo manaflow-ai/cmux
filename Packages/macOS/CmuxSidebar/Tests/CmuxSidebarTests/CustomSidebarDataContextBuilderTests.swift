@@ -16,6 +16,7 @@ struct CustomSidebarDataContextBuilderTests {
         CustomSidebarSurfaceSnapshot(
             panelId: id,
             title: "shell",
+            kind: "terminal",
             isFocused: false,
             isPinned: false,
             directory: nil,
@@ -114,6 +115,51 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(clock?.member("time") == .string("01:02:03"))
         #expect(clock?.member("weekday") == .int(5))
         #expect(clock?.member("epoch") == .int(3723))
+    }
+
+    @Test("Recent focus history is exposed as top-level recents")
+    func recentFocusHistory() {
+        let builder = CustomSidebarDataContextBuilder(calendar: fixedCalendar())
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: [],
+            selectedWorkspaceId: nil,
+            selectedWorkspaceTitle: "",
+            totalUnreadCount: 0,
+            recentFocus: [
+                CustomSidebarRecentFocusSnapshot(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    workspaceTitle: "cmux",
+                    panelTitle: "agent",
+                    position: "older",
+                    focusedAt: Date(timeIntervalSince1970: 123)
+                ),
+                CustomSidebarRecentFocusSnapshot(
+                    workspaceId: workspaceId,
+                    panelId: nil,
+                    workspaceTitle: "docs",
+                    panelTitle: nil,
+                    position: "newer",
+                    focusedAt: Date(timeIntervalSince1970: 456)
+                ),
+            ],
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        let context = builder.dataContext(for: snapshot)
+        let recents = context["recents"]?.iterationValues
+
+        #expect(context["recentCount"] == .int(2))
+        #expect(recents?.first?.member("workspaceId") == .string(workspaceId.uuidString))
+        #expect(recents?.first?.member("panelId") == .string(panelId.uuidString))
+        #expect(recents?.first?.member("workspaceTitle") == .string("cmux"))
+        #expect(recents?.first?.member("panelTitle") == .string("agent"))
+        #expect(recents?.first?.member("position") == .string("older"))
+        #expect(recents?.first?.member("focusedAt") == .int(123))
+        #expect(recents?.last?.member("panelId") == nil)
+        #expect(recents?.last?.member("panelTitle") == nil)
     }
 
     @Test("Workspace always-present fields map straight through")
@@ -284,6 +330,7 @@ struct CustomSidebarDataContextBuilderTests {
         let enriched = CustomSidebarSurfaceSnapshot(
             panelId: id,
             title: "editor",
+            kind: "browser",
             isFocused: true,
             isPinned: true,
             directory: "/src",
@@ -296,6 +343,7 @@ struct CustomSidebarDataContextBuilderTests {
 
         #expect(value.member("id") == .string(id.uuidString))
         #expect(value.member("title") == .string("editor"))
+        #expect(value.member("kind") == .string("browser"))
         #expect(value.member("focused") == .bool(true))
         #expect(value.member("pinned") == .bool(true))
         #expect(value.member("directory") == .string("/src"))
