@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import CmuxCommandPalette
 import Foundation
 import CmuxTerminal
@@ -9,12 +10,10 @@ func browserOmnibarSelectionDeltaForControlNavigation(
     flags: NSEvent.ModifierFlags,
     chars: String
 ) -> Int? {
-    guard hasFocusedAddressBar else { return nil }
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    guard normalizedFlags == [.control] else { return nil }
-    if chars == "n" { return 1 }
-    if chars == "p" { return -1 }
-    return nil
+    flags.browserOmnibarSelectionDeltaForControlNavigation(
+        hasFocusedAddressBar: hasFocusedAddressBar,
+        chars: chars
+    )
 }
 
 func browserOmnibarSelectionDeltaForArrowNavigation(
@@ -22,14 +21,10 @@ func browserOmnibarSelectionDeltaForArrowNavigation(
     flags: NSEvent.ModifierFlags,
     keyCode: UInt16
 ) -> Int? {
-    guard hasFocusedAddressBar else { return nil }
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    guard normalizedFlags == [] else { return nil }
-    switch keyCode {
-    case 125: return 1
-    case 126: return -1
-    default: return nil
-    }
+    flags.browserOmnibarSelectionDeltaForArrowNavigation(
+        hasFocusedAddressBar: hasFocusedAddressBar,
+        keyCode: keyCode
+    )
 }
 
 func browserOmnibarShouldBypassShortcutRoutingForMarkedText(
@@ -37,8 +32,10 @@ func browserOmnibarShouldBypassShortcutRoutingForMarkedText(
     firstResponderHasMarkedText: Bool,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
-    guard hasFocusedAddressBar, firstResponderHasMarkedText else { return false }
-    return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
+    flags.browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+        hasFocusedAddressBar: hasFocusedAddressBar,
+        firstResponderHasMarkedText: firstResponderHasMarkedText
+    )
 }
 
 func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
@@ -77,12 +74,11 @@ private func shortcutRoutingTextIsPrintable(_ text: String?) -> Bool {
 }
 
 func browserOmnibarShouldContinueControlNavigationRepeat(flags: NSEvent.ModifierFlags) -> Bool {
-    browserOmnibarNormalizedModifierFlags(flags) == [.control]
+    flags.browserOmnibarShouldContinueControlNavigationRepeat
 }
 
 func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    return normalizedFlags == [] || normalizedFlags == [.shift]
+    flags.browserOmnibarShouldSubmitOnReturn
 }
 
 func browserResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
