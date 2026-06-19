@@ -27,14 +27,13 @@ final class AgentChatTranscriptService {
     private var detectionScanAt: [String: Date] = [:]
     private var ghosttyTitleSubscription: GhosttyTitleChangeSubscription?
     private var pendingTitleChanges: [String: PendingTitleChange] = [:]
-    private var titleChangeTasks: [String: Task<Void, Never>] = [:]
     private var deliveredTitleKeys: [String: String] = [:]
     private var transcriptResolutionTasks: [String: Task<Void, Never>] = [:]
     private var transcriptResolutionKeys: [String: ClaudeTranscriptResolutionKey] = [:]
     private var claimedDetectedTranscriptSessionIDs: Set<String> = []
     private var titleAdoptionHandler: (@MainActor (GhosttyTitleChange) -> Bool)?
+    private let titleChangeCoalescer = NotificationBurstCoalescer(delay: 0.25)
     private static let detectionScanThrottle: TimeInterval = 4
-    private static let titleChangeDebounceNanoseconds: UInt64 = 250_000_000
     private static let provisionalClaudeSessionIDPrefix = "detected-claude-surface-"
 
     /// Creates the service with a hook-store-backed registry.
@@ -302,33 +301,27 @@ final class AgentChatTranscriptService {
         }
 
         pendingTitleChanges[surfaceID] = PendingTitleChange(change: change, titleKey: titleKey)
-        titleChangeTasks[surfaceID]?.cancel()
-        titleChangeTasks[surfaceID] = Task { @MainActor [weak self] in
-            do {
-                // Bounded debounce for terminal title bursts; replaced by newer titles for this surface.
-                try await Task.sleep(nanoseconds: Self.titleChangeDebounceNanoseconds)
-            } catch {
-                return
-            }
-            self?.flushTitleDetectedAdoption(surfaceID: surfaceID)
+        titleChangeCoalescer.signal { [weak self] in
+            self?.flushTitleDetectedAdoptions()
         }
     }
 
-    private func flushTitleDetectedAdoption(surfaceID: String) {
-        titleChangeTasks[surfaceID] = nil
-        guard let pending = pendingTitleChanges.removeValue(forKey: surfaceID) else {
+    private func flushTitleDetectedAdoptions() {
+        guard !pendingTitleChanges.isEmpty else {
             return
         }
-        if titleAdoptionHandler?(pending.change) == true,
-           registry.liveSession(surfaceID: surfaceID)?.transcriptPath != nil {
-            deliveredTitleKeys[surfaceID] = pending.titleKey
+        let pendingBySurface = pendingTitleChanges
+        pendingTitleChanges.removeAll(keepingCapacity: true)
+        for (surfaceID, pending) in pendingBySurface {
+            if titleAdoptionHandler?(pending.change) == true,
+               registry.liveSession(surfaceID: surfaceID)?.transcriptPath != nil {
+                deliveredTitleKeys[surfaceID] = pending.titleKey
+            }
         }
     }
 
     private func clearTitleDetectionState(surfaceID: String) {
         pendingTitleChanges.removeValue(forKey: surfaceID)
-        titleChangeTasks[surfaceID]?.cancel()
-        titleChangeTasks[surfaceID] = nil
         deliveredTitleKeys.removeValue(forKey: surfaceID)
         transcriptResolutionTasks[surfaceID]?.cancel()
         transcriptResolutionTasks[surfaceID] = nil
