@@ -146,7 +146,7 @@ extension TerminalController {
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: workspace)
 
-            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if focus {
                 workspace.clearSplitZoom()
             }
