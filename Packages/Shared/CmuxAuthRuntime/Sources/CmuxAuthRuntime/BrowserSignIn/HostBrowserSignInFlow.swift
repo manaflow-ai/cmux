@@ -142,7 +142,7 @@ public final class HostBrowserSignInFlow {
         if let attemptID = activeAttemptID,
            activeSessionContinuation != nil,
            callbackRouter.isAuthCallbackURL(url) {
-            guard callbackState(from: url) == activeCallbackState else {
+            guard authCallbackState(from: url) == activeCallbackState else {
                 log.log("auth.callback.external.reject reason=stateMismatch attempt=\(attemptID)")
                 lastFailure = .invalidCallback
                 return false
@@ -158,12 +158,12 @@ public final class HostBrowserSignInFlow {
             )
             return signedIn
         }
-        if callbackRouter.isAuthCallbackURL(url), callbackState(from: url) == nil {
+        if callbackRouter.isAuthCallbackURL(url), authCallbackState(from: url) == nil {
             log.log("auth.callback.external.routeToFallback")
             return await completeCallback(url: url, attemptID: nil)
         }
         if callbackRouter.isAuthCallbackURL(url),
-           let state = callbackState(from: url),
+           let state = authCallbackState(from: url),
            state == pendingFallbackCallbackState {
             log.log("auth.callback.external.routeToIssuedFallback")
             pendingFallbackCallbackState = nil
@@ -245,7 +245,7 @@ public final class HostBrowserSignInFlow {
         activeAttemptID = attemptID
         activeCallbackState = callbackState
         isSigningIn = true
-        log.log("auth.browser.attempt.start id=\(attemptID) generation=\(signOutGeneration) state=\(redactedState(callbackState))")
+        log.log("auth.browser.attempt.start id=\(attemptID) generation=\(signOutGeneration) state=\(redactedAuthState(callbackState))")
         scheduleAttemptTimeout(attemptID)
         scheduleSlowSignInHint(attemptID)
         return Task { @MainActor [weak self] in
@@ -399,12 +399,12 @@ public final class HostBrowserSignInFlow {
             return false
         }
         if let attemptID {
-            guard callbackState(from: url) == activeCallbackState else {
+            guard authCallbackState(from: url) == activeCallbackState else {
                 log.log("auth.callback rejected: state mismatch attempt=\(attemptID)")
                 lastFailure = .invalidCallback
                 return false
             }
-        } else if let state = callbackState(from: url), state != acceptedExternalState {
+        } else if let state = authCallbackState(from: url), state != acceptedExternalState {
             log.log("auth.callback rejected: stateful external callback without active attempt")
             lastFailure = .invalidCallback
             return false
@@ -461,7 +461,7 @@ public final class HostBrowserSignInFlow {
             )
             return false
         }
-        if callbackState(from: url) == pendingFallbackCallbackState {
+        if authCallbackState(from: url) == pendingFallbackCallbackState {
             pendingFallbackCallbackState = nil
         }
         return true
@@ -488,30 +488,4 @@ public final class HostBrowserSignInFlow {
         UUID().uuidString.lowercased()
     }
 
-    private func callbackState(from url: URL) -> String? {
-        URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?
-            .first(where: { $0.name == "cmux_auth_state" })?
-            .value
-    }
-
-    private func redactedState(_ state: String) -> String {
-        "\(state.prefix(8))..."
-    }
-}
-
-/// MainActor-confined once-guard for racing continuation resumes.
-@MainActor
-private final class ResumeOnceFlag {
-    var fired = false
-}
-
-private func authCallbackSummary(_ url: URL) -> String {
-    let scheme = url.scheme ?? "nil"
-    let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-        .queryItems?
-        .map(\.name)
-        .joined(separator: ",") ?? ""
-    return "scheme=\(scheme) target=\(target.isEmpty ? "nil" : target) queryKeys=\(queryItems.isEmpty ? "none" : queryItems)"
 }
