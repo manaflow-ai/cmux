@@ -1,0 +1,52 @@
+name: exp-blacksmith-gui-probe
+
+# Throwaway diagnostic: does a Blacksmith managed macOS runner have a GUI /
+# WindowServer / testmanagerd-capable session, or is it headless? Decides
+# whether the XCTest `tests` job could ever run there. Dispatch-only.
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: macOS runner label to probe
+        type: string
+        default: blacksmith-6vcpu-macos-15
+
+jobs:
+  probe:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    steps:
+      - name: Probe GUI / WindowServer / automation session
+        run: |
+          set +e
+          echo "=== identity ==="
+          echo "runner.name=${{ runner.name }}"
+          echo "whoami=$(whoami)  id=$(id)"
+          sw_vers
+          echo
+          echo "=== console / login session (root = nobody logged into Aqua) ==="
+          echo "console_user=$(stat -f %Su /dev/console)"
+          echo "managername=$(launchctl managername 2>&1)"
+          echo "gui-domain reachable: $(launchctl print gui/$(id -u) >/dev/null 2>&1 && echo yes || echo NO)"
+          echo
+          echo "=== WindowServer running? (required for any GUI/XCTest app-host) ==="
+          ps -axo pid,user,comm | grep -i '[W]indowServer' || echo "NO WindowServer process"
+          echo "CGSession / loginwindow:"
+          ps -axo user,comm | grep -iE '[l]oginwindow|[A]qua' || echo "  none"
+          echo
+          echo "=== automation mode (the documented headless XCTest unblock) ==="
+          echo "passwordless_sudo: $(sudo -n true 2>/dev/null && echo yes || echo no)"
+          sudo -n automationmodetool enable-automationmode-without-authentication 2>&1 | head -5
+          echo "automationmodetool exit: $?"
+          echo
+          echo "=== SIP ==="
+          csrutil status 2>&1 | head -2
+          echo
+          echo "=== can we open a CG main display? (headless => error/0 displays) ==="
+          /usr/bin/python3 - <<'PY' 2>&1 | head -5 || true
+          import subprocess
+          # CGMainDisplayID via a tiny ObjC-free probe: ioreg for IODisplay
+          out = subprocess.run(["ioreg","-rc","IODisplayConnect"],capture_output=True,text=True).stdout
+          print("IODisplayConnect entries:", out.count("IODisplayConnect"))
+          PY
+          echo "=== DONE: if console_user=root, no WindowServer, and gui-domain NO => headless, XCTest cannot run here ==="
