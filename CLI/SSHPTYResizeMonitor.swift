@@ -104,7 +104,7 @@ actor SSHPTYResizeMonitor {
             pendingSize = nil
 
             let sent = await sendResize(size: size)
-            if cancellation.isCancelled {
+            if isCancelled {
                 isCancelled = true
                 pendingSize = nil
                 return
