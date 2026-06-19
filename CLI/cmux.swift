@@ -11323,7 +11323,7 @@ struct CMUXCLI {
 
         let rawMode = TerminalRawMode()
         defer { rawMode?.restore() }
-        let resizeSource = startSSHPTYResizeSource(
+        let cancelResizeMonitor = startSSHPTYResizeSource(
             client: client,
             workspaceId: workspaceId,
             surfaceID: surfaceID,
@@ -11332,7 +11332,7 @@ struct CMUXCLI {
             attachmentToken: attachmentToken,
             socketLock: controlSocketLock
         )
-        defer { resizeSource.cancel() }
+        defer { cancelResizeMonitor() }
 
         DispatchQueue.global(qos: .userInteractive).async {
             var buffer = [UInt8](repeating: 0, count: 8192)
@@ -11361,7 +11361,7 @@ struct CMUXCLI {
             if count > 0 {
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
-                resizeSource.cancel()
+                cancelResizeMonitor()
                 try handleSSHPTYBridgeEOF(
                     client: client,
                     workspaceId: workspaceId,
@@ -11374,7 +11374,7 @@ struct CMUXCLI {
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
-                    resizeSource.cancel()
+                    cancelResizeMonitor()
                     try handleSSHPTYBridgeEOF(
                         client: client,
                         workspaceId: workspaceId,
@@ -11619,14 +11619,18 @@ struct CMUXCLI {
         attachmentID: String,
         attachmentToken: String,
         socketLock: NSLock
-    ) -> DispatchSourceSignal {
+    ) -> () -> Void {
         signal(SIGWINCH, SIG_IGN)
-        let source = DispatchSource.makeSignalSource(
-            signal: SIGWINCH,
-            queue: DispatchQueue(label: "com.cmux.ssh-pty.resize")
-        )
-        source.setEventHandler {
+        let queue = DispatchQueue(label: "com.cmux.ssh-pty.resize")
+        var lastSentSize = currentCLITerminalSize()
+
+        func sendResizeIfNeeded() {
             let size = self.currentCLITerminalSize()
+            guard size.cols != lastSentSize.cols || size.rows != lastSentSize.rows else {
+                return
+            }
+            lastSentSize = size
+
             socketLock.lock()
             defer { socketLock.unlock() }
             var params: [String: Any] = [
@@ -11643,8 +11647,33 @@ struct CMUXCLI {
             }
             _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
         }
+
+        let source = DispatchSource.makeSignalSource(
+            signal: SIGWINCH,
+            queue: queue
+        )
+        source.setEventHandler {
+            sendResizeIfNeeded()
+        }
+
+        // Some persistent SSH PTY attach chains miss SIGWINCH even though the
+        // local Ghostty PTY's winsize has changed. Poll the cheap ioctl so the
+        // remote PTY still tracks pane/window resizes.
+        let pollSource = DispatchSource.makeTimerSource(queue: queue)
+        pollSource.schedule(
+            deadline: .now() + .milliseconds(250),
+            repeating: .milliseconds(250),
+            leeway: .milliseconds(100)
+        )
+        pollSource.setEventHandler {
+            sendResizeIfNeeded()
+        }
         source.resume()
-        return source
+        pollSource.resume()
+        return {
+            source.cancel()
+            pollSource.cancel()
+        }
     }
 
     private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
