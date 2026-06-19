@@ -116,14 +116,30 @@ echo "==> Ghostty build key: $GHOSTTY_KEY"
 LOCK_TIMEOUT=300
 LOCK_START=$SECONDS
 LOCK_MKDIR_ERR="$(mktemp "${TMPDIR:-/tmp}/cmux-ghosttykit-lock.XXXXXX")"
+LOCK_ACQUIRED=0
+cleanup_lock() {
+  rm -f "$LOCK_MKDIR_ERR"
+  if [[ "$LOCK_ACQUIRED" == "1" ]]; then
+    rmdir "$LOCK_DIR" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_lock EXIT
 while ! mkdir "$LOCK_DIR" 2>"$LOCK_MKDIR_ERR"; do
   if [[ ! -d "$LOCK_DIR" ]]; then
+    # The lock may have been released between mkdir failing and our check.
+    # Retry once before treating this as a real filesystem error.
+    if mkdir "$LOCK_DIR" 2>"$LOCK_MKDIR_ERR"; then
+      LOCK_ACQUIRED=1
+      break
+    fi
+    if [[ -d "$LOCK_DIR" ]]; then
+      continue
+    fi
     echo "error: could not create GhosttyKit cache lock at $LOCK_DIR." >&2
     if [[ -s "$LOCK_MKDIR_ERR" ]]; then
       sed 's/^/  /' "$LOCK_MKDIR_ERR" >&2
     fi
     echo "Check that CMUX_GHOSTTYKIT_CACHE_DIR, or its parent cache directory, is writable." >&2
-    rm -f "$LOCK_MKDIR_ERR"
     exit 1
   fi
   if (( SECONDS - LOCK_START > LOCK_TIMEOUT )); then
@@ -135,7 +151,7 @@ while ! mkdir "$LOCK_DIR" 2>"$LOCK_MKDIR_ERR"; do
   sleep 1
 done
 rm -f "$LOCK_MKDIR_ERR"
-trap 'rmdir "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
+LOCK_ACQUIRED=1
 
 try_fetch_prebuilt_xcframework() {
   # Only attempt when Ghostty submodule is clean — dirty trees won't match any
