@@ -42,6 +42,7 @@ extension AgentChatTranscriptService {
         transcriptResolutionTasks[surfaceID]?.cancel()
         transcriptResolutionTasks[surfaceID] = nil
         transcriptResolutionKeys.removeValue(forKey: surfaceID)
+        transcriptResolutionForcedRetryCounts.removeValue(forKey: surfaceID)
         detectionScanAt.removeValue(forKey: surfaceID)
     }
 
@@ -77,6 +78,9 @@ extension AgentChatTranscriptService {
 
         detectionScanAt[surfaceID] = now
         transcriptResolutionKeys[surfaceID] = key
+        if !forceScan {
+            transcriptResolutionForcedRetryCounts.removeValue(forKey: surfaceID)
+        }
         transcriptResolutionTasks[surfaceID]?.cancel()
         let resolver = self.resolver
         #if compiler(>=6.2)
@@ -142,32 +146,29 @@ extension AgentChatTranscriptService {
 
         guard let resolved else { return }
         guard !claimedDetectedTranscriptSessionIDs.contains(resolved.sessionID) else {
-            scheduleClaudeTranscriptResolution(
+            scheduleForcedClaudeTranscriptRetry(
                 workspaceID: workspaceID,
                 workingDirectory: workingDirectory,
                 surfaceID: surfaceID,
                 excludingSessionID: registry.liveSession(surfaceID: surfaceID)?.sessionID,
-                titleHint: titleHint,
-                forceScan: true
+                titleHint: titleHint
             )
             return
         }
         if let claimed = registry.record(sessionID: resolved.sessionID),
            claimed.surfaceID != nil,
            claimed.surfaceID != surfaceID {
-            scheduleClaudeTranscriptResolution(
+            scheduleForcedClaudeTranscriptRetry(
                 workspaceID: workspaceID,
                 workingDirectory: workingDirectory,
                 surfaceID: surfaceID,
                 excludingSessionID: registry.liveSession(surfaceID: surfaceID)?.sessionID,
-                titleHint: titleHint,
-                forceScan: true
+                titleHint: titleHint
             )
             return
         }
 
         detectionScanAt.removeValue(forKey: surfaceID)
-        claimedDetectedTranscriptSessionIDs.insert(resolved.sessionID)
         if let bound = registry.liveSession(surfaceID: surfaceID) {
             guard bound.transcriptPath == nil else { return }
             registry.update(sessionID: bound.sessionID) { record in
@@ -176,10 +177,12 @@ extension AgentChatTranscriptService {
                 record.workingDirectory = workingDirectory
                 record.transcriptPath = resolved.path
             }
+            claimedDetectedTranscriptSessionIDs.insert(resolved.sessionID)
+            transcriptResolutionForcedRetryCounts.removeValue(forKey: surfaceID)
             return
         }
 
-        registry.adoptDetectedSession(
+        let adopted = registry.adoptDetectedSession(
             sessionID: resolved.sessionID,
             agentKind: .claude,
             workspaceID: workspaceID,
@@ -187,6 +190,33 @@ extension AgentChatTranscriptService {
             workingDirectory: workingDirectory,
             transcriptPath: resolved.path,
             at: Date()
+        )
+        if adopted.surfaceID == surfaceID,
+           adopted.transcriptPath == resolved.path {
+            claimedDetectedTranscriptSessionIDs.insert(resolved.sessionID)
+            transcriptResolutionForcedRetryCounts.removeValue(forKey: surfaceID)
+        }
+    }
+
+    func scheduleForcedClaudeTranscriptRetry(
+        workspaceID: String,
+        workingDirectory: String,
+        surfaceID: String,
+        excludingSessionID: String?,
+        titleHint: String?
+    ) {
+        let retryCount = transcriptResolutionForcedRetryCounts[surfaceID, default: 0]
+        guard retryCount < Self.maxTranscriptResolutionForcedRetries else {
+            return
+        }
+        transcriptResolutionForcedRetryCounts[surfaceID] = retryCount + 1
+        scheduleClaudeTranscriptResolution(
+            workspaceID: workspaceID,
+            workingDirectory: workingDirectory,
+            surfaceID: surfaceID,
+            excludingSessionID: excludingSessionID,
+            titleHint: titleHint,
+            forceScan: true
         )
     }
 }

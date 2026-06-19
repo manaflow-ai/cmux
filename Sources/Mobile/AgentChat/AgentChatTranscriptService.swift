@@ -29,10 +29,12 @@ final class AgentChatTranscriptService {
     var deliveredTitleKeys: [String: String] = [:]
     var transcriptResolutionTasks: [String: Task<Void, Never>] = [:]
     var transcriptResolutionKeys: [String: ClaudeTranscriptResolutionKey] = [:]
+    var transcriptResolutionForcedRetryCounts: [String: Int] = [:]
     var claimedDetectedTranscriptSessionIDs: Set<String> = []
     var titleAdoptionHandler: (@MainActor (GhosttyTitleChange) -> Bool)?
     let titleChangeCoalescer = NotificationBurstCoalescer(delay: 0.25)
     static let detectionScanThrottle: TimeInterval = 4
+    static let maxTranscriptResolutionForcedRetries = 3
     private static let provisionalClaudeSessionIDPrefix = "detected-claude-surface-"
 
     /// Creates the service with a hook-store-backed registry.
