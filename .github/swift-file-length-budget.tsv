@@ -7,7 +7,7 @@
 12836	Sources/TerminalController.swift
 12451	Sources/Workspace.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11675	Sources/GhosttyTerminalView.swift
+11665	Sources/GhosttyTerminalView.swift
 11411	Sources/Panels/BrowserPanel.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7988	Sources/Panels/BrowserPanelView.swift
@@ -178,7 +178,7 @@
 577	cmuxTests/AppearanceSettingsTests.swift
 571	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
-567	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
+585	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
 566	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
 562	Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Transcript/ChatTranscriptTableView.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
