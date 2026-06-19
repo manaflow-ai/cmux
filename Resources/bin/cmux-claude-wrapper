@@ -226,53 +226,100 @@ claude_option_consumes_value() {
     return 1
 }
 
-extract_claude_resume_session_id() {
-    local expect_resume_value=false
-    local skip_next=false
+claude_remaining_args_have_resume_flag() {
     local arg
     for arg in "$@"; do
-        if [[ "$expect_resume_value" == true ]]; then
-            printf '%s' "$arg"
-            return 0
-        fi
-        if [[ "$skip_next" == true ]]; then
-            skip_next=false
-            continue
-        fi
         case "$arg" in
             --)
                 return 1
                 ;;
-            --resume|-r)
-                expect_resume_value=true
-                continue
-                ;;
-            --resume=*)
-                printf '%s' "${arg#--resume=}"
+            --resume|-r|--resume=*)
                 return 0
-                ;;
-            -*)
-                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
-                    skip_next=true
-                fi
-                continue
-                ;;
-            *)
-                return 1
                 ;;
         esac
     done
     return 1
 }
 
-claude_explicit_session_flag_present() {
-    local skip_next=false
+claude_remaining_args_have_explicit_session_flag() {
     local arg
     for arg in "$@"; do
-        if [[ "$skip_next" == true ]]; then
-            skip_next=false
-            continue
-        fi
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+claude_unknown_option_should_skip_value_before_resume_flag() {
+    local index="$1"
+    local -a args=("${@:2}")
+    local next_index=$((index + 1))
+    local rest_index=$((index + 2))
+    (( next_index < ${#args[@]} )) || return 1
+    [[ "${args[$next_index]}" != -* ]] || return 1
+    claude_remaining_args_have_resume_flag "${args[@]:$rest_index}"
+}
+
+claude_unknown_option_should_skip_value_before_explicit_session_flag() {
+    local index="$1"
+    local -a args=("${@:2}")
+    local next_index=$((index + 1))
+    local rest_index=$((index + 2))
+    (( next_index < ${#args[@]} )) || return 1
+    [[ "${args[$next_index]}" != -* ]] || return 1
+    claude_remaining_args_have_explicit_session_flag "${args[@]:$rest_index}"
+}
+
+extract_claude_resume_session_id() {
+    local -a args=("$@")
+    local index=0
+    local arg
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|-r)
+                index=$((index + 1))
+                (( index < ${#args[@]} )) || return 1
+                printf '%s' "${args[$index]}"
+                return 0
+                ;;
+            --resume=*)
+                printf '%s' "${arg#--resume=}"
+                return 0
+                ;;
+            -*)
+                if [[ "$arg" != *=* ]]; then
+                    if claude_option_consumes_value "$arg" ||
+                       claude_unknown_option_should_skip_value_before_resume_flag "$index" "${args[@]}"; then
+                        index=$((index + 2))
+                        continue
+                    fi
+                fi
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+        index=$((index + 1))
+    done
+    return 1
+}
+
+claude_explicit_session_flag_present() {
+    local -a args=("$@")
+    local index=0
+    local arg
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
         case "$arg" in
             --)
                 return 1
@@ -281,15 +328,19 @@ claude_explicit_session_flag_present() {
                 return 0
                 ;;
             -*)
-                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
-                    skip_next=true
+                if [[ "$arg" != *=* ]]; then
+                    if claude_option_consumes_value "$arg" ||
+                       claude_unknown_option_should_skip_value_before_explicit_session_flag "$index" "${args[@]}"; then
+                        index=$((index + 2))
+                        continue
+                    fi
                 fi
-                continue
                 ;;
             *)
                 return 1
                 ;;
         esac
+        index=$((index + 1))
     done
     return 1
 }

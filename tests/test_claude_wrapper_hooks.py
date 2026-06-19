@@ -1082,7 +1082,8 @@ def test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures: l
 
 def test_stale_socket_resume_self_heals_after_value_option(failures: list[str]) -> None:
     # The stale-socket path runs before hook injection. Its resume parser still
-    # has to skip value-taking options that appear before `--resume`.
+    # has to skip value-taking options that appear before `--resume`, including
+    # newer Claude options that are not in cmux's preserved-argument allowlists.
     session_id = "017427ef-1828-43d9-ae1d-8ec6d4b2bdb7"
     expected: dict[str, str] = {}
 
@@ -1102,14 +1103,14 @@ def test_stale_socket_resume_self_heals_after_value_option(failures: list[str]) 
         }
 
     code, auth_env, real_argv, stderr = run_wrapper_auth_env(
-        argv=["--model", "sonnet", "--resume", session_id],
+        argv=["--permission-prompt-tool", "/tmp/cmux-permission-tool", "--resume", session_id],
         inherited_env={},
         socket_state="stale",
         setup_env=setup_env,
     )
     expect(code == 0, f"stale socket option resume self-heal: wrapper exited {code}: {stderr}", failures)
     expect(
-        real_argv == ["--model", "sonnet", "--resume", session_id],
+        real_argv == ["--permission-prompt-tool", "/tmp/cmux-permission-tool", "--resume", session_id],
         f"stale socket option resume self-heal: expected passthrough argv, got {real_argv}",
         failures,
     )
@@ -1122,6 +1123,25 @@ def test_stale_socket_resume_self_heals_after_value_option(failures: list[str]) 
     expect(
         "command not found" not in stderr,
         f"stale socket option resume self-heal: parser emitted shell diagnostic: {stderr}",
+        failures,
+    )
+
+
+def test_live_socket_resume_after_unlisted_value_option_does_not_inject_session_id(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["--permission-prompt-tool", "/tmp/cmux-permission-tool", "--resume", "some-session-id"],
+    )
+    expect(code == 0, f"unlisted value option resume: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"unlisted value option resume: expected hook settings injection, got {real_argv}", failures)
+    expect("--session-id" not in real_argv, f"unlisted value option resume: expected no generated session id, got {real_argv}", failures)
+    passthrough_argv = list(real_argv)
+    if "--settings" in passthrough_argv:
+        settings_index = passthrough_argv.index("--settings")
+        del passthrough_argv[settings_index:settings_index + 2]
+    expect(
+        passthrough_argv == ["--permission-prompt-tool", "/tmp/cmux-permission-tool", "--resume", "some-session-id"],
+        f"unlisted value option resume: expected original argv preserved around injected settings, got {real_argv}",
         failures,
     )
 
@@ -1650,6 +1670,7 @@ def main() -> int:
     test_live_socket_resume_self_heals_mismatched_claude_config_dir(failures)
     test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures)
     test_stale_socket_resume_self_heals_after_value_option(failures)
+    test_live_socket_resume_after_unlisted_value_option_does_not_inject_session_id(failures)
     test_live_socket_resume_self_heals_nested_claude_transcript_config_dir(failures)
     test_live_socket_resume_keeps_correct_claude_config_dir(failures)
     test_live_socket_resume_self_heal_ignores_prompt_text_after_double_dash(failures)
