@@ -16,6 +16,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxCore"),
+        .package(path: "../CmuxSettings"),
         .package(path: "../CmuxRemoteDaemon"),
         .package(path: "../CmuxRemoteWorkspace"),
         .package(path: "../CMUXDebugLog"),
@@ -26,6 +27,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxCore", package: "CmuxCore"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxRemoteDaemon", package: "CmuxRemoteDaemon"),
                 .product(name: "CmuxRemoteWorkspace", package: "CmuxRemoteWorkspace"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
@@ -41,6 +43,7 @@ let package = Package(
             dependencies: [
                 "CmuxRemoteSession",
                 .product(name: "CmuxCore", package: "CmuxCore"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxRemoteDaemon", package: "CmuxRemoteDaemon"),
                 .product(name: "CmuxRemoteWorkspace", package: "CmuxRemoteWorkspace"),
             ]
