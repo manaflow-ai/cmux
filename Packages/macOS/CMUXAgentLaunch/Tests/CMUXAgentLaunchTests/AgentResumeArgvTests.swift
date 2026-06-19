@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 import Testing
 
 @Suite("AgentResumeArgv")
@@ -220,5 +221,72 @@ struct AgentResumeArgvTests {
                 quote: quote
             ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'SID'"
         )
+    }
+
+    @Test("Claude executable token prefers current bundled wrapper over stale inherited shim")
+    func claudeExecutableTokenPrefersCurrentBundledWrapperOverStaleShim() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("AgentResumeArgvTests-\(UUID().uuidString)", isDirectory: true)
+        let staleBin = root
+            .appendingPathComponent("old.app", isDirectory: true)
+            .appendingPathComponent("Contents/Resources/bin", isDirectory: true)
+        let currentBin = root
+            .appendingPathComponent("current.app", isDirectory: true)
+            .appendingPathComponent("Contents/Resources/bin", isDirectory: true)
+        let shimRoot = root.appendingPathComponent("cmux-cli-shims", isDirectory: true)
+        let logURL = root.appendingPathComponent("resume.log", isDirectory: false)
+        for directory in [staleBin, currentBin, shimRoot] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? fileManager.removeItem(at: root) }
+
+        func writeExecutable(_ url: URL, _ body: String) throws {
+            try body.write(to: url, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        }
+
+        let staleWrapper = staleBin.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        try writeExecutable(staleWrapper, """
+        #!/usr/bin/env bash
+        printf 'stale %s\\n' "$*" > "$CMUX_TEST_LOG"
+        """)
+        let staleShim = shimRoot.appendingPathComponent("claude", isDirectory: false)
+        try writeExecutable(staleShim, """
+        #!/usr/bin/env bash
+        exec \(singleQuotedShellWord(staleWrapper.path)) "$@"
+        """)
+        try fileManager.removeItem(at: staleWrapper)
+
+        let currentWrapper = currentBin.appendingPathComponent("cmux-claude-wrapper", isDirectory: false)
+        try writeExecutable(currentWrapper, """
+        #!/usr/bin/env bash
+        printf 'current %s\\n' "$*" > "$CMUX_TEST_LOG"
+        """)
+        let currentCLI = currentBin.appendingPathComponent("cmux", isDirectory: false)
+        try writeExecutable(currentCLI, """
+        #!/usr/bin/env bash
+        exit 0
+        """)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "exec \(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume SID"]
+        process.environment = [
+            "PATH": "/usr/bin:/bin",
+            "CMUX_BUNDLED_CLI_PATH": currentCLI.path,
+            "CMUX_CLAUDE_WRAPPER_SHIM": staleShim.path,
+            "CMUX_TEST_LOG": logURL.path,
+        ]
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        let output = try String(contentsOf: logURL, encoding: .utf8)
+        #expect(output == "current --resume SID\n")
+    }
+
+    private func singleQuotedShellWord(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

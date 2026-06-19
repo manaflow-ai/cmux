@@ -31,25 +31,44 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// `execvp` — bypassing the shell function entirely — so even re-sourcing the
     /// integration would not help an `env`-prefixed invocation whose `PATH` was rebuilt.
     ///
-    /// `CMUX_CLAUDE_WRAPPER_SHIM` is a *managed* terminal environment variable (set by
-    /// `TerminalStartupEnvironment` / `GhosttyTerminalView`) pointing at the per-surface
-    /// shim that execs the wrapper. It is inherited by every descendant shell regardless
-    /// of `PATH`/function shadowing, so resolving the claude executable through it makes
-    /// the executed resume command route through the wrapper (hooks fire) inside the
-    /// `-lic` launcher. https://github.com/manaflow-ai/cmux/issues/5639
+    /// `CMUX_BUNDLED_CLI_PATH` and `CMUX_CLAUDE_WRAPPER_SHIM` are *managed* terminal
+    /// environment variables (set by `TerminalStartupEnvironment` / `GhosttyTerminalView`).
+    /// The bundled CLI path points at the current app bundle, so the sibling
+    /// `cmux-claude-wrapper` is the most durable route. The shim is the fallback for
+    /// environments without a bundled CLI path. Both are inherited by every descendant
+    /// shell regardless of `PATH`/function shadowing, so resolving the claude executable
+    /// through them makes the executed resume command route through the wrapper (hooks fire)
+    /// inside the `-lic` launcher. https://github.com/manaflow-ai/cmux/issues/5639
     ///
     /// The token guards on `[ -x … ]`, not bare `${VAR:-claude}` expansion: macOS reaps
     /// idle files under the temporary directory after ~3 days, and a long-idle surface
-    /// can hold the env var while the shim file is gone. Parameter expansion alone would
-    /// exec the dead path and hard-fail resume; the executability guard degrades to bare
-    /// `claude` (PATH resolution — hooks lost but resume works), the same graceful
+    /// can hold the env var while the shim file is gone. It also prefers the current
+    /// bundled wrapper before a still-executable inherited shim, because older shim files
+    /// embed the wrapper path they were generated with and can survive after that wrapper
+    /// target has been reaped. If neither wrapper route is executable, the token degrades
+    /// to bare `claude` (PATH resolution — hooks lost but resume works), the same graceful
     /// fallback used when the variable is unset outside cmux.
     ///
     /// The token is POSIX command substitution, which fish and csh/tcsh reject, so any
     /// command containing it must reach those shells wrapped via
     /// ``portableClaudeResumeShellCommand(posixCommand:)``.
     public static let claudeWrapperShellExecutableToken =
-        "\"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\""
+        "\"$(" +
+        "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; " +
+        "cmux_wrapper=\"\"; " +
+        "if [ -n \"$cmux_cli\" ] && [ -x \"$cmux_cli\" ]; then " +
+        "cmux_dir=${cmux_cli%/*}; " +
+        "if [ \"$cmux_dir\" != \"$cmux_cli\" ]; then " +
+        "cmux_candidate=\"$cmux_dir/cmux-claude-wrapper\"; " +
+        "if [ -x \"$cmux_candidate\" ]; then cmux_wrapper=\"$cmux_candidate\"; fi; " +
+        "fi; " +
+        "fi; " +
+        "if [ -n \"$cmux_wrapper\" ]; then " +
+        "printf '%s' \"$cmux_wrapper\"; " +
+        "elif [ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ]; then " +
+        "printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\"; " +
+        "else printf claude; fi" +
+        ")\""
 
     /// Wraps a rendered claude resume/fork command so it parses in any login shell.
     ///
@@ -253,8 +272,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ///
     /// The argv keeps a bare `claude` executable as its logical value; the wrapper is
     /// reached at render time via ``claudeWrapperShellExecutableToken`` (resolved through
-    /// the `CMUX_CLAUDE_WRAPPER_SHIM` managed env var), because relying on the wrapper
-    /// being first on `PATH` does not hold inside the `$SHELL -lic` restore launcher
+    /// managed cmux environment), because relying on the wrapper being first on `PATH` does
+    /// not hold inside the `$SHELL -lic` restore launcher
     /// (https://github.com/manaflow-ai/cmux/issues/5639). The captured executable is
     /// intentionally ignored for claude; the wrapper resolves the real binary
     /// (honouring `CMUX_CUSTOM_CLAUDE_PATH`).

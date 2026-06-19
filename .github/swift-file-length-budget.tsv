@@ -9,7 +9,7 @@
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11827	Sources/GhosttyTerminalView.swift
 11411	Sources/Panels/BrowserPanel.swift
-9339	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
+9330	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7988	Sources/Panels/BrowserPanelView.swift
 7355	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
@@ -47,8 +47,8 @@
 2126	cmuxTests/CmuxConfigTests.swift
 2105	Sources/SessionPersistence.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
-1954	Sources/RestorableAgentSession.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
+1945	Sources/RestorableAgentSession.swift
 1940	Sources/KeyboardShortcutSettingsFileStore.swift
 1869	cmuxTests/NotificationAndMenuBarTests.swift
 1810	Sources/SessionIndexStore.swift
@@ -146,7 +146,7 @@
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 668	cmuxTests/FeedCoordinatorTests.swift
 664	Sources/CmuxTopSnapshot.swift
-663	cmuxTests/SessionIndexViewTests.swift
+664	cmuxTests/SessionIndexViewTests.swift
 655	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator.swift
 655	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 654	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
@@ -173,6 +173,7 @@
 586	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+PortScan.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
+583	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
