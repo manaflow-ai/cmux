@@ -16,7 +16,7 @@
 6317	cmuxTests/SessionPersistenceTests.swift
 6220	cmuxTests/GhosttyConfigTests.swift
 6151	CLI/cmux_open.swift
-6123	Sources/TabManager.swift
+6132	Sources/TabManager.swift
 6072	Sources/TextBoxInput.swift
 5922	cmuxTests/TerminalAndGhosttyTests.swift
 5566	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift

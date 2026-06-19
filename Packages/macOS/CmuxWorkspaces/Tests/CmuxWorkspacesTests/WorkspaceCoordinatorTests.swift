@@ -9,17 +9,22 @@ private final class CoordinatorStubTab: WorkspaceTabRepresenting {
     var groupId: UUID?
     var isPinned: Bool
     var currentDirectory: String
+    var title: String
 
     init(
         groupId: UUID? = nil,
         isPinned: Bool = false,
-        currentDirectory: String = "/tmp"
+        currentDirectory: String = "/tmp",
+        title: String = ""
     ) {
         self.id = UUID()
         self.groupId = groupId
         self.isPinned = isPinned
         self.currentDirectory = currentDirectory
+        self.title = title
     }
+
+    func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {}
 }
 
 /// Window-side stand-in: creates stub workspaces on demand, records every
