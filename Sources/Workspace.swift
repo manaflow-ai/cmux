@@ -4681,43 +4681,22 @@ final class Workspace: Identifiable, ObservableObject {
         return panel.isDirty
     }
 
+    /// Forwards to ``WorkspaceSidebarMetadataModel/updatePanelGitBranch(panelId:branch:isDirty:focusedPanelId:)``.
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
-        let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
-        let existing = panelGitBranches[panelId]
-        let branchChanged = existing?.branch != nil && existing?.branch != branch
-        if existing?.branch != branch || existing?.isDirty != isDirty {
-            panelGitBranches[panelId] = state
-        }
-        if branchChanged {
-            if panelPullRequests[panelId] != nil {
-                panelPullRequests.removeValue(forKey: panelId)
-            }
-            if panelId == focusedPanelId, pullRequest != nil {
-                pullRequest = nil
-            }
-        }
-        if panelId == focusedPanelId, gitBranch != state {
-            gitBranch = state
-        }
+        sidebarMetadata.updatePanelGitBranch(
+            panelId: panelId,
+            branch: branch,
+            isDirty: isDirty,
+            focusedPanelId: focusedPanelId
+        )
     }
 
+    /// Forwards to ``WorkspaceSidebarMetadataModel/clearPanelGitBranch(panelId:focusedPanelId:)``.
     func clearPanelGitBranch(panelId: UUID) {
-        if panelGitBranches[panelId] != nil {
-            panelGitBranches.removeValue(forKey: panelId)
-        }
-        if panelPullRequests[panelId] != nil {
-            panelPullRequests.removeValue(forKey: panelId)
-        }
-        if panelId == focusedPanelId {
-            if gitBranch != nil {
-                gitBranch = nil
-            }
-            if pullRequest != nil {
-                pullRequest = nil
-            }
-        }
+        sidebarMetadata.clearPanelGitBranch(panelId: panelId, focusedPanelId: focusedPanelId)
     }
 
+    /// Forwards to ``WorkspaceSidebarMetadataModel/updatePanelPullRequest(panelId:number:label:url:status:branch:isStale:focusedPanelId:)``.
     func updatePanelPullRequest(
         panelId: UUID,
         number: Int,
@@ -4727,67 +4706,31 @@ final class Workspace: Identifiable, ObservableObject {
         branch: String? = nil,
         isStale: Bool = false
     ) {
-        let existing = panelPullRequests[panelId]
-        let normalizedBranch = branch?.normalizedSidebarBranchName
-        let currentPanelBranch = panelGitBranches[panelId]?.branch.normalizedSidebarBranchName
-        let resolvedBranch: String? = {
-            if let normalizedBranch {
-                return normalizedBranch
-            }
-            if let currentPanelBranch {
-                return currentPanelBranch
-            }
-            guard let existing,
-                  existing.number == number,
-                  existing.label == label,
-                  existing.url == url,
-                  existing.status == status else {
-                return nil
-            }
-            return existing.branch
-        }()
-        let state = SidebarPullRequestState(
+        sidebarMetadata.updatePanelPullRequest(
+            panelId: panelId,
             number: number,
             label: label,
             url: url,
             status: status,
-            branch: resolvedBranch,
-            isStale: isStale
+            branch: branch,
+            isStale: isStale,
+            focusedPanelId: focusedPanelId
         )
-        if existing != state {
-            panelPullRequests[panelId] = state
-        }
-        if panelId == focusedPanelId, pullRequest != state {
-            pullRequest = state
-        }
     }
 
+    /// Forwards to ``WorkspaceSidebarMetadataModel/clearPanelPullRequest(panelId:focusedPanelId:)``.
     func clearPanelPullRequest(panelId: UUID) {
-        if panelPullRequests[panelId] != nil {
-            panelPullRequests.removeValue(forKey: panelId)
-        }
-        if panelId == focusedPanelId, pullRequest != nil {
-            pullRequest = nil
-        }
+        sidebarMetadata.clearPanelPullRequest(panelId: panelId, focusedPanelId: focusedPanelId)
     }
 
+    /// Forwards to ``WorkspaceSidebarMetadataModel/clearPullRequestMetadata()``.
     func clearSidebarPullRequestMetadata() {
-        if !panelPullRequests.isEmpty {
-            panelPullRequests.removeAll()
-        }
-        if pullRequest != nil {
-            pullRequest = nil
-        }
+        sidebarMetadata.clearPullRequestMetadata()
     }
 
+    /// Forwards to ``WorkspaceSidebarMetadataModel/clearGitMetadata()``.
     func clearSidebarGitMetadata() {
-        if !panelGitBranches.isEmpty {
-            panelGitBranches.removeAll()
-        }
-        clearSidebarPullRequestMetadata()
-        if gitBranch != nil {
-            gitBranch = nil
-        }
+        sidebarMetadata.clearGitMetadata()
     }
 
     func resetSidebarContext(reason: String = "unspecified") {
@@ -5024,30 +4967,20 @@ final class Workspace: Identifiable, ObservableObject {
         return resolved
     }
 
+    /// Resolves each panel's directory and the canonicalization home directory
+    /// from live `Workspace` state, then forwards to
+    /// ``WorkspaceSidebarMetadataModel/directoriesInDisplayOrder(orderedPanelIds:resolvedPanelDirectories:homeDirectoryForCanonicalization:fallbackDirectory:includeFallback:)``.
     func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
-        let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
-            resolvedPanelDirectories: resolvedDirectories
+        return sidebarMetadata.directoriesInDisplayOrder(
+            orderedPanelIds: orderedPanelIds,
+            resolvedPanelDirectories: resolvedDirectories,
+            homeDirectoryForCanonicalization: sidebarHomeDirectoryForCanonicalization(
+                resolvedPanelDirectories: resolvedDirectories
+            ),
+            fallbackDirectory: normalizedSidebarDirectory(currentDirectory),
+            includeFallback: includeFallback
         )
-        var ordered: [String] = []
-        var seen: Set<String> = []
-
-        for panelId in orderedPanelIds {
-            guard let directory = resolvedDirectories[panelId],
-                  let key = SidebarBranchOrdering().canonicalDirectoryKey(
-                      directory,
-                      homeDirectoryForTildeExpansion: homeDirectoryForCanonicalization
-                  ) else { continue }
-            if seen.insert(key).inserted {
-                ordered.append(directory)
-            }
-        }
-
-        if includeFallback, ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
-            return [fallbackDirectory]
-        }
-
-        return ordered
     }
 
     func sidebarDirectoriesInDisplayOrder() -> [String] {
@@ -5064,33 +4997,28 @@ final class Workspace: Identifiable, ObservableObject {
         return sidebarDirectoriesInDisplayOrder(orderedPanelIds: localPanelIds, includeFallback: panelIds.isEmpty || localPanelIds.count == panelIds.count).first
     }
 
+    /// Forwards to ``WorkspaceSidebarMetadataModel/gitBranchesInDisplayOrder(orderedPanelIds:)``.
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
-        SidebarBranchOrdering()
-            .orderedUniqueBranches(
-                orderedPanelIds: orderedPanelIds,
-                panelBranches: panelGitBranches,
-                fallbackBranch: gitBranch
-            )
-            .map { SidebarGitBranchState(branch: $0.name, isDirty: $0.isDirty) }
+        sidebarMetadata.gitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds)
     }
 
     func sidebarGitBranchesInDisplayOrder() -> [SidebarGitBranchState] {
         sidebarGitBranchesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
+    /// Resolves each panel's directory from live `Workspace` state, then
+    /// forwards to ``WorkspaceSidebarMetadataModel/branchDirectoryEntriesInDisplayOrder(orderedPanelIds:resolvedPanelDirectories:defaultDirectory:homeDirectoryForCanonicalization:)``.
     func sidebarBranchDirectoryEntriesInDisplayOrder(
         orderedPanelIds: [UUID]
     ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
-        return SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
+        return sidebarMetadata.branchDirectoryEntriesInDisplayOrder(
             orderedPanelIds: orderedPanelIds,
-            panelBranches: panelGitBranches,
-            panelDirectories: resolvedDirectories,
+            resolvedPanelDirectories: resolvedDirectories,
             defaultDirectory: normalizedSidebarDirectory(currentDirectory),
-            homeDirectoryForTildeExpansion: sidebarHomeDirectoryForCanonicalization(
+            homeDirectoryForCanonicalization: sidebarHomeDirectoryForCanonicalization(
                 resolvedPanelDirectories: resolvedDirectories
-            ),
-            fallbackBranch: gitBranch
+            )
         )
     }
 
@@ -5098,18 +5026,9 @@ final class Workspace: Identifiable, ObservableObject {
         sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
+    /// Forwards to ``WorkspaceSidebarMetadataModel/pullRequestsInDisplayOrder(orderedPanelIds:)``.
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
-        let validPanelPullRequests = panelPullRequests.filter { panelId, state in
-            guard let pullRequestBranch = state.branch?.normalizedSidebarBranchName else {
-                return true
-            }
-            return panelGitBranches[panelId]?.branch.normalizedSidebarBranchName == pullRequestBranch
-        }
-        return SidebarBranchOrdering().orderedUniquePullRequests(
-            orderedPanelIds: orderedPanelIds,
-            panelPullRequests: validPanelPullRequests,
-            fallbackPullRequest: nil
-        )
+        sidebarMetadata.pullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds)
     }
 
     func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
