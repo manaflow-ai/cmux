@@ -4528,6 +4528,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
         }
 
+        let bridgeCloseObserved = DispatchSemaphore(value: 0)
         let bridgeHandled = expectation(description: "controlled polling bridge handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { bridgeHandled.fulfill() }
@@ -4559,6 +4560,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             bridgeReady.signal()
             _ = closeBridge.wait(timeout: .now() + 5)
+            bridgeCloseObserved.signal()
         }
 
         let process = Process()
@@ -4597,7 +4599,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
 
         closeBridge.signal()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(bridgeCloseObserved.wait(timeout: .now() + 5), .success)
         allowResizeResponse.signal()
 
         let exited = DispatchSemaphore(value: 0)
