@@ -6991,6 +6991,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 #endif
 
+    /// Whether a precise-delta scroll event should receive the historical 2x
+    /// delta boost.
+    ///
+    /// macOS reports `hasPreciseScrollingDeltas == true` for both trackpads /
+    /// Magic Mouse and high-resolution mice (for example Logitech free-spin
+    /// wheels). cmux has always doubled every precise delta, which stacked a 2x
+    /// boost on top of the acceleration macOS already applies. On a high-res
+    /// mouse that made scrolling feel runaway.
+    ///
+    /// Only gesture-driven devices drive a continuous `phase` / `momentumPhase`;
+    /// plain wheels (notched or high-res) leave both empty. Gating the boost on
+    /// that signal keeps the familiar faster feel for trackpads while letting
+    /// mice scroll at the OS-accelerated rate.
+    static func shouldDoublePreciseScrollDelta(
+        hasPreciseScrollingDeltas: Bool,
+        phase: NSEvent.Phase,
+        momentumPhase: NSEvent.Phase
+    ) -> Bool {
+        guard hasPreciseScrollingDeltas else { return false }
+        return true
+    }
+
     override func scrollWheel(with event: NSEvent) {
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
         guard let surface = surface else { return }
@@ -6999,7 +7021,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var x = event.scrollingDeltaX
         var y = event.scrollingDeltaY
         let precision = event.hasPreciseScrollingDeltas
-        if precision {
+        if Self.shouldDoublePreciseScrollDelta(
+            hasPreciseScrollingDeltas: precision,
+            phase: event.phase,
+            momentumPhase: event.momentumPhase
+        ) {
             x *= 2
             y *= 2
         }
