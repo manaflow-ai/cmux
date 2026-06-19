@@ -162,8 +162,8 @@ while ! mkdir "$LOCK_DIR" 2>"$LOCK_MKDIR_ERR"; do
   echo "==> Waiting for GhosttyKit cache lock for $GHOSTTY_KEY..."
   sleep 1
 done
-rm -f "$LOCK_MKDIR_ERR"
 LOCK_ACQUIRED=1
+rm -f "$LOCK_MKDIR_ERR"
 
 try_fetch_prebuilt_xcframework() {
   # Only attempt when Ghostty submodule is clean — dirty trees won't match any
