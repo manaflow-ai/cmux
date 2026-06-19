@@ -31,6 +31,30 @@ struct CanvasPaneBodyFocusTests {
         #expect(focusedPanels == [panelB])
     }
 
+    @Test func paneViewBodyMouseDownDoesNotRequestSecondFocus() throws {
+        let paneView = CanvasPaneView(paneID: CanvasPaneID(rawValue: UUID()))
+        let delegate = CanvasPaneDelegateSpy()
+        paneView.delegate = delegate
+        paneView.frame = CGRect(x: 0, y: 0, width: 300, height: 220)
+        paneView.layoutSubtreeIfNeeded()
+
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: CGPoint(x: paneView.bounds.midX, y: paneView.bounds.midY),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        paneView.mouseDown(with: event)
+
+        #expect(delegate.focusRequests.isEmpty)
+    }
+
     @Test func hiddenWorkspaceBodyMouseDownDoesNotRequestFocus() throws {
         let panelA = UUID()
         let panelB = UUID()
@@ -152,4 +176,20 @@ struct CanvasPaneBodyFocusTests {
         )
     }
 
+}
+
+@MainActor
+private final class CanvasPaneDelegateSpy: CanvasPaneViewDelegate {
+    var focusRequests: [CanvasPaneID] = []
+
+    func paneView(_ view: CanvasPaneView, mouseDownAt documentPoint: CGPoint, region: CanvasPaneHitRegion) {}
+    func paneView(_ view: CanvasPaneView, draggedTo documentPoint: CGPoint, modifiers: NSEvent.ModifierFlags) {}
+    func paneViewDidEndDrag(_ view: CanvasPaneView) {}
+    func paneView(_ view: CanvasPaneView, requestTearOutTab panelId: UUID, atDocumentPoint point: CGPoint) {}
+    func paneView(_ view: CanvasPaneView, didSelectTab panelId: UUID) {}
+    func paneView(_ view: CanvasPaneView, didCloseTab panelId: UUID) {}
+
+    func paneViewDidRequestFocus(_ view: CanvasPaneView) {
+        focusRequests.append(view.paneID)
+    }
 }
