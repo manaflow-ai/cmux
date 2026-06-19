@@ -141,11 +141,7 @@ struct MobilePairingView: View {
     private var content: some View {
         switch model.state {
         case .loading:
-            centered {
-                ProgressView().controlSize(.small)
-                Text(String(localized: "mobile.pairing.checking", defaultValue: "Checking…"))
-                    .foregroundStyle(.secondary)
-            }
+            loadingContent
         case .signedOut:
             signedOut
         case .preparing:
@@ -197,12 +193,67 @@ struct MobilePairingView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let lastFailure = browserSignIn?.lastFailure?.errorDescription, !lastFailure.isEmpty {
+                Text(lastFailure)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Button(String(localized: "mobile.pairing.signIn.button", defaultValue: "Sign In")) {
                 model.signIn()
             }
             .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, minHeight: 200)
+    }
+
+    @ViewBuilder
+    private var loadingContent: some View {
+        if browserSignIn?.isSigningIn == true {
+            VStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(String(localized: "mobile.pairing.signIn.connecting", defaultValue: "Connecting…"))
+                        .foregroundStyle(.secondary)
+                }
+                if browserSignIn?.signInIsSlow == true {
+                    slowSignInFallback
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 200)
+        } else {
+            centered {
+                ProgressView().controlSize(.small)
+                Text(String(localized: "mobile.pairing.checking", defaultValue: "Checking…"))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var slowSignInFallback: some View {
+        VStack(spacing: 8) {
+            Text(String(
+                localized: "settings.account.signIn.slowHint",
+                defaultValue: "The system sign-in window may stop responding. If nothing happens, open sign-in in your default browser instead."
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                guard let url = browserSignIn?.activeAttemptSignInURL else { return }
+                NSWorkspace.shared.open(url)
+            } label: {
+                Text(String(
+                    localized: "settings.account.signIn.openInBrowser",
+                    defaultValue: "Open in Browser"
+                ))
+            }
+            .controlSize(.small)
+        }
+        .frame(maxWidth: 360)
     }
 
     private func failure(message: String) -> some View {

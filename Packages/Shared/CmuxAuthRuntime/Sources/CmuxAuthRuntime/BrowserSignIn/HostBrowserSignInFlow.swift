@@ -25,6 +25,10 @@ public final class HostBrowserSignInFlow {
     /// whenever an attempt completes, is cancelled, or is replaced.
     public private(set) var signInIsSlow = false
 
+    /// Display-safe failure from the most recent hosted-browser sign-in
+    /// attempt. `nil` for a fresh attempt and for deliberate cancellation.
+    public private(set) var lastFailure: AuthError?
+
     private let coordinator: AuthCoordinator
     private let tokenStore: any StackAuthTokenStoreProtocol
     private let sessionFactory: any HostBrowserAuthSessionFactory
@@ -140,6 +144,7 @@ public final class HostBrowserSignInFlow {
            callbackRouter.isAuthCallbackURL(url) {
             guard callbackState(from: url) == activeCallbackState else {
                 log.log("auth.callback.external.reject reason=stateMismatch attempt=\(attemptID)")
+                lastFailure = .invalidCallback
                 return false
             }
             log.log("auth.callback.external.routeToActive attempt=\(attemptID)")
@@ -165,6 +170,9 @@ public final class HostBrowserSignInFlow {
             return await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
         }
         log.log("auth.callback.external.reject reason=noActiveAttempt")
+        if callbackRouter.isAuthCallbackURL(url) {
+            lastFailure = .invalidCallback
+        }
         return false
     }
 
@@ -173,6 +181,7 @@ public final class HostBrowserSignInFlow {
     public func signOut() async {
         log.log("auth.browser.signOut.begin signingIn=\(isSigningIn) activeAttempt=\(activeAttemptID.map(String.init) ?? "nil") generation=\(signOutGeneration)")
         signOutGeneration &+= 1
+        lastFailure = nil
         cancelActiveAttempt()
         await coordinator.signOut()
         log.log("auth.browser.signOut.end generation=\(signOutGeneration)")
@@ -228,6 +237,7 @@ public final class HostBrowserSignInFlow {
             log.log("auth.browser.attempt.replace previous=\(activeAttemptID)")
         }
         cancelActiveAttempt()
+        lastFailure = nil
         nextAttemptID &+= 1
         let attemptID = nextAttemptID
         let callbackState = pendingManualCallbackState ?? makeCallbackState()
@@ -341,6 +351,7 @@ public final class HostBrowserSignInFlow {
             try? await clock.sleep(for: .seconds(timeout))
             guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
             self.log.log("auth.browser.attempt.timeout id=\(attemptID)")
+            self.lastFailure = .timedOut
             self.cancelActiveAttempt()
         }
     }
@@ -384,15 +395,18 @@ public final class HostBrowserSignInFlow {
         log.log("auth.callback.complete.begin attempt=\(attemptID.map(String.init) ?? "external") \(authCallbackSummary(url))")
         guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback rejected: invalid payload")
+            lastFailure = .invalidCallback
             return false
         }
         if let attemptID {
             guard callbackState(from: url) == activeCallbackState else {
                 log.log("auth.callback rejected: state mismatch attempt=\(attemptID)")
+                lastFailure = .invalidCallback
                 return false
             }
         } else if let state = callbackState(from: url), state != acceptedExternalState {
             log.log("auth.callback rejected: stateful external callback without active attempt")
+            lastFailure = .invalidCallback
             return false
         }
         let generation = signOutGeneration
@@ -414,6 +428,10 @@ public final class HostBrowserSignInFlow {
             try await coordinator.completeExternalSignIn()
         } catch {
             log.log("auth.callback completion failed: \(error)")
+            let displaySafe = AuthError(displaySafe: error) ?? .authFailure
+            if displaySafe != .cancelled {
+                lastFailure = displaySafe
+            }
             // No flow-side seed clear here, deliberately. When a sign-out
             // raced the validation round trip, the seeds were already in the
             // store when the coordinator's local-first clear ran (they are

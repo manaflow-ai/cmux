@@ -20,6 +20,9 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
     case serverError(Int, String)
     /// The supplied magic-link / OTP code was missing or rejected.
     case invalidCode
+    /// The hosted sign-in callback returned to the app but did not contain a
+    /// token payload or did not match the active attempt.
+    case invalidCallback
     /// The session is no longer valid and the user must sign in again.
     case unauthorized
     /// A generic credential failure (e.g. wrong email/password).
@@ -58,6 +61,12 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
             return String(
                 localized: "auth.error.invalid_code_short",
                 defaultValue: "Invalid code. Please try again.",
+                bundle: .main
+            )
+        case .invalidCallback:
+            return String(
+                localized: "auth.error.invalid_callback",
+                defaultValue: "The sign-in callback was invalid. Try signing in again.",
                 bundle: .main
             )
         case .unauthorized:
