@@ -19267,7 +19267,7 @@ struct CMUXCLI {
             focusedContext: focusedContext
         )
 
-        let launchPath = claudeExecutablePath
+        let launchPath = claudeTeamsProviderLaunchPath(claudeExecutablePath: claudeExecutablePath)
         let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
         exportAgentLaunchCommandEnvironment(
             launcher: "claudeTeams",
