@@ -11,11 +11,11 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
     @MainActor
     func testCustomSidebarSurfacePersistsAndRestoresAsPane() throws {
         let sidebarName = "__cmux_restore_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let tempDirectory = try installTemporaryCustomSidebarsDirectory()
+        defer { cleanupTemporaryCustomSidebarsDirectory(tempDirectory) }
+        let directory = tempDirectory.directory
         let fileURL = directory.appendingPathComponent("\(sidebarName).swift")
         try #"Text("Restored")"#.write(to: fileURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
 
@@ -52,11 +52,11 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
     @MainActor
     func testSplitCustomSidebarPublishesNewPaneLifecycleEvents() throws {
         let sidebarName = "__cmux_split_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let tempDirectory = try installTemporaryCustomSidebarsDirectory()
+        defer { cleanupTemporaryCustomSidebarsDirectory(tempDirectory) }
+        let directory = tempDirectory.directory
         let fileURL = directory.appendingPathComponent("\(sidebarName).swift")
         try #"Text("Split")"#.write(to: fileURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
 
@@ -91,8 +91,10 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
         XCTAssertEqual(surfacePayload["kind"] as? String, "custom_sidebar")
     }
 
-    func testV2CustomSidebarOpenReturnsErrorWhenValidationFails() {
+    func testV2CustomSidebarOpenReturnsErrorWhenValidationFails() throws {
         let missingName = "__cmux_missing_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let tempDirectory = try installTemporaryCustomSidebarsDirectory()
+        defer { cleanupTemporaryCustomSidebarsDirectory(tempDirectory) }
 
         switch TerminalController.shared.v2CustomSidebarOpen(params: ["name": missingName]) {
         case .err(let code, _, let data):
@@ -107,11 +109,11 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
     @MainActor
     func testV2CustomSidebarOpenRejectsMalformedWorkspaceTarget() throws {
         let sidebarName = "__cmux_target_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let tempDirectory = try installTemporaryCustomSidebarsDirectory()
+        defer { cleanupTemporaryCustomSidebarsDirectory(tempDirectory) }
+        let directory = tempDirectory.directory
         let fileURL = directory.appendingPathComponent("\(sidebarName).swift")
         try #"Text("Target")"#.write(to: fileURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
 
         switch TerminalController.shared.v2CustomSidebarOpen(
             params: ["name": sidebarName, "workspace_id": "not-a-workspace"]
@@ -166,5 +168,21 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
         )
 
         XCTAssertEqual(workspace.customSidebarPullRequestValues(), [])
+    }
+
+    private func installTemporaryCustomSidebarsDirectory() throws -> (directory: URL, previous: URL?) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebars-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let previous = CmuxExtensionSidebarSelection.customSidebarsDirectoryOverrideForTesting
+        CmuxExtensionSidebarSelection.customSidebarsDirectoryOverrideForTesting = directory
+        return (directory, previous)
+    }
+
+    private func cleanupTemporaryCustomSidebarsDirectory(_ tempDirectory: (directory: URL, previous: URL?)) {
+        CmuxExtensionSidebarSelection.customSidebarsDirectoryOverrideForTesting = tempDirectory.previous
+        try? FileManager.default.removeItem(at: tempDirectory.directory)
     }
 }

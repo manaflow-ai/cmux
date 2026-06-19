@@ -9641,6 +9641,9 @@ enum CmuxExtensionSidebarSelection {
 
     /// Directory custom sidebars are authored into.
     static var customSidebarsDirectory: URL {
+        #if DEBUG
+        if let override = customSidebarsDirectoryOverrideForTesting { return override }
+        #endif
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
     }

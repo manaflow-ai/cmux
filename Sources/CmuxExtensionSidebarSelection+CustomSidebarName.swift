@@ -1,6 +1,17 @@
 import Foundation
 
 extension CmuxExtensionSidebarSelection {
+    #if DEBUG
+    static var customSidebarsDirectoryOverrideForTesting: URL?
+
+    static func withCustomSidebarsDirectoryForTesting<T>(_ directory: URL, _ body: () throws -> T) rethrows -> T {
+        let previous = customSidebarsDirectoryOverrideForTesting
+        customSidebarsDirectoryOverrideForTesting = directory
+        defer { customSidebarsDirectoryOverrideForTesting = previous }
+        return try body()
+    }
+    #endif
+
     static func customSidebarFileURL(forName name: String) -> URL? {
         customSidebarFileURL(forName: name, sidebarsDirectory: customSidebarsDirectory)
     }

@@ -111,14 +111,14 @@ extension TerminalController {
             if v2HasNonNullParam(params, "window_id"), v2UUID(params, "window_id") == nil {
                 return .err(
                     code: "invalid_params",
-                    message: "Missing or invalid window_id",
+                    message: String(localized: "socket.sidebar.custom.openInvalidWindowId", defaultValue: "Missing or invalid window_id"),
                     data: nil
                 )
             }
             if v2HasNonNullParam(params, "workspace_id"), v2UUID(params, "workspace_id") == nil {
                 return .err(
                     code: "invalid_params",
-                    message: "Missing or invalid workspace_id",
+                    message: String(localized: "socket.sidebar.custom.openInvalidWorkspaceId", defaultValue: "Missing or invalid workspace_id"),
                     data: nil
                 )
             }
