@@ -11289,6 +11289,7 @@ struct CMUXCLI {
             throw CLIError(message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))")
         }
         var connectedFD: Int32?
+        var bridgeHandshakeSize = currentCLITerminalSize()
         let controlSocketLock = NSLock()
         do {
             let host = (bridge["host"] as? String) ?? "127.0.0.1"
@@ -11302,6 +11303,7 @@ struct CMUXCLI {
             connectedFD = try connectLoopbackTCP(host: host, port: port)
             let fd = connectedFD!
             let size = currentCLITerminalSize()
+            bridgeHandshakeSize = size
             var handshakeData = try JSONSerialization.data(withJSONObject: [
                 "token": token,
                 "cols": size.cols,
@@ -11330,6 +11332,7 @@ struct CMUXCLI {
             sessionID: sessionID,
             attachmentID: attachmentID,
             attachmentToken: attachmentToken,
+            initialSize: bridgeHandshakeSize,
             socketLock: controlSocketLock
         )
         defer { cancelResizeMonitor() }
@@ -11618,11 +11621,12 @@ struct CMUXCLI {
         sessionID: String,
         attachmentID: String,
         attachmentToken: String,
+        initialSize: (cols: Int, rows: Int),
         socketLock: NSLock
     ) -> () -> Void {
         signal(SIGWINCH, SIG_IGN)
         let queue = DispatchQueue(label: "com.cmux.ssh-pty.resize")
-        var lastSentSize = currentCLITerminalSize()
+        var lastSentSize = initialSize
 
         func sendResize(force: Bool) {
             let size = self.currentCLITerminalSize()
