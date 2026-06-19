@@ -22,6 +22,7 @@ private final class StubTab: WorkspaceTabRepresenting {
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {}
+    func setCustomColor(_ hex: String?) {}
 }
 
 /// Records the strings the coordinator asks for so the plan assembly can be

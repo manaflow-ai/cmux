@@ -22,6 +22,7 @@ private final class MetadataStubTab: WorkspaceTabRepresenting {
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         shellActivityUpdates.append((panelId, state))
     }
+    func setCustomColor(_ hex: String?) {}
 }
 
 @MainActor

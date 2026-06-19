@@ -34,4 +34,12 @@ public protocol WorkspaceTabRepresenting: AnyObject, Identifiable where ID == UU
     /// through this seam without the panel registry crossing the module
     /// boundary.
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState)
+
+    /// Sets (or clears, when `nil`) the workspace's custom tab color override
+    /// (legacy `Workspace.setCustomColor(_:)`).
+    ///
+    /// The hex is already palette-resolved app-side; the reorder coordinator
+    /// owns the multi-workspace apply plan (which rows receive the color) and
+    /// reaches the live workspace's owned color mutation through this seam.
+    func setCustomColor(_ hex: String?)
 }
