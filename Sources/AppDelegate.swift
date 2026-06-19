@@ -11776,57 +11776,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let router = MultiWindowRouter(
-            cliURL: cliURL,
-            socketPath: socketPath,
-            environment: processEnv
+        let coordinator = MultiWindowWindowRouteCoordinator(
+            router: MultiWindowRouter(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                environment: processEnv
+            )
         )
         // Inherits MainActor; each await runs the CLI off-main and the final
         // write lands back on main, matching the legacy queue hops.
         Task(priority: .userInitiated) { [weak self] in
-            let create = await router.routeCapturingLaunchFailure(
-                arguments: [
-                    "new-workspace",
-                    "--window",
-                    window2Id.uuidString,
-                    "--name",
-                    title,
-                    "--focus",
-                    "false",
-                ]
-            )
-            let window2List = await router.routeCapturingLaunchFailure(
-                arguments: [
-                    "--json",
-                    "--id-format",
-                    "uuids",
-                    "list-workspaces",
-                    "--window",
-                    window2Id.uuidString,
-                ]
-            )
-            let window1List = await router.routeCapturingLaunchFailure(
-                arguments: [
-                    "--json",
-                    "--id-format",
-                    "uuids",
-                    "list-workspaces",
-                    "--window",
-                    window1Id.uuidString,
-                ]
+            let outcome = await coordinator.routeWindowWorkspace(
+                title: title,
+                window1Id: window1Id,
+                window2Id: window2Id
             )
 
             self?.writeMultiWindowNotificationTestData([
                 "windowRouteStatus": "1",
-                "windowRouteCreateStatus": String(create.terminationStatus),
-                "windowRouteCreateStdout": create.stdout,
-                "windowRouteCreateStderr": create.stderr,
-                "windowRouteWindow2Status": String(window2List.terminationStatus),
-                "windowRouteWindow2Stdout": window2List.stdout,
-                "windowRouteWindow2Stderr": window2List.stderr,
-                "windowRouteWindow1Status": String(window1List.terminationStatus),
-                "windowRouteWindow1Stdout": window1List.stdout,
-                "windowRouteWindow1Stderr": window1List.stderr,
+                "windowRouteCreateStatus": String(outcome.create.terminationStatus),
+                "windowRouteCreateStdout": outcome.create.stdout,
+                "windowRouteCreateStderr": outcome.create.stderr,
+                "windowRouteWindow2Status": String(outcome.window2List.terminationStatus),
+                "windowRouteWindow2Stdout": outcome.window2List.stdout,
+                "windowRouteWindow2Stderr": outcome.window2List.stderr,
+                "windowRouteWindow1Status": String(outcome.window1List.terminationStatus),
+                "windowRouteWindow1Stdout": outcome.window1List.stdout,
+                "windowRouteWindow1Stderr": outcome.window1List.stderr,
             ], at: path)
         }
     }
