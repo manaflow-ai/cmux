@@ -16,6 +16,31 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    timeout-minutes: 5
+    outputs:
+      macos: ${{ steps.detect.outputs.macos }}
+      web: ${{ steps.detect.outputs.web }}
+      go: ${{ steps.detect.outputs.go }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect CI change areas
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 scripts/ci/detect_ci_change_areas.py \
+            --event-name "$EVENT_NAME" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA"
+
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     steps:
@@ -86,6 +111,9 @@ jobs:
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
+      - name: Validate CI change area filter
+        run: python3 tests/test_ci_change_areas.py
+
       - name: Validate release attestation retry guard
         run: ./tests/test_ci_attestation_retry.sh
 
@@ -132,6 +160,8 @@ jobs:
         run: python3 scripts/check-test-determinism.py --strict
 
   remote-daemon-tests:
+    needs: changes
+    if: ${{ needs.changes.outputs.go == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     steps:
       - name: Checkout
@@ -151,6 +181,8 @@ jobs:
         run: ./tests/test_remote_daemon_release_assets.sh
 
   web-typecheck:
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     defaults:
       run:
@@ -174,6 +206,8 @@ jobs:
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
   react-apps-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     steps:
       - name: Checkout
@@ -205,6 +239,8 @@ jobs:
         run: bun run react-doctor:ci
 
   web-db-migrations:
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     defaults:
       run:
@@ -253,6 +289,8 @@ jobs:
         run: bun run test:db:behavior
 
   tests:
+    needs: changes
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions. Keep this job on the hosted GUI-capable pool until the
     # MACOS_RUNNER_15/Austin runner-infra issue is fixed separately.
@@ -658,6 +696,8 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
 
   tests-build-and-lag:
+    needs: changes
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     # Build the full cmux scheme and run the lag regression on macOS CI.
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
@@ -987,6 +1027,8 @@ jobs:
           rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
 
   release-ghostty-cli-helper:
+    needs: changes
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
@@ -1043,7 +1085,10 @@ jobs:
           overwrite: true
 
   release-build:
-    needs: release-ghostty-cli-helper
+    needs:
+      - changes
+      - release-ghostty-cli-helper
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
@@ -1185,6 +1230,8 @@ jobs:
           [[ "$SDK_VERSION" == 26.* ]]
 
   ui-regressions:
+    needs: changes
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
