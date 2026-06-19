@@ -18,10 +18,14 @@ import Testing
 /// - a target window id (`.current` → the selected tab's window) → insert right
 ///   after it (`-a -t @id`).
 @Suite struct RemoteTmuxMirrorNewTabPlacementTests {
+    /// No target window (newTabPosition `.end`, or an unresolved `.current`
+    /// selection) appends after the last window.
     @Test func appendsAtEndWhenNoTargetWindow() {
         #expect(RemoteTmuxController.newWindowCommand(afterWindowId: nil) == "new-window -a -t '{end}'")
     }
 
+    /// A target window (newTabPosition `.current` → the selected tab's window)
+    /// inserts right after that window.
     @Test func insertsAfterSelectedWindow() {
         #expect(RemoteTmuxController.newWindowCommand(afterWindowId: 7) == "new-window -a -t @7")
     }
