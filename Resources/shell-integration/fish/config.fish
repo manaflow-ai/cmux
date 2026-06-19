@@ -207,7 +207,13 @@ if test "$_cmux_integration_enabled" != 0
         switch "$command_name"
             case claude
                 function claude --wraps "$wrapper_path" --inherit-variable wrapper_path
-                    "$wrapper_path" $argv
+                    if test -x "$CMUX_CLAUDE_WRAPPER_SHIM"
+                        "$CMUX_CLAUDE_WRAPPER_SHIM" $argv
+                    else if test -x "$wrapper_path"
+                        "$wrapper_path" $argv
+                    else
+                        command claude $argv
+                    end
                 end
             case grok
                 function grok --wraps "$wrapper_path" --inherit-variable wrapper_path

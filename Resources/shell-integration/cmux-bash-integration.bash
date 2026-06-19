@@ -279,6 +279,15 @@ _cmux_install_cli_command_shim() {
     PATH="$(_cmux_path_prepend_unique_directory "$shim_root" "${PATH-}")"
     hash -r >/dev/null 2>&1 || true
 }
+_cmux_claude_wrapper_command() {
+    if [[ -x "${CMUX_CLAUDE_WRAPPER_SHIM:-}" ]]; then
+        "$CMUX_CLAUDE_WRAPPER_SHIM" "$@"
+    elif [[ -x "${_CMUX_CLAUDE_WRAPPER:-}" ]]; then
+        "$_CMUX_CLAUDE_WRAPPER" "$@"
+    else
+        command claude "$@"
+    fi
+}
 _cmux_install_cli_wrapper() {
     local command_name="$1"
     local wrapper_variable="$2"
@@ -306,7 +315,11 @@ _cmux_install_cli_wrapper() {
     # Keep the bundled wrapper ahead of later PATH mutations. Install it
     # via eval so an existing alias cannot break parsing.
     unalias "$command_name" >/dev/null 2>&1 || true
-    eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
+    if [[ "$command_name" == "claude" ]]; then
+        eval "$command_name() { _cmux_claude_wrapper_command \"\$@\"; }"
+    else
+        eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
+    fi
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
