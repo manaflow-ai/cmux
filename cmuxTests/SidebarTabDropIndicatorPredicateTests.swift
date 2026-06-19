@@ -53,6 +53,19 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
         )
     }
 
+    func testReturnsTrueForExternalDragWhenIndicatorTargetsThisRowTopEdge() {
+        let rowId = UUID()
+        XCTAssertTrue(
+            SidebarTabDropIndicatorPredicate().topVisible(
+                forTabId: rowId,
+                draggedTabId: nil,
+                dropIndicator: SidebarDropIndicator(tabId: rowId, edge: .top),
+                tabIds: [rowId],
+                isExternalDragActive: true
+            )
+        )
+    }
+
     func testReturnsFalseWhenIndicatorTargetsThisRowBottomEdge() {
         let rowId = UUID()
         let draggedId = UUID()
@@ -81,6 +94,20 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
                 draggedTabId: draggedId,
                 dropIndicator: SidebarDropIndicator(tabId: firstId, edge: .bottom),
                 tabIds: [firstId, middleId, draggedId]
+            )
+        )
+    }
+
+    func testReturnsTrueForExternalDragWhenIndicatorTargetsPreviousRowBottomEdge() {
+        let firstId = UUID()
+        let secondId = UUID()
+        XCTAssertTrue(
+            SidebarTabDropIndicatorPredicate().topVisible(
+                forTabId: secondId,
+                draggedTabId: nil,
+                dropIndicator: SidebarDropIndicator(tabId: firstId, edge: .bottom),
+                tabIds: [firstId, secondId],
+                isExternalDragActive: true
             )
         )
     }
@@ -162,6 +189,17 @@ final class SidebarTabDropIndicatorPredicateEmptyAreaTests: XCTestCase {
                 draggedTabId: UUID(),
                 dropIndicator: SidebarDropIndicator(tabId: nil, edge: .top),
                 lastTabId: UUID()
+            )
+        )
+    }
+
+    func testReturnsTrueForExternalDragWhenIndicatorTargetsEndOfList() {
+        XCTAssertTrue(
+            SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
+                draggedTabId: nil,
+                dropIndicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
+                lastTabId: UUID(),
+                isExternalDragActive: true
             )
         )
     }
