@@ -70,7 +70,8 @@ extension AgentChatTranscriptService {
             titleKey: Self.specificClaudeTitleKey(titleHint),
             forceScan: forceScan
         )
-        guard transcriptResolutionKeys[surfaceID] != key else {
+        if let currentKey = transcriptResolutionKeys[surfaceID],
+           currentKey == key {
             return
         }
 
@@ -132,7 +133,8 @@ extension AgentChatTranscriptService {
         surfaceID: String,
         titleHint: String?
     ) {
-        guard transcriptResolutionKeys[surfaceID] == key else {
+        guard let currentKey = transcriptResolutionKeys[surfaceID],
+              currentKey == key else {
             return
         }
         transcriptResolutionTasks[surfaceID] = nil
