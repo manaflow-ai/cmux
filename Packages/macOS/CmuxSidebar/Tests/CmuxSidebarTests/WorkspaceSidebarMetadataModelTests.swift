@@ -77,6 +77,21 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         #expect(ordered.map(\.key) == ["c", "a", "b"])
     }
 
+    @Test func statusEntriesInDisplayOrderSortsByPriorityTimestampKey() {
+        let model = makeModel()
+        let low = SidebarStatusEntry(
+            key: "b", value: "x", priority: 1, timestamp: Date(timeIntervalSince1970: 10)
+        )
+        let highOld = SidebarStatusEntry(
+            key: "a", value: "y", priority: 5, timestamp: Date(timeIntervalSince1970: 1)
+        )
+        let highNew = SidebarStatusEntry(
+            key: "c", value: "z", priority: 5, timestamp: Date(timeIntervalSince1970: 9)
+        )
+        let ordered = model.statusEntriesInDisplayOrder([low, highOld, highNew])
+        #expect(ordered.map(\.key) == ["c", "a", "b"])
+    }
+
     @Test func progressGitAndPullRequestUpdaters() {
         let model = makeModel()
         model.updateProgress(SidebarProgressState(value: 0.5, label: "half"))
