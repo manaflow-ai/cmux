@@ -32,11 +32,11 @@ if [[ "$DEVELOPER_DIR" != */Xcode*.app/Contents/Developer ]]; then
     exit 1
 fi
 
-if ! XCODEBUILD_VERSION_OUTPUT="$(xcodebuild -version 2>&1)"; then
+if ! xcodebuild -version >/dev/null 2>&1; then
     echo "Error: xcodebuild is available but could not run."
-    echo "$XCODEBUILD_VERSION_OUTPUT"
     echo "Open Xcode once to finish setup, or accept the license with:"
     echo "  sudo xcodebuild -license accept"
+    echo "Run 'xcodebuild -version' for details."
     exit 1
 fi
 

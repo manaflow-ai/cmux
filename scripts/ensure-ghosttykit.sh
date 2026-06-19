@@ -135,11 +135,9 @@ while ! mkdir "$LOCK_DIR" 2>"$LOCK_MKDIR_ERR"; do
     if [[ -d "$LOCK_DIR" ]]; then
       continue
     fi
-    echo "error: could not create GhosttyKit cache lock at $LOCK_DIR." >&2
-    if [[ -s "$LOCK_MKDIR_ERR" ]]; then
-      sed 's/^/  /' "$LOCK_MKDIR_ERR" >&2
-    fi
-    echo "Check that CMUX_GHOSTTYKIT_CACHE_DIR, or its parent cache directory, is writable." >&2
+    echo "error: could not create the GhosttyKit cache lock." >&2
+    echo "The underlying mkdir command failed while creating the lock directory." >&2
+    echo "Check that the GhosttyKit cache directory is writable." >&2
     exit 1
   fi
   if (( SECONDS - LOCK_START > LOCK_TIMEOUT )); then
