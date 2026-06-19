@@ -2219,6 +2219,29 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected notification target panel to be focused")
     }
 
+    func testFocusTabFromNotificationAcceptsBonsplitSurfaceIdForNestedTabNotification() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+        _ = workspace.newTerminalSurface(inPane: paneId, focus: false)
+        let thirdPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        let thirdSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(thirdPanel.id)?.uuid)
+
+        workspace.focusPanel(firstPanelId)
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
+
+        XCTAssertTrue(manager.focusTabFromNotification(workspace.id, surfaceId: thirdSurfaceId))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.focusedPanelId, thirdPanel.id)
+        XCTAssertEqual(workspace.bonsplitController.selectedTab(inPane: paneId)?.id.uuid, thirdSurfaceId)
+    }
+
     func testFocusTabFromNotificationReturnsFalseForMissingPanel() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
