@@ -944,7 +944,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(notificationMessage.contains("pty.write.notification"))
 
         let rawError = NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
-            NSLocalizedDescriptionKey: "remote daemon missing required capability pty.write.notification",
+            NSLocalizedDescriptionKey: "remote daemon missing required capability pty.resize.notification",
         ])
         let bootstrapMessage = RemoteSessionCoordinator.userFacingRemoteDaemonBootstrapErrorMessage(
             rawError,
