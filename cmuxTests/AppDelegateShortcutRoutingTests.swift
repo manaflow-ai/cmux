@@ -6340,16 +6340,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(orphanResponder)
         defer { appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(nil) }
 
-        var repairCount = 0
-        var repairResponder: NSResponder?
-        let previousRepairObserver = appDelegate.debugFocusedTerminalKeyRepairObserverForTesting
-        appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { window, event, responder in
-            previousRepairObserver?(window, event, responder)
-            guard event.keyCode == 0 else { return }
-            repairCount += 1
-            repairResponder = responder
-        }
-        defer { appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = previousRepairObserver }
+        let repairProbe = installFocusedTerminalRepairProbeForTesting(appDelegate: appDelegate, keyCode: 0)
+        defer { repairProbe.restore() }
 
 #else
         throw XCTSkip("DEBUG-only simulated responder override is required for deterministic key-repair coverage")
@@ -6376,8 +6368,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertTrue(window.firstResponder === terminalView, "Typing repair should restore the Ghostty surface view as first responder")
 #if DEBUG
-        XCTAssertEqual(repairCount, 1, "window.sendEvent should run the focused terminal repair path")
-        XCTAssertTrue(repairResponder === orphanResponder, "Repair should evaluate the simulated stranded responder")
+        XCTAssertEqual(repairProbe.repairCount(), 1, "window.sendEvent should run the focused terminal repair path")
+        XCTAssertTrue(repairProbe.repairResponder() === orphanResponder, "Repair should evaluate the simulated stranded responder")
+        XCTAssertGreaterThan(
+            repairProbe.forwardedKeyDownCount(),
+            0,
+            "Typing repair should forward the keyDown into Ghostty"
+        )
 #endif
     }
 
@@ -6885,16 +6882,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(strayView)
         defer { appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(nil) }
 
-        var repairCount = 0
-        var repairResponder: NSResponder?
-        let previousRepairObserver = appDelegate.debugFocusedTerminalKeyRepairObserverForTesting
-        appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { window, event, responder in
-            previousRepairObserver?(window, event, responder)
-            guard event.keyCode == 0 else { return }
-            repairCount += 1
-            repairResponder = responder
-        }
-        defer { appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = previousRepairObserver }
+        let repairProbe = installFocusedTerminalRepairProbeForTesting(appDelegate: appDelegate, keyCode: 0)
+        defer { repairProbe.restore() }
 
 #else
         throw XCTSkip("DEBUG-only simulated responder override is required for deterministic key-repair coverage")
@@ -6921,8 +6910,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertTrue(window.firstResponder === terminalView, "Typing repair should restore the Ghostty surface view as first responder")
 #if DEBUG
-        XCTAssertEqual(repairCount, 1, "window.sendEvent should run the focused terminal repair path")
-        XCTAssertTrue(repairResponder === strayView, "Repair should evaluate the simulated wrong same-window responder")
+        XCTAssertEqual(repairProbe.repairCount(), 1, "window.sendEvent should run the focused terminal repair path")
+        XCTAssertTrue(repairProbe.repairResponder() === strayView, "Repair should evaluate the simulated wrong same-window responder")
+        XCTAssertGreaterThan(
+            repairProbe.forwardedKeyDownCount(),
+            0,
+            "Typing repair should forward the keyDown into Ghostty"
+        )
 #endif
     }
 
