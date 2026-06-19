@@ -3,11 +3,11 @@ import Foundation
 import Testing
 
 @Suite(.serialized)
-struct CLISSHPTYResizePollingTests {
+struct CLISSHPTYResizeInputTests {
     @Test
-    func attachPollsPTYSizeChangesWithoutSIGWINCH() throws {
+    func attachReportsPTYSizeChangeBeforeForwardingInputWithoutSIGWINCH() throws {
         let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("sshptypollresize")
+        let socketPath = makeSocketPath("sshptyinputresize")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let bridge = try bindLoopbackTCP()
         let state = MockSocketServerState()
@@ -16,11 +16,12 @@ struct CLISSHPTYResizePollingTests {
         let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
         let token = "bridge-token"
         let resizeRequestReceived = DispatchSemaphore(value: 0)
-        let allowResizeResponse = DispatchSemaphore(value: 0)
+        let inputForwarded = DispatchSemaphore(value: 0)
         let bridgeReady = DispatchSemaphore(value: 0)
         let closeBridge = DispatchSemaphore(value: 0)
         let bridgeCloseObserved = DispatchSemaphore(value: 0)
         let capturedResizeParams = CapturedResizeParams()
+        let eventRecorder = EventRecorder()
         var masterFD: Int32 = -1
         var slaveFD: Int32 = -1
 
@@ -60,8 +61,8 @@ struct CLISSHPTYResizePollingTests {
             case "workspace.remote.pty_resize":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 capturedResizeParams.store(params)
+                eventRecorder.append("resize")
                 resizeRequestReceived.signal()
-                _ = allowResizeResponse.wait(timeout: .now() + 5)
                 return v2Response(id: id, ok: true, result: [:])
             case "workspace.remote.pty_sessions":
                 return v2Response(id: id, ok: true, result: ["sessions": []])
@@ -88,13 +89,26 @@ struct CLISSHPTYResizePollingTests {
         let bridgeHandled = startBridgeServer(
             bridge: bridge,
             bridgeReady: bridgeReady,
+            inputForwarded: inputForwarded,
             closeBridge: closeBridge,
-            bridgeCloseObserved: bridgeCloseObserved
+            bridgeCloseObserved: bridgeCloseObserved,
+            eventRecorder: eventRecorder
         )
 
         let process = Process()
         let stderrPipe = Pipe()
-        let slaveHandle = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: true)
+        let stdinFD = dup(slaveFD)
+        guard stdinFD >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let stdoutFD = dup(slaveFD)
+        guard stdoutFD >= 0 else {
+            Darwin.close(stdinFD)
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let stdinHandle = FileHandle(fileDescriptor: stdinFD, closeOnDealloc: true)
+        let stdoutHandle = FileHandle(fileDescriptor: stdoutFD, closeOnDealloc: true)
+        Darwin.close(slaveFD)
         slaveFD = -1
         process.executableURL = URL(fileURLWithPath: cliPath)
         process.arguments = [
@@ -107,12 +121,13 @@ struct CLISSHPTYResizePollingTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = slaveHandle
+        process.standardInput = stdinHandle
+        process.standardOutput = stdoutHandle
         process.standardError = stderrPipe
 
         try process.run()
-        slaveHandle.closeFile()
+        stdinHandle.closeFile()
+        stdoutHandle.closeFile()
         defer {
             if process.isRunning {
                 process.terminate()
@@ -121,14 +136,18 @@ struct CLISSHPTYResizePollingTests {
         #expect(bridgeReady.wait(timeout: .now() + 5) == .success)
 
         try setPTYSize(masterFD: masterFD, cols: 120, rows: 40)
+        writeAll(fd: masterFD, data: Data("stty size\n".utf8))
         #expect(
-            resizeRequestReceived.wait(timeout: .now() + 3) == .success,
-            "Expected ssh-pty-attach to notice PTY size changes even when no SIGWINCH is delivered"
+            inputForwarded.wait(timeout: .now() + 5) == .success,
+            "Expected ssh-pty-attach to forward typed input to the bridge"
+        )
+        #expect(
+            resizeRequestReceived.wait(timeout: .now() + 5) == .success,
+            "Expected ssh-pty-attach to report PTY size changes before forwarding typed input"
         )
 
         closeBridge.signal()
         #expect(bridgeCloseObserved.wait(timeout: .now() + 5) == .success)
-        allowResizeResponse.signal()
 
         let exited = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
@@ -145,10 +164,12 @@ struct CLISSHPTYResizePollingTests {
         #expect(resizeParams?["attachment_token"] as? String == "attach-token")
         #expect(resizeParams?["cols"] as? Int == 120)
         #expect(resizeParams?["rows"] as? Int == 40)
+        #expect(Array(eventRecorder.snapshot().prefix(2)) == ["resize", "input"])
     }
 
     private final class BundleToken {}
 
+    // Lock-protected test capture shared by the mock socket thread and test thread.
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var commands: [String] = []
@@ -167,6 +188,7 @@ struct CLISSHPTYResizePollingTests {
         }
     }
 
+    // Lock-protected test capture shared by the mock socket thread and test thread.
     private final class CapturedResizeParams: @unchecked Sendable {
         private let lock = NSLock()
         private var value: [String: Any]?
@@ -180,6 +202,25 @@ struct CLISSHPTYResizePollingTests {
         func snapshot() -> [String: Any]? {
             lock.lock()
             let result = value
+            lock.unlock()
+            return result
+        }
+    }
+
+    // Lock-protected test capture shared by the bridge thread and mock socket thread.
+    private final class EventRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var events: [String] = []
+
+        func append(_ event: String) {
+            lock.lock()
+            events.append(event)
+            lock.unlock()
+        }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            let result = events
             lock.unlock()
             return result
         }
@@ -330,8 +371,10 @@ struct CLISSHPTYResizePollingTests {
     private func startBridgeServer(
         bridge: LoopbackTCPListener,
         bridgeReady: DispatchSemaphore,
+        inputForwarded: DispatchSemaphore,
         closeBridge: DispatchSemaphore,
-        bridgeCloseObserved: DispatchSemaphore
+        bridgeCloseObserved: DispatchSemaphore,
+        eventRecorder: EventRecorder
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
@@ -363,6 +406,16 @@ struct CLISSHPTYResizePollingTests {
                 _ = Darwin.write(clientFD, ptr, strlen(ptr))
             }
             bridgeReady.signal()
+            while true {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count > 0 {
+                    eventRecorder.append("input")
+                    inputForwarded.signal()
+                    break
+                }
+                if count == 0 { return }
+                if errno != EINTR { return }
+            }
             _ = closeBridge.wait(timeout: .now() + 5)
             bridgeCloseObserved.signal()
         }
