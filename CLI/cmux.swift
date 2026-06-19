@@ -2,7 +2,6 @@ import Foundation
 import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxSettings
-import CmuxSocketControl
 import CoreFoundation
 import CryptoKit
 import Darwin
@@ -11,9 +10,6 @@ import LocalAuthentication
 #endif
 #if canImport(Security)
 import Security
-#endif
-#if canImport(Sentry)
-import Sentry
 #endif
 
 struct CLIError: Error, CustomStringConvertible {
@@ -26,296 +22,6 @@ struct CLIError: Error, CustomStringConvertible {
     }
 
     var description: String { message }
-}
-
-private enum CLISocketEnvironment {
-    static func socketPath(in environment: [String: String]) throws -> String? {
-        let socketPath = normalized(environment["CMUX_SOCKET_PATH"])
-        let legacySocketPath = normalized(environment["CMUX_SOCKET"])
-        if let socketPath, let legacySocketPath, socketPath != legacySocketPath {
-            throw CLIError(message: "Refusing to choose socket: CMUX_SOCKET_PATH and CMUX_SOCKET differ. Use CMUX_SOCKET_PATH or unset CMUX_SOCKET.")
-        }
-        return socketPath ?? legacySocketPath
-    }
-
-    static func socketPathForTelemetry(in environment: [String: String]) -> String? {
-        normalized(environment["CMUX_SOCKET_PATH"]) ?? normalized(environment["CMUX_SOCKET"])
-    }
-
-    private static func normalized(_ raw: String?) -> String? {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-final class CLISocketSentryTelemetry {
-    private struct PendingBreadcrumb {
-        let message: String
-        let data: [String: Any]
-    }
-
-    private let command: String
-    private let subcommand: String
-    private let socketPath: String
-    private let envSocketPath: String?
-    private let processEnv: [String: String]
-    private let workspaceId: String?
-    private let surfaceId: String?
-    private let disabledByEnv: Bool
-    private var pendingBreadcrumbs: [PendingBreadcrumb] = []
-
-#if canImport(Sentry)
-    private static let startupLock = NSLock()
-    private static var started = false
-    private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
-
-    private static func currentSentryReleaseName() -> String? {
-        guard let bundleIdentifier = currentSentryBundleIdentifier(),
-              let version = currentBundleVersionValue(forKey: "CFBundleShortVersionString"),
-              let build = currentBundleVersionValue(forKey: "CFBundleVersion")
-        else {
-            return nil
-        }
-        return "\(bundleIdentifier)@\(version)+\(build)"
-    }
-
-    private static func currentSentryBundleIdentifier() -> String? {
-        if let bundleIdentifier = ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !bundleIdentifier.isEmpty {
-            return bundleIdentifier
-        }
-
-        if let bundleIdentifier = currentSentryBundle()?.bundleIdentifier?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !bundleIdentifier.isEmpty {
-            return bundleIdentifier
-        }
-
-        return nil
-    }
-
-    private static func currentBundleVersionValue(forKey key: String) -> String? {
-        guard let value = currentSentryBundle()?.infoDictionary?[key] as? String else {
-            return nil
-        }
-
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains("$(") else {
-            return nil
-        }
-        return trimmed
-    }
-
-    private static func currentSentryBundle() -> Bundle? {
-        if Bundle.main.bundleIdentifier?.isEmpty == false {
-            return Bundle.main
-        }
-
-        if let bundle = CLIExecutableLocator.enclosingAppBundle() {
-            return bundle
-        }
-
-        return Bundle.main
-    }
-
-#endif
-
-    init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
-        self.command = command.lowercased()
-        self.subcommand = commandArgs.first?.lowercased() ?? "help"
-        self.socketPath = socketPath
-        self.envSocketPath = CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
-        self.processEnv = processEnv
-        self.workspaceId = processEnv["CMUX_WORKSPACE_ID"]
-        self.surfaceId = processEnv["CMUX_SURFACE_ID"]
-        self.disabledByEnv =
-            processEnv["CMUX_CLI_SENTRY_DISABLED"] == "1" ||
-            processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
-    }
-
-    func breadcrumb(_ message: String, data: [String: Any] = [:]) {
-        guard shouldEmit else { return }
-#if canImport(Sentry)
-        pendingBreadcrumbs.append(PendingBreadcrumb(message: message, data: data))
-#endif
-    }
-
-    func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
-        guard shouldEmit else { return }
-#if canImport(Sentry)
-        Self.ensureStarted()
-        flushPendingBreadcrumbs()
-        var context = baseContext()
-        context["stage"] = stage
-        context["error"] = String(describing: error)
-        for (key, value) in socketDiagnostics() {
-            context[key] = value
-        }
-        for (key, value) in data {
-            context[key] = value
-        }
-        let subcommand = self.subcommand
-        let command = self.command
-        _ = SentrySDK.capture(error: error) { scope in
-            scope.setLevel(.error)
-            scope.setTag(value: "cmux-cli", key: "component")
-            scope.setTag(value: command, key: "cli_command")
-            scope.setTag(value: subcommand, key: "cli_subcommand")
-            scope.setContext(value: context, key: "cli_socket")
-        }
-        SentrySDK.flush(timeout: 2.0)
-#endif
-    }
-
-    private var shouldEmit: Bool {
-        !disabledByEnv
-    }
-
-#if canImport(Sentry)
-    private func flushPendingBreadcrumbs() {
-        for pending in pendingBreadcrumbs {
-            addBreadcrumb(message: pending.message, data: pending.data)
-        }
-        pendingBreadcrumbs.removeAll()
-    }
-
-    private func addBreadcrumb(message: String, data: [String: Any]) {
-        var payload = baseContext()
-        for (key, value) in data {
-            payload[key] = value
-        }
-        let crumb = Breadcrumb(level: .info, category: "cmux.cli")
-        crumb.message = message
-        crumb.data = payload
-        SentrySDK.addBreadcrumb(crumb)
-    }
-#endif
-
-    private func baseContext() -> [String: Any] {
-        var context: [String: Any] = [
-            "command": command,
-            "subcommand": subcommand,
-            "requested_socket_path": socketPath,
-            "env_socket_path": envSocketPath ?? "<unset>"
-        ]
-        if let workspaceId {
-            context["workspace_id"] = workspaceId
-        }
-        if let surfaceId {
-            context["surface_id"] = surfaceId
-        }
-        return context
-    }
-
-    private func socketDiagnostics() -> [String: Any] {
-        var context: [String: Any] = [
-            "cwd": FileManager.default.currentDirectoryPath,
-            "uid": Int(getuid()),
-            "euid": Int(geteuid())
-        ]
-
-        var st = stat()
-        if lstat(socketPath, &st) == 0 {
-            context["socket_exists"] = true
-            context["socket_mode"] = String(format: "%o", Int(st.st_mode & 0o7777))
-            context["socket_owner_uid"] = Int(st.st_uid)
-            context["socket_owner_gid"] = Int(st.st_gid)
-            context["socket_file_type"] = Self.fileTypeDescription(mode: st.st_mode)
-        } else {
-            let code = errno
-            context["socket_exists"] = false
-            context["socket_errno"] = Int(code)
-            context["socket_errno_description"] = String(cString: strerror(code))
-        }
-
-        let tmpSockets = Self.discoverSockets(in: "/tmp", limit: 10)
-        if !tmpSockets.isEmpty {
-            context["tmp_cmux_sockets"] = tmpSockets
-        }
-        let taggedSockets = tmpSockets.filter { $0 != CLISocketPathResolver.legacyDefaultSocketPath }
-        if CLISocketPathResolver.isImplicitDefaultPath(
-            socketPath,
-            bundleIdentifier: CLISocketPathResolver.currentAppBundleIdentifier(),
-            environment: processEnv
-        ),
-           (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
-           !taggedSockets.isEmpty {
-            context["possible_root_cause"] = "CMUX_SOCKET_PATH missing while tagged sockets exist"
-        }
-
-        return context
-    }
-
-    private static func fileTypeDescription(mode: mode_t) -> String {
-        switch mode & mode_t(S_IFMT) {
-        case mode_t(S_IFSOCK):
-            return "socket"
-        case mode_t(S_IFREG):
-            return "regular"
-        case mode_t(S_IFDIR):
-            return "directory"
-        case mode_t(S_IFLNK):
-            return "symlink"
-        default:
-            return "other"
-        }
-    }
-
-    private static func discoverSockets(in directory: String, limit: Int) -> [String] {
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
-            return []
-        }
-        var sockets: [String] = []
-        for name in entries.sorted() {
-            guard name.hasPrefix("cmux"), name.hasSuffix(".sock") else { continue }
-            let fullPath = URL(fileURLWithPath: directory)
-                .appendingPathComponent(name, isDirectory: false)
-                .path
-            var st = stat()
-            guard lstat(fullPath, &st) == 0 else { continue }
-            guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-            sockets.append(fullPath)
-            if sockets.count >= limit {
-                break
-            }
-        }
-        return sockets
-    }
-
-#if canImport(Sentry)
-    private static func ensureStarted() {
-        startupLock.lock()
-        defer { startupLock.unlock() }
-        guard !started else { return }
-        SentrySDK.start { options in
-            options.dsn = dsn
-            options.releaseName = currentSentryReleaseName()
-#if DEBUG
-            options.environment = "development-cli"
-#else
-            options.environment = "production-cli"
-#endif
-            options.debug = false
-            // Defense-in-depth: keep default PII (user, IP, etc.) off the wire.
-            // The scrubber below additionally redacts any user fields that slip in.
-            options.sendDefaultPii = false
-            options.attachStacktrace = true
-            options.tracesSampleRate = 0.0
-            options.enableAppHangTracking = false
-            options.enableWatchdogTerminationTracking = false
-            options.enableAutoSessionTracking = false
-            options.enableCaptureFailedRequests = false
-            options.enableMetricKit = false
-            // Redact file paths, emails, and secrets from every outgoing event
-            // and breadcrumb before it leaves the device.
-            let scrubber = SentryEventScrubber()
-            options.beforeSend = { event in scrubber.scrub(event) }
-            options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
-        }
-        started = true
-    }
-#endif
 }
 
 struct WindowInfo {
@@ -3051,6 +2757,7 @@ final class SocketClient {
 
 struct CMUXCLI {
     let args: [String]
+    let initialSIGPIPEInspectionPayload: [String: Any]?
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -3062,6 +2769,11 @@ struct CMUXCLI {
         keys.formUnion(AgentHibernationLifecycleStatusKeys.allowedStatusKeys)
         keys.insert(claudeCodeStatusKey)
         return keys
+    }
+
+    init(args: [String], initialSIGPIPEInspectionPayload: [String: Any]? = nil) {
+        self.args = args
+        self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
     }
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
@@ -3456,6 +3168,9 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
+        if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
+        if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
 
         if command == "settings",
@@ -4107,9 +3822,9 @@ struct CMUXCLI {
                 }
                 if !stdout.isEmpty { print(stdout, terminator: stdout.hasSuffix("\n") ? "" : "\n") }
                 if !stderr.isEmpty {
-                    FileHandle.standardError.write(Data(stderr.utf8))
+                    cliWriteStderr(Data(stderr.utf8))
                     if !stderr.hasSuffix("\n") {
-                        FileHandle.standardError.write(Data("\n".utf8))
+                        cliWriteStderr(Data("\n".utf8))
                     }
                 }
                 if exitCode != 0 {
@@ -4127,6 +3842,9 @@ struct CMUXCLI {
                       cmux vm rm <id>
                     """)
             }
+
+        case "remotes", "remote":
+            try runRemotesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "rpc":
             guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -4321,6 +4039,12 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+        case "ssh-tmux":
+            try runRemoteTmux(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput
+            )
         case "ssh-pty-attach":
             try runSSHPTYAttach(commandArgs: commandArgs, client: client)
         case "ssh-session-list":
@@ -4372,7 +4096,7 @@ struct CMUXCLI {
             if let sfId { params["surface_id"] = sfId }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.split", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat))
 
         case "list-panes":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -4468,7 +4192,7 @@ struct CMUXCLI {
             if let url { params["url"] = url }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "new-surface":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -4496,7 +4220,7 @@ struct CMUXCLI {
             }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "surface":
             try runSurfaceCommand(
@@ -5617,6 +5341,7 @@ struct CMUXCLI {
         "ssh-session-cleanup",
         "ssh-session-end",
         "ssh-session-list",
+        "ssh-tmux",
         "surface",
         "surface-health",
         "surface-resume",
@@ -8300,9 +8025,7 @@ struct CMUXCLI {
     static func warnLegacyVerbDeprecated(_ legacy: String, replacement: String) {
         if ProcessInfo.processInfo.environment["CMUX_QUIET"] != nil { return }
         if getenv(cliDeprecationNoticeShownKey) != nil { return }
-        FileHandle.standardError.write(Data(
-            "cmux: '\(legacy)' is now an alias for '\(replacement)'. The legacy form keeps working indefinitely; set CMUX_QUIET=1 to silence this notice.\n".utf8
-        ))
+        cliWriteStderr("cmux: '\(legacy)' is now an alias for '\(replacement)'. The legacy form keeps working indefinitely; set CMUX_QUIET=1 to silence this notice.\n")
         setenv(cliDeprecationNoticeShownKey, "1", 1)
     }
 
@@ -8700,6 +8423,205 @@ struct CMUXCLI {
         )
     }
 
+    /// `cmux ssh-tmux <destination>` — open a dedicated cmux window mirroring a remote
+    /// host's tmux sessions over `tmux -CC` (the remote-tmux beta).
+    ///
+    /// Unlike `cmux ssh`, this carries no cmuxd-remote/relay bootstrap: it only
+    /// drives the SSH ControlMaster the mirror multiplexes over. The app's mirror
+    /// control client uses plain pipes and cannot service interactive auth, so if
+    /// the host needs a password / host-key confirmation / MFA / FIDO touch, the
+    /// app returns the `ssh` argv and this CLI runs it **inline in the user's
+    /// terminal** (which supplies the tty), then retries the mirror over the
+    /// now-authenticated master.
+    private func runRemoteTmux(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        var destination: String?
+        var port: Int?
+        var identityFile: String?
+        var noFocus = false
+
+        // Intentional subset of parseSSHCommandOptions: the mirror verb has a
+        // different pipeline (no relay/cmuxd bootstrap, no `--` passthrough, no
+        // --ssh-option/--name/--window), so it parses only the flags it supports
+        // rather than reusing the heavier SSH-workspace parser.
+        var index = 0
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            switch arg {
+            case "--port":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --port requires a value")
+                }
+                guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
+                    throw CLIError(message: "ssh-tmux: --port must be 1-65535")
+                }
+                port = parsed
+                index += 2
+            case "--identity":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --identity requires a path")
+                }
+                identityFile = commandArgs[index + 1]
+                index += 2
+            case "--no-focus":
+                noFocus = true
+                index += 1
+            default:
+                if arg.hasPrefix("-") {
+                    throw CLIError(
+                        message: "ssh-tmux: destination must be <user@host> or an ssh alias. Use --port/--identity for SSH flags."
+                    )
+                }
+                if destination == nil {
+                    destination = arg
+                } else {
+                    throw CLIError(message: "ssh-tmux: unexpected extra argument '\(arg)'")
+                }
+                index += 1
+            }
+        }
+
+        guard let destination else {
+            throw CLIError(message: "ssh-tmux requires a destination (example: cmux ssh-tmux user@host)")
+        }
+
+        var params: [String: Any] = ["host": destination]
+        if let port { params["port"] = port }
+        if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
+        if noFocus { params["activate"] = false }
+
+        // The first call runs a non-interactive (BatchMode) discovery in the app,
+        // which can take a couple of seconds; show progress so it doesn't look idle.
+        if !jsonOutput {
+            print("Connecting to \(destination)…")
+        }
+
+        // The app reports `auth_required` at most once per attempt; run the
+        // returned interactive ssh, then retry exactly once. `didAuthenticate`
+        // bounds the loop so a host that keeps reporting auth-required can't spin.
+        var didAuthenticate = false
+        while true {
+            let result = try client.sendV2(
+                method: "remote.tmux.window",
+                params: params,
+                responseTimeout: 75  // > the app-side 60s timeout, so the app's result/error always arrives first
+            )
+            if (result["mirrored"] as? Bool) == true {
+                if jsonOutput {
+                    print(jsonString(result))
+                } else {
+                    let windowId = (result["window_id"] as? String) ?? ""
+                    print("OK host=\(destination) window=\(windowId)")
+                }
+                return
+            }
+            if (result["auth_required"] as? Bool) == true {
+                guard !didAuthenticate else {
+                    throw CLIError(
+                        message: "ssh-tmux: authentication did not open the connection to \(destination)"
+                    )
+                }
+                guard let sshArgv = result["ssh_argv"] as? [String], !sshArgv.isEmpty else {
+                    throw CLIError(
+                        message: "ssh-tmux: cmux did not return an ssh command for authentication"
+                    )
+                }
+                try runInteractiveAuthSSH(sshArgv: sshArgv, destination: destination)
+                didAuthenticate = true
+                // Retry immediately so the just-opened ControlMaster (ControlPersist)
+                // is still warm; tell the user we're proceeding.
+                if !jsonOutput {
+                    print("Authenticated; opening remote tmux mirror for \(destination)…")
+                }
+                continue
+            }
+            throw CLIError(message: "ssh-tmux: unexpected response from cmux")
+        }
+    }
+
+    /// Runs an `ssh` argv interactively in the user's terminal so password /
+    /// host-key / MFA / FIDO prompts work as in a normal SSH. The spawned ssh is
+    /// made the terminal's foreground process group (Foundation otherwise spawns it
+    /// backgrounded, where its tty read would be SIGTTIN-stopped and hang with no
+    /// prompt).
+    ///
+    /// The argv is supplied by the app over the authenticated control socket, but
+    /// as defense in depth the executable is required to be an `ssh` binary — the
+    /// CLI never execs an arbitrary command handed back from a socket response.
+    private func runInteractiveAuthSSH(sshArgv: [String], destination: String) throws {
+        // Interactive auth needs a controlling tty to prompt on. In a non-tty
+        // context (script, pipe, URL handler) ssh can't prompt and would hang or
+        // fail opaquely, so refuse early with an actionable message.
+        guard isatty(STDIN_FILENO) == 1 else {
+            throw CLIError(
+                message: "ssh-tmux: \(destination) needs interactive authentication, which requires a terminal. Run `cmux ssh-tmux \(destination)` directly from an interactive shell."
+            )
+        }
+        // The app builds this argv with a hardcoded /usr/bin/ssh; require exactly
+        // that. A basename check would accept a planted /tmp/ssh — pin the full
+        // path so the CLI never execs an arbitrary command returned over the socket.
+        let allowedSSHPaths: Set<String> = ["/usr/bin/ssh"]
+        guard let executable = sshArgv.first, allowedSSHPaths.contains(executable) else {
+            throw CLIError(message: "ssh-tmux: refusing to run a non-standard ssh path for authentication")
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = Array(sshArgv.dropFirst())
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+
+        // Foundation spawns the child in its OWN process group, so ssh starts as a
+        // BACKGROUND job of the terminal. ssh's password / host-key / MFA prompt
+        // reads from the controlling tty, and a background tty read raises SIGTTIN,
+        // which STOPS ssh — it hangs forever with no prompt (cert/agent hosts never
+        // read the tty, so they were unaffected). Hand the terminal's foreground
+        // process group to the child (and SIGCONT it in case it already stopped) so
+        // it can prompt, exactly as the other interactive-child CLI paths do; the
+        // `defer` reclaims the foreground for this CLI when ssh exits.
+        let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
+        var didForegroundChild = false
+        do {
+            try cliRunProcess(process)
+        } catch {
+            throw CLIError(message: "ssh-tmux: failed to launch ssh: \(String(describing: error))")
+        }
+        if originalForegroundProcessGroup > 0 {
+            let childProcessGroup = getpgid(process.processIdentifier)
+            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
+                do {
+                    try setTerminalForegroundProcessGroup(childProcessGroup)
+                } catch {
+                    // The handoff is required: without the terminal foreground, ssh's
+                    // prompt SIGTTIN-stops and waitUntilExit() below hangs forever (the
+                    // exact bug this dance prevents). Continue the child in case it
+                    // already stopped, kill it, and fail loudly instead of hanging.
+                    _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                    process.terminate()
+                    throw CLIError(
+                        message: "ssh-tmux: couldn't hand the terminal to ssh for \(destination); aborting to avoid a hang (\(String(describing: error)))"
+                    )
+                }
+                _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                didForegroundChild = true
+            }
+        }
+        defer {
+            if didForegroundChild {
+                try? setTerminalForegroundProcessGroup(originalForegroundProcessGroup)
+            }
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw CLIError(
+                message: "ssh-tmux: ssh authentication to \(destination) failed (exit \(process.terminationStatus))"
+            )
+        }
+    }
+
     /// Generic "open a workspace, SSH into the remote, bootstrap cmuxd-remote, forward socket,
     /// drop the user in a shell" pipeline. The inner loop of `cmux ssh`; also called from
     /// `cmux vm new`/`shell`/`attach` so cloud VMs reuse the exact same bootstrap.
@@ -8883,7 +8805,7 @@ struct CMUXCLI {
                     _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
                 } catch {
                     let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                    FileHandle.standardError.write(Data(warning.utf8))
+                    cliWriteStderr(warning)
                 }
                 throw CLIError(
                     message: "cmux could not resolve the initial terminal surface for persistent SSH PTY startup"
@@ -8985,7 +8907,7 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
             } catch {
                 let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                FileHandle.standardError.write(Data(warning.utf8))
+                cliWriteStderr(Data(warning.utf8))
             }
             throw error
         }
@@ -10460,7 +10382,7 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
             } catch {
                 let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                FileHandle.standardError.write(Data(warning.utf8))
+                cliWriteStderr(Data(warning.utf8))
             }
             throw error
         }
@@ -10742,7 +10664,7 @@ struct CMUXCLI {
             while let message = try receiveSync(delegate: delegate) {
                 switch message {
                 case .data(let data):
-                    FileHandle.standardOutput.write(data)
+                    cliWriteStdout(data)
                 case .string:
                     continue
                 @unknown default:
@@ -11229,7 +11151,7 @@ struct CMUXCLI {
             output,
             jsonOutput: jsonOutput,
             idFormat: idFormat,
-            fallbackText: v2OKSummary(output, idFormat: idFormat, kinds: ["surface", "pane", "workspace"])
+            fallbackText: v2CreationSummary(output, idFormat: idFormat, kinds: ["surface", "pane", "workspace"])
         )
     }
 
@@ -11437,7 +11359,7 @@ struct CMUXCLI {
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
-                FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
+                cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeSource.cancel()
                 try handleSSHPTYBridgeEOF(
@@ -11732,6 +11654,15 @@ struct CMUXCLI {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw CLIError(message: "ssh-pty-attach: failed to create bridge socket")
+        }
+        do {
+            try configureCLISocketNoSIGPIPE(
+                fileDescriptor: fd,
+                failureMessage: "ssh-pty-attach: failed to disable SIGPIPE on bridge socket"
+            )
+        } catch {
+            Darwin.close(fd)
+            throw error
         }
         var addr = sockaddr_in()
         addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
@@ -12082,12 +12013,13 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        if launchPath.contains("/") {
-            execv(launchPath, &argv)
-        } else {
-            execvp(launchPath, &argv)
+        let code = cliExecFailureErrno {
+            if launchPath.contains("/") {
+                execv(launchPath, &argv)
+            } else {
+                execvp(launchPath, &argv)
+            }
         }
-        let code = errno
         throw CLIError(message: "Failed to launch \(launchPath): \(String(cString: strerror(code)))")
     }
 
@@ -14137,6 +14069,8 @@ struct CMUXCLI {
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
         switch command {
+        case "remotes", "remote":
+            return Self.remotesUsage
         case "ping":
             return """
             Usage: cmux ping
@@ -14960,6 +14894,32 @@ struct CMUXCLI {
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
+            """)
+        case "ssh-tmux":
+            return String(localized: "cli.help.ssh-tmux", defaultValue: """
+            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
+
+            Open a dedicated cmux window that mirrors a remote host's tmux sessions over
+            tmux control mode (tmux -CC) via SSH: each tmux session becomes a workspace,
+            each window a tab, and a multi-pane window a native split. Requires the
+            "Remote tmux" beta to be enabled in Settings.
+
+            If the host needs interactive authentication (password, host-key confirmation,
+            MFA, or a security-key touch), cmux runs ssh inline in this terminal so you can
+            authenticate, then mirrors the sessions over the shared SSH connection. Hosts
+            that authenticate non-interactively (ssh-agent / key in ~/.ssh/config) mirror
+            with no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port
+            settings are honored.
+
+            Flags:
+              --port <n>          SSH port
+              --identity <path>   SSH identity file path
+              --no-focus          Open the mirror window without activating it
+
+            Example:
+              cmux ssh-tmux dev@my-host
+              cmux ssh-tmux my-ssh-alias
+              cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
             """)
         case "ssh-session-list":
             return """
@@ -16163,7 +16123,7 @@ struct CMUXCLI {
         return (value, remaining)
     }
 
-    private func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
+    func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
         var remaining: [String] = []
         var values: [String] = []
         var skipNext = false
@@ -16736,6 +16696,21 @@ struct CMUXCLI {
                 parts.append(handle)
             }
         }
+        return parts.joined(separator: " ")
+    }
+
+    /// Summary for surface.split / surface.create responses, which report
+    /// `accepted: true` (and no surface id) when the request was routed to a
+    /// remote tmux mirror — the new pane arrives asynchronously.
+    func v2CreationSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
+        guard (payload["accepted"] as? Bool) == true else {
+            return v2OKSummary(payload, idFormat: idFormat, kinds: kinds)
+        }
+        var parts = ["OK", "accepted"]
+        if let handle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
+            parts.append(handle)
+        }
+        parts.append("(routed to remote tmux; the new pane arrives asynchronously)")
         return parts.joined(separator: " ")
     }
 
@@ -19347,8 +19322,9 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        execv(launchPath, &argv)
-        let code = errno
+        let code = cliExecFailureErrno {
+            execv(launchPath, &argv)
+        }
         throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
     }
 
@@ -19690,7 +19666,7 @@ struct CMUXCLI {
                     try backfillLoadedThreads(connection: connection)
                     try listenForNotifications(connection: connection)
                 } catch {
-                    fputs("cmux codex-teams watcher connection failed: \(error)\n", stderr)
+                    cliWriteStderr("cmux codex-teams watcher connection failed: \(error)\n")
                 }
                 _ = reconcileWaiter.wait(timeout: .now() + CMUXCLI.codexTeamsReconcileInterval)
             }
@@ -19713,7 +19689,7 @@ struct CMUXCLI {
                 do {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
                 } catch {
-                    fputs("cmux codex-teams watcher skipped thread \(threadId): \(error)\n", stderr)
+                    cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
                 }
             }
         }
@@ -19748,7 +19724,7 @@ struct CMUXCLI {
                 do {
                     try subscribeToThreadIfNeeded(thread.id, connection: connection)
                 } catch {
-                    fputs("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n", stderr)
+                    cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
                 }
             }
         }
@@ -19846,14 +19822,14 @@ struct CMUXCLI {
         ) throws -> Bool {
             guard CMUXCLI.codexTeamsApprovalMethods.contains(method) else { return false }
             guard let params = message["params"] as? [String: Any] else {
-                fputs("cmux codex-teams watcher ignoring malformed approval \(method) request \(CMUXCLI.requestIdString(requestId))\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher ignoring malformed approval \(method) request \(CMUXCLI.requestIdString(requestId))\n")
                 return true
             }
             let relatedItem = CMUXCLI.stringValue(in: params, keys: ["itemId", "item_id"])
                 .flatMap { cachedApprovalItem(itemId: $0) }
             let suppressionKey = approvalSuppressionKey(method: method, requestId: requestId, params: params)
             if approvalIsSuppressed(suppressionKey) {
-                fputs("cmux codex-teams watcher leaving previously unresolved approval \(suppressionKey) to native Codex\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher leaving previously unresolved approval \(suppressionKey) to native Codex\n")
                 return true
             }
             let feedEvent = CMUXCLI.codexTeamsFeedEvent(
@@ -19863,18 +19839,18 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 relatedItem: relatedItem
             )
-            fputs("cmux codex-teams watcher forwarding approval \(method) request \(CMUXCLI.requestIdString(requestId)) to Feed\n", stderr)
+            cliWriteStderr("cmux codex-teams watcher forwarding approval \(method) request \(CMUXCLI.requestIdString(requestId)) to Feed\n")
             let response: [String: Any]
             do {
                 response = try pushCodexApprovalToFeed(event: feedEvent)
             } catch {
                 suppressApproval(suppressionKey)
-                fputs("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex after Feed push failed: \(error)\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex after Feed push failed: \(error)\n")
                 return true
             }
             guard let decision = CMUXCLI.codexTeamsPermissionMode(fromFeedPushResponse: response) else {
                 suppressApproval(suppressionKey)
-                fputs("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex because Feed did not resolve it\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher leaving approval \(suppressionKey) to native Codex because Feed did not resolve it\n")
                 return true
             }
             guard let result = CMUXCLI.codexTeamsAppServerApprovalResponse(
@@ -19882,7 +19858,7 @@ struct CMUXCLI {
                 params: params,
                 mode: decision
             ) else {
-                fputs("cmux codex-teams watcher cannot map Feed decision for \(suppressionKey); leaving it to native Codex\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher cannot map Feed decision for \(suppressionKey); leaving it to native Codex\n")
                 return true
             }
             try connection.respond(requestId: requestId, result: result)
@@ -20042,7 +20018,7 @@ struct CMUXCLI {
                 do {
                     try self.openAttachableThread(threadId: threadId)
                 } catch {
-                    fputs("cmux codex-teams watcher failed to open ready subagent \(threadId): \(error)\n", stderr)
+                    cliWriteStderr("cmux codex-teams watcher failed to open ready subagent \(threadId): \(error)\n")
                 }
             }
         }
@@ -20106,6 +20082,12 @@ struct CMUXCLI {
             }
 
             let created = try socketClient.sendV2(method: "surface.split", params: splitParams)
+            if (created["accepted"] as? Bool) == true {
+                // Routed to a remote tmux mirror: the pane was created on the
+                // remote session and there is no local surface id to attach the
+                // subagent to. Retrying would duplicate the remote pane.
+                throw CLIError(message: "Codex subagent panes are not supported in remote tmux mirror workspaces (surface.split was routed to the remote tmux session)")
+            }
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
@@ -20766,7 +20748,7 @@ struct CMUXCLI {
             process.standardError = standardError
         }
 
-        try process.run()
+        try cliRunProcess(process)
         return process
     }
 
@@ -20836,7 +20818,7 @@ struct CMUXCLI {
             do {
                 try watcher.run()
             } catch {
-                fputs("cmux codex-teams watcher stopped: \(error)\n", stderr)
+                cliWriteStderr("cmux codex-teams watcher stopped: \(error)\n")
             }
         }
     }
@@ -21028,7 +21010,7 @@ struct CMUXCLI {
         process.environment = environment
         process.standardOutput = FileHandle.standardError
         process.standardError = FileHandle.standardError
-        try process.run()
+        try cliRunProcess(process)
         process.waitUntilExit()
         return process.terminationStatus
     }
@@ -21054,7 +21036,7 @@ struct CMUXCLI {
     }
 
     private func omoWriteStatus(_ message: String) {
-        FileHandle.standardError.write(Data((message + "\n").utf8))
+        cliWriteStderr(message + "\n")
     }
 
     private func omoRequestedPort(from commandArgs: [String]) -> String? {
@@ -21417,8 +21399,9 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        execv(launchPath, &argv)
-        let code = errno
+        let code = cliExecFailureErrno {
+            execv(launchPath, &argv)
+        }
         throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))\n\nIs opencode installed? Install with:\n  npm install -g opencode-ai")
     }
 
@@ -21547,8 +21530,9 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        execv(launchPath, &argv)
-        let code = errno
+        let code = cliExecFailureErrno {
+            execv(launchPath, &argv)
+        }
         throw CLIError(message: "Failed to launch omx: \(String(cString: strerror(code)))\n\nIs oh-my-codex installed? Install with:\n  npm install -g oh-my-codex")
     }
 
@@ -21666,8 +21650,9 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        execv(launchPath, &argv)
-        let code = errno
+        let code = cliExecFailureErrno {
+            execv(launchPath, &argv)
+        }
         throw CLIError(message: "Failed to launch omc: \(String(cString: strerror(code)))\n\nIs oh-my-claude-sisyphus installed? Install with:\n  npm install -g oh-my-claude-sisyphus")
     }
 
@@ -21816,6 +21801,7 @@ struct CMUXCLI {
             if let startCommand = tmuxStartCommand(commandTokens: parsed.positional) {
                 splitParams["tmux_start_command"] = startCommand
             }
+            if parsed.hasFlag("-P") { splitParams["remote_tmux_unsupported_options"] = ["-P"] }
             let sizeTargetPaneId = target.paneId
                 ?? (try? tmuxResolvePaneTarget(parsed.value("-t"), client: client).paneId)
                 ?? (try? tmuxPaneIdForSurface(
@@ -21835,6 +21821,18 @@ struct CMUXCLI {
                 splitParams["initial_divider_position"] = dividerPosition
             }
             let created = try client.sendV2(method: "surface.split", params: splitParams)
+            if (created["accepted"] as? Bool) == true {
+                // Routed to a remote tmux mirror: the split was applied to the
+                // remote tmux session and the pane arrives asynchronously.
+                // Option-carrying requests (command, cwd, sizing) are rejected
+                // server-side BEFORE the remote mutation, so reaching here
+                // means a plain split: succeed quietly (tmux split-window
+                // prints nothing without -P) and skip local layout tracking.
+                // Erroring here would invite retries that duplicate the
+                // already-created remote pane. Current apps reject -P before
+                // routing; if an older app still accepts it, the split already happened.
+                break
+            }
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
@@ -22465,11 +22463,11 @@ struct CMUXCLI {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        try process.run()
+        try cliRunProcess(process)
         if let data = stdinText.data(using: .utf8) {
-            stdinPipe.fileHandleForWriting.write(data)
+            _ = cliWrite(data, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
         }
-        stdinPipe.fileHandleForWriting.closeFile()
+        try? stdinPipe.fileHandleForWriting.close()
         process.waitUntilExit()
 
         let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
@@ -23730,7 +23728,7 @@ struct CMUXCLI {
         surfaceId: String?
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
-            fputs("Warning: unsupported agent lifecycle key\n", stderr)
+            cliWriteStderr("Warning: unsupported agent lifecycle key\n")
             return
         }
         do {
@@ -23739,7 +23737,7 @@ struct CMUXCLI {
                 client: client
             )
         } catch {
-            fputs("Warning: failed to set agent lifecycle\n", stderr)
+            cliWriteStderr("Warning: failed to set agent lifecycle\n")
         }
     }
 
@@ -25322,7 +25320,7 @@ struct CMUXCLI {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
-            try process.run()
+            try cliRunProcess(process)
             telemetry.breadcrumb("codex-hook.monitor.started", data: monitorTelemetry)
         } catch {
             telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
@@ -26272,7 +26270,7 @@ struct CMUXCLI {
         process.standardError = FileHandle.nullDevice
 
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             return nil
         }
@@ -31540,10 +31538,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         do {
             try runOpenTUIFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
         } catch {
-            fputs(
-                "cmux feed tui: OpenTUI unavailable (\(error)); falling back to legacy TUI.\n",
-                stderr
-            )
+            cliWriteStderr("cmux feed tui: OpenTUI unavailable (\(error)); falling back to legacy TUI.\n")
             try runLegacyFeedTUI(socketPath: socketPath, socketPassword: resolvedSocketPassword)
         }
     }
@@ -31580,12 +31575,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             throw CLIError(message: "Bun is required for the OpenTUI Feed")
         }
 
-        fputs("cmux feed tui: preparing OpenTUI Feed...\n", stderr)
-        fflush(stderr)
+        cliWriteStderr("cmux feed tui: preparing OpenTUI Feed...\n")
         let appDirectory = try prepareOpenTUIFeedApp(bunPath: bunPath)
         let sourceURL = appDirectory.appendingPathComponent("index.ts", isDirectory: false)
-        fputs("cmux feed tui: starting OpenTUI Feed.\n", stderr)
-        fflush(stderr)
+        cliWriteStderr("cmux feed tui: starting OpenTUI Feed.\n")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: bunPath)
         process.arguments = [sourceURL.path]
@@ -31608,7 +31601,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
         var didForegroundChild = false
-        try process.run()
+        try cliRunProcess(process)
         if originalForegroundProcessGroup > 0 {
             let childProcessGroup = getpgid(process.processIdentifier)
             if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
@@ -31688,8 +31681,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             .appendingPathComponent("package.json", isDirectory: false)
         if !fileManager.fileExists(atPath: installedPackageURL.path)
             || installedOpenTUIVersion(at: installedPackageURL) != Self.openTUIFeedCoreVersion {
-            fputs("cmux feed tui: installing @opentui/core \(Self.openTUIFeedCoreVersion)...\n", stderr)
-            fflush(stderr)
+            cliWriteStderr("cmux feed tui: installing @opentui/core \(Self.openTUIFeedCoreVersion)...\n")
             try installOpenTUIFeedDependencies(bunPath: bunPath, appDirectory: appDirectory)
         }
         return appDirectory
@@ -31761,7 +31753,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             drainGroup.leave()
         }
 
-        try process.run()
+        try cliRunProcess(process)
         process.waitUntilExit()
         drainGroup.wait()
         guard process.terminationStatus == 0 else {
@@ -32969,11 +32961,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return true
         }
         if mode == "deny" {
-            fputs("User denied permission via cmux Feed.\n", stderr)
+            cliWriteStderr("User denied permission via cmux Feed.\n")
         } else {
-            fputs("cmux Feed returned an unrecognized Kiro permission decision; denying for safety.\n", stderr)
+            cliWriteStderr("cmux Feed returned an unrecognized Kiro permission decision; denying for safety.\n")
         }
-        fflush(stderr)
         exit(2)
     }
 
@@ -33574,7 +33565,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         process.launchPath = "/bin/sh"
         process.arguments = ["-c", "command -v \(name) >/dev/null 2>&1"]
         do {
-            try process.run()
+            try cliRunProcess(process)
             process.waitUntilExit()
             return process.terminationStatus == 0
         } catch {
@@ -33804,7 +33795,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         process.standardError = Pipe()
 
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             return nil
         }
@@ -33992,6 +33983,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows
@@ -34007,6 +33999,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
@@ -34161,36 +34154,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
 private enum CMUXCLIOutput {
     static func writeStandardError(_ message: String) {
-        write(Data(message.utf8), to: STDERR_FILENO)
-    }
-
-    private static func write(_ data: Data, to fd: Int32) {
-        data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else {
-                return
-            }
-
-            var offset = 0
-            while offset < data.count {
-                let bytesWritten = Darwin.write(fd, baseAddress.advanced(by: offset), data.count - offset)
-                if bytesWritten > 0 {
-                    offset += bytesWritten
-                } else if bytesWritten == -1, errno == EINTR {
-                    continue
-                } else {
-                    return
-                }
-            }
-        }
+        cliWriteStderr(message)
     }
 }
 
 @main
 struct CMUXTermMain {
     static func main() {
-        // CLI tools should ignore SIGPIPE so closed stdout pipes do not terminate the process.
-        _ = signal(SIGPIPE, SIG_IGN)
-        let cli = CMUXCLI(args: CommandLine.arguments)
+        let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
+        _ = signal(SIGPIPE, SIG_DFL)
+        configureCLIStdioNoSIGPIPE()
+        let cli = CMUXCLI(
+            args: CommandLine.arguments,
+            initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
+        )
         do {
             try cli.run()
         } catch {

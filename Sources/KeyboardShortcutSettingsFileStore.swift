@@ -1,7 +1,6 @@
 import Combine
-import CmuxFileWatch
+import CmuxFoundation
 import CmuxSettings
-import CmuxSocketControl
 import Foundation
 import os
 
@@ -937,6 +936,11 @@ final class CmuxSettingsFileStore {
         }
 
         var bindings = section["bindings"] as? [String: Any] ?? [:]
+        if let value = jsonBool(section["showModifierHoldHints"]) {
+            snapshot.managedUserDefaults[SettingCatalog().shortcuts.showModifierHoldHints.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("showModifierHoldHints") {
+            logInvalid("shortcuts.showModifierHoldHints", sourcePath: sourcePath)
+        }
         for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" && key != "commands" {
             bindings[key] = rawValue
         }

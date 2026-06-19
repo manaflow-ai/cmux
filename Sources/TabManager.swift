@@ -5,15 +5,12 @@ import SwiftUI
 import Foundation
 import Bonsplit
 import CmuxBrowser
-import CmuxFileWatch
 import CmuxGit
 import CmuxNotifications
 import CmuxPanes
-import CmuxProcess
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
-import CmuxWorkspaceNavigation
 import CmuxWorkspaces
 import CoreVideo
 import Combine
@@ -21,7 +18,6 @@ import CoreServices
 import Darwin
 import OSLog
 import CmuxTerminal
-import CmuxWorkspaceCore
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
@@ -560,10 +556,8 @@ class TabManager: ObservableObject {
         ) { [weak self] notification in
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
-                guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
-                guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-                guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
-                enqueuePanelTitleUpdate(tabId: tabId, panelId: surfaceId, title: title)
+                guard let change = GhosttyTitleChange(notification: notification) else { return }
+                enqueuePanelTitleUpdate(tabId: change.tabId, panelId: change.surfaceId, title: change.title)
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -903,6 +897,24 @@ class TabManager: ObservableObject {
     func toggleFocusedTerminalTextBox() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
         return panel.toggleTextBoxInput()
+    }
+
+    /// Clears the focused terminal's visible screen while preserving scrollback.
+    ///
+    /// See `TerminalSurface.clearScreenKeepingScrollback()`. The shared model path
+    /// behind the Cmd+Shift+K shortcut and the "Clear Screen (Keep Scrollback)"
+    /// command palette entry.
+    ///
+    /// - Returns: `true` when a focused terminal performed the clear, `false` when
+    ///   no terminal panel is focused.
+    @discardableResult
+    func clearFocusedTerminalKeepingScrollback() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        let cleared = panel.clearScreenKeepingScrollback()
+        if cleared {
+            panel.surface.forceRefresh(reason: "tabManager.clearFocusedTerminalKeepingScrollback")
+        }
+        return cleared
     }
 
     @discardableResult
@@ -1683,6 +1695,14 @@ class TabManager: ObservableObject {
         if applied, selectedTabId == tabId {
             updateWindowTitle(for: tabs[index])
         }
+        // A remote tmux mirror workspace rename propagates to `rename-session`,
+        // but only when the write landed (an `.auto` write rejected over a
+        // user-set title must not desync the remote session name).
+        if applied, tabs[index].isRemoteTmuxMirror {
+            AppDelegate.shared?.remoteTmuxController.handleMirrorWorkspaceRenamed(
+                workspaceId: tabId, title: title
+            )
+        }
         return applied
     }
 
@@ -1997,6 +2017,12 @@ class TabManager: ObservableObject {
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+        // User-initiated close of a mirrored remote tmux session kills it on the
+        // remote. (App quit tears down windows without calling closeWorkspace, so
+        // quitting still leaves remote sessions alive.)
+        if workspace.isRemoteTmuxMirror {
+            AppDelegate.shared?.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
+        }
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
@@ -2217,6 +2243,20 @@ class TabManager: ObservableObject {
         sidebarMultiSelection.replaceSelection(with: workspaceIds.intersection(existingIds))
     }
 
+    /// Marks the window's pending close as a tab/session close so a remote-tmux
+    /// mirror among `workspaces` is KILLED (synced with tmux) on the close commit
+    /// rather than detached. The single decision point for every close path that
+    /// closes the whole window directly — the last-workspace branch of
+    /// ``closeWorkspaceIfRunningProcess`` and the batch/anchor paths in
+    /// ``closeWorkspacesWithConfirmation`` — so every explicit tab-close intent kills
+    /// consistently. ``AppDelegate``'s `shouldClose`/`onClose` consume or clear the
+    /// marker (veto vs commit).
+    private func markRemoteTmuxKillOnWindowCloseIfNeeded(for workspaces: [Workspace]) {
+        guard workspaces.contains(where: { $0.isRemoteTmuxMirror }),
+              let windowId = AppDelegate.shared?.windowId(for: self) else { return }
+        AppDelegate.shared?.remoteTmuxController.markKillSessionsOnWindowClose(windowId: windowId)
+    }
+
     func closeWorkspacesWithConfirmation(_ workspaceIds: [UUID], allowPinned: Bool) {
         let workspaces = orderedClosableWorkspaces(workspaceIds, allowPinned: allowPinned)
         guard !workspaces.isEmpty else { return }
@@ -2236,6 +2276,9 @@ class TabManager: ObservableObject {
 
         if plan.workspaces.count == tabs.count,
            let firstWorkspace = plan.workspaces.first {
+            // Closing every tab is still an explicit tab/session close: kill the
+            // remote-tmux session(s) on commit, not detach.
+            markRemoteTmuxKillOnWindowCloseIfNeeded(for: plan.workspaces)
             if let window {
                 window.performClose(nil)
                 return
@@ -2265,6 +2308,8 @@ class TabManager: ObservableObject {
                 // Anchor confirmed (or suppressed); skip the inner re-prompt
                 // by closing without going through closeWorkspaceIfRunningProcess.
                 if tabs.count <= 1 {
+                    // Still a tab/session close → kill the remote session on commit.
+                    markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
                     if let window {
                         window.performClose(nil)
                     } else {
@@ -2510,7 +2555,14 @@ class TabManager: ObservableObject {
             return
         }
         if tabs.count <= 1 {
-            // Last workspace in this window: match Close Workspace shortcut behavior.
+            // Last workspace in this window closes via the window-close path, but it
+            // is still an explicit TAB/session close: for a remote-tmux mirror, mark
+            // the close to KILL the session on commit (synced with tmux), even though
+            // it also closes the app window. The marker is consumed on the (non-vetoed)
+            // close commit, or cleared if the close is vetoed (single-window quit
+            // warning) so a cancelled close never kills. A plain window/quit close
+            // never sets it, so it detaches. Non-last workspaces kill via closeWorkspace.
+            markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
             if let window {
                 window.performClose(nil)
             } else {
@@ -3344,16 +3396,14 @@ class TabManager: ObservableObject {
 #endif
             return false
         }
-        if let surfaceId, tab.panels[surfaceId] == nil {
+        let requestedPanelId = surfaceId.flatMap { panelId(forSurfaceOrPanelId: $0, in: tab) }
+        if let surfaceId, requestedPanelId == nil {
 #if DEBUG
-            cmuxDebugLog(
-                "notification.focus.fail tab=\(tabId.uuidString.prefix(5)) " +
-                "panel=\(surfaceId.uuidString.prefix(5)) reason=missingPanel"
-            )
+            cmuxDebugLog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) reason=missingPanel")
 #endif
             return false
         }
-        let desiredPanelId = surfaceId ?? tab.focusedPanelId
+        let desiredPanelId = requestedPanelId ?? tab.focusedPanelId
 #if DEBUG
         if let desiredPanelId {
             AppDelegate.shared?.armJumpUnreadFocusRecord(tabId: tabId, surfaceId: desiredPanelId)
