@@ -25,8 +25,10 @@ public actor KanbanEngine {
     private var board: KanbanBoard
     /// Consumer task per running card; cancelled on ``cancel(cardId:)``.
     private var runningTasks: [UUID: Task<Void, Never>] = [:]
-    /// Live dispatch handle per running card, for cancellation.
-    private var handles: [UUID: KanbanDispatchHandle] = [:]
+    /// Live dispatch handle per running card, paired with the backend that
+    /// started the run so ``cancel(cardId:)`` routes back to the right one
+    /// (headless vs live).
+    private var handles: [UUID: (handle: KanbanDispatchHandle, backend: any DispatchBackend)] = [:]
 
     /// A board snapshot emitted after every mutation. The latest value is the
     /// authoritative board; subscribers reconcile from it.
@@ -152,7 +154,7 @@ public actor KanbanEngine {
             return
         }
 
-        handles[cardId] = session.handle
+        handles[cardId] = (session.handle, backend)
         let token = session.handle.token
         let task = Task { [weak self] in
             for await progress in session.progress {
@@ -171,7 +173,7 @@ public actor KanbanEngine {
     /// and are discarded — a cancelled card can never be silently resurrected by
     /// a late `started`/`output` event.
     public func cancel(cardId: UUID) async {
-        guard let handle = handles[cardId] else { return }
+        guard let (handle, backend) = handles[cardId] else { return }
         let task = runningTasks[cardId]
         cleanup(cardId)
         task?.cancel()
@@ -190,7 +192,7 @@ public actor KanbanEngine {
     /// drops events from a cancelled or already-finished run, and from a stale
     /// run when a card has been re-dispatched.
     private func handleProgress(_ progress: KanbanDispatchProgress, cardId: UUID, token: UUID) async {
-        guard handles[cardId]?.token == token else { return }
+        guard handles[cardId]?.handle.token == token else { return }
         switch progress {
         case .started(let sessionId):
             if var card = board.card(id: cardId) {
@@ -244,7 +246,7 @@ public actor KanbanEngine {
     /// run is still current and the card is still in flight, treat it as an
     /// unexpected end and fail it.
     private func finishRunIfStillActive(cardId: UUID, token: UUID) async {
-        guard handles[cardId]?.token == token else { return }
+        guard handles[cardId]?.handle.token == token else { return }
         if let card = board.card(id: cardId), card.column.occupiesWipSlot {
             await fail(cardId: cardId, message: "Dispatch ended without an exit status.")
         } else {
