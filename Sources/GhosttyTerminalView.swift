@@ -4710,26 +4710,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return snapshot.string.isEmpty ? nil : snapshot.string
     }
 
-    private func readSelectionSnapshot() -> SelectionSnapshot? {
-        guard let surface else { return nil }
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_selection(surface, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-
-        let selected: String
-        if let ptr = text.text, text.text_len > 0 {
-            let selectedData = Data(bytes: ptr, count: Int(text.text_len))
-            selected = String(decoding: selectedData, as: UTF8.self)
-        } else {
-            selected = ""
-        }
-
-        return SelectionSnapshot(
-            range: NSRange(location: Int(text.offset_start), length: Int(text.offset_len)),
-            string: selected,
-            topLeft: CGPoint(x: text.tl_px_x, y: text.tl_px_y)
-        )
+    private func readSelectionSnapshot() -> TerminalRuntimeSelectionSnapshot? {
+        terminalSurface?.readRuntimeSelectionSnapshot()
     }
 
     private func visibleDocumentRectInScreenCoordinates() -> NSRect {
@@ -4881,11 +4863,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
-    private struct SelectionSnapshot {
-        let range: NSRange
-        let string: String
-        let topLeft: CGPoint
-    }
 
 #if DEBUG
     // Test-only accessors for keyTextAccumulator to verify CJK IME composition behavior.
