@@ -43,6 +43,11 @@ public struct SidebarWidthPolicy: Sendable, Equatable {
     /// non-finite or non-positive.
     public let rightSidebarFallbackAvailableWidth: CGFloat
 
+    /// Fraction of the available content width the left sidebar may occupy at
+    /// most. The window-derived maximum left width is this ratio of the resolved
+    /// available width, floored at the configured minimum.
+    public static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
+
     /// Creates a width policy from the fixed sidebar layout constants.
     /// - Parameters:
     ///   - defaultSidebarWidth: Left-sidebar fallback for non-finite candidates.
@@ -127,5 +132,21 @@ public struct SidebarWidthPolicy: Sendable, Equatable {
         }
         let maximumWidth = min(configuredOrDefaultCap, availableWidthCap)
         return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
+    }
+
+    /// The window-derived maximum left-sidebar width: ``maximumSidebarWidthRatio``
+    /// of the resolved available width, floored at `minimumWidth`. The caller
+    /// resolves `availableWidth` from live window/screen geometry (the AppKit
+    /// seam stays in the view); this performs the pure ratio math.
+    /// - Parameters:
+    ///   - availableWidth: The resolved content/screen width to take a fraction
+    ///     of.
+    ///   - minimumWidth: The configured minimum sidebar width (hard floor).
+    /// - Returns: The maximum left-sidebar width for the given available width.
+    public func maximumLeftSidebarWidth(
+        availableWidth: CGFloat,
+        minimumWidth: CGFloat
+    ) -> CGFloat {
+        max(minimumWidth, availableWidth * Self.maximumSidebarWidthRatio)
     }
 }
