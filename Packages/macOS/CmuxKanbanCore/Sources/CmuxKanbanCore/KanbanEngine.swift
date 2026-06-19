@@ -19,6 +19,7 @@ public actor KanbanEngine {
     private let workspaceId: UUID
     private let repository: KanbanBoardRepository
     private let backend: any DispatchBackend
+    private let liveBackend: any DispatchBackend
     private let clock: @Sendable () -> Date
 
     private var board: KanbanBoard
@@ -41,17 +42,22 @@ public actor KanbanEngine {
     /// - Parameters:
     ///   - workspaceId: The workspace whose board this engine owns.
     ///   - repository: Persistence for the board JSON and per-card logs.
-    ///   - backend: The dispatch backend that actually runs cards.
+    ///   - backend: The dispatch backend that actually runs cards (headless).
+    ///   - liveBackend: The backend for ``dispatchLive(cardId:)`` — an
+    ///     interactive, visible agent session. Defaults to `backend` when
+    ///     omitted, so the headless dispatch contract is unchanged.
     ///   - clock: Injected time source; tests pass a deterministic clock.
     public init(
         workspaceId: UUID,
         repository: KanbanBoardRepository,
         backend: any DispatchBackend,
+        liveBackend: (any DispatchBackend)? = nil,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.workspaceId = workspaceId
         self.repository = repository
         self.backend = backend
+        self.liveBackend = liveBackend ?? backend
         self.clock = clock
         self.board = .empty(workspaceId: workspaceId, now: clock())
 
@@ -114,6 +120,18 @@ public actor KanbanEngine {
     /// - Throws: ``KanbanEngineError/unknownCard(_:)`` if the card is absent, or
     ///   ``KanbanEngineError/wipLimitReached(limit:)`` if the board is full.
     public func dispatch(cardId: UUID) async throws {
+        try await dispatch(cardId: cardId, using: backend)
+    }
+
+    /// Like ``dispatch(cardId:)`` but routes the run to the *live* backend — an
+    /// interactive, visible agent session rather than a headless process. Column
+    /// policy is identical; only the backend that owns the run differs, so
+    /// ``cancel(cardId:)`` is routed back to whichever backend started it.
+    public func dispatchLive(cardId: UUID) async throws {
+        try await dispatch(cardId: cardId, using: liveBackend)
+    }
+
+    private func dispatch(cardId: UUID, using backend: any DispatchBackend) async throws {
         guard let card = board.card(id: cardId) else {
             throw KanbanEngineError.unknownCard(cardId)
         }

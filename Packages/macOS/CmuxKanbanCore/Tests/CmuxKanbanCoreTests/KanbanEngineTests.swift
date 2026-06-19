@@ -15,7 +15,8 @@ struct KanbanEngineTests {
     /// Builds an engine over a temp repository, optionally seeding a board.
     private func makeEngine(
         seeding board: KanbanBoard? = nil,
-        backend: any DispatchBackend
+        backend: any DispatchBackend,
+        liveBackend: (any DispatchBackend)? = nil
     ) async throws -> (engine: KanbanEngine, repository: KanbanBoardRepository, base: URL, workspaceId: UUID) {
         let base = makeTempBaseDirectory()
         let repository = KanbanBoardRepository(baseDirectory: base)
@@ -25,6 +26,7 @@ struct KanbanEngineTests {
             workspaceId: workspaceId,
             repository: repository,
             backend: backend,
+            liveBackend: liveBackend,
             clock: { Self.fixedNow }
         )
         try await engine.start()
@@ -188,6 +190,46 @@ struct KanbanEngineTests {
         #expect(board.card(id: cardId)?.sessionId == nil)
         let cancelled = await backend.cancelledCount()
         #expect(cancelled == 1)
+    }
+
+    @Test
+    func dispatchLiveRoutesRunAndCancelToTheLiveBackend() async throws {
+        let headless = ScriptedDispatchBackend(script: [.started(sessionId: "h")], finishes: false)
+        let live = ScriptedDispatchBackend(script: [.started(sessionId: "l")], finishes: false)
+        let (engine, _, base, _) = try await makeEngine(backend: headless, liveBackend: live)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let created = await engine.createTask(title: "Task")
+        let cardId = created.cards[0].id
+
+        try await engine.dispatchLive(cardId: cardId)
+        await engine.cancel(cardId: cardId)
+
+        let liveCancelled = await live.cancelledCount()
+        let headlessCancelled = await headless.cancelledCount()
+        // A live-dispatched card must be cancelled through the live backend that
+        // started it — never the headless one.
+        #expect(liveCancelled == 1)
+        #expect(headlessCancelled == 0)
+    }
+
+    @Test
+    func dispatchRoutesRunAndCancelToTheHeadlessBackend() async throws {
+        let headless = ScriptedDispatchBackend(script: [.started(sessionId: "h")], finishes: false)
+        let live = ScriptedDispatchBackend(script: [.started(sessionId: "l")], finishes: false)
+        let (engine, _, base, _) = try await makeEngine(backend: headless, liveBackend: live)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let created = await engine.createTask(title: "Task")
+        let cardId = created.cards[0].id
+
+        try await engine.dispatch(cardId: cardId)
+        await engine.cancel(cardId: cardId)
+
+        let headlessCancelled = await headless.cancelledCount()
+        let liveCancelled = await live.cancelledCount()
+        #expect(headlessCancelled == 1)
+        #expect(liveCancelled == 0)
     }
 
     @Test
