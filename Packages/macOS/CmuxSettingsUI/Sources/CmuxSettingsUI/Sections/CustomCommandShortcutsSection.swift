@@ -130,6 +130,7 @@ public struct CustomCommandShortcutsSection: View {
         }
         .task { await streamBindings() }
         .task { await streamActionFirstStrokes() }
+        .task { await loadCatalogTitles() }
         .onDisappear { streamTask?.cancel() }
         .sheet(item: $pickerPresentation) { presentation in
             CommandShortcutPickerSheet(
@@ -189,6 +190,19 @@ public struct CustomCommandShortcutsSection: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Resolves display titles for already-bound commands from the live command
+    /// catalog. `shortcuts.commands` persists only `commandId → shortcut`, so on a
+    /// fresh open (no picker selection this session) the rows would otherwise show
+    /// the raw command id; this backfills `titles` so they render their real name.
+    /// Picker-selected titles are kept — we only fill ids that lack a title.
+    private func loadCatalogTitles() async {
+        let loaded = await bindableCommandCatalog.bindableCommands()
+        guard !loaded.isEmpty else { return }
+        for descriptor in loaded where titles[descriptor.id] == nil {
+            titles[descriptor.id] = descriptor.title
+        }
     }
 
     private func streamBindings() async {
