@@ -207,22 +207,71 @@ cmux_claude_config_dir_has_session() {
 }
 
 extract_claude_resume_session_id() {
-    local previous="" arg
+    local expect_resume_value=false
+    local skip_next=false
+    local arg
     for arg in "$@"; do
-        case "$previous" in
-            --resume|-r)
-                printf '%s' "$arg"
-                return 0
-                ;;
-        esac
+        if [[ "$expect_resume_value" == true ]]; then
+            printf '%s' "$arg"
+            return 0
+        fi
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
         case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|-r)
+                expect_resume_value=true
+                continue
+                ;;
             --resume=*)
                 printf '%s' "${arg#--resume=}"
                 return 0
                 ;;
+            -*)
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            *)
+                return 1
+                ;;
         esac
-        previous="$arg"
     done
+    return 1
+}
+
+claude_explicit_session_flag_present() {
+    local skip_next=false
+    local arg
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
+                return 0
+                ;;
+            -*)
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    done
+    return 1
 }
 
 reconcile_claude_config_dir_for_resume() {
@@ -519,14 +568,9 @@ clear_inherited_claude_auth_selection_env
 # Check if the user already specified a session/resume flag.
 # If so, don't inject our own --session-id (it would conflict).
 SKIP_SESSION_ID=false
-for arg in "$@"; do
-    case "$arg" in
-        --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
-            SKIP_SESSION_ID=true
-            break
-            ;;
-    esac
-done
+if claude_explicit_session_flag_present "$@"; then
+    SKIP_SESSION_ID=true
+fi
 
 # For an explicit `--resume <id>`, point CLAUDE_CONFIG_DIR at the config root that
 # actually holds the transcript so an inherited/foreign config dir cannot turn the
