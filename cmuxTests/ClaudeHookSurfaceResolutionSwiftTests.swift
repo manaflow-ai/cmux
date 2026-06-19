@@ -31,6 +31,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": leakedSurfaceId,
             "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_PID": "42424",
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
@@ -65,6 +66,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                     && $0.contains("--panel=\(ttySurfaceId)")
             },
             "Claude visible status should also target the TTY surface, saw \(context.state.snapshot())"
+        )
+        #expect(
+            !context.state.snapshot().contains { $0.contains(#""method":"system.top""#) },
+            "Claude hooks with a TTY binding must not do a process snapshot; saw \(context.state.snapshot())"
         )
     }
 

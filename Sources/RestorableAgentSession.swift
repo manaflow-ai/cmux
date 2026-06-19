@@ -1583,44 +1583,23 @@ struct RestorableAgentSessionIndex: Sendable {
         sessionId: String,
         fileManager: FileManager
     ) -> String? {
-        claudeTranscriptPath(
-            inDirectory: projectRoot,
-            sessionId: sessionId,
-            remainingDirectoryDepth: 4,
-            fileManager: fileManager
-        )
-    }
-
-    private static func claudeTranscriptPath(
-        inDirectory directory: String,
-        sessionId: String,
-        remainingDirectoryDepth: Int,
-        fileManager: FileManager
-    ) -> String? {
         var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
+        guard fileManager.fileExists(atPath: projectRoot, isDirectory: &isDirectory),
               isDirectory.boolValue else {
             return nil
         }
 
-        let directPath = (directory as NSString).appendingPathComponent("\(sessionId).jsonl")
+        let directPath = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
         if regularNonEmptyFileExists(atPath: directPath, fileManager: fileManager) {
             return directPath
         }
-        guard remainingDirectoryDepth > 0,
-              let children = try? fileManager.contentsOfDirectory(atPath: directory) else {
-            return nil
-        }
-        for child in children {
-            let childPath = (directory as NSString).appendingPathComponent(child)
-            if let transcriptPath = claudeTranscriptPath(
-                inDirectory: childPath,
-                sessionId: sessionId,
-                remainingDirectoryDepth: remainingDirectoryDepth - 1,
-                fileManager: fileManager
-            ) {
-                return transcriptPath
-            }
+
+        let nestedMessagesPath = (((projectRoot as NSString)
+            .appendingPathComponent(sessionId) as NSString)
+            .appendingPathComponent("messages") as NSString)
+            .appendingPathComponent("\(sessionId).jsonl")
+        if regularNonEmptyFileExists(atPath: nestedMessagesPath, fileManager: fileManager) {
+            return nestedMessagesPath
         }
         return nil
     }

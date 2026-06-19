@@ -22914,13 +22914,13 @@ struct CMUXCLI {
         func callerTTYBinding() -> CallerTerminalBinding? {
             if !didResolveCallerTTYBinding {
                 didResolveCallerTTYBinding = true
-                callerTTYBindingCache = resolveAgentProcessTerminalBinding(
+                callerTTYBindingCache = resolveCallerTerminalBindingByTTY(
+                    client: client,
+                    includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
+                ) ?? resolveAgentProcessTerminalBinding(
                     pid: claudeAgentPID(from: ProcessInfo.processInfo.environment),
                     socketPath: client.socketPath,
                     socketPassword: socketPassword
-                ) ?? resolveCallerTerminalBindingByTTY(
-                    client: client,
-                    includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
                 )
             }
             return callerTTYBindingCache
