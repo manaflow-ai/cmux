@@ -49,10 +49,70 @@ final class CustomSidebarPanel: Panel, ObservableObject {
     }
 }
 
+@MainActor
+private final class CustomSidebarPaneTicker: ObservableObject {
+    static let shared = CustomSidebarPaneTicker()
+
+    @Published private(set) var date = Date()
+    private var retainCount = 0
+    private var task: Task<Void, Never>?
+
+    func retain() {
+        retainCount += 1
+        guard task == nil else { return }
+        date = Date()
+        task = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                self?.date = Date()
+            }
+        }
+    }
+
+    func release() {
+        retainCount = max(0, retainCount - 1)
+        guard retainCount == 0 else { return }
+        task?.cancel()
+        task = nil
+    }
+}
+
+@MainActor
+private final class CustomSidebarPaneDataContextCache {
+    static let shared = CustomSidebarPaneDataContextCache()
+
+    private var cachedKey: String?
+    private var cachedContext: [String: SwiftValue]?
+
+    func dataContext(
+        now: Date,
+        tabManager: TabManager,
+        sidebarUnread: SidebarUnreadModel,
+        build: () -> [String: SwiftValue]
+    ) -> [String: SwiftValue] {
+        let key = [
+            String(Int(now.timeIntervalSince1970)),
+            ObjectIdentifier(tabManager).debugDescription,
+            tabManager.selectedTabId?.uuidString ?? "",
+            tabManager.tabs.map { $0.id.uuidString }.joined(separator: ","),
+            String(sidebarUnread.totalUnreadCount)
+        ].joined(separator: "|")
+        if key == cachedKey, let cachedContext {
+            return cachedContext
+        }
+        let context = build()
+        cachedKey = key
+        cachedContext = context
+        return context
+    }
+}
+
 struct CustomSidebarPanelView: View {
     @ObservedObject var panel: CustomSidebarPanel
     @EnvironmentObject private var tabManager: TabManager
     @EnvironmentObject private var sidebarUnread: SidebarUnreadModel
+    @ObservedObject private var paneTicker = CustomSidebarPaneTicker.shared
     let isFocused: Bool
     let isVisibleInUI: Bool
     let appearance: PanelAppearance
@@ -60,22 +120,21 @@ struct CustomSidebarPanelView: View {
 
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @State private var renderWorkerClient: RenderWorkerClient?
+    @State private var retainedTicker = false
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
 
     var body: some View {
         Group {
             if isVisibleInUI {
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    CustomSidebarSurface(
-                        fileURL: panel.fileURL,
-                        dataContext: customSidebarDataContext(now: timeline.date),
-                        dispatch: makeCmuxSidebarActionDispatch(),
-                        contentInsets: CustomSidebarContentInsets.zero,
-                        rendersInProcess: customSidebarRenderer == .inProcess,
-                        client: $renderWorkerClient
-                    )
-                }
+                CustomSidebarSurface(
+                    fileURL: panel.fileURL,
+                    dataContext: customSidebarDataContext(now: paneTicker.date),
+                    dispatch: makeCmuxSidebarActionDispatch(),
+                    contentInsets: CustomSidebarContentInsets.zero,
+                    rendersInProcess: customSidebarRenderer == .inProcess,
+                    client: $renderWorkerClient
+                )
             } else {
                 Color.clear
             }
@@ -89,9 +148,48 @@ struct CustomSidebarPanelView: View {
         .onChange(of: panel.focusFlashToken) { _, _ in
             triggerFocusFlashAnimation()
         }
+        .onChange(of: isVisibleInUI) { _, visible in
+            if !visible {
+                shutdownRenderWorkerClient()
+            }
+            updateTickerRetention(visible: visible)
+        }
+        .onAppear {
+            updateTickerRetention(visible: isVisibleInUI)
+        }
+        .onDisappear {
+            updateTickerRetention(visible: false)
+            shutdownRenderWorkerClient()
+        }
+    }
+
+    private func shutdownRenderWorkerClient() {
+        guard let client = renderWorkerClient else { return }
+        renderWorkerClient = nil
+        Task { await client.shutdown() }
+    }
+
+    private func updateTickerRetention(visible: Bool) {
+        if visible, !retainedTicker {
+            retainedTicker = true
+            paneTicker.retain()
+        } else if !visible, retainedTicker {
+            retainedTicker = false
+            paneTicker.release()
+        }
     }
 
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
+        CustomSidebarPaneDataContextCache.shared.dataContext(
+            now: now,
+            tabManager: tabManager,
+            sidebarUnread: sidebarUnread
+        ) {
+            buildCustomSidebarDataContext(now: now)
+        }
+    }
+
+    private func buildCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
             customSidebarWorkspaceSnapshot(workspace, index: index, selectedId: selectedId)
