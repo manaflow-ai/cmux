@@ -94,7 +94,6 @@ actor SSHPTYResizeMonitor {
     private func drainPendingResizes() async {
         while true {
             if isCancelled {
-                isCancelled = true
                 pendingSize = nil
                 return
             }
@@ -105,7 +104,6 @@ actor SSHPTYResizeMonitor {
 
             let sent = await sendResize(size: size)
             if isCancelled {
-                isCancelled = true
                 pendingSize = nil
                 return
             }
