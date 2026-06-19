@@ -9111,9 +9111,9 @@ struct CMUXCLI {
         let vmNeedle = vmID.lowercased(); let alreadyOnVM = !vmNeedle.isEmpty && (title.contains(vmNeedle) || text.contains(vmNeedle))
         let staleAuth = text.contains("password:") || text.contains("input_userauth_error") || text.contains("permission denied")
         guard staleAuth || (!alreadyOnVM && initialCommand.isEmpty) else { return }
-        _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "ctrl+c"]) { _, new in new })
-        _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command]) { _, new in new })
-        _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "enter"]) { _, new in new })
+        do {
+            _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "ctrl+c"]) { _, new in new }); _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command]) { _, new in new }); _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "enter"]) { _, new in new })
+        } catch let error as CLIError where error.message.contains("process_exited") { _ = try client.sendV2(method: "surface.respawn", params: target.merging(["command": command, "tmux_start_command": command]) { _, new in new }) }
     }
 
     private func parseSSHCommandOptions(
