@@ -106,7 +106,7 @@ extension Workspace {
         publishCmuxSurfaceCreated(
             customPanel.id,
             paneId: paneId,
-            kind: SurfaceKind.customSidebar.rawValue,
+            kind: Self.cmuxEventSurfaceKind(customPanel),
             origin: "custom_sidebar_tab",
             focused: shouldFocusNewTab
         )
@@ -146,12 +146,12 @@ extension Workspace {
         )
         surfaceIdToPanelId[newTab.id] = customPanel.id
 
-        guard bonsplitController.splitPane(
+        guard let newPaneId = bonsplitController.splitPane(
             paneId,
             orientation: orientation,
             withTab: newTab,
             insertFirst: insertFirst
-        ) != nil else {
+        ) else {
             panels.removeValue(forKey: customPanel.id)
             panelTitles.removeValue(forKey: customPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
@@ -160,10 +160,12 @@ extension Workspace {
 
         bonsplitController.selectTab(newTab.id)
         focusPanel(customPanel.id)
-        publishCmuxSurfaceCreated(
-            customPanel.id,
-            paneId: paneId,
-            kind: SurfaceKind.customSidebar.rawValue,
+        publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: paneId,
+            orientation: orientation,
+            surfaceId: customPanel.id,
+            kind: Self.cmuxEventSurfaceKind(customPanel),
             origin: "custom_sidebar_split",
             focused: true
         )

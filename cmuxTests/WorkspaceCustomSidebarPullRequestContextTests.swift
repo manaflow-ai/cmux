@@ -16,12 +16,20 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
         let fileURL = directory.appendingPathComponent("\(sidebarName).swift")
         try #"Text("Restored")"#.write(to: fileURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: fileURL) }
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
 
         let workspace = Workspace()
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        CmuxEventBus.shared.resetForTesting()
         let panel = try XCTUnwrap(
             workspace.newCustomSidebarSurface(inPane: paneId, name: sidebarName, focus: true)
         )
+        let surfaceEvent = try XCTUnwrap(
+            CmuxEventBus.shared.retainedSnapshot().first { $0["name"] as? String == "surface.created" }
+        )
+        let surfacePayload = try XCTUnwrap(surfaceEvent["payload"] as? [String: Any])
+        XCTAssertEqual(surfacePayload["kind"] as? String, "custom_sidebar")
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id })
@@ -39,6 +47,61 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
             restored.surfaceIdFromPanelId(restoredPanel.id).flatMap { restored.bonsplitController.tab($0)?.kind },
             SurfaceKind.customSidebar.rawValue
         )
+    }
+
+    @MainActor
+    func testSplitCustomSidebarPublishesNewPaneLifecycleEvents() throws {
+        let sidebarName = "__cmux_split_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fileURL = directory.appendingPathComponent("\(sidebarName).swift")
+        try #"Text("Split")"#.write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let workspace = Workspace()
+        let sourcePaneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        CmuxEventBus.shared.resetForTesting()
+
+        let panel = try XCTUnwrap(
+            workspace.splitPaneWithCustomSidebar(
+                targetPane: sourcePaneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                name: sidebarName
+            )
+        )
+        let customPaneId = try XCTUnwrap(workspace.paneId(forPanelId: panel.id))
+
+        XCTAssertNotEqual(customPaneId.id, sourcePaneId.id)
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        let paneEvent = try XCTUnwrap(events.first { $0["name"] as? String == "pane.created" })
+        XCTAssertEqual(paneEvent["pane_id"] as? String, customPaneId.id.uuidString)
+        let panePayload = try XCTUnwrap(paneEvent["payload"] as? [String: Any])
+        XCTAssertEqual(panePayload["pane_id"] as? String, customPaneId.id.uuidString)
+        XCTAssertEqual(panePayload["source_pane_id"] as? String, sourcePaneId.id.uuidString)
+        XCTAssertEqual(panePayload["surface_id"] as? String, panel.id.uuidString)
+
+        let surfaceEvent = try XCTUnwrap(events.first { $0["name"] as? String == "surface.created" })
+        XCTAssertEqual(surfaceEvent["surface_id"] as? String, panel.id.uuidString)
+        XCTAssertEqual(surfaceEvent["pane_id"] as? String, customPaneId.id.uuidString)
+        let surfacePayload = try XCTUnwrap(surfaceEvent["payload"] as? [String: Any])
+        XCTAssertEqual(surfacePayload["pane_id"] as? String, customPaneId.id.uuidString)
+        XCTAssertEqual(surfacePayload["kind"] as? String, "custom_sidebar")
+    }
+
+    func testV2CustomSidebarOpenReturnsErrorWhenValidationFails() {
+        let missingName = "__cmux_missing_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+
+        switch TerminalController.shared.v2CustomSidebarOpen(params: ["name": missingName]) {
+        case .err(let code, _, let data):
+            XCTAssertEqual(code, "validation_failed")
+            let payload = data as? [String: Any]
+            XCTAssertEqual(payload?["error_count"] as? Int, 1)
+        case .ok(let payload):
+            XCTFail("Expected validation error, got \(payload)")
+        }
     }
 
     @MainActor
