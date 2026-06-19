@@ -188,6 +188,65 @@ normalize_claude_config_dir() {
     esac
 }
 
+# Claude stores transcripts at <config-dir>/projects/<encode(cwd)>/<id>.jsonl and
+# `--resume <id>` only resolves a session under the *current* CLAUDE_CONFIG_DIR.
+# cmux can launch with a foreign CLAUDE_CONFIG_DIR (the .app inherits the env of
+# whatever opened it, e.g. a terminal whose agent set one), so resuming a session
+# created under a different config root fails with "No conversation found" and drops
+# the user to a bare shell. Self-heal by relocating CLAUDE_CONFIG_DIR to the root
+# that actually holds the transcript, but only when the current root lacks it (so a
+# correct resume is never repointed). https://github.com/manaflow-ai/cmux/issues/6194
+cmux_claude_config_dir_has_session() {
+    local root="$1" sid="$2"
+    [[ -n "$root" && -d "$root/projects" ]] || return 1
+    local transcript
+    for transcript in "$root"/projects/*/"$sid".jsonl; do
+        [[ -e "$transcript" ]] && return 0
+    done
+    return 1
+}
+
+extract_claude_resume_session_id() {
+    local previous="" arg
+    for arg in "$@"; do
+        case "$previous" in
+            --resume|-r)
+                printf '%s' "$arg"
+                return 0
+                ;;
+        esac
+        case "$arg" in
+            --resume=*)
+                printf '%s' "${arg#--resume=}"
+                return 0
+                ;;
+        esac
+        previous="$arg"
+    done
+}
+
+reconcile_claude_config_dir_for_resume() {
+    local sid="$1"
+    [[ -n "$sid" && -n "${HOME:-}" ]] || return 0
+    # Only safe filename tokens (claude session ids are uuids); never glob-walk on
+    # path separators or dot segments.
+    case "$sid" in
+        *[!A-Za-z0-9._-]*|''|.|..) return 0 ;;
+    esac
+
+    local current_root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    cmux_claude_config_dir_has_session "$current_root" "$sid" && return 0
+
+    local root
+    for root in "$HOME/.claude" "$HOME"/.codex-accounts/claude/* "$HOME"/.subrouter/codex/claude/*; do
+        [[ "$root" == "$current_root" ]] && continue
+        if cmux_claude_config_dir_has_session "$root" "$sid"; then
+            export CLAUDE_CONFIG_DIR="$root"
+            return 0
+        fi
+    done
+}
+
 clear_inherited_claude_auth_selection_env() {
     if [[ "${IN_CMUX:-0}" == "1" ]]; then
         local key
@@ -468,6 +527,11 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# For an explicit `--resume <id>`, point CLAUDE_CONFIG_DIR at the config root that
+# actually holds the transcript so an inherited/foreign config dir cannot turn the
+# resume into "No conversation found". https://github.com/manaflow-ai/cmux/issues/6194
+reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
 
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
