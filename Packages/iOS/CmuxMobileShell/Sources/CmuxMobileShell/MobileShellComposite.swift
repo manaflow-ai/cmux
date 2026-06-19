@@ -5385,6 +5385,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> [MobileWorkspacePreview] {
         response.workspaces.map { remoteWorkspace in
             var workspace = MobileWorkspacePreview(remote: remoteWorkspace)
+            // Tag every workspace with the Mac it came from, so the aggregated
+            // multi-Mac list can group and filter by machine (P1 of the multi-Mac
+            // work). Today there is one connected Mac, so all rows share its id.
+            workspace.macDeviceID = activeTicket?.macDeviceID
             guard let existingWorkspace = workspaces.first(where: { $0.id == workspace.id }) else {
                 return workspace
             }

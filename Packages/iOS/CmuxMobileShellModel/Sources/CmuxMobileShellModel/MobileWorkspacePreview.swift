@@ -27,6 +27,11 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
 
     /// The workspace's stable identifier.
     public var id: ID
+    /// The stable device id of the Mac this workspace belongs to. Carried so the
+    /// aggregated multi-Mac workspace list can group and filter by machine, and
+    /// so opening a workspace attaches the right Mac. `nil` when connected to a
+    /// Mac old enough not to report it, or before the owning Mac is known.
+    public var macDeviceID: String?
     /// The Mac window that owns this workspace, when reported by the paired Mac.
     public var windowID: String?
     /// The workspace's user-facing display name.
@@ -71,6 +76,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - terminals: The terminals contained in the workspace, in display order.
     public init(
         id: ID,
+        macDeviceID: String? = nil,
         windowID: String? = nil,
         name: String,
         isPinned: Bool = false,
@@ -82,6 +88,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         terminals: [MobileTerminalPreview]
     ) {
         self.id = id
+        self.macDeviceID = macDeviceID
         self.windowID = windowID
         self.name = name
         self.isPinned = isPinned
