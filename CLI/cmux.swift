@@ -24256,15 +24256,11 @@ struct CMUXCLI {
         } else {
             binding = resolveCallerTerminalBindingByTTY(client: client)
         }
-        guard let callerWorkspaceId = binding?.workspaceId,
-              (try? client.sendV2(method: "surface.list", params: ["workspace_id": callerWorkspaceId])) != nil else {
+        guard let binding,
+              claudeHookSurfaceIsListed(binding.surfaceId, workspaceId: binding.workspaceId, client: client) else {
             return nil
         }
-        return callerWorkspaceId
-    }
-
-    private func resolveCallerWorkspaceIdByTTY(client: SocketClient) -> String? {
-        resolveCallerTerminalBindingByTTY(client: client)?.workspaceId
+        return binding.workspaceId
     }
 
     private func resolveCallerSurfaceIdByTTY(
@@ -26680,6 +26676,7 @@ struct CMUXCLI {
             return
         }
         var params: [String: Any] = [
+            "workspace_id": workspaceId,
             "surface_id": surfaceId,
             "name": displayName,
             "kind": kind,
