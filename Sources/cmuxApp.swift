@@ -578,7 +578,7 @@ struct cmuxApp: App {
                         SidebarDebugWindowController.shared.show()
                     }
                     Button("Split Button Layout Debug…") {
-                        SplitButtonLayoutDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showSplitButtonLayoutDebugWindow()
                     }
                     Button(
                         String(
@@ -2879,74 +2879,6 @@ private struct MenuBarExtraDebugView: View {
 
     private func applyLiveUpdate() {
         AppDelegate.shared?.refreshMenuBarExtraForDebug()
-    }
-}
-
-// MARK: - Split Button Layout Debug Window
-
-private final class SplitButtonLayoutDebugWindowController: ReleasingWindowController {
-    static let shared = SplitButtonLayoutDebugWindowController()
-
-    override func makeWindow() -> NSWindow {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Split Button Layout"
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.splitButtonLayoutDebug")
-        window.center()
-        window.contentView = NSHostingView(rootView: SplitButtonLayoutDebugView())
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-        return window
-    }
-
-    func show() {
-        showManagedWindow()
-    }
-}
-
-private struct SplitButtonLayoutDebugView: View {
-    @AppStorage("debugFadeColorStyle") private var backdropStyle = 0
-
-    private var options: [(Int, String)] {
-        [
-            (0, String(localized: "debug.splitButtonLayout.option.precompositedPane", defaultValue: "Pre-composited paneBackground")),
-            (1, String(localized: "debug.splitButtonLayout.option.rawPane", defaultValue: "Raw paneBackground (opaque)")),
-            (2, String(localized: "debug.splitButtonLayout.option.rawBar", defaultValue: "barBackground (tab chrome)")),
-            (3, String(localized: "debug.splitButtonLayout.option.windowBackground", defaultValue: "windowBackgroundColor")),
-            (4, String(localized: "debug.splitButtonLayout.option.controlBackground", defaultValue: "controlBackgroundColor")),
-            (5, String(localized: "debug.splitButtonLayout.option.precompositedBar", defaultValue: "Pre-composited barBackground")),
-            (6, String(localized: "debug.splitButtonLayout.option.translucentChrome", defaultValue: "Translucent chrome")),
-            (7, String(localized: "debug.splitButtonLayout.option.hidden", defaultValue: "Hidden")),
-        ]
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(String(localized: "debug.splitButtonLayout.title", defaultValue: "Button Backdrop Color"))
-                .font(.headline)
-
-            ForEach(options, id: \.0) { id, label in
-                HStack {
-                    Image(systemName: backdropStyle == id ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(backdropStyle == id ? .accentColor : .secondary)
-                    Text(label)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { backdropStyle = id }
-            }
-
-            Text(String(localized: "debug.splitButtonLayout.liveNote", defaultValue: "Changes apply live."))
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
