@@ -76,7 +76,7 @@
 2	Sources/SessionIndexView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Settings/ConfigSettingsView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 17	Sources/TabManager.swift	result of call to 'closePanel(_:force:)' is unused
-1	Sources/TerminalController.swift	'CGWindowListCreateImage' was deprecated in macOS 14.0: Please use ScreenCaptureKit instead.
+1	Sources/TerminalController+ControlDebugContext.swift	'CGWindowListCreateImage' was deprecated in macOS 14.0: Please use ScreenCaptureKit instead.
 2	Sources/TerminalController.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.
 1	Sources/TerminalController.swift	'observer' mutated after capture by sendable closure
 1	Sources/TerminalController.swift	add '@preconcurrency' to suppress 'Sendable'-related warnings from module 'ObjectiveC'

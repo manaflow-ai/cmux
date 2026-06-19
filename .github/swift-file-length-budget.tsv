@@ -5,10 +5,10 @@
 17136	Sources/AppDelegate.swift
 14541	Sources/ContentView.swift
 12335	Sources/Workspace.swift
-12239	Sources/TerminalController.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11584	Sources/GhosttyTerminalView.swift
 11411	Sources/Panels/BrowserPanel.swift
+10488	Sources/TerminalController.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7988	Sources/Panels/BrowserPanelView.swift
 7355	cmuxTests/WorkspaceUnitTests.swift
@@ -51,6 +51,7 @@
 1940	Sources/KeyboardShortcutSettingsFileStore.swift
 1880	Sources/RestorableAgentSession.swift
 1869	cmuxTests/NotificationAndMenuBarTests.swift
+1861	Sources/TerminalController+ControlDebugContext.swift
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
@@ -103,11 +104,11 @@
 885	Sources/Panels/TerminalPanel.swift
 877	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
-868	Sources/TerminalController+ControlDebugContext.swift
 865	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
+834	Sources/TerminalController+ControlSurfaceSendNotifyV1.swift
 830	Sources/TaskManagerTypes.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
