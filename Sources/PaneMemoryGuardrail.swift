@@ -334,7 +334,11 @@ final class PaneMemoryGuardrail {
     private func applySamples(_ samples: [PaneMemorySample], thresholdBytes: Int64) {
         isScanning = false
         scanApplyTask = nil
-        lastSamplesByKey = Dictionary(samples.map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
+        let samplesByKey = Dictionary(samples.map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
+        lastSamplesByKey = samplesByKey
+        for key in Array(pendingKillTasksByKey.keys) where samplesByKey[key] == nil {
+            pendingKillTasksByKey.removeValue(forKey: key)?.task.cancel()
+        }
 
         let output = engine.ingest(samples: samples, thresholdBytes: thresholdBytes)
 #if DEBUG
@@ -484,6 +488,8 @@ final class PaneMemoryGuardrail {
         if activeBanner != nil { activeBanner = nil }
         pendingBanners.removeAll()
         lastSamplesByKey.removeAll()
+        pendingKillTasksByKey.values.forEach { $0.task.cancel() }
+        pendingKillTasksByKey.removeAll()
         if !lastWarnedWorkspaceIds.isEmpty {
             lastWarnedWorkspaceIds = []
             onWarnedWorkspacesChanged?([])
