@@ -1446,7 +1446,7 @@ final class FileExplorerStore: ObservableObject {
     /// remote host — listing it makes the SSH probe fail. We therefore drop any
     /// hint that resolves to an existing local directory; a genuinely remote path
     /// (absent locally) is passed through so remote-cwd tracking still works.
-    private static func remoteRootPathHint(_ path: String?) -> String? {
+    static func remoteRootPathHint(_ path: String?) -> String? {
         guard let normalized = normalizedRootPath(path) else { return nil }
         var isDirectory: ObjCBool = false
         let existsLocally = FileManager.default.fileExists(

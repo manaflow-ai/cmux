@@ -733,6 +733,51 @@ struct FileExplorerStoreTests {
         let blank = FileExplorerError.sshCommandFailed("   \n  ").errorDescription
         #expect(blank == String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed"))
     }
+
+    /// Regression: a remote workspace's `currentDirectory` is a path on the
+    /// *local* machine, so rooting the remote file explorer at it made the SSH
+    /// probe list a path that cannot exist on the remote host — surfacing only as
+    /// a generic "SSH command failed". `remoteRootPathHint` must drop a hint that
+    /// resolves to an existing local directory (so the caller falls back to the
+    /// remote `$HOME`) while still passing through a genuinely remote path.
+    @Test
+    func testRemoteRootPathHintIgnoresLocalDirectories() {
+        // An existing *local* directory is ignored (caller resolves remote $HOME).
+        let localDir = NSTemporaryDirectory()
+        #expect(FileManager.default.fileExists(atPath: localDir))
+        #expect(FileExplorerStore.remoteRootPathHint(localDir) == nil)
+
+        // A path absent on the local machine is treated as a genuine remote path.
+        let remotePath = "/home/builder/cmux-test-\(UUID().uuidString)"
+        #expect(FileManager.default.fileExists(atPath: remotePath) == false)
+        #expect(FileExplorerStore.remoteRootPathHint(remotePath) == remotePath)
+
+        // Empty / whitespace-only hints resolve to the remote home as well.
+        #expect(FileExplorerStore.remoteRootPathHint(nil) == nil)
+        #expect(FileExplorerStore.remoteRootPathHint("") == nil)
+        #expect(FileExplorerStore.remoteRootPathHint("   ") == nil)
+    }
+
+    /// Regression: the listing ran `ls … 2>/dev/null`, so a path missing on the
+    /// remote swallowed `ls`'s "No such file or directory" and collapsed into the
+    /// opaque generic message. The classifier must surface a sanitized
+    /// "remote path not found" category without leaking the raw path.
+    @Test
+    func testSSHBadRemotePathClassifiesAsRemotePathNotFound() {
+        let stderr = """
+        👋 Your workspace is outdated! Update it here: https://example.com/ws
+        ls: cannot access '/Users/me/project': No such file or directory
+        """
+        let description = FileExplorerError.sshCommandFailed(stderr).errorDescription
+        #expect(
+            description == String(
+                localized: "fileExplorer.error.ssh.remotePathNotFound",
+                defaultValue: "Remote path not found"
+            )
+        )
+        // The raw path must never leak into the user-facing message.
+        #expect(description?.contains("/Users/me/project") == false)
+    }
 }
 
 @MainActor
