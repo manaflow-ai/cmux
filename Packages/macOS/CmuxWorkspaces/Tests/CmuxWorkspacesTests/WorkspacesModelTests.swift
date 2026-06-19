@@ -8,17 +8,25 @@ private final class StubTab: WorkspaceTabRepresenting {
     var groupId: UUID?
     var isPinned: Bool
     var currentDirectory: String
+    var title: String
+    private(set) var shellActivityUpdates: [(panelId: UUID, state: PanelShellActivityState)] = []
 
     init(
         id: UUID = UUID(),
         groupId: UUID? = nil,
         isPinned: Bool = false,
-        currentDirectory: String = "/tmp"
+        currentDirectory: String = "/tmp",
+        title: String = ""
     ) {
         self.id = id
         self.groupId = groupId
         self.isPinned = isPinned
         self.currentDirectory = currentDirectory
+        self.title = title
+    }
+
+    func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
+        shellActivityUpdates.append((panelId, state))
     }
 }
 

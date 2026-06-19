@@ -230,6 +230,12 @@ class TabManager: ObservableObject {
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
 
+    /// Window-title + per-surface shell-activity reads/mutations over the
+    /// workspace list (CmuxWorkspaces). The PR-refresh half of
+    /// `updateSurfaceShellActivity` stays in this composition root because it
+    /// routes through `pullRequestProbing`, which CmuxWorkspaces does not import.
+    private(set) lazy var surfaceMetadata = SurfaceMetadataCoordinator(model: workspaces)
+
     var tabs: [Workspace] {
         get { workspaces.tabs }
         set { workspaces.tabs = newValue }
@@ -2001,9 +2007,12 @@ class TabManager: ObservableObject {
         surfaceId: UUID,
         state: PanelShellActivityState
     ) {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
-        if state == .promptIdle {
+        let shouldRefreshPullRequest = surfaceMetadata.applySurfaceShellActivity(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            state: state
+        )
+        if shouldRefreshPullRequest {
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(
                 workspaceId: tabId,
                 panelId: surfaceId,
@@ -2911,7 +2920,7 @@ class TabManager: ObservableObject {
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
-        tabs.first(where: { $0.id == tabId })?.title
+        surfaceMetadata.titleForTab(tabId)
     }
 
     // MARK: - Panel/Surface ID Access

@@ -21,4 +21,17 @@ public protocol WorkspaceTabRepresenting: AnyObject, Identifiable where ID == UU
     /// The workspace's current working directory (group creation inherits
     /// the anchor's / first child's cwd from this).
     var currentDirectory: String { get }
+    /// The workspace's display title (the window-title source for the
+    /// selected workspace; legacy `Workspace.title`).
+    var title: String { get }
+
+    /// Records the shell-activity state for one of the workspace's surfaces
+    /// (legacy `Workspace.updatePanelShellActivityState(panelId:state:)`).
+    ///
+    /// The workspace is the single owner of its per-panel shell-activity
+    /// registry and the restored-agent resume bookkeeping a state change
+    /// drives; the surface-metadata coordinator reaches that owned mutation
+    /// through this seam without the panel registry crossing the module
+    /// boundary.
+    func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState)
 }
