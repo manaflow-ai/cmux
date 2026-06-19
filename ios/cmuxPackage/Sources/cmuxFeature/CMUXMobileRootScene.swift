@@ -156,6 +156,24 @@ public struct CMUXMobileRootScene: View {
         )
     }
 
+    /// Build the live presence subscription client (the `workers/presence`
+    /// Durable Object edge). `nil` when no service URL resolves for this build
+    /// (Release without an explicit override), which keeps presence entirely
+    /// off; auth mirrors `makeDeviceRegistry()` so the stream always carries
+    /// the current session and selected team.
+    @MainActor
+    private func makePresenceClient() -> PresenceClient? {
+        guard let baseURL = PresenceClient.resolvedServiceBaseURL() else { return nil }
+        let coordinator = auth.coordinator
+        return PresenceClient(
+            serviceBaseURL: baseURL,
+            tokenSource: PresenceTokenSource(
+                accessToken: { try? await coordinator.accessToken() }
+            ),
+            teamIDProvider: { await coordinator.resolvedTeamID }
+        )
+    }
+
     public var body: some View {
         content
             .environment(auth.coordinator)
@@ -197,6 +215,7 @@ public struct CMUXMobileRootScene: View {
             runtime: runtime,
             pairedMacStore: pairedMacStore,
             deviceRegistry: deviceRegistry,
+            presence: makePresenceClient(),
             identityProvider: identityProvider,
             reachability: reachability,
             analytics: analytics,
@@ -210,6 +229,7 @@ public struct CMUXMobileRootScene: View {
             runtime: runtime,
             pairedMacStore: pairedMacStore,
             deviceRegistry: deviceRegistry,
+            presence: makePresenceClient(),
             identityProvider: identityProvider,
             reachability: reachability,
             analytics: analytics,

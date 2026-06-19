@@ -12,8 +12,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
-    /// Body font size in points. Applied as WKWebView `pageZoom` so the whole
-    /// rendered document scales like browser zoom.
+    /// Body font size in points, applied as `pageZoom` and to shell-managed SVG zoom.
     let fontSize: Double
     /// Body prose font-family name (empty = System). Applied as an inline
     /// `font-family` on the content.
@@ -33,6 +32,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.removeFromSuperview()
             }
             webView.onPointerDown = onRequestPanelFocus
+            webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
+                coordinator?.handleViewLeftWindow()
+            }
+            webView.onReenterWindow = { [weak coordinator = context.coordinator] in
+                coordinator?.handleViewReenteredWindow()
+            }
             webView.navigationDelegate = context.coordinator
             webView.uiDelegate = context.coordinator
             applyBackground(to: webView)
@@ -59,6 +64,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
+        webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
+            coordinator?.handleViewLeftWindow()
+        }
+        webView.onReenterWindow = { [weak coordinator = context.coordinator] in
+            coordinator?.handleViewReenteredWindow()
+        }
         webView.setValue(false, forKey: "drawsBackground")
         applyBackground(to: webView)
         webView.allowsBackForwardNavigationGestures = false
@@ -103,6 +114,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        (nsView as? MarkdownWebView)?.onLeaveWindow = nil
+        (nsView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
     }
 
@@ -140,6 +153,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
+        /// Whether the shell was confirmed loaded at the moment the host view
+        /// last left its window. Used to distinguish a blank state caused by
+        /// detaching the pane (WebKit suspending/reclaiming the detached view —
+        /// recoverable) from one caused by a payload that keeps crashing
+        /// WebContent while attached (a crash loop whose recovery budget must
+        /// not be reset by pane reparenting).
+        private var shellWasHealthyWhenDetached = false
 
         private struct ImageLoadResult {
             let data: Data
@@ -181,12 +201,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             applyFontSize()
         }
 
-        private func applyFontSize() {
+        private func applyFontSize(forceShellSync: Bool = false) {
             guard let webView else { return }
             let zoom = MarkdownFontSizeSettings.pageZoom(forPointSize: lastFontSize)
-            if abs(webView.pageZoom - zoom) > 0.0001 {
-                webView.pageZoom = zoom
-            }
+            let shouldSyncShell = forceShellSync || abs(webView.pageZoom - zoom) > 0.0001
+            if abs(webView.pageZoom - zoom) > 0.0001 { webView.pageZoom = zoom }
+            if shouldSyncShell { webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom && window.__cmuxSetMarkdownZoom(\(Double(zoom)));", completionHandler: nil) }
         }
 
         /// Records the desired body prose font and applies it as an inline
@@ -239,11 +259,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+                webView.onLeaveWindow = nil
+                webView.onReenterWindow = nil
             }
             self.webView = nil
             isLoaded = false
             isShellLoading = false
             webContentProcessRecoveryAttempts = 0
+            shellWasHealthyWhenDetached = false
             cancelImageLoads()
             requestedLibs.removeAll()
         }
@@ -677,7 +700,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // pageZoom is a WKWebView-level property that survives loadHTMLString,
             // but re-apply defensively after a shell reload so a crash-recovery
             // path can never drop the configured zoom.
-            applyFontSize()
+            applyFontSize(forceShellSync: true)
             // font-family is a DOM inline style on a freshly-created #content,
             // so it MUST be re-applied after every shell (re)load.
             applyFontFamily()
@@ -716,6 +739,40 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return
             }
             webContentProcessRecoveryAttempts += 1
+            loadShell(
+                theme: lastTheme ?? pendingTheme,
+                initialMarkdown: lastMarkdown ?? pendingMarkdown
+            )
+        }
+
+        /// Called when the host `MarkdownWebView` re-enters a window after
+        /// having been detached (e.g. a pane drag re-parents the hosting
+        /// views via `removeFromSuperview` → `addSubview`). While detached
+        /// from the window WebKit can reclaim the WebContent process,
+        /// leaving the panel permanently blank with no user-facing reload.
+        /// Records, at the moment the host view leaves its window, whether the
+        /// document was healthy. The blank state seen after re-entry is only
+        /// treated as a detach artifact (and recovered with a fresh budget) if
+        /// the shell was loaded when it was detached.
+        func handleViewLeftWindow() {
+            shellWasHealthyWhenDetached = isLoaded
+        }
+
+        func handleViewReenteredWindow() {
+            // A still-loaded shell — alive but merely unpainted — is left
+            // intact; the host view's repaint nudge handles that case.
+            guard !isLoaded else { return }
+            // Recover only when the document was healthy before the detach, so
+            // a payload that exhausted its crash-recovery budget while attached
+            // (a crash loop) is not granted a fresh budget by pane reparenting.
+            guard shellWasHealthyWhenDetached else { return }
+            shellWasHealthyWhenDetached = false
+            // A reload kicked off while detached can stall (no didFinish until
+            // the view is back in a window), so reload unconditionally — even
+            // mid-load. A deliberate reattach is not a crash loop, so restore
+            // the recovery budget so the document repaints instead of staying
+            // permanently blank.
+            webContentProcessRecoveryAttempts = 0
             loadShell(
                 theme: lastTheme ?? pendingTheme,
                 initialMarkdown: lastMarkdown ?? pendingMarkdown

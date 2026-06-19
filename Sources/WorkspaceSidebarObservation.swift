@@ -1,5 +1,7 @@
 import Combine
+import CmuxCore
 import Foundation
+import CmuxSidebar
 
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
@@ -75,20 +77,20 @@ extension Workspace {
         let workspaceFields = Publishers.CombineLatest4(
             $currentDirectory,
             $extensionSidebarProjectRootPath,
-            $panels.map(SidebarPanelObservationState.init),
+            panelsPublisher.map(SidebarPanelObservationState.init),
             $panelDirectories
         )
         let metadataFields = Publishers.CombineLatest4(
-            $statusEntries,
-            $metadataBlocks,
-            $logEntries,
-            $progress
+            sidebarMetadata.statusEntriesPublisher,
+            sidebarMetadata.metadataBlocksPublisher,
+            sidebarMetadata.logEntriesPublisher,
+            sidebarMetadata.progressPublisher
         )
         let gitFields = Publishers.CombineLatest4(
-            $gitBranch,
-            $panelGitBranches,
-            $pullRequest,
-            $panelPullRequests
+            sidebarMetadata.gitBranchPublisher,
+            sidebarMetadata.panelGitBranchesPublisher,
+            sidebarMetadata.pullRequestPublisher,
+            sidebarMetadata.panelPullRequestsPublisher
         )
         let remoteFields = Publishers.CombineLatest4(
             $remoteConfiguration,

@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import SwiftUI
+import CmuxTerminal
 
 private extension NSView {
     func cmuxAncestor<T: NSView>(of type: T.Type) -> T? {

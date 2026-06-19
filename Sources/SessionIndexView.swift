@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
-import CMUXAgentVault
+import CmuxAppKitSupportUI
+import CMUXAgentLaunch
 import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
@@ -393,7 +394,7 @@ private struct IndexSectionView: View, Equatable {
                         .equatable()
                         .id(entry.id)
                 }
-                if section.entries.count > rowLimit {
+                if section.shouldOfferShowMore(rowLimit: rowLimit) {
                     showMoreButton
                 }
                 Spacer(minLength: 2)

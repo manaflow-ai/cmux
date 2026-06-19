@@ -1,7 +1,10 @@
 import Foundation
+import CmuxTerminalCore
 import Combine
 import AppKit
 import Bonsplit
+import CmuxTerminal
+import CmuxWorkspaces
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
@@ -46,6 +49,16 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
+
+    /// The workspace-env key/value pairs this panel inherited from its workspace's
+    /// `workspaceEnvironment` at creation. The same panel travels when a surface is
+    /// moved between workspaces, so a respawn uses these to drop the (possibly
+    /// previous) workspace's variables and re-apply the current workspace's. The
+    /// value (not just the key) is tracked so an explicit per-surface override that
+    /// happens to share a workspace key (e.g. a layout `env` AWS_PROFILE=staging in
+    /// a workspace with AWS_PROFILE=prod) is preserved on respawn rather than being
+    /// stripped and replaced by the workspace value (issue #5995).
+    var seededWorkspaceEnvironment: [String: String] = [:]
 
     /// Published title from the terminal process
     @Published private(set) var title: String = "Terminal"
@@ -166,7 +179,8 @@ final class TerminalPanel: Panel, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         let surface = TerminalSurface(
             id: id,
@@ -180,7 +194,8 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
+            focusPlacement: focusPlacement,
+            runtimeSpawnPolicy: runtimeSpawnPolicy
         )
         self.init(workspaceId: workspaceId, surface: surface)
     }
@@ -699,6 +714,12 @@ final class TerminalPanel: Panel, ObservableObject {
     func performBindingAction(_ action: String) -> Bool {
         guard !isAgentHibernated else { return false }
         return surface.performBindingAction(action)
+    }
+
+    @discardableResult
+    func clearScreenKeepingScrollback() -> Bool {
+        resumeForExplicitInputIfNeeded()
+        return surface.clearScreenKeepingScrollback()
     }
 
     private func resumeForExplicitInputIfNeeded() {

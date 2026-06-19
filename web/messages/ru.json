@@ -760,10 +760,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Включает хуки интеграции cmux для Amp. При отключении встроенный плагин остаётся неактивным без необходимости его удаления.",
-          "suppressSubagentNotifications": "Подавляет видимые уведомления о завершении и изменения статуса от вложенных дочерних агентов Codex или Claude, сохраняя их события в телеметрии Feed."
+          "suppressSubagentNotifications": "Подавляет видимые уведомления о завершении и изменения статуса от вложенных дочерних агентов Codex или Claude, сохраняя их события в телеметрии Feed.",
+          "workspaceAutoNaming": "Опциональное автоматическое именование рабочих пространств и вкладок с помощью ИИ на основе содержимого разговоров агента. Если включено, cmux сводит поддерживаемые сессии агентов к коротким заголовкам, используя собственный бинарный файл каждого агента; ручные переименования всегда имеют приоритет.",
+          "autoNamingAgent": "Какой агент генерирует автоматические имена для каждой сессии. «auto» (по умолчанию) именует каждую сессию её собственным агентом; любой идентификатор агента (claude, codex, grok, opencode, pi, omp, …) переопределяет именование для всех сессий, даже для сессий других агентов. Недоступные или неустановленные агенты используют собственный агент сессии, поэтому именование никогда не ломается."
         },
         "app": {
           "confirmQuit": "Управляет тем, когда cmux запрашивает подтверждение перед выходом. DEV-сборки всегда завершаются сразу независимо от этой настройки. Устаревший app.warnBeforeQuit по-прежнему принимается как булевый запасной вариант.",
+          "windowTitleTemplate": "Необязательный шаблон заголовка NSWindow. Пустое значение сохраняет существующее стандартное поведение заголовка cmux, включая откат к текущему каталогу. Поддерживаемые заполнители: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Устаревший булевый запасной вариант для подтверждения выхода. Для новых конфигураций используйте app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Показывать подтверждение перед закрытием вкладки кнопкой закрытия вкладки.",
           "hideTabCloseButton": "Скрывать кнопки закрытия вкладок на панели вкладок области.",
@@ -790,17 +793,26 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Максимальная ширина правой боковой панели в пунктах. Если не указано, применяется встроенное динамическое ограничение."
+        },
+        "fileExplorer": {
+          "description": "Настройки проводника файлов (дерева файлов) в правой боковой панели.",
+          "doubleClickAction": "Что происходит при двойном щелчке по файлу в проводнике файлов (или при нажатии Return на результате поиска). `preview` открывает встроенный предпросмотр файлов cmux (поведение по умолчанию и историческое поведение). `defaultEditor` открывает файл в приложении macOS по умолчанию для этого типа файла. `preferredEditor` открывает через команду `app.preferredEditor`, а если она не задана, использует приложение по умолчанию. Применяется только к файлам; каталоги всегда разворачиваются/сворачиваются, а нелокальные (удалённые) проводники файлов всегда открывают предпросмотр cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей."
+          "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей.",
+          "showModifierHoldHints": "Показывать подсказки сочетаний клавиш, пока удерживается Cmd или Control."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Двойной щелчок по файлу: preview (по умолчанию), defaultEditor (приложение macOS по умолчанию) или preferredEditor (команда app.preferredEditor).",
       "shortcutsWhenIntro": "Необязательные контекстные предикаты для каждой операции (условия when в стиле VS Code), заданные по идентификатору операции cmux. Привязка срабатывает — и конфликтует с другой привязкой на том же нажатии — только когда её условие истинно. Опустите условие, чтобы сохранить встроенный контекст операции. Словарь условий:",
       "shortcutsWhenBooleanKeys": "булевы ключи. Неизвестный или отсутствующий ключ считается false; также принимаются литералы true и false.",
       "shortcutsWhenTypedKeys": "типизированные ключи для сравнений: активный режим правой боковой панели (строка) и количество панелей и рабочих областей (целые числа).",
@@ -922,6 +934,8 @@
         "surfaces": "Поверхности",
         "surfacesBlurb": "Поверхности — это вкладки внутри панели.",
         "splitPanes": "Разделённые панели",
+        "canvas": "Холст",
+        "canvasBlurb": "Свободный 2D-режим компоновки, в котором панели располагаются на бесконечном прокручиваемом холсте. Команды выравнивания и распределения доступны из палитры команд.",
         "browser": "Браузер",
         "notifications": "Уведомления",
         "find": "Поиск",

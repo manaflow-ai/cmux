@@ -1,0 +1,112 @@
+# CI/CD for the device presence service (workers/presence).
+#
+# PRs touching the service run typecheck + unit tests + a wrangler dry-run
+# build. Pushes to main additionally deploy to Cloudflare. `wrangler deploy`
+# applies the Durable Object migrations declared in wrangler.toml atomically
+# with the code upload, so the service's schema can never lag a deploy.
+#
+# Required repository secrets (deploy job):
+#   CLOUDFLARE_API_TOKEN   API token with Workers Scripts:Edit on the account
+#   CLOUDFLARE_ACCOUNT_ID  the Cloudflare account id
+#
+# One-time Worker secrets (set once via `wrangler secret put`, survive every
+# deploy; see workers/presence/README.md):
+#   STACK_PROJECT_ID, STACK_PUBLISHABLE_CLIENT_KEY
+
+name: presence
+
+on:
+  pull_request:
+    paths:
+      - "workers/presence/**"
+      - ".github/workflows/presence.yml"
+  push:
+    branches: [main]
+    paths:
+      - "workers/presence/**"
+      - ".github/workflows/presence.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    defaults:
+      run:
+        working-directory: workers/presence
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      # Wrangler requires Node >= 22; the Blacksmith ubuntu-2404 image ships
+      # Node 20, so pin it explicitly instead of relying on the runner's
+      # ambient version (GitHub-hosted ubuntu-latest happened to ship 22).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun test
+
+      - name: Wrangler dry-run build
+        run: bunx wrangler deploy --dry-run --outdir dist
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    concurrency:
+      group: presence-deploy
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: workers/presence
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      # Wrangler requires Node >= 22; Blacksmith ubuntu-2404 ships Node 20.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=()
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing+=(CLOUDFLARE_API_TOKEN)
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing+=(CLOUDFLARE_ACCOUNT_ID)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Presence deploy needs repository secrets ${missing[*]}." \
+              "This is the one manual setup step: create an API token with" \
+              "Workers Scripts:Edit on the Cloudflare account and add both" \
+              "secrets in repo Settings -> Secrets and variables -> Actions" \
+              "(see workers/presence/README.md, Deploy)."
+            exit 1
+          fi
+
+      - name: Deploy (applies DO migrations atomically)
+        run: bunx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

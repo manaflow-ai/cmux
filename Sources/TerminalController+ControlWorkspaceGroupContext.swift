@@ -1,5 +1,7 @@
 import CmuxControlSocket
+import CmuxWorkspaces
 import Foundation
+import CmuxSettings
 
 /// The workspace-group-domain witnesses for the stage-3c
 /// ``ControlCommandCoordinator``: the byte-faithful bodies of the former
@@ -261,7 +263,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
         let placement = explicitPlacement
             ?? configured
-            ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         guard let newWs = tabManager.createWorkspaceInGroup(
             groupId: groupID,
             placement: placement,

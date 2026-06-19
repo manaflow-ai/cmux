@@ -178,7 +178,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testCodexPromptSubmitRefreshesLastTurnDiffBaseline() throws {
+    func testCodexPromptSubmitDoesNotRefreshTerminalLastTurnDiffBaseline() throws {
         let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
         defer { context.cleanup() }
 
@@ -296,10 +296,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let dirtyRecords = try baselineRecords()
         let dirtyRecord = try XCTUnwrap(dirtyRecords.first { $0["turnId"] as? String == "turn-1" })
         let dirtyBaseCommit = try XCTUnwrap(dirtyRecord["baseCommit"] as? String)
-        XCTAssertEqual(
-            try runGit(["show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(dirtyBaseCommit)"]),
-            dirtyBaseCommit
-        )
+        XCTAssertEqual(dirtyBaseCommit, promptCommit)
 
         let dirtyStop = runCodexHook(
             context: context,
@@ -323,19 +320,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let refreshedRecords = try baselineRecords()
         let refreshedRecord = try XCTUnwrap(refreshedRecords.first { $0["turnId"] as? String == "turn-1" })
         let refreshedBaseCommit = try XCTUnwrap(refreshedRecord["baseCommit"] as? String)
-        XCTAssertNotEqual(refreshedBaseCommit, dirtyBaseCommit)
-        let oldRef = runProcess(
-            executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", context.root.path, "show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(dirtyBaseCommit)"],
-            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
-            timeout: 10
-        )
-        XCTAssertFalse(oldRef.timedOut, oldRef.stderr)
-        XCTAssertNotEqual(oldRef.status, 0, oldRef.stdout)
-        XCTAssertEqual(
-            try runGit(["show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(refreshedBaseCommit)"]),
-            refreshedBaseCommit
-        )
+        XCTAssertEqual(refreshedBaseCommit, dirtyBaseCommit)
+        XCTAssertEqual(refreshedBaseCommit, promptCommit)
     }
 
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
