@@ -884,7 +884,7 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testLegacyConfigFallbackUsesLegacyFileWhenConfigGhosttyIsEmpty() {
         XCTAssertTrue(
-            GhosttyApp.shouldLoadLegacyGhosttyConfig(
+            GhosttyApp.configDiscovery.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: 0,
                 legacyConfigFileSize: 42
             )
@@ -893,7 +893,7 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testLegacyConfigFallbackDoesNotReloadLegacyFileWhenConfigGhosttyIsMissing() {
         XCTAssertFalse(
-            GhosttyApp.shouldLoadLegacyGhosttyConfig(
+            GhosttyApp.configDiscovery.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: nil,
                 legacyConfigFileSize: 42
             )
@@ -902,7 +902,7 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testLegacyConfigScanPathsIncludeLegacyFileWhenConfigGhosttyIsMissing() {
         XCTAssertTrue(
-            GhosttyApp.shouldIncludeLegacyGhosttyConfigInScanPaths(
+            GhosttyApp.configDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(
                 newConfigFileSize: nil,
                 legacyConfigFileSize: 42
             )
@@ -911,19 +911,19 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testLegacyConfigFallbackSkipsWhenNewFileHasContentsOrLegacyEmpty() {
         XCTAssertFalse(
-            GhosttyApp.shouldLoadLegacyGhosttyConfig(
+            GhosttyApp.configDiscovery.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: 10,
                 legacyConfigFileSize: 42
             )
         )
         XCTAssertFalse(
-            GhosttyApp.shouldLoadLegacyGhosttyConfig(
+            GhosttyApp.configDiscovery.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: 0,
                 legacyConfigFileSize: 0
             )
         )
         XCTAssertFalse(
-            GhosttyApp.shouldLoadLegacyGhosttyConfig(
+            GhosttyApp.configDiscovery.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: 0,
                 legacyConfigFileSize: nil
             )
@@ -944,7 +944,7 @@ final class GhosttyConfigTests: XCTestCase {
             .write(to: ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false), atomically: true, encoding: .utf8)
 
         XCTAssertTrue(
-            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+            GhosttyApp.configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
                 appSupportDirectory: appSupport
             )
         )
@@ -975,7 +975,7 @@ final class GhosttyConfigTests: XCTestCase {
             .write(to: ghosttyDir.appendingPathComponent("config", isDirectory: false), atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+            GhosttyApp.configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
                 appSupportDirectory: appSupport
             )
         )
@@ -983,7 +983,7 @@ final class GhosttyConfigTests: XCTestCase {
         try "".write(to: currentConfig, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+            GhosttyApp.configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
                 appSupportDirectory: appSupport
             )
         )
@@ -3809,7 +3809,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     // MARK: cjkFontMappings
 
     func testCJKFontMappingsReturnsHiraginoWithKanaForJapanese() {
-        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "en-US"])!
+        let mappings = GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["ja-JP", "en-US"])!
         let fonts = Set(mappings.map(\.1))
         let ranges = mappings.map(\.0)
 
@@ -3823,29 +3823,29 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testCJKFontMappingsReturnsNilForKoreanOnly() {
         // Korean is not auto-mapped — Ghostty's native CTFontCreateForString
         // fallback selects a better-matching font for Hangul.
-        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"]))
+        XCTAssertNil(GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["ko-KR"]))
     }
 
     func testCJKFontMappingsReturnsPingFangForChinese() {
-        let mappingsTW = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hant-TW"])!
+        let mappingsTW = GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["zh-Hant-TW"])!
         XCTAssertTrue(mappingsTW.contains { $0.1 == "PingFang TC" })
 
-        let mappingsCN = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hans-CN"])!
+        let mappingsCN = GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["zh-Hans-CN"])!
         XCTAssertTrue(mappingsCN.contains { $0.1 == "PingFang SC" })
 
-        let mappingsHK = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-HK"])!
+        let mappingsHK = GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["zh-HK"])!
         XCTAssertTrue(mappingsHK.contains { $0.1 == "PingFang TC" })
     }
 
     func testCJKFontMappingsReturnsNilForNonCJKLanguages() {
-        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["en-US", "fr-FR"]))
-        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: []))
+        XCTAssertNil(GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["en-US", "fr-FR"]))
+        XCTAssertNil(GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: []))
     }
 
     func testCJKFontMappingsMultiLanguageSkipsKorean() {
         // When both ja and ko are preferred, only Japanese mappings are generated.
         // Korean is left to Ghostty's native CTFontCreateForString fallback.
-        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
+        let mappings = GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
 
         let hiraginoRanges = mappings.filter { $0.1 == "Hiragino Sans" }.map(\.0)
 
@@ -3856,9 +3856,9 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testResolvedInjectedCJKFontNamePinsRegularWeightForHiraginoSans() throws {
-        guard let plain = GhosttyApp.discoveredCTFont(named: "Hiragino Sans"),
-              let pinned = GhosttyApp.discoveredCTFont(
-                  named: GhosttyApp.resolvedInjectedCJKFontName(named: "Hiragino Sans")
+        guard let plain = GhosttyApp.configDiscovery.discoveredFont(named: "Hiragino Sans"),
+              let pinned = GhosttyApp.configDiscovery.discoveredFont(
+                  named: GhosttyApp.configDiscovery.resolvedInjectedCJKFontName(named: "Hiragino Sans")
               ) else {
             throw XCTSkip("Hiragino Sans is unavailable on this runner")
         }
@@ -3877,12 +3877,12 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testResolvedInjectedCJKFontNameLeavesPingFangSCStable() throws {
-        guard GhosttyApp.discoveredCTFont(named: "PingFang SC") != nil else {
+        guard GhosttyApp.configDiscovery.discoveredFont(named: "PingFang SC") != nil else {
             throw XCTSkip("PingFang SC is unavailable on this runner")
         }
 
         XCTAssertEqual(
-            GhosttyApp.resolvedInjectedCJKFontName(named: "PingFang SC"),
+            GhosttyApp.configDiscovery.resolvedInjectedCJKFontName(named: "PingFang SC"),
             "PingFang SC"
         )
     }
@@ -3900,7 +3900,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         try withTempConfig("font-family = Sarasa Mono K\n") { path in
             XCTAssertNil(
-                GhosttyApp.autoInjectedCJKFontMappings(
+                GhosttyApp.configDiscovery.autoInjectedCJKFontMappings(
                     preferredLanguages: ["zh-Hans-CN"],
                     configPaths: [path],
                     rangeCoverageProbe: { fontFamily, range in
@@ -3922,7 +3922,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         ]
 
         try withTempConfig("font-family = Example CJK Mono\n") { path in
-            let mappings = GhosttyApp.autoInjectedCJKFontMappings(
+            let mappings = GhosttyApp.configDiscovery.autoInjectedCJKFontMappings(
                 preferredLanguages: ["ja-JP"],
                 configPaths: [path],
                 rangeCoverageProbe: { _, range in
@@ -3939,26 +3939,26 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testUserConfigContainsCJKCodepointMapDetectsPresence() throws {
         try withTempConfig("font-family = Menlo\nfont-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n") { path in
-            XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+            XCTAssertTrue(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [path]))
         }
     }
 
     func testUserConfigContainsCJKCodepointMapReturnsFalseWhenAbsent() throws {
         try withTempConfig("font-family = Menlo\nfont-size = 14\n") { path in
-            XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+            XCTAssertFalse(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [path]))
         }
     }
 
     func testUserConfigContainsCJKCodepointMapIgnoresComments() throws {
         try withTempConfig("# font-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n") { path in
-            XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+            XCTAssertFalse(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [path]))
         }
     }
 
     func testUserConfigContainsCJKCodepointMapReturnsFalseForMissingFiles() {
         let path = NSTemporaryDirectory() + "cmux-nonexistent-\(UUID().uuidString)/config"
         XCTAssertFalse(
-            GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path])
+            GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [path])
         )
     }
 
@@ -3976,7 +3976,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "font-family = Menlo\nconfig-file = \(included.path)\n"
             .write(to: main, atomically: true, encoding: .utf8)
 
-        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+        XCTAssertTrue(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
     }
 
     func testUserConfigContainsCJKCodepointMapFollowsRelativeIncludes() throws {
@@ -3993,7 +3993,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "config-file = fonts.conf\n"
             .write(to: main, atomically: true, encoding: .utf8)
 
-        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+        XCTAssertTrue(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
     }
 
     func testUserConfigContainsCJKCodepointMapHandlesOptionalInclude() throws {
@@ -4010,7 +4010,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "config-file = ?\(included.path)\n"
             .write(to: main, atomically: true, encoding: .utf8)
 
-        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+        XCTAssertTrue(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
     }
 
     func testUserConfigContainsCJKCodepointMapHandlesCyclicIncludes() throws {
@@ -4027,7 +4027,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: fileB, atomically: true, encoding: .utf8)
 
         // Should not hang; should return false since neither file has font-codepoint-map
-        XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
+        XCTAssertFalse(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
     }
 
     func testUserConfigContainsCJKCodepointMapRespectsReset() throws {
@@ -4036,7 +4036,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         font-codepoint-map =
         """) { path in
             XCTAssertFalse(
-                GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path])
+                GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [path])
             )
         }
     }
@@ -4049,7 +4049,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         font-family = LXGW WenKai Mono TC
         """) { path in
             XCTAssertTrue(
-                GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [path])
+                GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [path])
             )
         }
     }
@@ -4069,7 +4069,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertTrue(
-            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [main.path])
+            GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [main.path])
         )
     }
 
@@ -4080,7 +4080,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         font-family = LXGW WenKai Mono TC
         """) { path in
             XCTAssertFalse(
-                GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [path])
+                GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [path])
             )
         }
     }
@@ -4100,7 +4100,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: preferred, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(
+            GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(
                 configPaths: [legacy.path, preferred.path]
             )
         )
@@ -4125,7 +4125,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: reset, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(
+            GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(
                 configPaths: [main.path, reset.path]
             )
         )
@@ -4150,7 +4150,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: reset, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(
+            GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(
                 configPaths: [main.path, reset.path]
             )
         )
@@ -4164,7 +4164,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         font-family = LXGW WenKai Mono TC
         """) { path in
             XCTAssertFalse(
-                GhosttyApp.shouldInjectCJKFontFallback(
+                GhosttyApp.configDiscovery.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
                     configPaths: [path]
                 )
@@ -4175,7 +4175,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testShouldInjectCJKFontFallbackAllowsSingleFontWithoutExplicitOverrides() throws {
         try withTempConfig("font-family = JetBrains Mono\n") { path in
             XCTAssertTrue(
-                GhosttyApp.shouldInjectCJKFontFallback(
+                GhosttyApp.configDiscovery.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
                     configPaths: [path]
                 )
@@ -4194,7 +4194,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         try withTempConfig("font-family = Sarasa Mono K\n") { path in
             XCTAssertFalse(
-                GhosttyApp.shouldInjectCJKFontFallback(
+                GhosttyApp.configDiscovery.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
                     configPaths: [path],
                     rangeCoverageProbe: { fontFamily, range in
@@ -4225,7 +4225,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "font-family = LXGW WenKai Mono TC\n"
             .write(to: releaseConfig, atomically: true, encoding: .utf8)
 
-        let paths = GhosttyApp.loadedCJKScanPaths(
+        let paths = GhosttyApp.configDiscovery.loadedCJKScanPaths(
             currentBundleIdentifier: "com.example.cmux-dev",
             appSupportDirectory: appSupport
         )
@@ -4234,7 +4234,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertTrue(paths.contains(releaseConfig.path))
         XCTAssertTrue(paths.contains(releaseConfigGhostty.path))
         XCTAssertFalse(
-            GhosttyApp.shouldInjectCJKFontFallback(
+            GhosttyApp.configDiscovery.shouldInjectCJKFontFallback(
                 preferredLanguages: ["zh-Hans-CN"],
                 configPaths: paths
             )
@@ -4255,13 +4255,13 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: nativeConfig, atomically: true, encoding: .utf8)
         try "".write(to: currentConfig, atomically: true, encoding: .utf8)
 
-        let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
+        let paths = GhosttyApp.configDiscovery.loadedGhosttyConfigScanPaths(
             currentBundleIdentifier: "com.example.cmux-dev",
             appSupportDirectory: appSupport
         )
 
         XCTAssertTrue(paths.contains(nativeConfig.path))
-        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: paths))
+        XCTAssertFalse(GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: paths))
     }
 
     func testLoadedGhosttyConfigScanPathsSkipsNativeLegacyConfigWhenCurrentConfigIsNonEmpty() throws {
@@ -4279,14 +4279,14 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "font-size = 13\n"
             .write(to: currentConfig, atomically: true, encoding: .utf8)
 
-        let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
+        let paths = GhosttyApp.configDiscovery.loadedGhosttyConfigScanPaths(
             currentBundleIdentifier: "com.example.cmux-dev",
             appSupportDirectory: appSupport
         )
 
         XCTAssertTrue(paths.contains(currentConfig.path))
         XCTAssertFalse(paths.contains(legacyConfig.path))
-        XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: paths))
+        XCTAssertTrue(GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: paths))
     }
 
     // MARK: shouldApplyManagedDefaultAppearance
@@ -4297,7 +4297,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         background-opacity = 0.92
         """) { path in
             XCTAssertTrue(
-                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
+                GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [path])
             )
         }
     }
@@ -4305,7 +4305,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testShouldApplyManagedDefaultAppearanceSkipsExplicitTheme() throws {
         try withTempConfig("theme = Catppuccin Mocha\n") { path in
             XCTAssertFalse(
-                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
+                GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [path])
             )
         }
     }
@@ -4313,7 +4313,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
         try withTempConfig("background = #101010\n") { path in
             XCTAssertFalse(
-                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
+                GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [path])
             )
         }
     }
@@ -4321,7 +4321,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesSplitThemeForPreferredScheme() throws {
         try withTempConfig("theme = light:Catppuccin Latte,dark:Apple System Colors\n") { path in
             XCTAssertEqual(
-                GhosttyApp.conditionalThemeOverrideConfigContents(
+                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 ),
@@ -4333,7 +4333,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesLightSplitThemeForPreferredScheme() throws {
         try withTempConfig("theme = light:Catppuccin Latte,dark:Apple System Colors\n") { path in
             XCTAssertEqual(
-                GhosttyApp.conditionalThemeOverrideConfigContents(
+                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
                     configPaths: [path]
                 ),
@@ -4345,7 +4345,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideSkipsPlainSingleTheme() throws {
         try withTempConfig("theme = Catppuccin Mocha\n") { path in
             XCTAssertNil(
-                GhosttyApp.conditionalThemeOverrideConfigContents(
+                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 )
@@ -4362,7 +4362,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesSameThemePair() throws {
         try withTempConfig("theme = light:Catppuccin Mocha,dark:Catppuccin Mocha\n") { path in
             XCTAssertEqual(
-                GhosttyApp.conditionalThemeOverrideConfigContents(
+                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 ),
@@ -4378,14 +4378,14 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesIdenticalLightThemePairFromCLIEncoding() throws {
         try withTempConfig("theme = light:GitHub Light Default,dark:GitHub Light Default\n") { path in
             XCTAssertEqual(
-                GhosttyApp.conditionalThemeOverrideConfigContents(
+                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
                     configPaths: [path]
                 ),
                 "theme = GitHub Light Default"
             )
             XCTAssertEqual(
-                GhosttyApp.conditionalThemeOverrideConfigContents(
+                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 ),
@@ -4402,14 +4402,14 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesExplicitSideOnlyForOneSidedTheme() throws {
         try withTempConfig("theme = light:Catppuccin Latte\n") { path in
             XCTAssertEqual(
-                GhosttyApp.conditionalThemeOverrideConfigContents(
+                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
                     configPaths: [path]
                 ),
                 "theme = Catppuccin Latte"
             )
             XCTAssertNil(
-                GhosttyApp.conditionalThemeOverrideConfigContents(
+                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 )
@@ -4422,14 +4422,14 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesExplicitSideOnlyForDarkOnlyTheme() throws {
         try withTempConfig("theme = dark:Catppuccin Mocha\n") { path in
             XCTAssertEqual(
-                GhosttyApp.conditionalThemeOverrideConfigContents(
+                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 ),
                 "theme = Catppuccin Mocha"
             )
             XCTAssertNil(
-                GhosttyApp.conditionalThemeOverrideConfigContents(
+                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
                     configPaths: [path]
                 )
@@ -4452,7 +4452,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+            GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
         )
     }
 
@@ -4471,7 +4471,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+            GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
         )
     }
 
@@ -4497,7 +4497,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+            GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
         )
     }
 

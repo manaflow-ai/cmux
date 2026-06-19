@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxTerminalCore
 import Darwin
 import Foundation
 import XCTest
@@ -769,7 +770,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             .appendingPathComponent("config.ghostty", isDirectory: false)
         XCTAssertEqual(configPath, expectedConfigURL.path)
 
-        let appReadablePaths = GhosttyApp.cmuxAppSupportConfigURLs(
+        let appReadablePaths = GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
             currentBundleIdentifier: bundleIdentifier,
             appSupportDirectory: appSupportDirectory
         ).map(\.path)
