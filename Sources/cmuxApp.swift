@@ -214,7 +214,7 @@ struct cmuxApp: App {
             SocketControlPasswordStore().migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
             StartupBreadcrumbLog.append("app.init.keychainMigration.complete")
         }
-        migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
+        SidebarAppearanceDefaultsMigration(defaults: defaults).migrate()
         StartupBreadcrumbLog.append("app.init.sidebarDefaults.migrated")
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
@@ -326,54 +326,6 @@ struct cmuxApp: App {
         }
         let updated = current.isEmpty ? path : "\(path):\(current)"
         setenv(key, updated, 1)
-    }
-
-    private func migrateSidebarAppearanceDefaultsIfNeeded(defaults: UserDefaults) {
-        let migrationKey = "sidebarAppearanceDefaultsVersion"
-        let targetVersion = 1
-        guard defaults.integer(forKey: migrationKey) < targetVersion else { return }
-
-        func normalizeHex(_ value: String) -> String {
-            value
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "#", with: "")
-                .uppercased()
-        }
-
-        func approximatelyEqual(_ lhs: Double, _ rhs: Double, tolerance: Double = 0.0001) -> Bool {
-            abs(lhs - rhs) <= tolerance
-        }
-
-        let material = defaults.string(forKey: "sidebarMaterial") ?? SidebarMaterialOption.sidebar.rawValue
-        let blendMode = defaults.string(forKey: "sidebarBlendMode") ?? SidebarBlendModeOption.behindWindow.rawValue
-        let state = defaults.string(forKey: "sidebarState") ?? SidebarStateOption.followWindow.rawValue
-        let tintHex = defaults.string(forKey: "sidebarTintHex") ?? "#101010"
-        let tintOpacity = defaults.object(forKey: "sidebarTintOpacity") as? Double ?? 0.54
-        let blurOpacity = defaults.object(forKey: "sidebarBlurOpacity") as? Double ?? 0.79
-        let cornerRadius = defaults.object(forKey: "sidebarCornerRadius") as? Double ?? 0.0
-
-        let usesLegacyDefaults =
-            material == SidebarMaterialOption.sidebar.rawValue &&
-            blendMode == SidebarBlendModeOption.behindWindow.rawValue &&
-            state == SidebarStateOption.followWindow.rawValue &&
-            normalizeHex(tintHex) == "101010" &&
-            approximatelyEqual(tintOpacity, 0.54) &&
-            approximatelyEqual(blurOpacity, 0.79) &&
-            approximatelyEqual(cornerRadius, 0.0)
-
-        if usesLegacyDefaults {
-            let preset = SidebarPresetOption.nativeSidebar
-            defaults.set(preset.rawValue, forKey: "sidebarPreset")
-            defaults.set(preset.material.rawValue, forKey: "sidebarMaterial")
-            defaults.set(preset.blendMode.rawValue, forKey: "sidebarBlendMode")
-            defaults.set(preset.state.rawValue, forKey: "sidebarState")
-            defaults.set(preset.tintHex, forKey: "sidebarTintHex")
-            defaults.set(preset.tintOpacity, forKey: "sidebarTintOpacity")
-            defaults.set(preset.blurOpacity, forKey: "sidebarBlurOpacity")
-            defaults.set(preset.cornerRadius, forKey: "sidebarCornerRadius")
-        }
-
-        defaults.set(targetVersion, forKey: migrationKey)
     }
 
     var body: some Scene {
