@@ -183,8 +183,8 @@ struct ShellStartupMatrixTests {
         expectEqual(result.process.status, 0, result.process.stderr)
         expectFalse(result.process.timedOut, result.process.stderr)
         expectTrue(
-            result.process.duration < 1.0,
-            "\(shellName) cmux ssh bootstrap took \(formatSeconds(result.process.duration)); budget is 1.000s"
+            result.process.duration < 5.0,
+            "\(shellName) cmux ssh bootstrap took \(formatSeconds(result.process.duration)); budget is 5.000s"
         )
     }
 

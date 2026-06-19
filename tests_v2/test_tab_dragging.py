@@ -435,21 +435,16 @@ def test_split_ratio_50_50(client: cmux) -> TestResult:
             clear_marker(cols_file_0)
             clear_marker(cols_file_1)
 
-            # Get columns from first terminal
-            client.focus_surface(0)
-            time.sleep(0.5)
-            client.send_key("ctrl-c")
-            time.sleep(0.3)
+            # Get columns from first terminal (target the surface directly to
+            # avoid a focus race between focus_surface() and the generic send()).
+            client.send_key_surface(0, "ctrl-c")
             # Use echo with command substitution to ensure it works
-            client.send(f"echo $(tput cols) > {cols_file_0}\n")
+            client.send_surface(0, f"echo $(tput cols) > {cols_file_0}\n")
             time.sleep(1.5)
 
             # Get columns from second terminal
-            client.focus_surface(1)
-            time.sleep(0.5)
-            client.send_key("ctrl-c")
-            time.sleep(0.3)
-            client.send(f"echo $(tput cols) > {cols_file_1}\n")
+            client.send_key_surface(1, "ctrl-c")
+            client.send_surface(1, f"echo $(tput cols) > {cols_file_1}\n")
             time.sleep(1.5)
 
             # Wait for files to be written
