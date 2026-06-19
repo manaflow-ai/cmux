@@ -27,6 +27,9 @@ import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
 import CmuxSidebar
+#if DEBUG
+import CmuxTestSupport
+#endif
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
@@ -985,6 +988,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var terminalCmdClickUITestPoller: DispatchSourceTimer?
     private var bonsplitTabDragUITestRecorder: BonsplitTabDragUITestRecorder?
     private var terminalViewportUITestRecorder: TerminalViewportUITestRecorder?
+#if DEBUG
+    /// The display/render/socket/portal diagnostics writer. Created lazily on
+    /// first `writeUITestDiagnosticsIfNeeded(stage:)` and reused so the merged
+    /// JSON keeps accumulating across stages exactly as the legacy in-place
+    /// writer did. Reads live state back through `self` as
+    /// ``UITestDiagnosticsProviding``.
+    private lazy var displayDiagnosticsUITestRecorder = DisplayDiagnosticsUITestRecorder(provider: self)
+#endif
     private var gotoSplitUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
@@ -995,16 +1006,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var feedSidebarUITestObservers: [NSObjectProtocol] = []
     private var didSetupPortalStatsUITestDiagnostics = false
     private var portalStatsUITestObservers: [NSObjectProtocol] = []
-    private struct UITestRenderDiagnosticsSnapshot {
-        let panelId: UUID
-        let drawCount: Int
-        let presentCount: Int
-        let lastPresentTime: Double
-        let windowVisible: Bool
-        let appIsActive: Bool
-        let desiredFocus: Bool
-        let isFirstResponder: Bool
-    }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
     /// Test seam: when set, ``openDiffViewerForFocusedWorkspace(for:)`` invokes this
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
@@ -1575,162 +1576,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    /// Writes the display/render/socket/portal diagnostics payload for `stage`.
+    ///
+    /// Forwards to ``DisplayDiagnosticsUITestRecorder``, which owns the
+    /// byte-identical payload assembly and file I/O; this app-target shim only
+    /// supplies the live state through ``UITestDiagnosticsProviding``.
     private func writeUITestDiagnosticsIfNeeded(stage: String) {
-        let env = ProcessInfo.processInfo.environment
-        guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
-
-        var payload = loadUITestDiagnostics(at: path)
-        let isRunningUnderXCTest = isRunningUnderXCTest(env)
-
-        let windows = NSApp.windows
-        let ids = windows.map { $0.identifier?.rawValue ?? "" }.joined(separator: ",")
-        let vis = windows.map { $0.isVisible ? "1" : "0" }.joined(separator: ",")
-        let screenIDs = windows.map { $0.screen?.cmuxDisplayID.map(String.init) ?? "" }.joined(separator: ",")
-        let targetDisplayID = env["CMUX_UI_TEST_TARGET_DISPLAY_ID"] ?? ""
-
-        payload["stage"] = stage
-        payload["pid"] = String(ProcessInfo.processInfo.processIdentifier)
-        payload["bundleId"] = Bundle.main.bundleIdentifier ?? ""
-        payload["isRunningUnderXCTest"] = isRunningUnderXCTest ? "1" : "0"
-        payload["windowsCount"] = String(windows.count)
-        payload["windowIdentifiers"] = ids
-        payload["windowVisibleFlags"] = vis
-        payload["windowScreenDisplayIDs"] = screenIDs
-        payload["uiTestTargetDisplayID"] = targetDisplayID
-        if let rawDisplayID = UInt32(targetDisplayID) {
-            let screenPresent = NSScreen.screens.contains(where: { $0.cmuxDisplayID == rawDisplayID })
-            let movedWindow = windows.contains(where: { $0.screen?.cmuxDisplayID == rawDisplayID })
-            payload["targetDisplayPresent"] = screenPresent ? "1" : "0"
-            payload["targetDisplayMoveSucceeded"] = movedWindow ? "1" : "0"
-        }
-        appendUITestRenderDiagnosticsIfNeeded(&payload, environment: env)
-        appendUITestSocketDiagnosticsIfNeeded(&payload, environment: env)
-        appendUITestPortalDiagnosticsIfNeeded(&payload, environment: env)
-
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        displayDiagnosticsUITestRecorder.write(stage: stage)
     }
 
-    private func loadUITestDiagnostics(at path: String) -> [String: String] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return [:]
-        }
-        return object
-    }
-
-    private func appendUITestSocketDiagnosticsIfNeeded(
-        _ payload: inout [String: String],
-        environment env: [String: String]
-    ) {
-        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
-
-        guard let config = socketListenerConfigurationIfEnabled() else {
-            payload["socketExpectedPath"] = env["CMUX_SOCKET_PATH"] ?? ""
-            payload["socketMode"] = "off"
-            payload["socketReady"] = "0"
-            payload["socketPingResponse"] = ""
-            payload["socketIsRunning"] = "0"
-            payload["socketAcceptLoopAlive"] = "0"
-            payload["socketPathMatches"] = "0"
-            payload["socketPathExists"] = "0"
-            payload["socketPathOwnedByListener"] = "0"
-            payload["socketFailureSignals"] = "socket_disabled"
-            return
-        }
-
-        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
-        let pingResponse = health.isHealthy
-            ? socketTransport.probeCommand("ping", at: socketPath, timeout: 1.0)
-            : nil
-        let isReady = health.isHealthy && pingResponse == "PONG"
-        var failureSignals = health.failureSignals
-        if health.isHealthy && pingResponse != "PONG" {
-            failureSignals.append("ping_timeout")
-        }
-
-        payload["socketExpectedPath"] = socketPath
-        payload["socketMode"] = config.mode.rawValue
-        payload["socketReady"] = isReady ? "1" : "0"
-        payload["socketPingResponse"] = pingResponse ?? ""
-        payload["socketIsRunning"] = health.isRunning ? "1" : "0"
-        payload["socketAcceptLoopAlive"] = health.acceptLoopAlive ? "1" : "0"
-        payload["socketPathMatches"] = health.socketPathMatches ? "1" : "0"
-        payload["socketPathExists"] = health.socketPathExists ? "1" : "0"
-        payload["socketPathOwnedByListener"] = health.socketPathOwnedByListener ? "1" : "0"
-        payload["socketFailureSignals"] = failureSignals.joined(separator: ",")
-    }
-
-    private func appendUITestPortalDiagnosticsIfNeeded(
-        _ payload: inout [String: String],
-        environment env: [String: String]
-    ) {
-        guard env["CMUX_UI_TEST_PORTAL_STATS"] == "1" else { return }
-
-        let stats = TerminalWindowPortalRegistry.debugPortalStats()
-        payload["portal_count"] = Self.uiTestStringValue(stats["portal_count"])
-        payload["portal_hosted_mapping_count"] = Self.uiTestStringValue(stats["hosted_mapping_count"])
-        payload["portal_guarded_bind_blocked_count"] = Self.uiTestStringValue(stats["guarded_bind_blocked_count"])
-        if let totals = stats["totals"] as? [String: Any] {
-            for (key, value) in totals {
-                payload["portal_\(key)"] = Self.uiTestStringValue(value)
-            }
-        }
-    }
-
-    private static func uiTestStringValue(_ value: Any?) -> String {
-        switch value {
-        case let value as String:
-            return value
-        case let value as Bool:
-            return value ? "1" : "0"
-        case let value as Int:
-            return String(value)
-        case let value as NSNumber:
-            return value.stringValue
-        case let value as UUID:
-            return value.uuidString
-        case .some(let value):
-            return String(describing: value)
-        case .none:
-            return ""
-        }
-    }
-
-    private func appendUITestRenderDiagnosticsIfNeeded(
-        _ payload: inout [String: String],
-        environment env: [String: String]
-    ) {
-        guard env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" else { return }
-
-        guard let renderState = currentUITestRenderDiagnostics() else {
-            payload["renderStatsAvailable"] = "0"
-            payload["renderPanelId"] = ""
-            payload["renderDrawCount"] = ""
-            payload["renderPresentCount"] = ""
-            payload["renderLastPresentTime"] = ""
-            payload["renderWindowVisible"] = ""
-            payload["renderAppIsActive"] = ""
-            payload["renderDesiredFocus"] = ""
-            payload["renderIsFirstResponder"] = ""
-            payload["renderDiagnosticsUpdatedAt"] = String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
-            return
-        }
-
-        payload["renderStatsAvailable"] = "1"
-        payload["renderPanelId"] = renderState.panelId.uuidString
-        payload["renderDrawCount"] = String(renderState.drawCount)
-        payload["renderPresentCount"] = String(renderState.presentCount)
-        payload["renderLastPresentTime"] = String(format: "%.6f", renderState.lastPresentTime)
-        payload["renderWindowVisible"] = renderState.windowVisible ? "1" : "0"
-        payload["renderAppIsActive"] = renderState.appIsActive ? "1" : "0"
-        payload["renderDesiredFocus"] = renderState.desiredFocus ? "1" : "0"
-        payload["renderIsFirstResponder"] = renderState.isFirstResponder ? "1" : "0"
-        payload["renderDiagnosticsUpdatedAt"] = String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
-    }
-
-    private func currentUITestRenderDiagnostics() -> UITestRenderDiagnosticsSnapshot? {
+    private func currentUITestRenderDiagnostics() -> UITestDiagnosticsSnapshot.Stats? {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
@@ -1750,8 +1605,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard let terminalPanel else { return nil }
         let stats = terminalPanel.hostedView.debugRenderStats()
-        return UITestRenderDiagnosticsSnapshot(
-            panelId: terminalPanel.id,
+        return UITestDiagnosticsSnapshot.Stats(
+            panelID: terminalPanel.id,
             drawCount: stats.drawCount,
             presentCount: stats.presentCount,
             lastPresentTime: stats.lastPresentTime,
@@ -1760,6 +1615,118 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             desiredFocus: stats.desiredFocus,
             isFirstResponder: stats.isFirstResponder
         )
+    }
+
+    /// Gathers the live diagnostics state for ``DisplayDiagnosticsUITestRecorder``.
+    ///
+    /// Applies each section's environment gate so the recorder emits exactly
+    /// the legacy key set: the render/socket/portal sub-snapshots are `nil`
+    /// when their gate (`CMUX_UI_TEST_DISPLAY_RENDER_STATS` /
+    /// `CMUX_UI_TEST_SOCKET_SANITY` / `CMUX_UI_TEST_PORTAL_STATS`) is unset.
+    fileprivate func gatherUITestDiagnosticsSnapshot(
+        environment env: [String: String]
+    ) -> UITestDiagnosticsSnapshot {
+        let windows = NSApp.windows.map { window in
+            UITestDiagnosticsSnapshot.Window(
+                identifier: window.identifier?.rawValue ?? "",
+                isVisible: window.isVisible,
+                screenDisplayID: window.screen?.cmuxDisplayID
+            )
+        }
+        let presentDisplayIDs = Set(NSScreen.screens.compactMap { $0.cmuxDisplayID })
+
+        return UITestDiagnosticsSnapshot(
+            processIdentifier: ProcessInfo.processInfo.processIdentifier,
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? "",
+            isRunningUnderXCTest: isRunningUnderXCTest(env),
+            windows: windows,
+            targetDisplayID: env["CMUX_UI_TEST_TARGET_DISPLAY_ID"] ?? "",
+            presentDisplayIDs: presentDisplayIDs,
+            render: uiTestRenderDiagnosticsSection(environment: env),
+            socket: uiTestSocketDiagnosticsSection(environment: env),
+            portal: uiTestPortalDiagnosticsSection(environment: env),
+            systemUptime: ProcessInfo.processInfo.systemUptime
+        )
+    }
+
+    private func uiTestRenderDiagnosticsSection(
+        environment env: [String: String]
+    ) -> UITestDiagnosticsSnapshot.Render? {
+        guard env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" else { return nil }
+        guard let stats = currentUITestRenderDiagnostics() else { return .unavailable }
+        return .available(stats)
+    }
+
+    private func uiTestSocketDiagnosticsSection(
+        environment env: [String: String]
+    ) -> UITestDiagnosticsSnapshot.Socket? {
+        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return nil }
+
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            return .disabled(expectedPath: env["CMUX_SOCKET_PATH"] ?? "")
+        }
+
+        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
+        let pingResponse = health.isHealthy
+            ? socketTransport.probeCommand("ping", at: socketPath, timeout: 1.0)
+            : nil
+        let isReady = health.isHealthy && pingResponse == "PONG"
+        var failureSignals = health.failureSignals
+        if health.isHealthy && pingResponse != "PONG" {
+            failureSignals.append("ping_timeout")
+        }
+
+        return UITestDiagnosticsSnapshot.Socket(
+            isEnabled: true,
+            expectedPath: socketPath,
+            mode: config.mode.rawValue,
+            isReady: isReady,
+            pingResponse: pingResponse ?? "",
+            isRunning: health.isRunning,
+            acceptLoopAlive: health.acceptLoopAlive,
+            socketPathMatches: health.socketPathMatches,
+            socketPathExists: health.socketPathExists,
+            socketPathOwnedByListener: health.socketPathOwnedByListener,
+            failureSignals: failureSignals.joined(separator: ",")
+        )
+    }
+
+    private func uiTestPortalDiagnosticsSection(
+        environment env: [String: String]
+    ) -> [String: String]? {
+        guard env["CMUX_UI_TEST_PORTAL_STATS"] == "1" else { return nil }
+
+        let stats = TerminalWindowPortalRegistry.debugPortalStats()
+        var portal: [String: String] = [:]
+        portal["portal_count"] = Self.uiTestStringValue(stats["portal_count"])
+        portal["portal_hosted_mapping_count"] = Self.uiTestStringValue(stats["hosted_mapping_count"])
+        portal["portal_guarded_bind_blocked_count"] = Self.uiTestStringValue(stats["guarded_bind_blocked_count"])
+        if let totals = stats["totals"] as? [String: Any] {
+            for (key, value) in totals {
+                portal["portal_\(key)"] = Self.uiTestStringValue(value)
+            }
+        }
+        return portal
+    }
+
+    private static func uiTestStringValue(_ value: Any?) -> String {
+        switch value {
+        case let value as String:
+            return value
+        case let value as Bool:
+            return value ? "1" : "0"
+        case let value as Int:
+            return String(value)
+        case let value as NSNumber:
+            return value.stringValue
+        case let value as UUID:
+            return value.uuidString
+        case .some(let value):
+            return String(describing: value)
+        case .none:
+            return ""
+        }
     }
 
     private func moveUITestWindowToTargetDisplayIfNeeded(attempt: Int = 0) {
@@ -1809,6 +1776,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         self.writeUITestDiagnosticsIfNeeded(stage: "afterMoveToTargetDisplay")
+    }
+
+    /// ``UITestDiagnosticsProviding`` witness: gathers the live diagnostics
+    /// snapshot for ``DisplayDiagnosticsUITestRecorder``. The conformance is
+    /// declared at file scope below.
+    func currentUITestDiagnosticsSnapshot(environment: [String: String]) -> UITestDiagnosticsSnapshot {
+        gatherUITestDiagnosticsSnapshot(environment: environment)
     }
 #endif
 
@@ -17426,3 +17400,9 @@ extension AppDelegate {
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}
+
+#if DEBUG
+// MARK: - CmuxTestSupport diagnostics seam conformance
+
+extension AppDelegate: UITestDiagnosticsProviding {}
+#endif
