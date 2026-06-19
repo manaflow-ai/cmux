@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: submit-cmux-profile --profile <dir> [--target-name <name>] [--target-pid <pid>]
+                           [--channel <channel>] [--bundle-id <id>] [--dry-run]
+
+Package a cmux profiling directory and open a separate submission window. The
+window creates an email draft to founders@manaflow.com with the archive attached.
+USAGE
+}
+
+profile_dir=""
+target_name="cmux"
+target_pid=""
+channel="unknown"
+bundle_id="unknown"
+dry_run="false"
+recipient="${CMUX_PROFILE_FEEDBACK_EMAIL:-founders@manaflow.com}"
+osascript_bin="${CMUX_PROFILE_OSASCRIPT:-/usr/bin/osascript}"
+open_bin="${CMUX_PROFILE_OPEN:-/usr/bin/open}"
+ditto_bin="${CMUX_PROFILE_DITTO:-/usr/bin/ditto}"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --profile)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --profile requires a value" >&2; exit 2; }
+      profile_dir="$2"
+      shift 2
+      ;;
+    --target-name)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --target-name requires a value" >&2; exit 2; }
+      target_name="$2"
+      shift 2
+      ;;
+    --target-pid)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --target-pid requires a value" >&2; exit 2; }
+      target_pid="$2"
+      shift 2
+      ;;
+    --channel)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --channel requires a value" >&2; exit 2; }
+      channel="$2"
+      shift 2
+      ;;
+    --bundle-id)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --bundle-id requires a value" >&2; exit 2; }
+      bundle_id="$2"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run="true"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "submit-cmux-profile: unknown option: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if [ -z "$profile_dir" ] || [ ! -d "$profile_dir" ]; then
+  echo "submit-cmux-profile: --profile must point to a profiling directory" >&2
+  exit 2
+fi
+
+safe_base="$(basename "$profile_dir" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
+[ -n "$safe_base" ] || safe_base="cmux-profile"
+archive_dir="${TMPDIR:-/tmp}/cmux-profile-submissions"
+archive_path="${archive_dir}/${safe_base}.zip"
+mkdir -p "$archive_dir"
+rm -f "$archive_path"
+
+if [ "$dry_run" = "true" ]; then
+  printf 'Archive: %s\n' "$archive_path"
+  printf 'Recipient: %s\n' "$recipient"
+  printf 'Subject: cmux profiling capture: %s\n' "$target_name"
+  exit 0
+fi
+
+"$ditto_bin" -c -k --sequesterRsrc --keepParent "$profile_dir" "$archive_path"
+
+subject="cmux profiling capture: ${target_name}"
+[ -n "$target_pid" ] && subject="${subject} pid ${target_pid}"
+body="$(cat <<EOF
+cmux profiling capture attached.
+
+Target: ${target_name}
+PID: ${target_pid:-unknown}
+Channel: ${channel}
+Bundle ID: ${bundle_id}
+Profile directory: ${profile_dir}
+Archive: ${archive_path}
+
+Notes:
+EOF
+)"
+
+apple_script="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit.XXXXXX")"
+trap 'rm -f "$apple_script"' EXIT
+cat > "$apple_script" <<'OSA'
+on run argv
+  set archivePath to item 1 of argv
+  set recipientAddress to item 2 of argv
+  set messageSubject to item 3 of argv
+  set baseBody to item 4 of argv
+
+  set dialogText to "cmux created a profiling archive. Add any context, then open an email draft to Manaflow with the archive attached."
+  set dialogResult to display dialog dialogText default answer "" buttons {"Cancel", "Open Draft"} default button "Open Draft" cancel button "Cancel" with title "Submit cmux Profile"
+  set noteText to text returned of dialogResult
+  set messageBody to baseBody & return & noteText
+
+  tell application "Mail"
+    activate
+    set newMessage to make new outgoing message with properties {subject:messageSubject, content:messageBody & return & return, visible:true}
+    tell newMessage
+      make new to recipient at end of to recipients with properties {address:recipientAddress}
+      make new attachment with properties {file name:(POSIX file archivePath)} at after last paragraph
+    end tell
+  end tell
+end run
+OSA
+
+if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body"
+then
+  exit 0
+fi
+
+"$open_bin" -R "$archive_path" >/dev/null 2>&1 || true
+"$open_bin" "mailto:${recipient}?subject=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$subject")" >/dev/null 2>&1 || true
+exit 1
