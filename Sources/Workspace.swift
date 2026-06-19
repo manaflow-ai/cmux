@@ -212,7 +212,10 @@ extension Workspace {
         }
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
-        applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
+        sessionRestoreCoordinator.applySessionDividerPositions(
+            snapshotNode: snapshot.layout,
+            liveNode: bonsplitController.treeSnapshot()
+        )
 
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
@@ -272,26 +275,10 @@ extension Workspace {
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
-        switch node {
-        case .pane(let pane):
-            let panelIds = sessionPanelIDs(for: pane)
-            let selectedPanelId = pane.selectedTabId.flatMap(sessionPanelID(forExternalTabIDString:))
-            return .pane(
-                SessionPaneLayoutSnapshot(
-                    panelIds: panelIds,
-                    selectedPanelId: selectedPanelId
-                )
-            )
-        case .split(let split):
-            return .split(
-                SessionSplitLayoutSnapshot(
-                    orientation: split.orientation.lowercased() == "vertical" ? .vertical : .horizontal,
-                    dividerPosition: split.dividerPosition,
-                    first: sessionLayoutSnapshot(from: split.first),
-                    second: sessionLayoutSnapshot(from: split.second)
-                )
-            )
-        }
+        // The live-tree → persisted-layout transform lives in CmuxWorkspaces
+        // behind the SessionRestoreCoordinator; Workspace hosts the surface-id
+        // map it reads via WorkspaceSessionRestoreHosting.
+        sessionRestoreCoordinator.sessionLayoutSnapshot(from: node)
     }
 
     private func prunedSessionLayoutSnapshot(
@@ -302,41 +289,6 @@ extension Workspace {
         // SessionLayoutPruning seam; SessionWorkspaceLayoutSnapshot conforms
         // in the app target, keeping the wire format owned here.
         node.sessionLayoutPruned(keeping: panelIdsToKeep)
-    }
-
-    private func sessionPanelIDs(for pane: ExternalPaneNode) -> [UUID] {
-        var panelIds: [UUID] = []
-        var seen = Set<UUID>()
-        for tab in pane.tabs {
-            guard let panelId = sessionPanelID(forExternalTabIDString: tab.id) else { continue }
-            if seen.insert(panelId).inserted {
-                panelIds.append(panelId)
-            }
-        }
-        return panelIds
-    }
-
-    private func sessionPanelID(forExternalTabIDString tabIDString: String) -> UUID? {
-        guard let tabUUID = UUID(uuidString: tabIDString) else { return nil }
-        for (surfaceId, panelId) in surfaceIdToPanelId {
-            guard let surfaceUUID = sessionSurfaceUUID(for: surfaceId) else { continue }
-            if surfaceUUID == tabUUID {
-                return panelId
-            }
-        }
-        return nil
-    }
-
-    private func sessionSurfaceUUID(for surfaceId: TabID) -> UUID? {
-        struct EncodedSurfaceID: Decodable {
-            let id: UUID
-        }
-
-        guard let data = try? JSONEncoder().encode(surfaceId),
-              let decoded = try? JSONDecoder().decode(EncodedSurfaceID.self, from: data) else {
-            return nil
-        }
-        return decoded.id
     }
 
     private func sessionPanelSnapshot(
@@ -1508,25 +1460,6 @@ extension Workspace {
         return notifications
     }
 
-    private func applySessionDividerPositions(
-        snapshotNode: SessionWorkspaceLayoutSnapshot,
-        liveNode: ExternalTreeNode
-    ) {
-        switch (snapshotNode, liveNode) {
-        case (.split(let snapshotSplit), .split(let liveSplit)):
-            if let splitID = UUID(uuidString: liveSplit.id) {
-                _ = bonsplitController.setDividerPosition(
-                    CGFloat(snapshotSplit.dividerPosition),
-                    forSplit: splitID,
-                    fromExternal: true
-                )
-            }
-            applySessionDividerPositions(snapshotNode: snapshotSplit.first, liveNode: liveSplit.first)
-            applySessionDividerPositions(snapshotNode: snapshotSplit.second, liveNode: liveSplit.second)
-        default:
-            return
-        }
-    }
 }
 
 // MARK: - cmux.json custom layout
@@ -2157,6 +2090,15 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// reorder bump. `Workspace` is its tree-reading host via
     /// `WorkspaceSurfaceTreeReading`; the legacy accessors below forward here.
     let surfaceList = WorkspaceSurfaceListModel()
+
+    /// The session-restore coordinator (CmuxWorkspaces): owns the
+    /// persisted-layout serialization bridge (live Bonsplit tree → persisted
+    /// layout DTO and back to live divider positions). `Workspace` is its
+    /// `WorkspaceSessionRestoreHosting` host; the session-snapshot/restore
+    /// extension forwards `sessionLayoutSnapshot`/`applySessionDividerPositions`
+    /// here. The richer snapshot/restore orchestration stays in the extension
+    /// until its surface-creation substrate drains into this coordinator.
+    let sessionRestoreCoordinator = SessionRestoreCoordinator<SessionWorkspaceLayoutSnapshot>()
 
     /// The surface-registry sub-model (CmuxWorkspaceCore): owns the
     /// per-surface registry annotations (tty names, shell-activity states,
@@ -3042,6 +2984,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         self.surfaceDirectoryMetadata = WorkspaceSurfaceMetadataModel(registry: surfaceRegistry)
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
+        sessionRestoreCoordinator.attach(host: self)
         unreadModel.attach(host: self)
         unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
         surfaceDirectoryMetadata.attach(host: self)
