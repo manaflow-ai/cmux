@@ -2540,6 +2540,42 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 secondaryWorkspacesByMac[mac.macDeviceID] = previews
             }
         }
+        publishAggregatedWorkspaces()
+    }
+
+    /// Whether the multi-Mac aggregated workspace list is enabled. Env override,
+    /// then UserDefaults, then DEBUG on / Release off — so the aggregation (still
+    /// being hardened) ships dark in Release and the single-Mac list is the exact
+    /// prior behavior unless explicitly turned on.
+    static var multiMacAggregationEnabled: Bool {
+        if let raw = ProcessInfo.processInfo.environment["CMUX_MULTI_MAC_AGGREGATION"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+            return ["1", "true", "yes", "on"].contains(raw.lowercased())
+        }
+        if UserDefaults.standard.object(forKey: "multiMacAggregation") != nil {
+            return UserDefaults.standard.bool(forKey: "multiMacAggregation")
+        }
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// Merge the other Macs' fetched workspaces into the published list, after the
+    /// foreground Mac's rows. No-op when aggregation is disabled or there are no
+    /// secondary workspaces, so the single-Mac list is byte-for-byte unchanged.
+    /// De-dups by workspace id (foreground wins) and preserves per-Mac order.
+    private func publishAggregatedWorkspaces() {
+        guard Self.multiMacAggregationEnabled, !secondaryWorkspacesByMac.isEmpty else { return }
+        var merged = workspaces.filter { $0.macDeviceID == foregroundMacDeviceID || $0.macDeviceID == nil }
+        var seen = Set(merged.map(\.id))
+        for macID in secondaryWorkspacesByMac.keys.sorted() where macID != foregroundMacDeviceID {
+            for workspace in secondaryWorkspacesByMac[macID] ?? [] where seen.insert(workspace.id).inserted {
+                merged.append(workspace)
+            }
+        }
+        workspaces = merged
     }
 
     private static func shouldFallbackToSyntheticManualTicket(after error: any Error) -> Bool {
@@ -3493,6 +3529,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                         foregroundMacDeviceID = ticket.macDeviceID
                     }
+                    // Aggregate the user's other Macs' workspaces in the
+                    // background (no-op / off in Release). Best-effort; never
+                    // blocks the foreground connect.
+                    if Self.multiMacAggregationEnabled {
+                        Task { [weak self] in await self?.refreshSecondaryMacWorkspaces() }
+                    }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
@@ -3665,6 +3707,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connections[foreground] = nil
         }
         foregroundMacDeviceID = nil
+        secondaryWorkspacesByMac.removeAll()
         rawTerminalInputBuffer.clear()
     }
 
@@ -5457,6 +5500,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             workspaces = remoteWorkspaces
         }
+        // Re-merge the other Macs' rows (no-op unless multi-Mac aggregation is on
+        // and secondaries are present), so a foreground refresh does not drop them.
+        publishAggregatedWorkspaces()
         // Group sections always reflect the latest full response (never merged):
         // a merge path is a single-entry create/refresh that omits groups, so
         // applying its empty groups array would wrongly clear the sections. Only a
