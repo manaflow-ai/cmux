@@ -97,7 +97,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let disabledInput = disabledPanel.surface.debugInitialInputMetadata()
         XCTAssertFalse(disabledInput.hasInitialInput)
         XCTAssertEqual(disabledInput.byteCount, 0)
-        XCTAssertNil(disabledPanel.surface.debugInitialCommand())
+        try assertOwnedTmuxLauncherHasNoStartupCommand(disabledPanel)
         XCTAssertEqual(
             restoredWithoutAutoResume.sessionSnapshot(includeScrollback: false)
                 .panels.first?.terminal?.agent?.sessionId,
@@ -148,7 +148,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             XCTAssertFalse(restoredInput.hasInitialInput,
                            "must not auto-resume when agent was already exited at snapshot time")
-            XCTAssertNil(restoredPanel.surface.debugInitialCommand())
+            try assertOwnedTmuxLauncherHasNoStartupCommand(restoredPanel)
             XCTAssertEqual(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
                 "codex-exited-before-snapshot-session",
@@ -198,6 +198,49 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
             XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent)
+        }
+    }
+
+    @MainActor
+    func testOwnedTmuxSnapshotKeepsAgentResumeForMachineRebootFallback() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let sessionId = "owned-tmux-reboot-fallback-session"
+            let source = Workspace(workingDirectory: "/tmp/repo")
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: sessionId
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+
+            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+            let terminalSnapshot = try XCTUnwrap(snapshot.panels.first?.terminal)
+            let ownedSessionName = try XCTUnwrap(terminalSnapshot.ownedTmuxSessionName)
+            XCTAssertEqual(terminalSnapshot.agent?.sessionId, sessionId)
+            XCTAssertTrue(terminalSnapshot.tmuxStartCommand?.contains(ownedSessionName) == true)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+            XCTAssertEqual(restoredPanel.surface.debugOwnedTmuxSessionName(), ownedSessionName)
+            XCTAssertEqual(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId, sessionId)
+
+            let ownedLauncherPath = try XCTUnwrap(restoredPanel.surface.debugInitialCommand())
+            defer { try? FileManager.default.removeItem(atPath: ownedLauncherPath) }
+            let ownedLauncher = try String(contentsOfFile: ownedLauncherPath, encoding: .utf8)
+            XCTAssertTrue(ownedLauncher.contains("_cmux_start_command="), ownedLauncher)
+
+            let resumeScriptPath = try XCTUnwrap(agentResumeScriptPath(inOwnedTmuxLauncherScript: ownedLauncher))
+            defer { try? FileManager.default.removeItem(atPath: resumeScriptPath) }
+            let resumeScript = try String(contentsOfFile: resumeScriptPath, encoding: .utf8)
+            XCTAssertTrue(resumeScript.contains("resume"), resumeScript)
+            XCTAssertTrue(resumeScript.contains(sessionId), resumeScript)
         }
     }
 
@@ -386,7 +429,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             XCTAssertFalse(input.hasInitialInput)
             XCTAssertEqual(input.byteCount, 0)
-            XCTAssertNil(restoredPanel.surface.debugInitialCommand())
+            try assertOwnedTmuxLauncherHasNoStartupCommand(restoredPanel)
             XCTAssertEqual(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
                 "codex-exited-binding-session"
@@ -444,7 +487,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
         XCTAssertFalse(input.hasInitialInput)
         XCTAssertEqual(input.byteCount, 0)
-        XCTAssertNil(restoredPanel.surface.debugInitialCommand())
+        try assertOwnedTmuxLauncherHasNoStartupCommand(restoredPanel)
         XCTAssertEqual(
             restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.source,
             "agent-hook"
@@ -461,7 +504,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testDisabledAutoResumeKeepsScrollbackForSuppressedAgentHookBinding() throws {
+    func testDisabledAutoResumeDoesNotReplayScrollbackForOwnedTmuxSuppressedAgentHookBinding() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let previous = defaults.object(forKey: key)
@@ -503,10 +546,10 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
         XCTAssertFalse(input.hasInitialInput)
         XCTAssertEqual(input.byteCount, 0)
-        XCTAssertNil(restoredPanel.surface.debugInitialCommand())
-        XCTAssertEqual(
+        try assertOwnedTmuxLauncherHasNoStartupCommand(restoredPanel)
+        XCTAssertNil(
             restored.sessionSnapshot(includeScrollback: true).panels.first?.terminal?.scrollback,
-            savedScrollback
+            "owned tmux panels attach to the durable tmux session instead of replaying Cmux scrollback"
         )
     }
 
@@ -615,7 +658,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
         XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
-        XCTAssertNil(restoredPanel.surface.debugInitialCommand())
+        try assertOwnedTmuxLauncherHasNoStartupCommand(restoredPanel)
 
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         let runningSnapshot = restored.sessionSnapshot(includeScrollback: false)
@@ -716,6 +759,27 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         line: UInt = #line
     ) throws {
         let command = try XCTUnwrap(panel.surface.debugInitialCommand(), file: file, line: line)
+        if panel.surface.debugOwnedTmuxSessionName() != nil {
+            defer { try? FileManager.default.removeItem(atPath: command) }
+            let ownedLauncher = try String(contentsOfFile: command, encoding: .utf8)
+            XCTAssertTrue(ownedLauncher.contains("_cmux_start_command="), ownedLauncher, file: file, line: line)
+            let script: String
+            if let resumeScriptPath = agentResumeScriptPath(inOwnedTmuxLauncherScript: ownedLauncher) {
+                defer { try? FileManager.default.removeItem(atPath: resumeScriptPath) }
+                script = try String(contentsOfFile: resumeScriptPath, encoding: .utf8)
+                XCTAssertTrue(script.contains("CMUX_SHELL_INTEGRATION_DIR"), script, file: file, line: line)
+                XCTAssertTrue(script.contains("CMUX_ZSH_ZDOTDIR"), script, file: file, line: line)
+                XCTAssertTrue(script.contains("\"$_cmux_resume_shell\" -lic"), script, file: file, line: line)
+                XCTAssertTrue(script.contains("csh|tcsh) \"$_cmux_resume_shell\" -c"), script, file: file, line: line)
+                XCTAssertTrue(script.contains("exec -l \"$_cmux_resume_shell\""), script, file: file, line: line)
+            } else {
+                script = ownedLauncher
+            }
+            for needle in needles {
+                XCTAssertTrue(script.contains(needle), script, file: file, line: line)
+            }
+            return
+        }
         XCTAssertTrue(command.hasPrefix("/bin/zsh '"), command, file: file, line: line)
         let scriptPath = String(command.dropFirst("/bin/zsh '".count).dropLast())
         defer { try? FileManager.default.removeItem(atPath: scriptPath) }
@@ -728,6 +792,31 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertTrue(script.contains("\"$_cmux_resume_shell\" -lic"), script, file: file, line: line)
         XCTAssertTrue(script.contains("csh|tcsh) \"$_cmux_resume_shell\" -c"), script, file: file, line: line)
         XCTAssertTrue(script.contains("exec -l \"$_cmux_resume_shell\""), script, file: file, line: line)
+    }
+
+    @MainActor
+    private func assertOwnedTmuxLauncherHasNoStartupCommand(
+        _ panel: TerminalPanel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let command = try XCTUnwrap(panel.surface.debugInitialCommand(), file: file, line: line)
+        XCTAssertNotNil(panel.surface.debugOwnedTmuxSessionName(), file: file, line: line)
+        defer { try? FileManager.default.removeItem(atPath: command) }
+        let launcher = try String(contentsOfFile: command, encoding: .utf8)
+        XCTAssertTrue(launcher.contains("_cmux_start_command=''"), launcher, file: file, line: line)
+        XCTAssertNil(agentResumeScriptPath(inOwnedTmuxLauncherScript: launcher), launcher, file: file, line: line)
+    }
+
+    private func agentResumeScriptPath(inOwnedTmuxLauncherScript script: String) -> String? {
+        let pattern = #"/[^'\s]*/cmux-(?:agent|surface)-resume/[^'\s]+\.zsh"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(script.startIndex..<script.endIndex, in: script)
+        guard let match = regex.firstMatch(in: script, range: range),
+              let swiftRange = Range(match.range, in: script) else {
+            return nil
+        }
+        return String(script[swiftRange])
     }
 
     private func makeRestorableAgentIndex(

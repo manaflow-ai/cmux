@@ -11,11 +11,10 @@ import CmuxTerminalCore
             workspaceTitle: "Example Workspace / Project Alpha ✨",
             workspaceDirectory: "/tmp/project-alpha",
             workspaceId: workspaceId,
-            panelTitle: "Terminal #2",
             panelId: panelId
         )
 
-        #expect(name == "cmux-example-workspace-project-alpha-terminal-2-aaaaaaaa")
+        #expect(name == "cmux-project-alpha-example-workspace-project-alpha-aaaaaaaa")
         #expect(!name.contains(":"))
         #expect(!name.contains(" "))
         #expect(name.allSatisfy { character in

@@ -1377,7 +1377,8 @@ extension Workspace {
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId,
-                ownedTmuxSessionName: ownedTmuxSessionName
+                ownedTmuxSessionName: ownedTmuxSessionName,
+                ownedTmuxSessionDirectory: savedWorkingDirectory ?? snapshot.directory
             ) else {
                 return nil
             }
@@ -3089,6 +3090,7 @@ final class Workspace: Identifiable, ObservableObject {
                 panelId: terminalPanelId,
                 requestedSessionName: nil,
                 workingDirectory: initialWorkingDirectory,
+                sessionNameDirectory: nil,
                 startupCommand: initialTerminalCommand,
                 tmuxStartCommand: nil,
                 isRemoteTerminal: false
@@ -6776,6 +6778,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         requestedSessionName: String?,
         workingDirectory: String?,
+        sessionNameDirectory: String?,
         startupCommand: String?,
         tmuxStartCommand: String?,
         isRemoteTerminal: Bool
@@ -6783,12 +6786,13 @@ final class Workspace: Identifiable, ObservableObject {
         guard !isRemoteTerminal else { return nil }
         let startupCommand = normalizedOwnedTmuxStartupCommand(startupCommand)
             ?? normalizedOwnedTmuxStartupCommand(tmuxStartCommand)
+        let resolvedWorkingDirectory = workingDirectory ?? currentDirectory
+        let resolvedSessionNameDirectory = sessionNameDirectory ?? workingDirectory ?? currentDirectory
         let sessionName = requestedSessionName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             ?? CmuxTerminalCore.CmuxOwnedTmuxSession.sessionName(
                 workspaceTitle: customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? title,
-                workspaceDirectory: workingDirectory ?? currentDirectory,
+                workspaceDirectory: resolvedSessionNameDirectory,
                 workspaceId: id,
-                panelTitle: Self.ownedTmuxPanelTitle(startupCommand: startupCommand),
                 panelId: panelId
             )
         do {
@@ -6796,7 +6800,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sessionName: sessionName,
                 workspaceId: id,
                 panelId: panelId,
-                workingDirectory: workingDirectory ?? currentDirectory,
+                workingDirectory: resolvedWorkingDirectory,
                 startupCommand: startupCommand
             )
             return OwnedTmuxTerminalLaunch(
@@ -6818,16 +6822,6 @@ final class Workspace: Identifiable, ObservableObject {
     private func normalizedOwnedTmuxStartupCommand(_ command: String?) -> String? {
         let trimmed = command?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    private static func ownedTmuxPanelTitle(startupCommand: String?) -> String? {
-        guard let startupCommand else { return nil }
-        let lowercased = startupCommand.lowercased()
-        for candidate in ["claude", "codex", "opencode", "gemini", "cursor", "amp", "oh-my-codex", "omx"] where lowercased.contains(candidate) {
-            return candidate
-        }
-        let firstToken = startupCommand.split(whereSeparator: \.isWhitespace).first.map(String.init)
-        return firstToken.map { URL(fileURLWithPath: $0).lastPathComponent }
     }
 
     /// Create a new split with a terminal panel
@@ -6987,6 +6981,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: newPanelId,
             requestedSessionName: nil,
             workingDirectory: splitWorkingDirectory,
+            sessionNameDirectory: nil,
             startupCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             isRemoteTerminal: tracksRemoteTerminalSurface
@@ -7123,6 +7118,7 @@ final class Workspace: Identifiable, ObservableObject {
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
         ownedTmuxSessionName: String? = nil,
+        ownedTmuxSessionDirectory: String? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil
     ) -> TerminalPanel? {
@@ -7141,6 +7137,7 @@ final class Workspace: Identifiable, ObservableObject {
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
             ownedTmuxSessionName: ownedTmuxSessionName,
+            ownedTmuxSessionDirectory: ownedTmuxSessionDirectory,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId
         ).panel
@@ -7164,6 +7161,7 @@ final class Workspace: Identifiable, ObservableObject {
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
         ownedTmuxSessionName: String? = nil,
+        ownedTmuxSessionDirectory: String? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil
     ) -> TerminalPanelCreationOutcome {
@@ -7194,6 +7192,7 @@ final class Workspace: Identifiable, ObservableObject {
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
             ownedTmuxSessionName: ownedTmuxSessionName,
+            ownedTmuxSessionDirectory: ownedTmuxSessionDirectory,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId
         ) else { return .failed }
@@ -7215,6 +7214,7 @@ final class Workspace: Identifiable, ObservableObject {
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
         ownedTmuxSessionName: String?,
+        ownedTmuxSessionDirectory: String?,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?
     ) -> TerminalPanel? {
@@ -7260,6 +7260,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: newPanelId,
             requestedSessionName: ownedTmuxSessionName,
             workingDirectory: requestedWorkingDirectory,
+            sessionNameDirectory: ownedTmuxSessionDirectory,
             startupCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
             isRemoteTerminal: tracksRemoteTerminalSurface
@@ -7563,6 +7564,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: panelId,
             requestedSessionName: ownedTmuxSessionName,
             workingDirectory: requestedWorkingDirectory,
+            sessionNameDirectory: nil,
             startupCommand: trimmedCommand,
             tmuxStartCommand: replacementTmuxStartCommand,
             isRemoteTerminal: wasRemoteTerminal
@@ -9841,6 +9843,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: newPanelId,
             requestedSessionName: nil,
             workingDirectory: nil,
+            sessionNameDirectory: nil,
             startupCommand: replacementInitialCommand,
             tmuxStartCommand: nil,
             isRemoteTerminal: false
@@ -10937,6 +10940,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelId: newPanelId,
             requestedSessionName: nil,
             workingDirectory: workingDirectory,
+            sessionNameDirectory: nil,
             startupCommand: startupCommand,
             tmuxStartCommand: nil,
             isRemoteTerminal: startupCommand != nil
@@ -12445,6 +12449,7 @@ extension Workspace: BonsplitDelegate {
                         panelId: replacementPanelId,
                         requestedSessionName: nil,
                         workingDirectory: nil,
+                        sessionNameDirectory: nil,
                         startupCommand: nil,
                         tmuxStartCommand: nil,
                         isRemoteTerminal: false
@@ -12532,6 +12537,7 @@ extension Workspace: BonsplitDelegate {
             panelId: newPanelId,
             requestedSessionName: nil,
             workingDirectory: nil,
+            sessionNameDirectory: nil,
             startupCommand: nil,
             tmuxStartCommand: nil,
             isRemoteTerminal: false

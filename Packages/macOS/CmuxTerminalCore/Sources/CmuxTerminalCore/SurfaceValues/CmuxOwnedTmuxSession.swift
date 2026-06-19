@@ -9,19 +9,22 @@ public enum CmuxOwnedTmuxSession {
         workspaceTitle: String?,
         workspaceDirectory: String?,
         workspaceId: UUID,
-        panelTitle: String?,
         panelId: UUID
     ) -> String {
-        let workspaceFallback = workspaceDirectory
+        let directoryFallback = workspaceDirectory
             .flatMap { URL(fileURLWithPath: $0).lastPathComponent.nonEmptyAfterTrimmingWhitespace }
             ?? "workspace-\(shortUUID(workspaceId))"
+        let directoryComponent = sanitizedComponent(
+            directoryFallback,
+            fallback: "workspace-\(shortUUID(workspaceId))",
+            maxLength: 32
+        )
         let workspaceComponent = sanitizedComponent(
             workspaceTitle,
-            fallback: workspaceFallback,
+            fallback: "workspace-\(shortUUID(workspaceId))",
             maxLength: 36
         )
-        let panelComponent = sanitizedComponent(panelTitle, fallback: "terminal", maxLength: 24)
-        return "cmux-\(workspaceComponent)-\(panelComponent)-\(shortUUID(panelId))"
+        return "cmux-\(directoryComponent)-\(workspaceComponent)-\(shortUUID(panelId))"
     }
 
     public static func attachCommand(sessionName: String) -> String {
