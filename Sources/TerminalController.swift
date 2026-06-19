@@ -368,7 +368,11 @@ class TerminalController {
         currentSocketCommandFocusAllowanceStack().last ?? false
     }
 
-    private func socketCommandAllowsInAppFocusMutations() -> Bool {
+    /// Relaxed to `internal` so the v1 `move_workspace_to_window` /
+    /// `new_workspace` witnesses (in the workspace-context conformance file) can
+    /// read the active socket command's focus-allowance, matching the legacy v1
+    /// bodies exactly.
+    func socketCommandAllowsInAppFocusMutations() -> Bool {
         Self.allowsInAppFocusMutationsForActiveSocketCommand()
     }
 
@@ -1565,7 +1569,9 @@ class TerminalController {
             // (the sidebar metadata/pane/surface commands and the browser panel
             // commands) answer here; everything else falls through to the legacy
             // switch below.
-            if let coordinatorV1 = controlCommandCoordinator.handleSidebarV1(command: cmd, args: args)
+            if let coordinatorV1 = controlCommandCoordinator.handleWindowV1(command: cmd, args: args)
+                ?? controlCommandCoordinator.handleWorkspaceV1(command: cmd, args: args)
+                ?? controlCommandCoordinator.handleSidebarV1(command: cmd, args: args)
                 ?? controlCommandCoordinator.handleBrowserPanelV1(command: cmd, args: args)
                 ?? controlCommandCoordinator.handleSurfaceSendNotifyV1(command: cmd, args: args)
                 ?? controlCommandCoordinator.handleDebugV1(command: cmd, args: args) {
@@ -1578,41 +1584,13 @@ class TerminalController {
         case "auth":
             return "OK: Authentication not required"
 
-        case "list_windows":
-            return listWindows()
-
-        case "current_window":
-            return currentWindow()
-
-        case "focus_window":
-            return focusWindow(args)
-
-        case "new_window":
-            return newWindow()
-
-        case "close_window":
-            return closeWindow(args)
-
-        case "move_workspace_to_window":
-            return moveWorkspaceToWindow(args)
-
-        case "list_workspaces":
-            return listWorkspaces()
-
-	        case "new_workspace":
-	            return newWorkspace(args)
-
-	        case "new_split":
-	            return newSplit(args)
-
-        case "close_workspace":
-            return closeWorkspace(args)
-
-        case "select_workspace":
-            return selectWorkspace(args)
-
-        case "current_workspace":
-            return currentWorkspace()
+        // The v1 window commands (list_windows/current_window/focus_window/
+        // new_window/close_window/move_workspace_to_window) and the v1 workspace
+        // commands (list_workspaces/new_workspace/new_split/close_workspace/
+        // select_workspace/current_workspace) are handled above by
+        // ControlCommandCoordinator.handleWindowV1 / handleWorkspaceV1, whose
+        // witnesses carry the app-coupled bodies (list_windows renders in the
+        // coordinator from the shared window summaries).
 
         // The v1 surface listing/focus (list_surfaces/focus_surface), the
         // terminal-input commands (send/send_key/send_surface/send_key_surface,
@@ -9918,178 +9896,6 @@ class TerminalController {
     }
     #endif
 
-    private func listWindows() -> String {
-        let summaries = v2MainSync { AppDelegate.shared?.listMainWindowSummaries() } ?? []
-        guard !summaries.isEmpty else { return "No windows" }
-
-        let lines = summaries.enumerated().map { idx, item in
-            let selected = item.isKeyWindow ? "*" : " "
-            let selectedWs = item.selectedWorkspaceId?.uuidString ?? "none"
-            return "\(selected) \(idx): \(item.windowId.uuidString) selected_workspace=\(selectedWs) workspaces=\(item.workspaceCount)"
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private func currentWindow() -> String {
-        guard let tabManager else { return "ERROR: TabManager not available" }
-        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return "ERROR: No active window" }
-        return windowId.uuidString
-    }
-
-    private func focusWindow(_ arg: String) -> String {
-        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
-
-        let ok = v2MainSync { AppDelegate.shared?.focusMainWindow(windowId: windowId) ?? false }
-        guard ok else { return "ERROR: Window not found" }
-
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
-            setActiveTabManager(tm)
-        }
-        return "OK"
-    }
-
-    private func newWindow() -> String {
-        guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
-            return "ERROR: Failed to create window"
-        }
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
-            setActiveTabManager(tm)
-        }
-        return "OK \(windowId.uuidString)"
-    }
-
-    private func closeWindow(_ arg: String) -> String {
-        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
-        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
-        return ok ? "OK" : "ERROR: Window not found"
-    }
-
-    private func moveWorkspaceToWindow(_ args: String) -> String {
-        let parts = args.split(separator: " ").map(String.init)
-        guard parts.count >= 2 else { return "ERROR: Usage move_workspace_to_window <workspace_id> <window_id>" }
-        guard let wsId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid workspace id" }
-        guard let windowId = UUID(uuidString: parts[1]) else { return "ERROR: Invalid window id" }
-
-        var ok = false
-        let focus = socketCommandAllowsInAppFocusMutations()
-        v2MainSync {
-            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
-                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
-                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
-                ok = false
-                return
-            }
-            dstTM.attachWorkspace(ws, select: focus)
-            if focus {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(dstTM)
-            }
-            ok = true
-        }
-
-        return ok ? "OK" : "ERROR: Move failed"
-    }
-
-    private func listWorkspaces() -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
-        var result: String = ""
-        v2MainSync {
-            let tabs = tabManager.tabs.enumerated().map { (index, tab) in
-                let selected = tab.id == tabManager.selectedTabId ? "*" : " "
-                return "\(selected) \(index): \(tab.id.uuidString) \(tab.title)"
-            }
-            result = tabs.joined(separator: "\n")
-        }
-        return result.isEmpty ? "No workspaces" : result
-    }
-
-    private func newWorkspace(_ args: String = "") -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title: String? = trimmed.isEmpty ? nil : trimmed
-
-        var newTabId: UUID?
-        let focus = socketCommandAllowsInAppFocusMutations()
-        v2MainSync {
-            let workspace = tabManager.addWorkspace(title: title, select: focus, eagerLoadTerminal: !focus)
-            newTabId = workspace.id
-        }
-        return "OK \(newTabId?.uuidString ?? "unknown")"
-    }
-
-    /// v1 socket error for a left/up split directed at a mirror workspace
-    /// (kept here for the still-app-side v1 `new_split`; the coordinator-side
-    /// v1 `new_pane` carries the same wording via its sidebar context).
-    private static let v1MirrorDirectionError =
-        "ERROR: direction left/up is not supported in a remote tmux mirror workspace"
-
-    private func newSplit(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
-        guard !parts.isEmpty else {
-            return "ERROR: Invalid direction. Use left, right, up, or down."
-        }
-
-        let directionArg = parts[0]
-        let panelArg = parts.count > 1 ? parts[1] : ""
-
-        guard let direction = parseSplitDirection(directionArg) else {
-            return "ERROR: Invalid direction. Use left, right, up, or down."
-        }
-
-        var result = "ERROR: Failed to create split"
-        v2MainSync {
-            guard let tabId = tabManager.selectedTabId,
-                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-                return
-            }
-
-            // If panel arg provided, resolve it; otherwise use focused panel
-            let surfaceId: UUID?
-            if !panelArg.isEmpty {
-                surfaceId = resolveSurfaceId(from: panelArg, tab: tab)
-                if surfaceId == nil {
-                    result = "ERROR: Panel not found"
-                    return
-                }
-            } else {
-                surfaceId = tab.focusedPanelId
-            }
-
-            guard let targetSurface = surfaceId else {
-                result = "ERROR: No surface to split"
-                return
-            }
-
-            if tab.isRemoteTmuxMirror, direction.insertFirst {
-                // Routed tmux `split-window` cannot insert before the target
-                // pane; reject before mutating the remote session.
-                result = Self.v1MirrorDirectionError
-                return
-            }
-
-            switch tab.newTerminalSplitOutcome(
-                from: targetSurface,
-                orientation: direction.orientation,
-                insertFirst: direction.insertFirst
-            ) {
-            case .created(let panel):
-                result = "OK \(panel.id.uuidString)"
-            case .routedToRemote:
-                result = "OK routed-to-remote-tmux"
-            case .failed:
-                break
-            }
-        }
-        return result
-    }
-
     func listSurfaces(_ tabArg: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         var result = ""
@@ -11009,7 +10815,10 @@ class TerminalController {
         return nil
     }
 
-    private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
+    /// Relaxed to `internal` so the v1 `new_split` witness (in the
+    /// workspace-context conformance file) can resolve a panel argument exactly
+    /// as the legacy v1 body did.
+    func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg), tab.panels[uuid] != nil {
             return uuid
         }
@@ -11033,57 +10842,6 @@ class TerminalController {
             ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
             : (parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "")
         return (title.isEmpty ? "Notification" : title, subtitle, body)
-    }
-
-    private func closeWorkspace(_ tabId: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-        guard let uuid = UUID(uuidString: tabId) else { return "ERROR: Invalid tab ID" }
-
-        var result = "ERROR: Tab not found"
-        v2MainSync {
-            if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
-                guard tabManager.canCloseWorkspace(tab) else {
-                    result = "ERROR: \(workspaceCloseProtectedMessage())"
-                    return
-                }
-                tabManager.closeTab(tab)
-                result = "OK"
-            }
-        }
-        return result
-    }
-
-    private func selectWorkspace(_ arg: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
-        var success = false
-        v2MainSync {
-            // Try as UUID first
-            if let uuid = UUID(uuidString: arg) {
-                if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
-                    tabManager.selectTab(tab)
-                    success = true
-                }
-            }
-            // Try as index
-            else if let index = Int(arg), index >= 0, index < tabManager.tabs.count {
-                tabManager.selectTab(at: index)
-                success = true
-            }
-        }
-        return success ? "OK" : "ERROR: Tab not found"
-    }
-
-    private func currentWorkspace() -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
-        var result: String = ""
-        v2MainSync {
-            if let id = tabManager.selectedTabId {
-                result = id.uuidString
-            }
-        }
-        return result.isEmpty ? "ERROR: No tab selected" : result
     }
 
     func sendInput(_ text: String) -> String {
@@ -12078,9 +11836,11 @@ class TerminalController {
         return workspace.terminalPanel(for: surfaceID)
     }
 
-    // Restored: still used by the v1 close-workspace path (its v2
-    // counterpart moved to ControlCommandCoordinator).
-    private func workspaceCloseProtectedMessage() -> String {
+    // Still used by the v1 close-workspace witness (its v2 counterpart moved to
+    // ControlCommandCoordinator). Relaxed to `internal` so the witness in the
+    // workspace-context conformance file can localize the message app-side,
+    // exactly as the legacy v1 body did.
+    func workspaceCloseProtectedMessage() -> String {
         String(
             localized: "workspace.closeProtected.message",
             defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."

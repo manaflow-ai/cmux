@@ -351,6 +351,13 @@ extension ControlWorkspaceContext {
         surfaceID: UUID,
         relayPort: Int
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution { .notFound }
+
+    func controlListWorkspacesV1() -> String { "" }
+    func controlCurrentWorkspaceV1() -> String { "" }
+    func controlNewWorkspaceV1(args: String) -> String { "" }
+    func controlNewSplitV1(args: String) -> String { "" }
+    func controlCloseWorkspaceV1(arg: String) -> String { "" }
+    func controlSelectWorkspaceV1(arg: String) -> String { "" }
 }
 
 extension ControlSurfaceContext {

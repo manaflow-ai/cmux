@@ -282,4 +282,54 @@ public protocol ControlWorkspaceContext: AnyObject {
         surfaceID: UUID,
         relayPort: Int
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution
+
+    // MARK: - v1 line-protocol witnesses
+
+    /// The v1 `list_workspaces` body: lists the active controller's workspaces.
+    ///
+    /// The v1 command read the controller's own active `TabManager` directly
+    /// (erroring when absent) and emitted flat `<sel> <idx>: <uuid> <title>`
+    /// lines, distinct from the JSON `workspace.list`, so it carries its own
+    /// witness.
+    ///
+    /// - Returns: The flat v1 reply line(s).
+    func controlListWorkspacesV1() -> String
+
+    /// The v1 `current_workspace` body: the active controller's selected
+    /// workspace id.
+    ///
+    /// - Returns: The flat v1 reply line.
+    func controlCurrentWorkspaceV1() -> String
+
+    /// The v1 `new_workspace` body: creates a workspace in the active
+    /// controller's `TabManager`, selecting/eager-loading per the active
+    /// focus-allowance gate, and returns the flat `OK <uuid>` line.
+    ///
+    /// - Parameter args: The raw (trimmed-to-title) argument remainder.
+    /// - Returns: The flat v1 reply line.
+    func controlNewWorkspaceV1(args: String) -> String
+
+    /// The v1 `new_split` body: parses `<direction> [panel]`, resolves the
+    /// target surface (explicit panel or the focused one), rejects a left/up
+    /// split in a remote tmux mirror, and creates the split.
+    ///
+    /// - Parameter args: The raw argument remainder.
+    /// - Returns: The flat v1 reply line.
+    func controlNewSplitV1(args: String) -> String
+
+    /// The v1 `close_workspace` body: parses the workspace id, honors the
+    /// pinned-protection guard, and closes the tab.
+    ///
+    /// - Parameter arg: The raw workspace-id argument.
+    /// - Returns: The flat v1 reply line.
+    func controlCloseWorkspaceV1(arg: String) -> String
+
+    /// The v1 `select_workspace` body: selects a workspace by UUID or by index
+    /// in the active controller's `TabManager`. The v1 path selects in place
+    /// (no cross-window focus or `setActiveTabManager`), distinct from
+    /// `workspace.select`, so it carries its own witness.
+    ///
+    /// - Parameter arg: The raw UUID-or-index argument.
+    /// - Returns: The flat v1 reply line.
+    func controlSelectWorkspaceV1(arg: String) -> String
 }

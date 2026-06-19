@@ -88,4 +88,74 @@ extension TerminalController: ControlWindowContext {
         }
         return ControlMoveAllWindowsResult(display: result.display, windowIDs: result.windowIds)
     }
+
+    // MARK: - v1 line-protocol witnesses
+
+    // The byte-faithful bodies of the former `TerminalController` v1 window
+    // cases, moved here verbatim so the coordinator's `handleWindowV1` dispatch
+    // owns the routing while the app-coupled bodies stay app-resident. The v1
+    // `list_windows` formatter now lives in the coordinator (built from the
+    // shared `controlWindowSummaries()`), so it has no witness here.
+
+    func controlCurrentWindowV1() -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        guard let windowId = v2ResolveWindowId(tabManager: tabManager) else { return "ERROR: No active window" }
+        return windowId.uuidString
+    }
+
+    func controlFocusWindowV1(arg: String) -> String {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
+
+        let ok = v2MainSync { AppDelegate.shared?.focusMainWindow(windowId: windowId) ?? false }
+        guard ok else { return "ERROR: Window not found" }
+
+        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+            setActiveTabManager(tm)
+        }
+        return "OK"
+    }
+
+    func controlNewWindowV1() -> String {
+        guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
+            return "ERROR: Failed to create window"
+        }
+        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+            setActiveTabManager(tm)
+        }
+        return "OK \(windowId.uuidString)"
+    }
+
+    func controlCloseWindowV1(arg: String) -> String {
+        let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
+        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
+        return ok ? "OK" : "ERROR: Window not found"
+    }
+
+    func controlMoveWorkspaceToWindowV1(args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count >= 2 else { return "ERROR: Usage move_workspace_to_window <workspace_id> <window_id>" }
+        guard let wsId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid workspace id" }
+        guard let windowId = UUID(uuidString: parts[1]) else { return "ERROR: Invalid window id" }
+
+        var ok = false
+        let focus = socketCommandAllowsInAppFocusMutations()
+        v2MainSync {
+            guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
+                  let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
+                  let ws = srcTM.detachWorkspace(tabId: wsId) else {
+                ok = false
+                return
+            }
+            dstTM.attachWorkspace(ws, select: focus)
+            if focus {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(dstTM)
+            }
+            ok = true
+        }
+
+        return ok ? "OK" : "ERROR: Move failed"
+    }
 }

@@ -68,4 +68,47 @@ public protocol ControlWindowContext: AnyObject {
     /// - Returns: The resolved display name and moved window ids, or `nil` when
     ///   the display can't be resolved.
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult?
+
+    // MARK: - v1 line-protocol witnesses
+
+    /// The v1 `current_window` body: resolves the active controller's window id.
+    ///
+    /// The v1 command read the controller's own active `TabManager` directly
+    /// (erroring when it is absent), distinct from the `window.current` routing
+    /// walk, so it carries its own witness rather than reusing
+    /// ``controlResolveCurrentWindow(routing:)``.
+    ///
+    /// - Returns: The flat v1 reply line.
+    func controlCurrentWindowV1() -> String
+
+    /// The v1 `focus_window` body: parses the window id, focuses the window, and
+    /// makes its `TabManager` active. The trailing `setActiveTabManager` side
+    /// effect is specific to the v1 path (the `window.focus` method does not do
+    /// it), so the whole body is app-resident behind this witness.
+    ///
+    /// - Parameter arg: The raw window-id argument.
+    /// - Returns: The flat v1 reply line.
+    func controlFocusWindowV1(arg: String) -> String
+
+    /// The v1 `new_window` body: creates a window and makes its `TabManager`
+    /// active, returning the flat `OK <uuid>` line.
+    ///
+    /// - Returns: The flat v1 reply line.
+    func controlNewWindowV1() -> String
+
+    /// The v1 `close_window` body: parses the window id and closes the window.
+    ///
+    /// - Parameter arg: The raw window-id argument.
+    /// - Returns: The flat v1 reply line.
+    func controlCloseWindowV1(arg: String) -> String
+
+    /// The v1 `move_workspace_to_window` body: parses the
+    /// `<workspace_id> <window_id>` pair, detaches the workspace from its source
+    /// window, attaches it to the destination, and (under the active
+    /// focus-allowance gate) focuses the destination and makes its `TabManager`
+    /// active.
+    ///
+    /// - Parameter args: The raw argument remainder.
+    /// - Returns: The flat v1 reply line.
+    func controlMoveWorkspaceToWindowV1(args: String) -> String
 }

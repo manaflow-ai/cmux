@@ -751,4 +751,162 @@ extension TerminalController: ControlWorkspaceContext {
         guard let uuid else { return .null }
         return .string(uuid.uuidString)
     }
+
+    // MARK: - v1 line-protocol witnesses
+
+    // The byte-faithful bodies of the former `TerminalController` v1 workspace
+    // cases, moved here verbatim so the coordinator's `handleWorkspaceV1`
+    // dispatch owns the routing while the app-coupled bodies stay app-resident.
+    // These read the controller's active `TabManager` directly (distinct from
+    // the routing-based `workspace.*` resolutions), so they cannot reuse the
+    // typed resolutions above.
+
+    func controlListWorkspacesV1() -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        var result: String = ""
+        v2MainSync {
+            let tabs = tabManager.tabs.enumerated().map { (index, tab) in
+                let selected = tab.id == tabManager.selectedTabId ? "*" : " "
+                return "\(selected) \(index): \(tab.id.uuidString) \(tab.title)"
+            }
+            result = tabs.joined(separator: "\n")
+        }
+        return result.isEmpty ? "No workspaces" : result
+    }
+
+    func controlNewWorkspaceV1(args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title: String? = trimmed.isEmpty ? nil : trimmed
+
+        var newTabId: UUID?
+        let focus = socketCommandAllowsInAppFocusMutations()
+        v2MainSync {
+            let workspace = tabManager.addWorkspace(title: title, select: focus, eagerLoadTerminal: !focus)
+            newTabId = workspace.id
+        }
+        return "OK \(newTabId?.uuidString ?? "unknown")"
+    }
+
+    func controlNewSplitV1(args: String) -> String {
+        // v1 socket error for a left/up split directed at a mirror workspace
+        // (the coordinator-side v1 `new_pane` carries the same wording via its
+        // sidebar context).
+        let mirrorDirectionError =
+            "ERROR: direction left/up is not supported in a remote tmux mirror workspace"
+
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard !parts.isEmpty else {
+            return "ERROR: Invalid direction. Use left, right, up, or down."
+        }
+
+        let directionArg = parts[0]
+        let panelArg = parts.count > 1 ? parts[1] : ""
+
+        guard let direction = parseSplitDirection(directionArg) else {
+            return "ERROR: Invalid direction. Use left, right, up, or down."
+        }
+
+        var result = "ERROR: Failed to create split"
+        v2MainSync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+
+            // If panel arg provided, resolve it; otherwise use focused panel
+            let surfaceId: UUID?
+            if !panelArg.isEmpty {
+                surfaceId = resolveSurfaceId(from: panelArg, tab: tab)
+                if surfaceId == nil {
+                    result = "ERROR: Panel not found"
+                    return
+                }
+            } else {
+                surfaceId = tab.focusedPanelId
+            }
+
+            guard let targetSurface = surfaceId else {
+                result = "ERROR: No surface to split"
+                return
+            }
+
+            if tab.isRemoteTmuxMirror, direction.insertFirst {
+                // Routed tmux `split-window` cannot insert before the target
+                // pane; reject before mutating the remote session.
+                result = mirrorDirectionError
+                return
+            }
+
+            switch tab.newTerminalSplitOutcome(
+                from: targetSurface,
+                orientation: direction.orientation,
+                insertFirst: direction.insertFirst
+            ) {
+            case .created(let panel):
+                result = "OK \(panel.id.uuidString)"
+            case .routedToRemote:
+                result = "OK routed-to-remote-tmux"
+            case .failed:
+                break
+            }
+        }
+        return result
+    }
+
+    func controlCloseWorkspaceV1(arg: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+        guard let uuid = UUID(uuidString: arg) else { return "ERROR: Invalid tab ID" }
+
+        var result = "ERROR: Tab not found"
+        v2MainSync {
+            if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
+                guard tabManager.canCloseWorkspace(tab) else {
+                    result = "ERROR: \(workspaceCloseProtectedMessage())"
+                    return
+                }
+                tabManager.closeTab(tab)
+                result = "OK"
+            }
+        }
+        return result
+    }
+
+    func controlSelectWorkspaceV1(arg: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        var success = false
+        v2MainSync {
+            // Try as UUID first
+            if let uuid = UUID(uuidString: arg) {
+                if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
+                    tabManager.selectTab(tab)
+                    success = true
+                }
+            }
+            // Try as index
+            else if let index = Int(arg), index >= 0, index < tabManager.tabs.count {
+                tabManager.selectTab(at: index)
+                success = true
+            }
+        }
+        return success ? "OK" : "ERROR: Tab not found"
+    }
+
+    func controlCurrentWorkspaceV1() -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        var result: String = ""
+        v2MainSync {
+            if let id = tabManager.selectedTabId {
+                result = id.uuidString
+            }
+        }
+        return result.isEmpty ? "ERROR: No tab selected" : result
+    }
 }
