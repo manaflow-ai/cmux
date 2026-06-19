@@ -4263,7 +4263,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(capturedHandshake?["rows"] as? Int, 43)
     }
 
-    func testSSHPTYAttachSerializesResizeBeforeEOFLocalCleanup() throws {
+    func testSSHPTYAttachSendsResizeWithoutBlockingEOFLocalCleanup() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyresize")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -4284,7 +4284,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandler: (String) -> String = { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4340,6 +4340,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
+        let socketHandled = (0..<2).map { _ in startMockServer(listenerFD: listenerFD, state: state, handler: socketHandler) }
 
         let bridgeHandled = expectation(description: "controlled bridge handled")
         DispatchQueue.global(qos: .userInitiated).async {
@@ -4407,7 +4408,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
 
         closeBridge.signal()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        wait(for: [bridgeHandled], timeout: 5)
         allowResizeResponse.signal()
 
         let exited = DispatchSemaphore(value: 0)
@@ -4417,14 +4418,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertEqual(exited.wait(timeout: .now() + 5), .success)
 
-        wait(for: [socketHandled, bridgeHandled], timeout: 5)
+        wait(for: socketHandled, timeout: 5)
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         XCTAssertEqual(process.terminationStatus, 0, stderr)
         XCTAssertEqual(stdout, "")
         XCTAssertEqual(stderr, "")
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_bridge" }.count, 1)
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_resize" }.count, 1)
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 1)
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1)
     }
 
     func testSSHSessionAttachCreatesSurfaceWithPersistedPTYSessionID() throws {
