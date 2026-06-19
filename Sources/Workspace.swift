@@ -1275,7 +1275,9 @@ extension Workspace {
                localWorkingDirectory == nil,
                let guardedWorkingDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !guardedWorkingDirectory.isEmpty,
-               Self.unmountedVolumeRoot(for: guardedWorkingDirectory) != nil {
+               WorkspaceSurfaceMetadataModel<PendingTabSelectionRequest>.unmountedVolumeRoot(
+                   for: guardedWorkingDirectory
+               ) != nil {
                 restoredGuardedWorkingDirectoriesByPanelId[terminalPanel.id] = guardedWorkingDirectory
             } else {
                 restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
@@ -1425,7 +1427,11 @@ extension Workspace {
         }
 
         if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
-            updatePanelDirectory(panelId: panelId, directory: directory, source: .restoredSnapshotMetadata)
+            surfaceDirectoryMetadata.updatePanelDirectory(
+                panelId: panelId,
+                directory: directory,
+                source: .restoredSnapshotMetadata
+            )
         }
 
         if let branch = snapshot.gitBranch {
@@ -2047,7 +2053,7 @@ final class SharedLiveAgentIndex: ObservableObject {
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
-final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting {
+final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, SurfaceMetadataHosting {
     /// The browser-panel creation policy now lives in `CmuxBrowser` as a
     /// top-level `Sendable` value. This nested typealias keeps the existing
     /// unqualified `BrowserPanelCreationPolicy` and `Workspace.BrowserPanelCreationPolicy`
@@ -2163,6 +2169,22 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting {
     /// model itself stays `private` because its generic parameter
     /// `PendingTabSelectionRequest` is app-private).
     private let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
+
+    /// The per-workspace surface-directory sub-model (CmuxWorkspaces): owns the
+    /// directory-report and listening-port-fusion logic the legacy `Workspace`
+    /// god object kept inline (`updatePanelDirectory`, `configTrackingDirectory`,
+    /// `shouldIgnoreRestoredGuardedDirectoryReport`, `unmountedVolumeRoot`,
+    /// `resolvedWorkingDirectory`, `recomputeListeningPorts`). It reads/writes
+    /// `panelDirectories` / `surfaceListeningPorts` through the shared
+    /// `surfaceRegistry`, and reaches the workspace's focus, `@Published`
+    /// `currentDirectory` / `surfaceTabBarDirectory`, remote-mirror flag,
+    /// requested-directory, restored-guarded-directory map, port sets, and
+    /// fused `listeningPorts` through ``SurfaceMetadataHosting``, which
+    /// `Workspace` conforms (see the conformance section). The methods below
+    /// forward here so every call site stays byte-identical. It is `private`
+    /// for the same reason `surfaceRegistry` is: its generic parameter
+    /// `PendingTabSelectionRequest` is app-private.
+    private let surfaceDirectoryMetadata: WorkspaceSurfaceMetadataModel<PendingTabSelectionRequest>
 
     /// Internal forwarders to the surface-registry directory/title publishers,
     /// read by the sidebar/mobile observation extensions in sibling files in
@@ -3017,10 +3039,12 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting {
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(configuration: config)
+        self.surfaceDirectoryMetadata = WorkspaceSurfaceMetadataModel(registry: surfaceRegistry)
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         unreadModel.attach(host: self)
         unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
+        surfaceDirectoryMetadata.attach(host: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
@@ -3766,18 +3790,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting {
     /// three-tier order); the tiers are spelled out here so the public entry point is
     /// self-contained.
     func resolvedWorkingDirectory() -> String? {
-        let candidates = [
-            focusedPanelId.flatMap { panelDirectories[$0] },
-            focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
-            currentDirectory,
-        ]
-        for candidate in candidates {
-            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-        return nil
+        surfaceDirectoryMetadata.resolvedWorkingDirectory()
     }
 
     private func surfaceKind(for panel: any Panel) -> String {
@@ -4170,6 +4183,69 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting {
         _ = AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
     }
 
+    // MARK: - SurfaceMetadataHosting (live seam for WorkspaceSurfaceMetadataModel)
+
+    var surfaceMetadataFocusedPanelId: UUID? {
+        focusedPanelId
+    }
+
+    var surfaceMetadataCurrentDirectory: String {
+        get { currentDirectory }
+        set { currentDirectory = newValue }
+    }
+
+    var surfaceMetadataSurfaceTabBarDirectory: String? {
+        get { surfaceTabBarDirectory }
+        set { surfaceTabBarDirectory = newValue }
+    }
+
+    var surfaceMetadataIsRemoteTmuxMirror: Bool {
+        isRemoteTmuxMirror
+    }
+
+    func surfaceMetadataRequestedWorkingDirectory(panelId: UUID) -> String? {
+        terminalPanel(for: panelId)?.requestedWorkingDirectory
+    }
+
+    func surfaceMetadataRestoredGuardedWorkingDirectory(panelId: UUID) -> String? {
+        restoredGuardedWorkingDirectoriesByPanelId[panelId]
+    }
+
+    func surfaceMetadataClearRestoredGuardedWorkingDirectory(panelId: UUID) {
+        restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+    }
+
+    var surfaceMetadataAgentListeningPorts: [Int] {
+        agentListeningPorts
+    }
+
+    var surfaceMetadataRemoteDetectedPorts: [Int] {
+        remoteDetectedPorts
+    }
+
+    var surfaceMetadataRemoteForwardedPorts: [Int] {
+        remoteForwardedPorts
+    }
+
+    var surfaceMetadataListeningPorts: [Int] {
+        get { listeningPorts }
+        set { listeningPorts = newValue }
+    }
+
+    func surfaceMetadataLogIgnoredRestoredCwdReport(
+        panelId: UUID,
+        missingVolumeRoot: String,
+        savedDirectory: String,
+        reportedDirectory: String
+    ) {
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.cwdReport.ignored panel=\(panelId.uuidString.prefix(5)) " +
+            "missingVolume=\(missingVolumeRoot) saved=\(savedDirectory) reported=\(reportedDirectory)"
+        )
+#endif
+    }
+
     // MARK: - Title Management
 
     /// Who set a custom title. Auto-naming (AI-generated titles) must never
@@ -4286,114 +4362,13 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting {
 
     // MARK: - Directory Updates
 
-    private enum PanelDirectoryUpdateSource {
-        case liveReport
-        case restoredSnapshotMetadata
-    }
-
-    private static func unmountedVolumeRoot(
-        for workingDirectory: String,
-        fileManager: FileManager = .default
-    ) -> String? {
-        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let components = URL(fileURLWithPath: trimmed, isDirectory: true)
-            .standardizedFileURL
-            .pathComponents
-        guard components.count >= 3,
-              components[0] == "/",
-              components[1] == "Volumes",
-              !components[2].isEmpty else {
-            return nil
-        }
-
-        let volumeRoot = "/Volumes/\(components[2])"
-        return fileManager.fileExists(atPath: volumeRoot) ? nil : volumeRoot
-    }
-
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
-        // A remote tmux mirror's directories are paths on the REMOTE host.
-        // Feeding one into local cmux.json tracking makes CmuxConfigStore walk
-        // the ancestor chain with FileManager.fileExists on the main thread,
-        // and stat'ing e.g. /home/… locally blocks on the autofs automounter
-        // for hundreds of ms (measured via sample during tab-reveal stalls).
-        // No local per-directory config can apply to a remote path — track none.
-        if isRemoteTmuxMirror { return nil }
-        if let panelId {
-            for candidate in [
-                panelDirectories[panelId],
-                terminalPanel(for: panelId)?.requestedWorkingDirectory
-            ] {
-                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            }
-        }
-
-        let trimmedCurrentDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
+        surfaceDirectoryMetadata.configTrackingDirectory(for: panelId)
     }
 
     @discardableResult
     func updatePanelDirectory(panelId: UUID, directory: String) -> Bool {
-        updatePanelDirectory(panelId: panelId, directory: directory, source: .liveReport)
-    }
-
-    @discardableResult
-    private func updatePanelDirectory(
-        panelId: UUID,
-        directory: String,
-        source: PanelDirectoryUpdateSource
-    ) -> Bool {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        if source == .liveReport,
-           shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
-            return false
-        }
-        if panelDirectories[panelId] != trimmed {
-            panelDirectories[panelId] = trimmed
-        }
-        // Update current directory if this is the focused panel
-        if panelId == focusedPanelId {
-            if surfaceTabBarDirectory != trimmed {
-                surfaceTabBarDirectory = trimmed
-            }
-            if currentDirectory != trimmed {
-                currentDirectory = trimmed
-            }
-        }
-        return true
-    }
-
-    private func shouldIgnoreRestoredGuardedDirectoryReport(
-        panelId: UUID,
-        reportedDirectory: String
-    ) -> Bool {
-        guard let restoredDirectory = restoredGuardedWorkingDirectoriesByPanelId[panelId] else {
-            return false
-        }
-
-        if reportedDirectory == restoredDirectory {
-            restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-            return false
-        }
-
-        let missingVolumeRoot = Self.unmountedVolumeRoot(for: restoredDirectory)
-        guard missingVolumeRoot != nil else {
-            restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-            return false
-        }
-
-#if DEBUG
-        cmuxDebugLog(
-            "session.restore.cwdReport.ignored panel=\(panelId.uuidString.prefix(5)) " +
-            "missingVolume=\(missingVolumeRoot ?? "") saved=\(restoredDirectory) reported=\(reportedDirectory)"
-        )
-#endif
-        return true
+        surfaceDirectoryMetadata.updatePanelDirectory(panelId: panelId, directory: directory)
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -4867,14 +4842,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting {
     }
 
     func recomputeListeningPorts() {
-        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
-            .union(agentListeningPorts)
-            .union(remoteDetectedPorts)
-            .union(remoteForwardedPorts)
-        let next = unique.sorted()
-        if listeningPorts != next {
-            listeningPorts = next
-        }
+        surfaceDirectoryMetadata.recomputeListeningPorts()
     }
 
     func sidebarOrderedPanelIds() -> [UUID] {
