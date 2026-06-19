@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
@@ -149,6 +150,8 @@ struct SectionKey: Hashable {
 
     static func agent(_ a: SessionAgent) -> SectionKey { SectionKey(raw: "agent:" + a.rawValue) }
     static func directory(_ path: String?) -> SectionKey { SectionKey(raw: "dir:" + (path ?? "")) }
+
+    var isDirectory: Bool { raw.hasPrefix("dir:") }
 }
 
 struct IndexSection: Identifiable, Equatable {
@@ -158,6 +161,20 @@ struct IndexSection: Identifiable, Equatable {
     let entries: [SessionEntry]
 
     var id: SectionKey { key }
+
+    /// Whether to render the "Show more" affordance for this section.
+    ///
+    /// Directory sections are derived from `scanAll()`'s global, per-agent-capped
+    /// pool, so their in-memory `entries` are only a preview that can under-report
+    /// a folder's true on-disk session count (issue #6302). "Show more" is the
+    /// only trigger for the complete folder-scoped query (`loadDirectorySnapshot`),
+    /// so always offer it for directory sections; otherwise a folder that
+    /// contributed ≤ `rowLimit` sessions to the capped pool would have the rest of
+    /// its sessions permanently unreachable from the UI. Agent sections aren't
+    /// folder-truncated this way, so they keep the simple count threshold.
+    func shouldOfferShowMore(rowLimit: Int) -> Bool {
+        key.isDirectory || entries.count > rowLimit
+    }
 }
 
 enum SectionIcon: Equatable {
@@ -1361,7 +1378,7 @@ final class SessionIndexStore: ObservableObject {
             // terminationStatus observable. (Setting terminationHandler here
             // would race: if rg already exited, the handler is registered too
             // late and never fires → deadlock.)
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: outPipe.fileHandleForReading)
+            let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             cancellation.markFinished(processIdentifier: process.processIdentifier)
             if Task.isCancelled { return [] }

@@ -1,5 +1,9 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
+import CmuxSidebar
 import SwiftUI
+import CmuxSettings
 
 /// Collapsible group header that doubles as the anchor workspace row.
 struct SidebarWorkspaceGroupHeaderView: View, Equatable {
@@ -369,7 +373,7 @@ enum SidebarWorkspaceGroupHeaderDropPolicy {
         if draggedWorkspaceId == targetAnchorWorkspaceId || draggedWorkspaceGroupId == targetGroupId {
             return true
         }
-        return SidebarDropPlanner.indicator(
+        return SidebarDropPlanner().indicator(
             draggedTabId: draggedWorkspaceId,
             targetTabId: targetAnchorWorkspaceId,
             tabIds: tabIds,

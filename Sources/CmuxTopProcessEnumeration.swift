@@ -89,7 +89,7 @@ nonisolated extension CmuxTopProcessSnapshot {
         let path = includeProcessDetails ? processPath(pid: pid) : nil
         let rawTTY = Int64(bsdInfo.e_tdev)
         let ttyDevice = rawTTY > 0 ? rawTTY : nil
-        let cmuxScope = cachedCMUXScope(for: pid, cacheKey: cacheKey)
+        let cmuxScope = cachedCMUXScope(for: pid, cacheKey: cacheKey, nowNanoseconds: sampledAtNanoseconds)
         let rawProcessGroupID = Int(bsdInfo.pbi_pgid)
         let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
         let rawTerminalProcessGroupID = Int(bsdInfo.e_tpgid)
