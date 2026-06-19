@@ -221,7 +221,8 @@ struct PaneMemoryGuardrailTests {
         let snapshot = CmuxTopProcessSnapshot(
             processes: [shell, leak, other],
             sampledAt: Date(),
-            includesProcessDetails: false
+            includesProcessDetails: false,
+            includesCMUXScope: false
         )
         let descriptor = PaneMemoryDescriptor(
             workspaceId: ws,

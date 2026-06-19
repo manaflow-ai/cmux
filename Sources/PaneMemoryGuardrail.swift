@@ -108,14 +108,25 @@ final class PaneMemoryGuardrail {
         descriptors: [PaneMemoryDescriptor],
         thresholdBytes: Int64
     ) -> [PaneMemorySample] {
-        computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes, snapshot: CmuxTopProcessSnapshot.captureCached(maximumAge: 2))
+        computeSamples(
+            descriptors: descriptors,
+            thresholdBytes: thresholdBytes,
+            snapshot: CmuxTopProcessSnapshot.captureCached(
+                includeCMUXScope: false,
+                maximumAge: 2
+            )
+        )
     }
 
     nonisolated static func computeFreshSamples(
         descriptors: [PaneMemoryDescriptor],
         thresholdBytes: Int64
     ) -> [PaneMemorySample] {
-        computeSamples(descriptors: descriptors, thresholdBytes: thresholdBytes, snapshot: CmuxTopProcessSnapshot.capture())
+        computeSamples(
+            descriptors: descriptors,
+            thresholdBytes: thresholdBytes,
+            snapshot: CmuxTopProcessSnapshot.capture(includeCMUXScope: false)
+        )
     }
 
     nonisolated static func computeSamples(
@@ -125,7 +136,10 @@ final class PaneMemoryGuardrail {
     ) -> [PaneMemorySample] {
         let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
         return descriptors.map { descriptor in
-            var rootPIDs = snapshot.pids(forCMUXSurfaceID: descriptor.panelId)
+            var rootPIDs: Set<Int> = []
+            if let foregroundPID = descriptor.foregroundPID {
+                rootPIDs.insert(foregroundPID)
+            }
             if let ttyName = descriptor.ttyName {
                 rootPIDs.formUnion(snapshot.pids(forTTYName: ttyName))
             }
