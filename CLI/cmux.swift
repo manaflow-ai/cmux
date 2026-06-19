@@ -8990,7 +8990,7 @@ struct CMUXCLI {
                     "stage=workspace.remote.reconnect elapsedMs=\(Int(Date().timeIntervalSince(reconnectStartedAt) * 1000))"
                 )
                 if usesPersistentFreestyleCloud {
-                    try recoverStaleFreestyleSSHPromptIfNeeded(workspaceId: workspaceId, surfaceId: surfaceId, command: reusableTerminalStartupCommand, client: client)
+                    try recoverStaleFreestyleSSHPromptIfNeeded(workspaceId: workspaceId, surfaceId: surfaceId, vmID: vmIDForSplitAttach ?? "", command: reusableTerminalStartupCommand, client: client)
                 }
             }
             let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"
@@ -9100,17 +9100,17 @@ struct CMUXCLI {
         _ = try client.sendV2(method: "workspace.action", params: moveParams)
     }
 
-    private func recoverStaleFreestyleSSHPromptIfNeeded(workspaceId: String, surfaceId: String, command: String, client: SocketClient) throws {
-        let target: [String: Any] = [
-            "workspace_id": workspaceId,
-            "surface_id": surfaceId,
-        ]
-        let payload = try client.sendV2(method: "surface.read_text", params: target.merging([
-            "scrollback": true,
-            "lines": 80,
-        ]) { _, new in new })
+    private func recoverStaleFreestyleSSHPromptIfNeeded(workspaceId: String, surfaceId: String, vmID: String, command: String, client: SocketClient) throws {
+        let target: [String: Any] = ["workspace_id": workspaceId, "surface_id": surfaceId]
+        let surfaces = (try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])["surfaces"] as? [[String: Any]]) ?? []
+        let surface = surfaces.first { ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceId } ?? [:]
+        let payload = try client.sendV2(method: "surface.read_text", params: target.merging(["scrollback": true, "lines": 80]) { _, new in new })
         let text = ((payload["text"] as? String) ?? "").lowercased()
-        guard text.contains("password:") || text.contains("input_userauth_error") || text.contains("permission denied") else { return }
+        let title = ((surface["title"] as? String) ?? "").lowercased()
+        let initialCommand = ((surface["initial_command"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let vmNeedle = vmID.lowercased(); let alreadyOnVM = !vmNeedle.isEmpty && (title.contains(vmNeedle) || text.contains(vmNeedle))
+        let staleAuth = text.contains("password:") || text.contains("input_userauth_error") || text.contains("permission denied")
+        guard staleAuth || (!alreadyOnVM && initialCommand.isEmpty) else { return }
         _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "ctrl+c"]) { _, new in new })
         _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command]) { _, new in new })
         _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "enter"]) { _, new in new })

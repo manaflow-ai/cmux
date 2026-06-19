@@ -273,6 +273,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                                 "ref": "surface:sshd",
                                 "index": 0,
                                 "focused": true,
+                                "initial_command": NSNull(),
+                                "title": "lawrence@lawrences-MacBook-Pro-2:~/fun",
                             ],
                         ],
                     ]
@@ -356,6 +358,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "workspace.select",
                 "surface.list",
                 "workspace.remote.reconnect",
+                "surface.list",
                 "surface.read_text",
                 "surface.send_key",
                 "surface.send_text",
