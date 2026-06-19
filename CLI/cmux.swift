@@ -5681,7 +5681,7 @@ struct CMUXCLI {
         )
     }
 
-    private static func authenticateSocketClientIfNeeded(
+    static func authenticateSocketClientIfNeeded(
         _ client: SocketClient,
         explicitPassword: String?,
         socketPath: String,
@@ -11613,180 +11613,6 @@ struct CMUXCLI {
             }
         }
         throw CLIError(message: "ssh-pty-attach: bridge status exceeded \(maxStatusBytes) bytes")
-    }
-
-    // Dispatch source and stdin callbacks cross threads; `stateLock` protects
-    // the size cache and worker scheduling, while each resize RPC owns its
-    // SocketClient on the worker queue.
-    private final class SSHPTYResizeMonitor: @unchecked Sendable {
-        private let socketPath: String
-        private let explicitPassword: String?
-        private let workspaceId: String
-        private let surfaceID: String?
-        private let sessionID: String
-        private let attachmentID: String
-        private let attachmentToken: String
-        private let stateLock = NSLock()
-        private let source: DispatchSourceSignal
-        private let workerQueue = DispatchQueue(label: "com.cmux.ssh-pty.resize.worker", qos: .userInitiated)
-        private var lastSentSize: (cols: Int, rows: Int)
-        private var pendingSize: (cols: Int, rows: Int)?
-        private var isWorkerScheduled = false
-        private var isCancelled = false
-
-        init(
-            socketPath: String,
-            explicitPassword: String?,
-            workspaceId: String,
-            surfaceID: String?,
-            sessionID: String,
-            attachmentID: String,
-            attachmentToken: String,
-            initialSize: (cols: Int, rows: Int)
-        ) {
-            self.socketPath = socketPath
-            self.explicitPassword = explicitPassword
-            self.workspaceId = workspaceId
-            self.surfaceID = surfaceID
-            self.sessionID = sessionID
-            self.attachmentID = attachmentID
-            self.attachmentToken = attachmentToken
-            self.lastSentSize = initialSize
-            self.source = DispatchSource.makeSignalSource(
-                signal: SIGWINCH,
-                queue: DispatchQueue(label: "com.cmux.ssh-pty.resize.signal")
-            )
-            signal(SIGWINCH, SIG_IGN)
-            source.setEventHandler { [weak self] in
-                self?.enqueueResize(force: true)
-            }
-            source.resume()
-        }
-
-        func enqueueResizeIfNeeded() {
-            enqueueResize(force: false)
-        }
-
-        func cancel() {
-            stateLock.lock()
-            let shouldCancel = !isCancelled
-            isCancelled = true
-            pendingSize = nil
-            stateLock.unlock()
-            if shouldCancel {
-                source.cancel()
-            }
-        }
-
-        private func enqueueResize(force: Bool) {
-            let size = CMUXCLI.currentCLITerminalSize()
-            var shouldScheduleWorker = false
-            stateLock.lock()
-            if !isCancelled {
-                if force || !Self.sameSize(size, lastSentSize) {
-                    pendingSize = size
-                    if !isWorkerScheduled {
-                        isWorkerScheduled = true
-                        shouldScheduleWorker = true
-                    }
-                } else {
-                    pendingSize = nil
-                }
-            }
-            stateLock.unlock()
-
-            if shouldScheduleWorker {
-                workerQueue.async { [self] in
-                    drainPendingResizes()
-                }
-            }
-        }
-
-        private func drainPendingResizes() {
-            while true {
-                stateLock.lock()
-                if isCancelled {
-                    isWorkerScheduled = false
-                    stateLock.unlock()
-                    return
-                }
-                guard let size = pendingSize else {
-                    isWorkerScheduled = false
-                    stateLock.unlock()
-                    return
-                }
-                pendingSize = nil
-                stateLock.unlock()
-
-                let sent = sendResize(size: size)
-
-                stateLock.lock()
-                if isCancelled {
-                    isWorkerScheduled = false
-                    stateLock.unlock()
-                    return
-                }
-                if sent {
-                    lastSentSize = size
-                    let currentSize = CMUXCLI.currentCLITerminalSize()
-                    if Self.sameSize(currentSize, lastSentSize) {
-                        pendingSize = nil
-                    } else {
-                        pendingSize = currentSize
-                    }
-                    if pendingSize == nil {
-                        isWorkerScheduled = false
-                        stateLock.unlock()
-                        return
-                    }
-                    stateLock.unlock()
-                    continue
-                }
-                if pendingSize == nil {
-                    pendingSize = size
-                }
-                isWorkerScheduled = false
-                stateLock.unlock()
-                return
-            }
-        }
-
-        private func sendResize(size: (cols: Int, rows: Int)) -> Bool {
-            var params: [String: Any] = [
-                "workspace_id": workspaceId,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-                "attachment_token": attachmentToken,
-                "cols": size.cols,
-                "rows": size.rows,
-            ]
-            if let surfaceID {
-                params["surface_id"] = surfaceID
-                params["allow_moved_surface"] = true
-            }
-            let resizeClient = SocketClient(path: socketPath)
-            defer { resizeClient.close() }
-            do {
-                try resizeClient.connectWithoutRetry()
-                try CMUXCLI.authenticateSocketClientIfNeeded(
-                    resizeClient,
-                    explicitPassword: explicitPassword,
-                    socketPath: socketPath
-                )
-                _ = try resizeClient.sendV2(method: "workspace.remote.pty_resize", params: params)
-                return true
-            } catch {
-                // Retry on the next SIGWINCH or input edge at this size.
-                return false
-            }
-        }
-
-        private static func sameSize(
-            _ lhs: (cols: Int, rows: Int),
-            _ rhs: (cols: Int, rows: Int)
-        ) -> Bool {
-            lhs.cols == rhs.cols && lhs.rows == rhs.rows
-        }
     }
 
     private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
@@ -32559,7 +32385,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
     }
 
-    private static func currentCLITerminalSize() -> (cols: Int, rows: Int) {
+    static func currentCLITerminalSize() -> (cols: Int, rows: Int) {
         var size = winsize()
         if ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0,
            size.ws_col > 0,
