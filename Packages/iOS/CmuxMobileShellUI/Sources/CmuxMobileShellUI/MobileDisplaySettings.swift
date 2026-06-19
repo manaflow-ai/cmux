@@ -22,12 +22,26 @@ public final class MobileDisplaySettings {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
+    private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
+    private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
+    private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
     /// Default preview line count when nothing is stored (iMessage-style two
     /// lines).
     public static let defaultWorkspacePreviewLineCount = 2
+    /// Debug slider range for moving the unread dot left, in points.
+    public static let unreadIndicatorLeftShiftRange: ClosedRange<Double> = 0...24
+    /// Debug slider range for moving the workspace profile picture left, in points.
+    public static let profilePictureLeftShiftRange: ClosedRange<Double> = 0...24
+    /// Debug slider range for the workspace profile picture size, in points.
+    public static let profilePictureSizeRange: ClosedRange<Double> = 36...64
+    /// With the workspace list's 12pt leading row inset, 10pt unread gutter, and
+    /// 11pt unread dot, this places the dot's leading edge 10pt from the screen.
+    public static let defaultUnreadIndicatorLeftShift = 1.5
+    public static let defaultProfilePictureLeftShift = 4.0
+    public static let defaultProfilePictureSize = 45.0
 
     /// Whether workspace-list row titles wrap onto multiple lines instead of
     /// truncating to a single line. Defaults to `false` (single-line). Mutating
@@ -48,6 +62,35 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// DEBUG-only layout tuning value, exposed in Settings > Developer. Positive
+    /// values move the unread indicator left without changing row column widths.
+    public var unreadIndicatorLeftShift: Double {
+        didSet {
+            let clamped = Self.clamped(unreadIndicatorLeftShift, to: Self.unreadIndicatorLeftShiftRange)
+            if clamped != unreadIndicatorLeftShift { unreadIndicatorLeftShift = clamped }
+            defaults.set(clamped, forKey: Self.unreadIndicatorLeftShiftKey)
+        }
+    }
+
+    /// DEBUG-only layout tuning value, exposed in Settings > Developer. Positive
+    /// values move the workspace profile picture left without changing text layout.
+    public var profilePictureLeftShift: Double {
+        didSet {
+            let clamped = Self.clamped(profilePictureLeftShift, to: Self.profilePictureLeftShiftRange)
+            if clamped != profilePictureLeftShift { profilePictureLeftShift = clamped }
+            defaults.set(clamped, forKey: Self.profilePictureLeftShiftKey)
+        }
+    }
+
+    /// DEBUG-only layout tuning value, exposed in Settings > Developer.
+    public var profilePictureSize: Double {
+        didSet {
+            let clamped = Self.clamped(profilePictureSize, to: Self.profilePictureSizeRange)
+            if clamped != profilePictureSize { profilePictureSize = clamped }
+            defaults.set(clamped, forKey: Self.profilePictureSizeKey)
+        }
+    }
+
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
     ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
@@ -60,6 +103,21 @@ public final class MobileDisplaySettings {
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
         )
+        let storedUnreadLeftShift = defaults.object(forKey: Self.unreadIndicatorLeftShiftKey) as? Double
+        self.unreadIndicatorLeftShift = Self.clamped(
+            storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,
+            to: Self.unreadIndicatorLeftShiftRange
+        )
+        let storedProfileLeftShift = defaults.object(forKey: Self.profilePictureLeftShiftKey) as? Double
+        self.profilePictureLeftShift = Self.clamped(
+            storedProfileLeftShift ?? Self.defaultProfilePictureLeftShift,
+            to: Self.profilePictureLeftShiftRange
+        )
+        let storedProfilePictureSize = defaults.object(forKey: Self.profilePictureSizeKey) as? Double
+        self.profilePictureSize = Self.clamped(
+            storedProfilePictureSize ?? Self.defaultProfilePictureSize,
+            to: Self.profilePictureSizeRange
+        )
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.
@@ -70,5 +128,9 @@ public final class MobileDisplaySettings {
             max(count, workspacePreviewLineCountRange.lowerBound),
             workspacePreviewLineCountRange.upperBound
         )
+    }
+
+    private static func clamped(_ value: Double, to range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
     }
 }

@@ -1,5 +1,5 @@
 public import AppKit
-public import CmuxWorkspaceWindow
+public import CmuxWorkspaces
 
 /// Applies resolved backdrop plans to `NSWindow` instances.
 @MainActor

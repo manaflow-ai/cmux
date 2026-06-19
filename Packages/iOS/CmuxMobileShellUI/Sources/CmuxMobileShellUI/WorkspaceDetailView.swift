@@ -42,6 +42,13 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
+    /// Drives the rename-workspace dialog launched from the picker menu, and its
+    /// editable text (seeded with the current name when presented).
+    @State private var isRenamePresented = false
+    @State private var renameText = ""
+    /// Live pane width, used to width-cap the centered glass title pill so a long
+    /// workspace name truncates instead of underlapping the toolbar buttons.
+    @State private var contentWidth: CGFloat = 0
     /// Captured at the moment the "View as Text" action is tapped so the
     /// sheet keeps showing the terminal the user asked about even if the
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
@@ -63,6 +70,11 @@ struct WorkspaceDetailView: View {
     private var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
+
+    /// Extra blank top padding for the terminal/chat, on top of the safe area, so
+    /// the first rows sit clear of the Dynamic Island / nav bar with breathing
+    /// room instead of being jammed against them.
+    private var terminalTopPadding: CGFloat { 20 }
 
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
@@ -149,41 +161,54 @@ struct WorkspaceDetailView: View {
         // would otherwise stay on the old session).
         .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Extra top inset so the first transcript rows clear the Dynamic Island /
+        // nav bar instead of hiding behind the opaque top; content still scrolls
+        // up under the glass.
+        .safeAreaPadding(.top, terminalTopPadding)
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                // Chat toggle stays top-level next to the picker (lets you flip
+                // back to the terminal); New Workspace lives in the picker menu.
                 chatToggleButton
-                newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
+        .workspaceRenameDialog(
+            isPresented: $isRenamePresented,
+            text: $renameText,
+            onSave: commitRenameFromDialog
+        )
     }
 
-    /// Toolbar toggle between terminal and chat. Shown only when the
-    /// currently visible tab has an agent session (or chat is already on), so
-    /// the toggle tracks the tab the user is looking at. Surface ids are
-    /// stable across relaunch/restore, so this per-tab match survives a
-    /// restart.
+    /// Top-level toolbar toggle between terminal and chat. Shown only when the
+    /// currently visible tab has an agent session (or chat is already on), so the
+    /// toggle tracks the tab the user is looking at. Surface ids are stable across
+    /// relaunch/restore, so this per-tab match survives a restart. It sits next to
+    /// the terminal picker (where New Workspace used to be); the glass title pill
+    /// keeps the center readable even with the button present.
     @ViewBuilder
     private var chatToggleButton: some View {
         if isChatMode || sessionForSelectedTerminal != nil {
-            Button {
-                withAnimation(.snappy(duration: 0.28)) {
-                    isChatMode.toggle()
-                }
-                pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
-            } label: {
+            Button(action: toggleChatMode) {
                 Image(systemName: isChatMode
                     ? "bubble.left.and.bubble.right.fill"
                     : "bubble.left.and.bubble.right")
             }
             .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
             .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
-            // Toggling off when the chosen session vanished still works
-            // because the button stays shown while isChatMode is true.
             .disabled(!isChatMode && chosenChatSession == nil)
         }
+    }
+
+    /// Flip between the terminal and the inline agent chat, pinning/unpinning the
+    /// chosen session. Shared by the (legacy) toolbar button and the menu row.
+    private func toggleChatMode() {
+        withAnimation(.snappy(duration: 0.28)) {
+            isChatMode.toggle()
+        }
+        pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
     }
 
     /// Identity for the session refetch: workspace plus connection epoch.
@@ -245,12 +270,15 @@ struct WorkspaceDetailView: View {
         // Key on the surface id so switching/reopening rebuilds the WKWebView.
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         .navigationTitle(browser.title ?? workspace.name)
         .mobileTerminalNavigationChrome()
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                glassTitle(browser.title ?? workspace.name)
+            }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
-                newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
         }
@@ -258,6 +286,11 @@ struct WorkspaceDetailView: View {
         .closeWorkspaceConfirmation(
             isPresented: $isConfirmingClose,
             confirm: confirmCloseWorkspaceFromMenu
+        )
+        .workspaceRenameDialog(
+            isPresented: $isRenamePresented,
+            text: $renameText,
+            onSave: commitRenameFromDialog
         )
     }
     #endif
@@ -305,6 +338,14 @@ struct WorkspaceDetailView: View {
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
                 // and the reservation double-counts (extra gap when open).
                 .ignoresSafeArea(.keyboard, edges: .bottom)
+                // Keep the grid INSIDE the top safe area and add extra blank top
+                // padding so the first rows sit clear of the Dynamic Island and
+                // the nav bar instead of being stuck in the non-visible area
+                // behind them. The padded region shows the terminal background
+                // (the window-filling `.background` below extends under the bar),
+                // so it reads as blank terminal color, and the glass title pill
+                // floats over it.
+                .padding(.top, terminalTopPadding)
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -315,6 +356,9 @@ struct WorkspaceDetailView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        #if os(iOS)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+        #endif
         .overlay(alignment: .topLeading) {
             MobileMacConnectionStatusPill(host: host, status: connectionStatus)
                 .padding(.top, 10)
@@ -348,8 +392,11 @@ struct WorkspaceDetailView: View {
             includesBottom: true
         )
         .background {
+            // Fill the whole window, including under the translucent nav bar, so
+            // the glass tints the terminal's own dark color rather than the page
+            // background.
             TerminalPalette.background
-                .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+                .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
         #else
         .background(TerminalPalette.background)
@@ -361,9 +408,11 @@ struct WorkspaceDetailView: View {
         #endif
         .toolbar {
             #if os(iOS)
+            ToolbarItem(placement: .principal) {
+                glassTitle(workspace.name)
+            }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
-                newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
             #else
@@ -383,6 +432,11 @@ struct WorkspaceDetailView: View {
         .sheet(isPresented: $isTextSheetPresented) {
             TerminalTextSheetView(surfaceID: textSheetSurfaceID)
         }
+        .workspaceRenameDialog(
+            isPresented: $isRenamePresented,
+            text: $renameText,
+            onSave: commitRenameFromDialog
+        )
         #endif
     }
 
@@ -391,6 +445,27 @@ struct WorkspaceDetailView: View {
         newWorkspaceToolbarButton
         terminalPickerToolbarButton
     }
+
+    #if os(iOS)
+    /// A nav-bar title on its own Liquid Glass capsule (iOS 26+) so it stays
+    /// readable over the pane showing through the cleared header bar. On iOS 18
+    /// the bar keeps a material background, so `mobileGlassNavigationTitle` is a
+    /// no-op and this renders as plain text.
+    private func glassTitle(_ text: String) -> some View {
+        Text(text)
+            .font(.headline)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .foregroundStyle(TerminalPalette.foreground)
+            // The principal item is screen-centered and reserves no space for the
+            // back button + trailing controls, so an unbounded long title pill can
+            // extend under them. Cap it to the clear center gap (reserve ~300pt for
+            // both bar-button clusters + margins) so the name truncates instead,
+            // matching `WorkspaceChatPane`'s header.
+            .frame(maxWidth: contentWidth > 0 ? max(96, contentWidth - 300) : 180)
+            .mobileGlassNavigationTitle()
+    }
+    #endif
 
     private var newWorkspaceToolbarButton: some View {
         Button(action: createWorkspaceFromToolbar) {
@@ -462,6 +537,38 @@ struct WorkspaceDetailView: View {
                 )
             }
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
+        }
+
+        // Rename the current workspace from the terminal-icon menu, mirroring the
+        // workspace list's rename action. Gated on the same capability the list
+        // uses, so it stays hidden on older Macs.
+        if store.supportsWorkspaceActions {
+            Section {
+                Button(action: presentRenameFromMenu) {
+                    Label(
+                        L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),
+                        systemImage: "pencil"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceRenameMenuItem")
+            }
+        }
+
+        // Mark the current workspace read/unread from the terminal-icon menu,
+        // mirroring the workspace list's swipe action. Only when the Mac supports
+        // read-state actions, so it stays hidden on older Macs.
+        if store.supportsWorkspaceReadStateActions {
+            Section {
+                Button(action: toggleWorkspaceReadStateFromMenu) {
+                    Label(
+                        workspace.hasUnread
+                            ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
+                            : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
+                        systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceMarkReadStateMenuItem")
+            }
         }
 
         if closeWorkspace != nil {
@@ -685,6 +792,36 @@ struct WorkspaceDetailView: View {
     private func confirmCloseWorkspaceFromMenu() {
         closeWorkspace?(workspace.id)
     }
+
+    /// Toggle the current workspace's read state on the Mac from the picker menu.
+    /// Flips relative to the workspace's current `hasUnread`; the authoritative
+    /// list re-sync inside `setWorkspaceUnread` reconciles the row + back-button
+    /// count.
+    private func toggleWorkspaceReadStateFromMenu() {
+        let store = store
+        let id = workspace.id
+        let markUnread = !workspace.hasUnread
+        Task { await store.setWorkspaceUnread(id: id, markUnread) }
+    }
+
+    #if canImport(UIKit)
+    private func presentRenameFromMenu() {
+        dismissTerminalKeyboardForChrome()
+        // Seed the dialog field with the current name each time it opens.
+        renameText = workspace.name
+        isRenamePresented = true
+    }
+
+    /// Commit the rename dialog: forward the trimmed name to the Mac, which echoes
+    /// it back via the authoritative list sync. Empty names are ignored.
+    private func commitRenameFromDialog() {
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let store = store
+        let id = workspace.id
+        Task { await store.renameWorkspace(id: id, title: trimmed) }
+    }
+    #endif
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
