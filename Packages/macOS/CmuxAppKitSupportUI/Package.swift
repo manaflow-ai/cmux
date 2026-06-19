@@ -16,6 +16,8 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxWorkspaces"),
+        // CMUXDebugLog backs the ReleasingWindowController close-teardown logging.
+        .package(path: "../CMUXDebugLog"),
     ],
     targets: [
         .target(
@@ -23,6 +25,7 @@ let package = Package(
             dependencies: [
                 "CmuxFoundation",
                 "CmuxWorkspaces",
+                .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
