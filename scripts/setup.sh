@@ -16,6 +16,14 @@ if ! command -v zig &> /dev/null; then
     exit 1
 fi
 
+echo "==> Checking for Xcode..."
+if ! xcodebuild -version >/dev/null 2>&1; then
+    echo "Error: full Xcode is required, but xcodebuild is not available from an Xcode developer directory."
+    echo "Install Xcode 15+ from the App Store, then run:"
+    echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    exit 1
+fi
+
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 
 "$SCRIPT_DIR/install-git-hooks.sh"

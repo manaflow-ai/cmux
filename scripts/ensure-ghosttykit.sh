@@ -115,7 +115,17 @@ echo "==> Ghostty build key: $GHOSTTY_KEY"
 
 LOCK_TIMEOUT=300
 LOCK_START=$SECONDS
-while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+LOCK_MKDIR_ERR="$(mktemp "${TMPDIR:-/tmp}/cmux-ghosttykit-lock.XXXXXX")"
+while ! mkdir "$LOCK_DIR" 2>"$LOCK_MKDIR_ERR"; do
+  if [[ ! -d "$LOCK_DIR" ]]; then
+    echo "error: could not create GhosttyKit cache lock at $LOCK_DIR." >&2
+    if [[ -s "$LOCK_MKDIR_ERR" ]]; then
+      sed 's/^/  /' "$LOCK_MKDIR_ERR" >&2
+    fi
+    echo "Check that CMUX_GHOSTTYKIT_CACHE_DIR, or its parent cache directory, is writable." >&2
+    rm -f "$LOCK_MKDIR_ERR"
+    exit 1
+  fi
   if (( SECONDS - LOCK_START > LOCK_TIMEOUT )); then
     echo "==> Lock stale (>${LOCK_TIMEOUT}s), removing and retrying..."
     rmdir "$LOCK_DIR" 2>/dev/null || rm -rf "$LOCK_DIR"
@@ -124,6 +134,7 @@ while ! mkdir "$LOCK_DIR" 2>/dev/null; do
   echo "==> Waiting for GhosttyKit cache lock for $GHOSTTY_KEY..."
   sleep 1
 done
+rm -f "$LOCK_MKDIR_ERR"
 trap 'rmdir "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
 
 try_fetch_prebuilt_xcframework() {
