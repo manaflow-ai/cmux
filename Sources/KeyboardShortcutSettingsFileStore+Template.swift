@@ -1,7 +1,5 @@
 import CmuxSettings
 import Foundation
-import CmuxSocketControl
-import CmuxSettings
 
 extension CmuxSettingsFileStore {
     static func defaultTemplate() -> String {
@@ -158,10 +156,10 @@ extension CmuxSettingsFileStore {
             [
                 "sidebarAppearance": [
                     "matchTerminalBackground": false,
-                    "tintColor": SidebarTintDefaults.hex,
+                    "tintColor": SidebarTintDefaults().hex,
                     "lightModeTintColor": NSNull(),
                     "darkModeTintColor": NSNull(),
-                    "tintOpacity": SidebarTintDefaults.opacity,
+                    "tintOpacity": SidebarTintDefaults().opacity,
                 ],
             ],
             [

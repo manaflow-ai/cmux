@@ -1,5 +1,4 @@
-import CmuxSession
-import CmuxWorkspaceNavigation
+import CmuxWorkspaces
 import Darwin
 import CmuxCore
 import XCTest
@@ -497,10 +496,14 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         _ = manager.addWorkspace(select: true)
 
         let snapshot = manager.focusHistoryMenuSnapshot(direction: .back)
+        let endedAt = Date()
         let item = try XCTUnwrap(snapshot.items.first)
 
-        XCTAssertGreaterThanOrEqual(item.focusedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970 - 1)
-        XCTAssertLessThanOrEqual(item.focusedAt.timeIntervalSince1970, Date().timeIntervalSince1970 + 1)
+        // The recorded focus timestamp is stamped while `addWorkspace` runs, so it must fall
+        // within the causal interval bounded by the reads before and after that call. Asserting
+        // the closed [startedAt, endedAt] interval removes the prior ±1s wall-clock fudge.
+        XCTAssertGreaterThanOrEqual(item.focusedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970)
+        XCTAssertLessThanOrEqual(item.focusedAt.timeIntervalSince1970, endedAt.timeIntervalSince1970)
     }
 
     func testReopenClosedItemRestoresClosedPanelSnapshot() throws {
@@ -3222,6 +3225,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertNil(configuration.port)
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -tt dev@example.com")
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/5931 — a restored
+    /// terminal pane header showed the default "Terminal" title instead of its real
+    /// title until a command ran. `applySessionPanelMetadata` wrote the restored title
+    /// into `panelTitles` but never pushed it to the bonsplit tab header.
+    func testRestoredTerminalPaneHeaderTitleSyncsToBonsplitTab() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        let restoredTitle = "~/projects/cmux"
+        workspace.updatePanelTitle(panelId: panelId, title: restoredTitle)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        drainMainQueue()
+
+        let restoredWorkspace = try XCTUnwrap(restored.selectedWorkspace)
+        let restoredPanelId = try XCTUnwrap(
+            restoredWorkspace.panelTitles.first(where: { $0.value == restoredTitle })?.key
+        )
+        let restoredTabId = try XCTUnwrap(restoredWorkspace.surfaceIdFromPanelId(restoredPanelId))
+        let restoredTab = try XCTUnwrap(restoredWorkspace.bonsplitController.tab(restoredTabId))
+
+        XCTAssertEqual(restoredTab.title, restoredTitle)
+        XCTAssertNotEqual(restoredTab.title, "Terminal")
     }
 
     private static func persistentSSHWorkspaceSnapshot(

@@ -9,20 +9,17 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
-import CmuxTerminalEngine
-import CmuxTerminalServices
+import CmuxTerminal
 import CmuxSettings
-import CmuxSocketControl
 import CmuxSwiftRenderUI
 import Carbon.HIToolbox
 import CMUXMobileCore
-import CMUXWorkstream
+import CMUXAgentLaunch
 import Foundation
 import Bonsplit
 import WebKit
 import CmuxSidebar
-import CmuxTerminal
-import CmuxWorkspaceCore
+import CmuxWorkspaces
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
@@ -131,6 +128,10 @@ class TerminalController {
     // with the legacy dispatcher), so the former `nonisolated` is gone. The
     // package type keeps its internal lock for its own tested contract.
     let socketFastPathState = SocketFastPathState()
+    // Stateless sidebar-metadata/command argument parser (CmuxSidebar).
+    // Pure transforms over the raw arg string; holds no state and reaches no
+    // app singletons, so the `report_*`/sidebar-mutation handlers forward to it.
+    private nonisolated let sidebarMetadataArgumentParser = SidebarMetadataArgumentParser()
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
@@ -1565,7 +1566,8 @@ class TerminalController {
             // commands) answer here; everything else falls through to the legacy
             // switch below.
             if let coordinatorV1 = controlCommandCoordinator.handleSidebarV1(command: cmd, args: args)
-                ?? controlCommandCoordinator.handleBrowserPanelV1(command: cmd, args: args) {
+                ?? controlCommandCoordinator.handleBrowserPanelV1(command: cmd, args: args)
+                ?? controlCommandCoordinator.handleDebugV1(command: cmd, args: args) {
                 return coordinatorV1
             }
             switch cmd {
@@ -1670,12 +1672,6 @@ class TerminalController {
         case "send_workspace":
             return sendInputToWorkspace(args)
 
-        case "set_shortcut":
-            return setShortcut(args)
-
-        case "simulate_shortcut":
-            return simulateShortcut(args)
-
         case "simulate_type":
             return simulateType(args)
 
@@ -1717,54 +1713,6 @@ class TerminalController {
 
         case "terminal_drop_overlay_probe":
             return terminalDropOverlayProbe(args)
-
-        case "activate_app":
-            return activateApp()
-
-        case "is_terminal_focused":
-            return isTerminalFocused(args)
-
-        case "read_terminal_text":
-            return readTerminalText(args)
-
-        case "render_stats":
-            return renderStats(args)
-
-        case "layout_debug":
-            return layoutDebug()
-
-        case "bonsplit_underflow_count":
-            return bonsplitUnderflowCount()
-
-        case "reset_bonsplit_underflow_count":
-            return resetBonsplitUnderflowCount()
-
-        case "empty_panel_count":
-            return emptyPanelCount()
-
-        case "reset_empty_panel_count":
-            return resetEmptyPanelCount()
-
-        case "focus_notification":
-            return focusFromNotification(args)
-
-        case "debug_right_sidebar_focus":
-            return debugRightSidebarFocus(args)
-
-        case "flash_count":
-            return flashCount(args)
-
-        case "reset_flash_counts":
-            return resetFlashCounts()
-
-        case "panel_snapshot":
-            return panelSnapshot(args)
-
-        case "panel_snapshot_reset":
-            return panelSnapshotReset(args)
-
-        case "screenshot":
-            return captureScreenshot(args)
 #endif
 
         case "help":
@@ -1840,10 +1788,10 @@ class TerminalController {
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: id, result: v2Capabilities())
-        // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.* aliases)
-        // handled by ControlCommandCoordinator (bodies stay; shared with mobileHostHandleRPC).
-        case "mobile.terminal.paste", "terminal.paste":
-            return v2Result(id: id, self.v2MobileTerminalPaste(params: params))
+        // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
+        // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
+        // handled by ControlCommandCoordinator (bodies stay; shared with
+        // mobileHostHandleRPC).
 
         // system.identify (forwards to the still-shared v2Identify), system.tree,
         // auth.login, and the DEBUG-only mobile.dev_stack_auth.configure handled
@@ -1990,8 +1938,6 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserInputKeyboard(params: params))
         case "browser.input_touch":
             return v2Result(id: id, self.v2BrowserInputTouch(params: params))
-        case "chat.sessions.dump":
-            return v2Result(id: id, self.v2ChatSessionsDump())
 
         // Markdown/files/projects: markdown.open, file.open (forwards to the
         // still-shared v2FileOpen), and project.* handled by ControlCommandCoordinator.
@@ -5570,12 +5516,6 @@ class TerminalController {
         case failure(String)
     }
 
-    /// WKError's localizedDescription for JS exceptions is the useless generic
-    /// "A JavaScript exception occurred"; the real exception text lives in userInfo.
-    private static func v2DescribeJavaScriptError(_ error: Error) -> String {
-        BrowserControlService().describeJavaScriptError(error)
-    }
-
     /// True when a page-world JS failure looks like a CSP block of eval/function
     /// construction (script-src without 'unsafe-eval'). That is the only failure
     /// the isolated-world retry is meant to recover from; gating on it keeps the
@@ -5583,8 +5523,8 @@ class TerminalController {
     /// (a thrown exception, a timeout), which would duplicate any side effect the
     /// script performed before throwing and could return a value from the wrong
     /// JS context.
-    private nonisolated static func v2BrowserFailureLooksLikeCSPEvalBlock(_ message: String) -> Bool {
-        BrowserControlService().failureLooksLikeCSPEvalBlock(message)
+    private nonisolated func v2BrowserFailureLooksLikeCSPEvalBlock(_ message: String) -> Bool {
+        v2BrowserControl.failureLooksLikeCSPEvalBlock(message)
     }
 
     /// Sendable stand-in for `WKContentWorld` so nonisolated callers can pick a world without
@@ -5600,6 +5540,9 @@ class TerminalController {
         world: V2JSContentWorld
     ) -> V2JavaScriptResult {
         let timeoutSeconds = max(0.01, timeout)
+        // Capture the held browser-control service (a Sendable value) rather than
+        // `self`, reusing the already-initialized instance for error description.
+        let browserControl = v2BrowserControl
         // The evaluator only ever runs on the main actor (Thread.isMainThread branch or
         // DispatchQueue.main.async below), so assumeIsolated is safe and lets us touch the
         // main-actor WKWebView APIs and WKContentWorld statics without spurious isolation warnings.
@@ -5612,13 +5555,13 @@ class TerminalController {
                         case .success(let value):
                             finish(value, nil)
                         case .failure(let error):
-                            finish(nil, Self.v2DescribeJavaScriptError(error))
+                            finish(nil, browserControl.describeJavaScriptError(error))
                         }
                     }
                 } else {
                     webView.evaluateJavaScript(script) { value, error in
                         if let error {
-                            finish(nil, Self.v2DescribeJavaScriptError(error))
+                            finish(nil, browserControl.describeJavaScriptError(error))
                         } else {
                             finish(value, nil)
                         }
@@ -6017,7 +5960,7 @@ class TerminalController {
         // user-supplied browser.eval (useEval == true) it matters, so we invoke
         // onIsolatedWorldFallback to let browser.eval annotate the result with the content world.
         if case .failure(let pageMessage) = rawResult,
-           Self.v2BrowserFailureLooksLikeCSPEvalBlock(pageMessage),
+           v2BrowserFailureLooksLikeCSPEvalBlock(pageMessage),
            #available(macOS 11.0, *) {
             let isolatedResult = v2RunJavaScript(
                 webView,
@@ -9194,33 +9137,14 @@ class TerminalController {
     }
 
     private func v2BrowserStorageType(_ params: [String: Any]) -> String {
-        let type = (v2String(params, "storage") ?? v2String(params, "type") ?? "local").lowercased()
-        return (type == "session") ? "session" : "local"
+        v2BrowserControl.storageType(params: params)
     }
 
     private func v2BrowserStorageGet(params: [String: Any]) -> V2CallResult {
         let storageType = v2BrowserStorageType(params)
         let key = v2String(params, "key")
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let typeLiteral = v2JSONLiteral(storageType)
-            let keyLiteral = key.map(v2JSONLiteral) ?? "null"
-            let script = """
-            (() => {
-              const type = String(\(typeLiteral));
-              const key = \(keyLiteral);
-              const st = type === 'session' ? window.sessionStorage : window.localStorage;
-              if (!st) return { ok: false, error: 'not_available' };
-              if (key == null) {
-                const out = {};
-                for (let i = 0; i < st.length; i++) {
-                  const k = st.key(i);
-                  out[k] = st.getItem(k);
-                }
-                return { ok: true, value: out };
-              }
-              return { ok: true, value: st.getItem(String(key)) };
-            })()
-            """
+            let script = v2BrowserControl.storageGetScript(storageType: storageType, key: key)
             switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -9253,20 +9177,8 @@ class TerminalController {
         }
 
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let typeLiteral = v2JSONLiteral(storageType)
-            let keyLiteral = v2JSONLiteral(key)
             let valueLiteral = v2JSONLiteral(v2NormalizeJSValue(value))
-            let script = """
-            (() => {
-              const type = String(\(typeLiteral));
-              const key = String(\(keyLiteral));
-              const value = \(valueLiteral);
-              const st = type === 'session' ? window.sessionStorage : window.localStorage;
-              if (!st) return { ok: false, error: 'not_available' };
-              st.setItem(key, value == null ? '' : String(value));
-              return { ok: true };
-            })()
-            """
+            let script = v2BrowserControl.storageSetScript(storageType: storageType, key: key, valueLiteral: valueLiteral)
             switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -9291,16 +9203,7 @@ class TerminalController {
     private func v2BrowserStorageClear(params: [String: Any]) -> V2CallResult {
         let storageType = v2BrowserStorageType(params)
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let typeLiteral = v2JSONLiteral(storageType)
-            let script = """
-            (() => {
-              const type = String(\(typeLiteral));
-              const st = type === 'session' ? window.sessionStorage : window.localStorage;
-              if (!st) return { ok: false, error: 'not_available' };
-              st.clear();
-              return { ok: true };
-            })()
-            """
+            let script = v2BrowserControl.storageClearScript(storageType: storageType)
             switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -9877,41 +9780,6 @@ class TerminalController {
 
 #if DEBUG
 
-    private func debugRightSidebarFocus(_ args: String) -> String {
-        let modeName = args.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? RightSidebarMode.dock.rawValue
-            : args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let mode = RightSidebarMode(rawValue: modeName) else {
-            return "ERROR: Invalid right sidebar mode: \(modeName)"
-        }
-
-        var revealed = false
-        var focusApplied = false
-        var contextFound = false
-        var stateFound = false
-        var visible = false
-        var activeMode = ""
-
-        let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
-            mode: mode,
-            focusFirstItem: false,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-        )
-        revealed = result?.revealed ?? false
-        focusApplied = result?.focusApplied ?? false
-        contextFound = result?.contextFound ?? false
-        stateFound = result?.stateFound ?? false
-        visible = result?.visible ?? false
-        activeMode = result?.activeMode ?? ""
-
-        let details = "mode=\(mode.rawValue) active=\(activeMode) visible=\(visible ? 1 : 0) " +
-            "context=\(contextFound ? 1 : 0) state=\(stateFound ? 1 : 0) focus=\(focusApplied ? 1 : 0)"
-        return revealed ? "OK: \(details)" : "ERROR: \(details)"
-    }
-#endif
-
-#if DEBUG
-
     /// Drives `SidebarDragState.draggedTabId` and `dropIndicator` mutations
     /// across N steps from a starting workspace toward a target neighbor.
     /// External profilers (e.g. the `profile-pr` skill driving `xctrace`)
@@ -9980,7 +9848,7 @@ class TerminalController {
             } else {
                 requestedSteps = nil
             }
-            guard SidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
+            guard AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) != nil else {
                 return .err(
                     code: "not_found",
                     message: "No mounted sidebar for window_id",
@@ -10064,7 +9932,7 @@ class TerminalController {
         // Start the drag. If the sidebar has already unregistered, fail loud
         // instead of silently sleeping through a no-op simulation.
         let startedOK: Bool = v2MainSync {
-            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
             // Mark the drag as simulator-driven so VerticalTabsSidebar skips
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
@@ -10090,7 +9958,7 @@ class TerminalController {
                 pathSample.append(targetTabId.uuidString)
             }
             let tickOK: Bool = v2MainSync {
-                guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+                guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
                 dragState.setDropIndicator(SidebarDropIndicator(tabId: targetTabId, edge: edge))
                 return true
             }
@@ -10104,7 +9972,7 @@ class TerminalController {
         }
 
         v2MainSync {
-            guard let dragState = SidebarDragStateRegistry.state(forWindowId: windowId) else { return }
+            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return }
             dragState.clearDrag()
             dragState.isSimulated = false
         }
@@ -12735,149 +12603,15 @@ class TerminalController {
     // MARK: - Option Parsing (sidebar metadata commands)
 
     private nonisolated static func tokenizeArgs(_ args: String) -> [String] {
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-
-        var tokens: [String] = []
-        var current = ""
-        var inQuote = false
-        var quoteChar: Character = "\""
-        var cursor = trimmed.startIndex
-
-        while cursor < trimmed.endIndex {
-            let char = trimmed[cursor]
-            if inQuote {
-                if char == quoteChar {
-                    inQuote = false
-                    cursor = trimmed.index(after: cursor)
-                    continue
-                }
-                if char == "\\" {
-                    let nextIndex = trimmed.index(after: cursor)
-                    if nextIndex < trimmed.endIndex {
-                        let next = trimmed[nextIndex]
-                        switch next {
-                        case "n":
-                            current.append("\n")
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        case "r":
-                            current.append("\r")
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        case "t":
-                            current.append("\t")
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        case "\"", "'", "\\":
-                            current.append(next)
-                            cursor = trimmed.index(after: nextIndex)
-                            continue
-                        default:
-                            break
-                        }
-                    }
-                }
-                current.append(char)
-                cursor = trimmed.index(after: cursor)
-                continue
-            }
-
-            if char == "'" || char == "\"" {
-                inQuote = true
-                quoteChar = char
-                cursor = trimmed.index(after: cursor)
-                continue
-            }
-
-            if char.isWhitespace {
-                if !current.isEmpty {
-                    tokens.append(current)
-                    current = ""
-                }
-                cursor = trimmed.index(after: cursor)
-                continue
-            }
-
-            current.append(char)
-            cursor = trimmed.index(after: cursor)
-        }
-
-        if !current.isEmpty {
-            tokens.append(current)
-        }
-        return tokens
+        SidebarMetadataArgumentParser().tokenize(args)
     }
 
     private func parseOptions(_ args: String) -> (positional: [String], options: [String: String]) {
-        let tokens = Self.tokenizeArgs(args)
-        guard !tokens.isEmpty else { return ([], [:]) }
-
-        var positional: [String] = []
-        var options: [String: String] = [:]
-        var stopParsingOptions = false
-        var i = 0
-        while i < tokens.count {
-            let token = tokens[i]
-            if stopParsingOptions {
-                positional.append(token)
-            } else if token == "--" {
-                stopParsingOptions = true
-            } else if token.hasPrefix("--") {
-                if let eqIndex = token.firstIndex(of: "=") {
-                    let key = String(token[token.index(token.startIndex, offsetBy: 2)..<eqIndex])
-                    let value = String(token[token.index(after: eqIndex)...])
-                    options[key] = value
-                } else {
-                    let key = String(token.dropFirst(2))
-                    if i + 1 < tokens.count && !tokens[i + 1].hasPrefix("--") {
-                        options[key] = tokens[i + 1]
-                        i += 1
-                    } else {
-                        options[key] = ""
-                    }
-                }
-            } else {
-                positional.append(token)
-            }
-            i += 1
-        }
-        return (positional, options)
+        sidebarMetadataArgumentParser.parseOptions(args)
     }
 
     private func parseOptionsNoStop(_ args: String) -> (positional: [String], options: [String: String]) {
-        let tokens = Self.tokenizeArgs(args)
-        guard !tokens.isEmpty else { return ([], [:]) }
-
-        var positional: [String] = []
-        var options: [String: String] = [:]
-        var i = 0
-        while i < tokens.count {
-            let token = tokens[i]
-            if token == "--" {
-                i += 1
-                continue
-            }
-            if token.hasPrefix("--") {
-                if let eqIndex = token.firstIndex(of: "=") {
-                    let key = String(token[token.index(token.startIndex, offsetBy: 2)..<eqIndex])
-                    let value = String(token[token.index(after: eqIndex)...])
-                    options[key] = value
-                } else {
-                    let key = String(token.dropFirst(2))
-                    if i + 1 < tokens.count && !tokens[i + 1].hasPrefix("--") {
-                        options[key] = tokens[i + 1]
-                        i += 1
-                    } else {
-                        options[key] = ""
-                    }
-                }
-            } else {
-                positional.append(token)
-            }
-            i += 1
-        }
-        return (positional, options)
+        sidebarMetadataArgumentParser.parseOptionsNoStop(args)
     }
 
     private func resolveTabForReport(_ args: String) -> Tab? {
@@ -12901,29 +12635,15 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == selectedId })
     }
 
-    private enum SidebarMutationTabTarget {
-        case selected
-        case workspace(UUID)
-        case index(Int)
-    }
-
     private func parseSidebarMutationTabTarget(
         options: [String: String]
     ) -> (target: SidebarMutationTabTarget?, error: String?) {
-        if let rawTabArg = options["tab"] {
-            let tabArg = rawTabArg.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !tabArg.isEmpty else {
-                return (nil, "ERROR: Tab not found")
-            }
-            if let tabId = UUID(uuidString: tabArg) {
-                return (.workspace(tabId), nil)
-            }
-            if let index = Int(tabArg), index >= 0 {
-                return (.index(index), nil)
-            }
-            return (nil, "ERROR: Tab not found")
-        }
-        return (.selected, nil)
+        // `SidebarMetadataArgumentParser.parseMutationTabTarget` already returns the
+        // `CmuxSidebar.SidebarMutationTabTarget` cases this controller resolves, so
+        // forward the parsed target verbatim instead of re-mapping it case-for-case
+        // onto a duplicate local enum.
+        let resolution = sidebarMetadataArgumentParser.parseMutationTabTarget(options: options)
+        return (resolution.target, resolution.error)
     }
 
     private func resolveSidebarMutationTab(_ target: SidebarMutationTabTarget) -> Tab? {
@@ -12956,37 +12676,19 @@ class TerminalController {
     }
 
     private func parseSidebarMetadataFormat(_ raw: String) -> SidebarMetadataFormat? {
-        switch raw.lowercased() {
-        case "plain":
-            return .plain
-        case "markdown", "md":
-            return .markdown
-        default:
-            return nil
-        }
+        sidebarMetadataArgumentParser.parseMetadataFormat(raw)
     }
 
     private func normalizedOptionValue(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        sidebarMetadataArgumentParser.normalizedOptionValue(value)
     }
 
     private func parseOptionalPanelIdOption(
         options: [String: String],
         usage: String
     ) -> (panelId: UUID?, error: String?) {
-        guard let rawPanelArg = options["panel"] ?? options["surface"] else {
-            return (nil, nil)
-        }
-        let panelArg = rawPanelArg.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !panelArg.isEmpty else {
-            return (nil, "ERROR: Missing panel id — usage: \(usage)")
-        }
-        guard let panelId = UUID(uuidString: panelArg) else {
-            return (nil, "ERROR: Invalid panel id '\(rawPanelArg)'")
-        }
-        return (panelId, nil)
+        let result = sidebarMetadataArgumentParser.parseOptionalPanelId(options: options, usage: usage)
+        return (result.panelId, result.error)
     }
 
     private func scheduleSidebarMutation(
@@ -13220,12 +12922,7 @@ class TerminalController {
     }
 
     private func splitMetadataBlockArgs(_ args: String) -> (optionsPart: String, markdownPart: String?) {
-        guard let separatorRange = args.range(of: " -- ") else {
-            return (args, nil)
-        }
-        let optionsPart = String(args[..<separatorRange.lowerBound])
-        let markdownPart = String(args[separatorRange.upperBound...])
-        return (optionsPart, markdownPart)
+        sidebarMetadataArgumentParser.splitMetadataBlockArgs(args)
     }
 
     private func sidebarMetadataBlockLine(_ block: SidebarMetadataBlock) -> String {
@@ -13275,6 +12972,15 @@ class TerminalController {
 
     @MainActor
     func mobileHostHandleRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+        // The mobile data-plane RPC speaks `MobileHostRPCRequest` /
+        // `MobileHostRPCResult` and dispatches directly to the app-side
+        // `v2Mobile*` bodies. It deliberately does NOT route through the v2
+        // control-socket `ControlCommandCoordinator` (whose native result type is
+        // `ControlCallResult`): doing so would force a
+        // `MobileHostRPCRequest → ControlRequest → ControlCallResult →
+        // MobileHostRPCResult` type round-trip with no behavior change. The v2
+        // control socket shares the same bodies through `handleMobileHost`, so the
+        // wire bytes stay identical across both entrypoints without a bridge here.
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
@@ -13325,107 +13031,54 @@ class TerminalController {
         return mobileHostResult(result)
     }
 
-    /// Hard caps for the agent feedback sink. The only intended caller is a
-    /// paired phone, but a malformed or hostile request must not be able to
-    /// allocate huge buffers, block the Mac UI, or grow the cache without bound.
-    /// Strings are capped by character count before any large allocation; the
-    /// base64 blob is rejected outright past its cap (so it is never decoded),
-    /// and a decoded blob past the byte cap is dropped.
-    nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
-    nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
-    nonisolated private static let dogfoodFeedbackMaxBuildStampChars = 512
-    nonisolated private static let dogfoodFeedbackMaxBlobBase64Chars = 8_388_608 // ~6 MiB decoded
-    nonisolated private static let dogfoodFeedbackMaxBlobBytes = 6_291_456 // 6 MiB
-    /// Keep at most this many bundle directories; older ones are pruned after
-    /// each write so a retrying client can't grow the cache without bound.
-    nonisolated private static let dogfoodFeedbackMaxRetainedBundles = 50
-
-    /// The privileged feedback domain. Mirrors `isManaflowEmail` in
-    /// `CmuxMobileShellModel` (the phone's routing source of truth) but is
-    /// replicated here so the macOS app target need not link that mobile
-    /// package just for this one suffix check. Trims + lowercases before
-    /// matching so stored casing/padding does not bypass the gate.
-    nonisolated static func isPrivilegedFeedbackEmail(_ email: String?) -> Bool {
-        guard let email else { return false }
-        let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.hasSuffix("@manaflow.ai")
-    }
-
     /// Privileged agent feedback sink (the Mac↔phone feedback loop).
     ///
-    /// Decodes `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }`,
-    /// writes a self-contained bundle directory under
-    /// `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/` (a `bundle.json`
-    /// manifest plus the decoded `diagnostic.log`), and returns the bundle path.
+    /// Reads `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }` off
+    /// the wire and hands them to ``DogfoodFeedbackService`` (in the
+    /// `CmuxFeedback` package), which caps the fields, rejects an oversized
+    /// base64 blob without decoding, and writes a self-contained bundle
+    /// directory under `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/`
+    /// (a `bundle.json` manifest plus the decoded `diagnostic.log`) off the main
+    /// actor. This method owns only the trust-boundary privilege check and the
+    /// wire mapping; the validation, allocation caps, and filesystem I/O live in
+    /// the service.
+    ///
     /// It is protected by the same-account Stack-auth authorization the rest of
     /// the mobile data plane enforces, so it never accepts an unauthenticated
     /// caller. The phone only ever routes here for `@manaflow.ai` users on an
     /// active connection, so this exists in Release builds too (the team can
     /// dogfood beta/prod), and only a Mac that runs the watcher acts on it.
-    ///
-    /// Field sizes are capped on the main actor *before* any large allocation,
-    /// invalid/oversized base64 is rejected without decoding, and the decode +
-    /// filesystem writes run off the main actor so a large payload cannot block
-    /// the Mac UI.
-    private func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
+    func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
         // Privilege check at the trust boundary: the mobile data plane only
         // accepts same-account connections, so the caller is this Mac's own Stack
-        // account. The privileged agent feedback sink is restricted to the
-        // @manaflow.ai domain; a crafted RPC from any other account is rejected
-        // here regardless of which route the phone UI chose. (The phone also
-        // gates the route on `@manaflow.ai` + `dogfood.v1`, but the Mac is the
-        // real boundary.)
+        // account. The service re-enforces the @manaflow.ai gate, but we resolve
+        // the authenticated email here because it requires the main-actor
+        // `MobileHostService`. (The phone also gates the route on `@manaflow.ai`
+        // + `dogfood.v1`, but the Mac is the real boundary.)
         let localEmail = await MobileHostService.shared.currentAuthenticatedLocalUserEmail()
-        guard Self.isPrivilegedFeedbackEmail(localEmail) else {
+        let submission = DogfoodFeedbackSubmission(
+            text: v2RawString(params, "text") ?? "",
+            terminalText: v2RawString(params, "terminal_text") ?? "",
+            buildStamp: v2RawString(params, "build_stamp") ?? "",
+            diagnosticBlobBase64: v2RawString(params, "diagnostic_blob_base64") ?? ""
+        )
+        let outcome = await DogfoodFeedbackService().submit(submission, authenticatedEmail: localEmail)
+        switch outcome {
+        case let .written(bundlePath, diagnosticLogBytes):
+            return .ok([
+                "ok": true,
+                "bundle_path": bundlePath,
+                "diagnostic_log_bytes": diagnosticLogBytes,
+            ])
+        case .unauthorized:
             return .err(
                 code: "unauthorized",
                 message: "Feedback agent sink is restricted to privileged accounts",
                 data: nil
             )
-        }
-
-        // Cheap main-actor validation first: cap each field by character count
-        // before allocating anything large, and reject an oversized base64 blob
-        // outright so it is never decoded into a giant Data.
-        let text = String((v2RawString(params, "text") ?? "").prefix(Self.dogfoodFeedbackMaxTextChars))
-        let terminalText = String((v2RawString(params, "terminal_text") ?? "").prefix(Self.dogfoodFeedbackMaxTerminalChars))
-        let buildStamp = String((v2RawString(params, "build_stamp") ?? "").prefix(Self.dogfoodFeedbackMaxBuildStampChars))
-        let diagnosticBlobBase64 = v2RawString(params, "diagnostic_blob_base64") ?? ""
-        guard diagnosticBlobBase64.count <= Self.dogfoodFeedbackMaxBlobBase64Chars else {
-            return .err(
-                code: "invalid_params",
-                message: "diagnostic_blob_base64 exceeds size limit",
-                data: nil
-            )
-        }
-
-        let maxBlobBytes = Self.dogfoodFeedbackMaxBlobBytes
-        // Off-main: decode the blob and write the bundle. A `Task.detached`
-        // keeps the (potentially multi-MiB) decode + synchronous file I/O off the
-        // main actor so it never stalls the Mac UI. Returns a Sendable result.
-        let outcome = await Task.detached(priority: .utility) { () -> DogfoodFeedbackWriteOutcome in
-            let decoded = Data(base64Encoded: diagnosticBlobBase64) ?? Data()
-            guard decoded.count <= maxBlobBytes else {
-                return .rejected(reason: "diagnostic blob exceeds size limit")
-            }
-            return Self.writeDogfoodFeedbackBundle(
-                text: text,
-                terminalText: terminalText,
-                buildStamp: buildStamp,
-                diagnosticData: decoded
-            )
-        }.value
-
-        switch outcome {
-        case let .written(bundlePath, byteCount):
-            return .ok([
-                "ok": true,
-                "bundle_path": bundlePath,
-                "diagnostic_log_bytes": byteCount,
-            ])
-        case let .rejected(reason):
+        case let .invalidParams(reason):
             return .err(code: "invalid_params", message: reason, data: nil)
-        case .failed:
+        case .internalError:
             return .err(
                 code: "internal_error",
                 message: "Failed to persist dogfood feedback bundle",
@@ -13434,103 +13087,8 @@ class TerminalController {
         }
     }
 
-    /// The result of writing a dogfood feedback bundle off the main actor.
-    private enum DogfoodFeedbackWriteOutcome: Sendable {
-        case written(bundlePath: String, byteCount: Int)
-        case rejected(reason: String)
-        case failed
-    }
-
-    /// Persist a validated dogfood feedback bundle to disk. Runs off the main
-    /// actor (called from a detached task), so its synchronous file I/O never
-    /// blocks the Mac UI. All inputs are already size-capped by the caller.
-    nonisolated private static func writeDogfoodFeedbackBundle(
-        text: String,
-        terminalText: String,
-        buildStamp: String,
-        diagnosticData: Data
-    ) -> DogfoodFeedbackWriteOutcome {
-        let fileManager = FileManager.default
-        let root = fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache", isDirectory: true)
-            .appendingPathComponent("cmux-dogfood-feedback", isDirectory: true)
-
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        // Colons are legal in HFS+/APFS but awkward in shell globs; swap for `-`
-        // so the directory name is paste-safe.
-        let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let shortID = String(UUID().uuidString.prefix(8)).lowercased()
-        let bundleDir = root.appendingPathComponent("\(timestamp)_\(shortID)", isDirectory: true)
-
-        do {
-            // The bundle holds visible terminal text and debug logs, which can
-            // contain credentials or other private data. Create the root and
-            // bundle dirs owner-only (0700) so no other local user can traverse
-            // into them, and chmod the written files to 0600. The dir is created
-            // 0700 first, so even the brief window before the file chmod is not
-            // world-readable through a traversable parent.
-            let dirAttributes: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
-            try fileManager.createDirectory(
-                at: root,
-                withIntermediateDirectories: true,
-                attributes: dirAttributes
-            )
-            try fileManager.createDirectory(
-                at: bundleDir,
-                withIntermediateDirectories: true,
-                attributes: dirAttributes
-            )
-            let diagnosticURL = bundleDir.appendingPathComponent("diagnostic.log")
-            try diagnosticData.write(to: diagnosticURL)
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: diagnosticURL.path)
-            let manifest: [String: Any] = [
-                "schema": "cmux.dogfood.feedback.v1",
-                "received_at": formatter.string(from: Date()),
-                "text": text,
-                "terminal_text": terminalText,
-                "build_stamp": buildStamp,
-                "diagnostic_log_file": "diagnostic.log",
-                "diagnostic_log_bytes": diagnosticData.count,
-            ]
-            let manifestData = try JSONSerialization.data(
-                withJSONObject: manifest,
-                options: [.prettyPrinted, .sortedKeys]
-            )
-            let manifestURL = bundleDir.appendingPathComponent("bundle.json")
-            try manifestData.write(to: manifestURL)
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
-        } catch {
-            return .failed
-        }
-
-        pruneDogfoodFeedbackBundles(root: root, keep: dogfoodFeedbackMaxRetainedBundles)
-        return .written(bundlePath: bundleDir.path, byteCount: diagnosticData.count)
-    }
-
-    /// Keep only the newest `keep` bundle directories under `root`, deleting the
-    /// rest. The directory names start with an ISO8601 timestamp, so a
-    /// lexicographic sort is chronological. Best-effort: a failure to enumerate
-    /// or remove is ignored (it only affects cleanup, not the just-written
-    /// bundle). Runs off the main actor with its writer.
-    nonisolated private static func pruneDogfoodFeedbackBundles(root: URL, keep: Int) {
-        let fileManager = FileManager.default
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-        let directories = entries
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        guard directories.count > keep else { return }
-        for stale in directories.dropLast(keep) {
-            try? fileManager.removeItem(at: stale)
-        }
-    }
-
     /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.
-    private func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
+    func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
         guard Self.mobileAllowsWorkspaceAction(rawAction) else {
             return .err(
@@ -13597,7 +13155,7 @@ class TerminalController {
     #endif
 
     @MainActor
-    private func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
+    func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
         let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
         let routeID = v2OptionalTrimmedRawString(params, "route_id")
             ?? v2OptionalTrimmedRawString(params, "routeID")
@@ -13894,7 +13452,7 @@ class TerminalController {
         ])
     }
 
-    private func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {
+    func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
