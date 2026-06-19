@@ -48,6 +48,7 @@ public struct BetaFeaturesSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
+            notes,
             feed,
             dock,
             extensions,

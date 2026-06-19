@@ -297,9 +297,8 @@ final class NotesTreeStore: ObservableObject {
         } ?? []
         guard !Task.isCancelled else { return nil }
         let indexedTitleByPath = Dictionary(
-            uniqueKeysWithValues: indexedRefs.map {
-                (($0.path as NSString).standardizingPath, $0.title)
-            }
+            indexedRefs.map { (($0.path as NSString).standardizingPath, $0.title) },
+            uniquingKeysWith: { first, _ in first }
         )
         var budget = request.nodeBudget
         var nodes = buildChildren(

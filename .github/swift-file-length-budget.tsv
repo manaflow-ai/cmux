@@ -70,7 +70,7 @@
 1373	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
-1358	Sources/NotesTreeStore.swift
+1357	Sources/NotesTreeStore.swift
 1323	cmuxTests/NotesTreeStorageTests.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
 1292	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
