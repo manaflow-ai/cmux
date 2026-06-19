@@ -362,10 +362,9 @@ extension TerminalSurfaceRegistry {
 // MARK: - Ghostty App Singleton
 
 class GhosttyApp {
-    enum ScrollbarVisibility: String {
-        case system
-        case never
-    }
+    /// The `scrollbar` directive value, owned by ``GhosttyConfig`` in
+    /// CmuxTerminalCore; the nested name keeps call-site spelling stable.
+    typealias ScrollbarVisibility = GhosttyConfig.ScrollbarVisibility
 
     static let shared = GhosttyApp()
 
@@ -1533,68 +1532,46 @@ class GhosttyApp {
         previousColorScheme: GhosttyConfig.ColorSchemePreference?,
         currentColorScheme: GhosttyConfig.ColorSchemePreference
     ) -> Bool {
-        previousColorScheme != currentColorScheme
-    }
-
-    enum AppearanceSynchronizationPlan {
-        case unchanged
-        case reload(
-            colorScheme: GhosttyConfig.ColorSchemePreference,
-            runtimeColorScheme: ghostty_color_scheme_e
+        GhosttyConfig.shouldReloadConfigurationForAppearanceChange(
+            previousColorScheme: previousColorScheme,
+            currentColorScheme: currentColorScheme
         )
-
-        var shouldReloadConfiguration: Bool {
-            switch self {
-            case .unchanged:
-                return false
-            case .reload:
-                return true
-            }
-        }
     }
 
-    enum RuntimeColorSchemeSynchronizationDecision: Equatable {
-        case apply
-        case skipReentrant
-    }
+    /// The appearance-synchronization plan, owned by ``GhosttyConfig`` in
+    /// CmuxTerminalCore; the nested name keeps call-site spelling stable.
+    typealias AppearanceSynchronizationPlan = GhosttyConfig.AppearanceSynchronizationPlan
+
+    /// The runtime color-scheme sync decision, owned by ``GhosttyConfig`` in
+    /// CmuxTerminalCore; the nested name keeps call-site spelling stable.
+    typealias RuntimeColorSchemeSynchronizationDecision = GhosttyConfig.RuntimeColorSchemeSynchronizationDecision
 
     static func runtimeColorSchemeSynchronizationDecision(
-        applied _: ghostty_color_scheme_e?,
-        requested _: ghostty_color_scheme_e,
+        applied: ghostty_color_scheme_e?,
+        requested: ghostty_color_scheme_e,
         isSynchronizing: Bool
     ) -> RuntimeColorSchemeSynchronizationDecision {
-        if isSynchronizing {
-            return .skipReentrant
-        }
-        return .apply
+        GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
+            applied: applied,
+            requested: requested,
+            isSynchronizing: isSynchronizing
+        )
     }
 
     static func appearanceSynchronizationPlan(
         previousColorScheme: GhosttyConfig.ColorSchemePreference?,
         currentColorScheme: GhosttyConfig.ColorSchemePreference
     ) -> AppearanceSynchronizationPlan {
-        guard shouldReloadConfigurationForAppearanceChange(
+        GhosttyConfig.appearanceSynchronizationPlan(
             previousColorScheme: previousColorScheme,
             currentColorScheme: currentColorScheme
-        ) else {
-            return .unchanged
-        }
-
-        return .reload(
-            colorScheme: currentColorScheme,
-            runtimeColorScheme: ghosttyRuntimeColorScheme(for: currentColorScheme)
         )
     }
 
     static func ghosttyRuntimeColorScheme(
         for colorScheme: GhosttyConfig.ColorSchemePreference
     ) -> ghostty_color_scheme_e {
-        switch colorScheme {
-        case .light:
-            return GHOSTTY_COLOR_SCHEME_LIGHT
-        case .dark:
-            return GHOSTTY_COLOR_SCHEME_DARK
-        }
+        GhosttyConfig.ghosttyRuntimeColorScheme(for: colorScheme)
     }
 
     static func terminalRuntimeColorSchemePreference(
@@ -2010,16 +1987,7 @@ class GhosttyApp {
         key: String,
         fallback: NSColor
     ) -> NSColor {
-        var color = ghostty_config_color_s()
-        guard ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) else {
-            return fallback
-        }
-        return NSColor(
-            red: CGFloat(color.r) / 255,
-            green: CGFloat(color.g) / 255,
-            blue: CGFloat(color.b) / 255,
-            alpha: 1.0
-        )
+        GhosttyConfig.colorValue(from: config, key: key, fallback: fallback)
     }
 
     private func updateDefaultBackground(
@@ -2046,53 +2014,12 @@ class GhosttyApp {
         )
     }
 
-    private struct DefaultBackgroundValues {
-        var backgroundColor: NSColor
-        var backgroundOpacity: Double
-        var backgroundBlur: GhosttyBackgroundBlur
-        var foregroundColor: NSColor
-        var cursorColor: NSColor
-        var cursorTextColor: NSColor
-        var selectionBackground: NSColor
-        var selectionForeground: NSColor
-    }
+    /// The resolved default-appearance color bundle, owned by ``GhosttyConfig``
+    /// in CmuxTerminalCore; the nested name keeps call-site spelling stable.
+    private typealias DefaultBackgroundValues = GhosttyConfig.DefaultBackgroundValues
 
     private func defaultBackgroundValues(from config: ghostty_config_t?) -> DefaultBackgroundValues {
-        let baseline = Self.fallbackAppearanceConfig
-        guard let config else {
-            return DefaultBackgroundValues(
-                backgroundColor: baseline.backgroundColor,
-                backgroundOpacity: baseline.backgroundOpacity,
-                backgroundBlur: baseline.backgroundBlur,
-                foregroundColor: baseline.foregroundColor,
-                cursorColor: baseline.cursorColor,
-                cursorTextColor: baseline.cursorTextColor,
-                selectionBackground: baseline.selectionBackground,
-                selectionForeground: baseline.selectionForeground
-            )
-        }
-
-        let resolvedColor = ghosttyColorValue(from: config, key: "background", fallback: baseline.backgroundColor)
-        let resolvedForeground = ghosttyColorValue(from: config, key: "foreground", fallback: baseline.foregroundColor)
-        let resolvedCursor = ghosttyColorValue(from: config, key: "cursor-color", fallback: baseline.cursorColor)
-        let resolvedCursorText = ghosttyColorValue(from: config, key: "cursor-text", fallback: baseline.cursorTextColor)
-        let resolvedSelectionBackground = ghosttyColorValue(from: config, key: "selection-background", fallback: baseline.selectionBackground)
-        let resolvedSelectionForeground = ghosttyColorValue(from: config, key: "selection-foreground", fallback: baseline.selectionForeground)
-        var opacity = baseline.backgroundOpacity
-        let opacityKey = "background-opacity"
-        _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
-        opacity = min(1.0, max(0.0, opacity))
-        let backgroundBlur = defaultBackgroundBlurValue(from: config)
-        return DefaultBackgroundValues(
-            backgroundColor: resolvedColor,
-            backgroundOpacity: opacity,
-            backgroundBlur: backgroundBlur,
-            foregroundColor: resolvedForeground,
-            cursorColor: resolvedCursor,
-            cursorTextColor: resolvedCursorText,
-            selectionBackground: resolvedSelectionBackground,
-            selectionForeground: resolvedSelectionForeground
-        )
+        GhosttyConfig.defaultBackgroundValues(from: config, baseline: Self.fallbackAppearanceConfig)
     }
 
     private func resolvedAppearanceValue<T>(
@@ -2102,13 +2029,13 @@ class GhosttyApp {
         hasParsedDirective: Bool,
         hasDirective: Bool
     ) -> T {
-        if hasParsedDirective {
-            return parsedValue
-        }
-        if hasDirective {
-            return baselineValue
-        }
-        return unspecifiedFallbackValue
+        GhosttyConfig.resolvedAppearanceValue(
+            parsedValue: parsedValue,
+            baselineValue: baselineValue,
+            unspecifiedFallbackValue: unspecifiedFallbackValue,
+            hasParsedDirective: hasParsedDirective,
+            hasDirective: hasDirective
+        )
     }
 
     private func updateDefaultBackgroundFromResolvedGhosttyConfig(
@@ -2204,68 +2131,31 @@ class GhosttyApp {
     }
 
     private func defaultBackgroundBlurValue(from config: ghostty_config_t) -> GhosttyBackgroundBlur {
-        var value: Int16 = 0
-        let key = "background-blur"
-        guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))) else {
-            return .disabled
-        }
-        return GhosttyBackgroundBlur(cValue: value)
+        GhosttyConfig.backgroundBlurValue(from: config)
     }
 
     func focusFollowsMouseEnabled() -> Bool {
-        guard let config else { return false }
-        var enabled = false
-        let key = "focus-follows-mouse"
-        let keyLength = UInt(key.lengthOfBytes(using: .utf8))
-        let found = ghostty_config_get(config, &enabled, key, keyLength)
-        return found && enabled
+        GhosttyConfig.focusFollowsMouseEnabled(in: config)
     }
 
     func scrollbarVisibility() -> ScrollbarVisibility {
-        guard let config else { return .system }
-        var value: UnsafePointer<Int8>?
-        let key = "scrollbar"
-        guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
-              let value else {
-            return .system
-        }
-        return ScrollbarVisibility(rawValue: String(cString: value)) ?? .system
+        GhosttyConfig.scrollbarVisibility(in: config)
     }
 
     func appleScriptAutomationEnabled() -> Bool {
-        guard let config else { return false }
-        var enabled = false
-        let key = "macos-applescript"
-        _ = ghostty_config_get(config, &enabled, key, UInt(key.lengthOfBytes(using: .utf8)))
-        return enabled
+        GhosttyConfig.appleScriptAutomationEnabled(in: config)
     }
 
     private func bellFeatures() -> CUnsignedInt {
-        guard let config else { return 0 }
-        var features: CUnsignedInt = 0
-        let key = "bell-features"
-        _ = ghostty_config_get(config, &features, key, UInt(key.lengthOfBytes(using: .utf8)))
-        return features
+        GhosttyConfig.bellFeatures(in: config)
     }
 
     private func bellAudioPath() -> String? {
-        guard let config else { return nil }
-        var value: UnsafePointer<Int8>?
-        let key = "bell-audio-path"
-        guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
-              let rawPath = value else {
-            return nil
-        }
-        let path = String(cString: rawPath)
-        return path.isEmpty ? nil : path
+        GhosttyConfig.bellAudioPath(in: config)
     }
 
     private func bellAudioVolume() -> Float {
-        guard let config else { return 0.5 }
-        var value: Double = 0.5
-        let key = "bell-audio-volume"
-        _ = ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8)))
-        return Float(min(1.0, max(0.0, value)))
+        GhosttyConfig.bellAudioVolume(in: config)
     }
 
     private func ringBell() {
