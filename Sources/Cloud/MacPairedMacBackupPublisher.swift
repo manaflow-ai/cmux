@@ -66,10 +66,9 @@ final class MacPairedMacBackupPublisher {
     func configure(auth: AuthCoordinator) {
         guard Self.isEnabled() else { return }
         self.auth = auth
-        // Ensure the iOS-pairing listener runs on dev so an attach route exists to
-        // publish, WITHOUT persisting a user setting: register a fallback default
-        // (an explicit user toggle still wins, and nothing is written to disk).
-        UserDefaults.standard.register(defaults: [MobileHostService.listeningEnabledDefaultsKey: true])
+        // The iOS-pairing listener defaults ON in DEBUG builds (see
+        // MobileCatalogSection.iOSPairingHost), so an attach route comes up
+        // without a manual Settings toggle; we just observe and publish it.
         startObserving()
     }
 
