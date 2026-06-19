@@ -5575,6 +5575,8 @@ struct ContentView: View {
             return .supportedWithoutProbe
         case .opencode:
             return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
+        case .custom:
+            return .supportedWithoutProbe
         default:
             return .unsupported
         }

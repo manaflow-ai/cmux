@@ -328,7 +328,9 @@ enum AgentResumeCommandBuilder {
               let argv = forkArguments(
                   kind: kind,
                   sessionId: sessionId,
-                  launchCommand: launchCommand
+                  launchCommand: launchCommand,
+                  workingDirectory: workingDirectory,
+                  customRegistration: customRegistration
               ),
               !argv.isEmpty else {
             return nil
@@ -477,7 +479,9 @@ enum AgentResumeCommandBuilder {
     private static func forkArguments(
         kind: RestorableAgentKind,
         sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
         switch launchCommand?.launcher {
         case "claudeTeams":
