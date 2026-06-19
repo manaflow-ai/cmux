@@ -3,6 +3,8 @@ import Foundation
 
 actor SSHPTYResizeMonitor {
     private typealias ResizeEvent = (size: (cols: Int, rows: Int), force: Bool)
+    // Keep input-edge ordering bounded; failed writes retry on the next event.
+    private static let inputEdgeWriteTimeout: TimeInterval = 0.05
 
     private let socketPath: String
     private let explicitPassword: String?
@@ -171,16 +173,31 @@ actor SSHPTYResizeMonitor {
             params["surface_id"] = surfaceID
             params["allow_moved_surface"] = true
         }
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": "workspace.remote.pty_resize",
+            "params": params,
+        ]
+        guard JSONSerialization.isValidJSONObject(request),
+              let requestData = try? JSONSerialization.data(withJSONObject: request, options: []),
+              let requestLine = String(data: requestData, encoding: .utf8) else {
+            return false
+        }
+
         let resizeClient = SocketClient(path: socketPath)
         defer { resizeClient.close() }
         do {
-            try resizeClient.connectWithoutRetry()
+            try resizeClient.connectWithoutRetry(responseTimeout: Self.inputEdgeWriteTimeout)
             try CMUXCLI.authenticateSocketClientIfNeeded(
                 resizeClient,
                 explicitPassword: explicitPassword,
-                socketPath: socketPath
+                socketPath: socketPath,
+                responseTimeout: Self.inputEdgeWriteTimeout
             )
-            _ = try resizeClient.sendV2(method: "workspace.remote.pty_resize", params: params)
+            try resizeClient.sendOneWay(
+                command: requestLine,
+                writeTimeout: Self.inputEdgeWriteTimeout
+            )
             return true
         } catch {
             return false
