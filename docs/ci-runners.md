@@ -120,3 +120,11 @@ Residual: this guard checks workflow literals, not repo-variable values. Do not
 set `MACOS_RUNNER_*` / `LINUX_RUNNER` to a self-hosted label; keep them on
 Blacksmith. Fully closing the variable-value path requires removing the
 colliding labels from the minis (runner-side, needs org/runner admin).
+
+## Path-gating smoke checks
+
+A docs-only PR is the cheapest live smoke check for CI path gating. The
+`changes` job should classify ordinary `docs/` and `README.md` edits as
+`macos=false`, `web=false`, and `go=false`; routed macOS, web, and remote-daemon
+jobs should be skipped; `workflow-guard-tests` and `ci-status` should still run
+and pass.
