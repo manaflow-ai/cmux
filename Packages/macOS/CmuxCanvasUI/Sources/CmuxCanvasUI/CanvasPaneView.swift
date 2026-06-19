@@ -204,6 +204,10 @@ final class CanvasPaneView: NSView {
         return nil
     }
 
+    func containsBodyPoint(_ point: CGPoint) -> Bool {
+        bounds.contains(point) && hitRegion(at: point) == nil
+    }
+
     /// The pane owns every event over the resize rim AND the tab bar: drags
     /// stay on the fast AppKit path and tab clicks resolve deterministically
     /// against the reported hit regions (SwiftUI gesture recognizers fought

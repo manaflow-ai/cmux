@@ -42,6 +42,7 @@ public final class CanvasRootView: NSView {
     /// pinch, never fires `didEndLiveMagnify`), so portals re-anchor once the
     /// zoom gesture stops.
     var zoomSettleTask: Task<Void, Never>?
+    var paneBodyFocusMonitor: Any?
     private var hasPlacedInitialViewport = false
     /// One-per-session throttle for the Command+scroll discovery hint.
     static var didShowCommandScrollHintThisSession = false
@@ -53,7 +54,6 @@ public final class CanvasRootView: NSView {
     /// True while programmatically applying a saved viewport, so the scroll
     /// events that causes don't overwrite the saved value with transients.
     private var isApplyingSavedViewport = false
-
     /// Extra viewport fraction kept rendering around the visible rect so
     /// panes don't flicker on at the edge mid-flick.
     private static let lifecycleMarginFraction: CGFloat = 0.5
@@ -156,9 +156,13 @@ public final class CanvasRootView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
-            removeCommandScrollMonitor(); detachMinimapOverlay()
+            removeCommandScrollMonitor()
+            removePaneBodyFocusMonitor()
+            detachMinimapOverlay()
         } else {
-            installCommandScrollMonitor(); syncMinimapOverlayHost()
+            installCommandScrollMonitor()
+            installPaneBodyFocusMonitor()
+            syncMinimapOverlayHost()
         }
     }
 
@@ -196,6 +200,7 @@ public final class CanvasRootView: NSView {
         minimapView.onInteractionBegan = nil
         minimapView.onInteractionEnded = nil
         removeCommandScrollMonitor()
+        removePaneBodyFocusMonitor()
         if model.viewport === self {
             model.viewport = nil
         }
@@ -254,7 +259,6 @@ public final class CanvasRootView: NSView {
             revealPane(revealTarget, animated: true)
         }
     }
-
 
     /// Creates/removes pane views to match the model's pane set and brings
     /// each pane's mount and chrome up to date from the cached descriptors.

@@ -630,6 +630,7 @@ jobs:
           # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
+            CmuxCanvasUI
             CmuxCore
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
