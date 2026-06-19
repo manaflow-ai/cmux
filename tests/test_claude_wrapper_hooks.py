@@ -1037,6 +1037,39 @@ def test_live_socket_resume_self_heals_mismatched_claude_config_dir(failures: li
     )
 
 
+def test_live_socket_resume_self_heals_bare_legacy_subrouter_config_dir(failures: list[str]) -> None:
+    session_id = "e8a5bdb8-c24f-498e-a6ee-1ad9fe34328b"
+    expected: dict[str, str] = {}
+
+    def setup_env(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        legacy_root = home / ".subrouter" / "codex" / "claude"
+        (legacy_root / "projects" / "-Users-austinwang").mkdir(parents=True)
+        (legacy_root / "projects" / "-Users-austinwang" / f"{session_id}.jsonl").write_text(
+            "{}\n", encoding="utf-8"
+        )
+        foreign_root = home / ".codex-accounts" / "claude" / "_pforeign"
+        (foreign_root / "projects").mkdir(parents=True)
+        expected["path"] = str(legacy_root)
+        return {
+            "HOME": str(home),
+            "CLAUDE_CONFIG_DIR": str(foreign_root),
+        }
+
+    code, auth_env, _, stderr = run_wrapper_auth_env(
+        argv=["--resume", session_id],
+        inherited_env={},
+        setup_env=setup_env,
+    )
+    expect(code == 0, f"bare legacy resume self-heal: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"],
+        "bare legacy resume self-heal: expected CLAUDE_CONFIG_DIR reset to the transcript's config root "
+        f"{expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}",
+        failures,
+    )
+
+
 def test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures: list[str]) -> None:
     # App restore can launch terminal startup commands before the cmux socket is
     # accepting pings. Hook injection should be skipped in that window, but
@@ -1668,6 +1701,7 @@ def main() -> int:
     test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_resume_self_heals_mismatched_claude_config_dir(failures)
+    test_live_socket_resume_self_heals_bare_legacy_subrouter_config_dir(failures)
     test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures)
     test_stale_socket_resume_self_heals_after_value_option(failures)
     test_live_socket_resume_after_unlisted_value_option_does_not_inject_session_id(failures)
