@@ -807,6 +807,7 @@
 		C0DE00000000000000000E02 /* TerminalController+ControlBrowserContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000E01 /* TerminalController+ControlBrowserContext.swift */; };
 		C0DE00000000000000000F02 /* TerminalController+ControlBrowserCookiesStorageContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000F01 /* TerminalController+ControlBrowserCookiesStorageContext.swift */; };
 		C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */; };
+		C0DE00000000000000000FB1 /* TerminalController+ControlBrowserQueryReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000FB2 /* TerminalController+ControlBrowserQueryReading.swift */; };
 		CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52F0020000000000000000 /* TerminalController+ControlCanvasContext.swift */; };
 		C0DE00000000000000000C6E /* TerminalController+ControlDebugContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */; };
 		C0DE00000000000000000C44 /* TerminalController+ControlFeedContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C43 /* TerminalController+ControlFeedContext.swift */; };
@@ -1785,6 +1786,7 @@
 		C0DE00000000000000000E01 /* TerminalController+ControlBrowserContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlBrowserContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000F01 /* TerminalController+ControlBrowserCookiesStorageContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlBrowserCookiesStorageContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlBrowserPanelContext.swift"; sourceTree = "<group>"; };
+		C0DE00000000000000000FB2 /* TerminalController+ControlBrowserQueryReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlBrowserQueryReading.swift"; sourceTree = "<group>"; };
 		CA52F0020000000000000000 /* TerminalController+ControlCanvasContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlCanvasContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlDebugContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C43 /* TerminalController+ControlFeedContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlFeedContext.swift"; sourceTree = "<group>"; };
@@ -2437,6 +2439,7 @@
 				C0DE00000000000000000C43 /* TerminalController+ControlFeedContext.swift */,
 				C0DE00000000000000000F04 /* TerminalController+AuthStatusReading.swift */,
 				C0DE00000000000000000FA2 /* TerminalController+ControlSidebarCustomReading.swift */,
+				C0DE00000000000000000FB2 /* TerminalController+ControlBrowserQueryReading.swift */,
 				C0DE00000000000000000C45 /* TerminalController+ControlNotificationContext.swift */,
 				C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */,
 				D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */,
@@ -3937,6 +3940,7 @@
 				C0DE00000000000000000E02 /* TerminalController+ControlBrowserContext.swift in Sources */,
 				C0DE00000000000000000F02 /* TerminalController+ControlBrowserCookiesStorageContext.swift in Sources */,
 				C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */,
+				C0DE00000000000000000FB1 /* TerminalController+ControlBrowserQueryReading.swift in Sources */,
 				CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */,
 				C0DE00000000000000000C6E /* TerminalController+ControlDebugContext.swift in Sources */,
 				C0DE00000000000000000C44 /* TerminalController+ControlFeedContext.swift in Sources */,
