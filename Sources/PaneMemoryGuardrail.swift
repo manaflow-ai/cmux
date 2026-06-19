@@ -47,6 +47,8 @@ final class PaneMemoryGuardrail {
     @ObservationIgnored
     private var lastSamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
     @ObservationIgnored
+    private var lastScopedSamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
+    @ObservationIgnored
     private var lastWarnedWorkspaceIds: Set<UUID> = []
     @ObservationIgnored
     private var lastScopedScanAt = Date.distantPast
@@ -108,7 +110,11 @@ final class PaneMemoryGuardrail {
         scanApplyTask = Task { @MainActor [weak self] in
             let samples = await sampleTask.value
             guard !Task.isCancelled else { return }
-            self?.applySamples(samples, thresholdBytes: thresholdBytes)
+            self?.applySamples(
+                samples,
+                thresholdBytes: thresholdBytes,
+                includesCMUXScope: includeCMUXScope
+            )
         }
     }
 
@@ -180,6 +186,39 @@ final class PaneMemoryGuardrail {
         return true
     }
 
+    nonisolated static func reconcileScopedSamples(
+        samples: [PaneMemorySample],
+        previousScopedSamplesByKey: [PaneMemoryPaneKey: PaneMemorySample],
+        includesCMUXScope: Bool,
+        clearBytes: Int64
+    ) -> (
+        samples: [PaneMemorySample],
+        scopedSamplesByKey: [PaneMemoryPaneKey: PaneMemorySample]
+    ) {
+        let liveKeys = Set(samples.map(\.key))
+        var scopedSamplesByKey = previousScopedSamplesByKey.filter { liveKeys.contains($0.key) }
+
+        if includesCMUXScope {
+            for sample in samples {
+                if sample.memoryBytes > clearBytes {
+                    scopedSamplesByKey[sample.key] = sample
+                } else {
+                    scopedSamplesByKey.removeValue(forKey: sample.key)
+                }
+            }
+            return (samples, scopedSamplesByKey)
+        }
+
+        let mergedSamples = samples.map { sample in
+            guard let scopedSample = scopedSamplesByKey[sample.key],
+                  scopedSample.memoryBytes > sample.memoryBytes else {
+                return sample
+            }
+            return scopedSample
+        }
+        return (mergedSamples, scopedSamplesByKey)
+    }
+
     nonisolated static func memoryPressureProcessGroupIDs(
         in snapshot: CmuxTopProcessSnapshot,
         pids: Set<Int>,
@@ -216,7 +255,20 @@ final class PaneMemoryGuardrail {
         return selectedProcessGroups.sorted()
     }
 
-    private func applySamples(_ samples: [PaneMemorySample], thresholdBytes: Int64) {
+    private func applySamples(
+        _ rawSamples: [PaneMemorySample],
+        thresholdBytes: Int64,
+        includesCMUXScope: Bool
+    ) {
+        let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
+        let reconciled = Self.reconcileScopedSamples(
+            samples: rawSamples,
+            previousScopedSamplesByKey: lastScopedSamplesByKey,
+            includesCMUXScope: includesCMUXScope,
+            clearBytes: clearBytes
+        )
+        lastScopedSamplesByKey = reconciled.scopedSamplesByKey
+        let samples = reconciled.samples
         isScanning = false
         scanApplyTask = nil
         let samplesByKey = Dictionary(samples.map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
@@ -231,7 +283,7 @@ final class PaneMemoryGuardrail {
         cmuxDebugLog(
             "paneMemGuard.scan panes=\(samples.count) maxMB=\(maxBytes / 1_048_576) " +
             "thresholdMB=\(thresholdBytes / 1_048_576) warned=\(output.warnedWorkspaceIds.count) " +
-            "fired=\(output.bannerToPresent != nil ? 1 : 0)"
+            "fired=\(output.bannerToPresent != nil ? 1 : 0) scope=\(includesCMUXScope ? 1 : 0)"
         )
 #endif
 
@@ -378,6 +430,7 @@ final class PaneMemoryGuardrail {
         if activeBanner != nil { activeBanner = nil }
         pendingBanners.removeAll()
         lastSamplesByKey.removeAll()
+        lastScopedSamplesByKey.removeAll()
         pendingKillTasksByKey.values.forEach { $0.task.cancel() }
         pendingKillTasksByKey.removeAll()
         if !lastWarnedWorkspaceIds.isEmpty {

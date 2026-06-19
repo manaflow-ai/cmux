@@ -535,6 +535,15 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
             return [original.executable, "--session", sessionId, "--fork"] + preserved
+        case .custom:
+            guard let customRegistration else { return nil }
+            let arguments = customForkArguments(
+                registration: customRegistration,
+                sessionId: sessionId,
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory
+            )
+            return arguments.isEmpty ? nil : arguments
         default:
             return nil
         }
@@ -546,7 +555,39 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?
     ) -> [String] {
-        let templateParts = splitShellWords(registration.resumeCommand)
+        customTemplateArguments(
+            template: registration.resumeCommand,
+            registration: registration,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    private static func customForkArguments(
+        registration: CmuxVaultAgentRegistration,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> [String] {
+        guard let forkCommand = normalized(registration.forkCommand) else { return [] }
+        return customTemplateArguments(
+            template: forkCommand,
+            registration: registration,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    private static func customTemplateArguments(
+        template: String,
+        registration: CmuxVaultAgentRegistration,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> [String] {
+        let templateParts = splitShellWords(template)
         guard !templateParts.isEmpty else { return [] }
         let original = commandParts(
             launchCommand: launchCommand,

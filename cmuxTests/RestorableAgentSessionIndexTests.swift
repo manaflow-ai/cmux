@@ -710,6 +710,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                 detect: CmuxVaultAgentDetectRule(processNames: [agentId]),
                 sessionIdSource: .argvOption("--resume"),
                 resumeCommand: "{{executable}} --resume {{sessionId}}",
+                forkCommand: "{{executable}} --resume {{sessionId}} --fork",
                 cwd: .preserve
             ),
         ])
@@ -745,12 +746,14 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let resume = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertTrue(resume.contains(runtimeCwd.path), "resume must cd into the runtime cwd; got: \(resume)")
         XCTAssertFalse(resume.contains(launchCwd.path), "resume must not fall back to the launch dir; got: \(resume)")
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertTrue(fork.contains(runtimeCwd.path), "fork must cd into the runtime cwd; got: \(fork)")
+        XCTAssertTrue(fork.contains("'--fork'"), "fork must use the custom fork template; got: \(fork)")
     }
 
     // Forking branches a NEW session off an existing one. The fork command must use the correct
     // per-agent fork verb and cd into the session's directory, so the forked session launches in the
-    // right place and is itself resumable. (Claude fork is covered above; this covers the cwd-in-file
-    // fork agents codex + opencode.)
+    // right place and is itself resumable.
     func testForkCommandUsesPerAgentVerbAndSessionCwd() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -762,6 +765,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let cases: [(launcher: String, store: String, verbNeedles: [String])] = [
             ("codex", "codex-hook-sessions.json", ["'fork'"]),
             ("opencode", "opencode-hook-sessions.json", ["'--session'", "'--fork'"]),
+            ("pi", "pi-hook-sessions.json", ["'--session'", "'--fork'"]),
+            ("omp", "omp-hook-sessions.json", ["'--session'", "'--fork'"]),
         ]
         for testCase in cases {
             let ws = UUID()

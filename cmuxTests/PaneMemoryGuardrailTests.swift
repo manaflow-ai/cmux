@@ -295,6 +295,39 @@ struct PaneMemoryGuardrailTests {
     }
 
     @Test
+    func unscopedTicksDoNotClearScopedOnlyPressure() {
+        let ws = UUID(), pane = UUID()
+        let clearBytes = Int64(Double(threshold) * PaneMemoryGuardrailEngine.clearFraction)
+        let scopedSample = sample(workspace: ws, pane: pane, memoryGB: 9, pgids: [200])
+        let cheapSample = sample(workspace: ws, pane: pane, memoryGB: 0.1, pgids: [])
+
+        let scoped = PaneMemoryGuardrail.reconcileScopedSamples(
+            samples: [scopedSample],
+            previousScopedSamplesByKey: [:],
+            includesCMUXScope: true,
+            clearBytes: clearBytes
+        )
+        let unscoped = PaneMemoryGuardrail.reconcileScopedSamples(
+            samples: [cheapSample],
+            previousScopedSamplesByKey: scoped.scopedSamplesByKey,
+            includesCMUXScope: false,
+            clearBytes: clearBytes
+        )
+
+        #expect(unscoped.samples.first?.memoryBytes == scopedSample.memoryBytes)
+        #expect(unscoped.samples.first?.memoryPressureProcessGroupIDs == [200])
+
+        let cleared = PaneMemoryGuardrail.reconcileScopedSamples(
+            samples: [cheapSample],
+            previousScopedSamplesByKey: unscoped.scopedSamplesByKey,
+            includesCMUXScope: true,
+            clearBytes: clearBytes
+        )
+        #expect(cleared.scopedSamplesByKey.isEmpty)
+        #expect(cleared.samples.first?.memoryBytes == cheapSample.memoryBytes)
+    }
+
+    @Test
     func memoryPressureProcessGroupsAreEmptyAfterPressureClears() {
         let tty: Int64 = 0x1600_0003
         let shell = CmuxTopProcessInfo(
