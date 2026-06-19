@@ -8,6 +8,9 @@ import Foundation
 /// codex: rollout filename containing the session id).
 struct AgentChatTranscriptResolver: Sendable {
     private let homeDirectory: URL
+    private static let claudeTranscriptTitleReadLimit = 1_048_576
+    private static let claudeTranscriptTitleChunkSize = 64 * 1024
+    private static let claudeTranscriptTitleMaxLineBytes = 256 * 1024
 
     /// Creates a resolver.
     ///
@@ -100,8 +103,13 @@ struct AgentChatTranscriptResolver: Sendable {
             }
             let newest: URL?
             if let normalizedTitleHint {
-                newest = transcriptCandidates
-                    .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint || $0.title == nil }
+                let exactTitleCandidates = transcriptCandidates
+                    .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint }
+                newest = (
+                    exactTitleCandidates.isEmpty
+                        ? transcriptCandidates.filter { $0.title == nil }
+                        : exactTitleCandidates
+                )
                     .max { $0.date < $1.date }?
                     .url
             } else {
@@ -203,17 +211,53 @@ struct AgentChatTranscriptResolver: Sendable {
     }
 
     private static func claudeTranscriptTitle(at url: URL) -> String? {
-        guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
             return nil
         }
-        for line in contents.split(separator: "\n") where line.contains(#""ai-title""#) {
-            guard let data = line.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  object["type"] as? String == "ai-title" else {
-                continue
+        defer { try? handle.close() }
+
+        var buffered = Data()
+        var bytesRead = 0
+        var droppingOversizedLine = false
+        while bytesRead < claudeTranscriptTitleReadLimit {
+            guard !Task.isCancelled else { return nil }
+            let readSize = min(claudeTranscriptTitleChunkSize, claudeTranscriptTitleReadLimit - bytesRead)
+            guard let chunk = try? handle.read(upToCount: readSize),
+                  !chunk.isEmpty else {
+                break
             }
-            return object["aiTitle"] as? String
+            bytesRead += chunk.count
+            buffered.append(chunk)
+
+            while let newlineIndex = buffered.firstIndex(of: 0x0A) {
+                let lineData = Data(buffered[..<newlineIndex])
+                buffered.removeSubrange(...newlineIndex)
+                if droppingOversizedLine {
+                    droppingOversizedLine = false
+                    continue
+                }
+                if let title = claudeTranscriptTitle(in: lineData) {
+                    return title
+                }
+            }
+
+            if buffered.count > claudeTranscriptTitleMaxLineBytes {
+                buffered.removeAll(keepingCapacity: true)
+                droppingOversizedLine = true
+            }
         }
-        return nil
+        guard !droppingOversizedLine else {
+            return nil
+        }
+        return claudeTranscriptTitle(in: buffered)
+    }
+
+    private static func claudeTranscriptTitle(in lineData: Data) -> String? {
+        guard lineData.range(of: Data(#""ai-title""#.utf8)) != nil,
+              let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+              object["type"] as? String == "ai-title" else {
+            return nil
+        }
+        return object["aiTitle"] as? String
     }
 }

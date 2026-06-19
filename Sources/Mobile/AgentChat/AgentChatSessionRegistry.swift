@@ -65,12 +65,15 @@ final class AgentChatSessionRegistry {
     /// - Parameter surfaceID: Terminal surface UUID string.
     /// - Returns: A non-ended record bound to the surface, or `nil`.
     func liveSession(surfaceID: String) -> AgentChatSessionRecord? {
-        sweepDeadProcesses()
         guard let sessionID = liveSessionIDBySurfaceID[surfaceID],
               let record = records[sessionID],
               record.surfaceID == surfaceID,
               record.state != .ended else {
-            refreshLiveSessionIndex(surfaceID: surfaceID)
+            liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
+            return nil
+        }
+        if let pid = record.pid, processIsDead(pid) {
+            update(sessionID: sessionID) { $0.state = .ended }
             return liveSessionIDBySurfaceID[surfaceID].flatMap { records[$0] }
         }
         return record
@@ -115,8 +118,7 @@ final class AgentChatSessionRegistry {
         var record = previous
         mutate(&record)
         records[sessionID] = record
-        refreshLiveSessionIndex(surfaceID: previous.surfaceID)
-        refreshLiveSessionIndex(surfaceID: record.surfaceID)
+        updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
     }
 
@@ -159,7 +161,7 @@ final class AgentChatSessionRegistry {
                     pid: entry.pid
                 )
                 records[entry.sessionID] = record
-                refreshLiveSessionIndex(surfaceID: record.surfaceID)
+                updateLiveSessionIndex(previous: nil, current: record)
             }
         }
     }
@@ -189,7 +191,7 @@ final class AgentChatSessionRegistry {
         at timestamp: Date
     ) -> AgentChatSessionRecord {
         if let existing = records[sessionID] { return existing }
-        if let bound = records.values.first(where: { $0.surfaceID == surfaceID && $0.state != .ended }) {
+        if let bound = liveSession(surfaceID: surfaceID) {
             return bound
         }
         let record = AgentChatSessionRecord(
@@ -205,7 +207,7 @@ final class AgentChatSessionRegistry {
             pid: nil
         )
         records[sessionID] = record
-        refreshLiveSessionIndex(surfaceID: surfaceID)
+        updateLiveSessionIndex(previous: nil, current: record)
         onRecordChanged?(record, nil)
         return record
     }
@@ -271,13 +273,37 @@ final class AgentChatSessionRegistry {
         let previous = records[sessionID]
         record.state = Self.nextState(previous: record.state, event: event)
         records[sessionID] = record
-        refreshLiveSessionIndex(surfaceID: previous?.surfaceID)
-        refreshLiveSessionIndex(surfaceID: record.surfaceID)
+        updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
         return record
     }
 
-    private func refreshLiveSessionIndex(surfaceID: String?) {
+    private func updateLiveSessionIndex(
+        previous: AgentChatSessionRecord?,
+        current: AgentChatSessionRecord
+    ) {
+        let previousSurfaceID = Self.liveSurfaceID(previous)
+        let currentSurfaceID = Self.liveSurfaceID(current)
+        if let previousSurfaceID,
+           previousSurfaceID != currentSurfaceID,
+           liveSessionIDBySurfaceID[previousSurfaceID] == previous?.sessionID {
+            liveSessionIDBySurfaceID.removeValue(forKey: previousSurfaceID)
+            rebuildLiveSessionIndex(surfaceID: previousSurfaceID)
+        }
+        guard let currentSurfaceID else { return }
+        guard let indexedSessionID = liveSessionIDBySurfaceID[currentSurfaceID],
+              let indexed = records[indexedSessionID],
+              indexed.surfaceID == currentSurfaceID,
+              indexed.state != .ended else {
+            liveSessionIDBySurfaceID[currentSurfaceID] = current.sessionID
+            return
+        }
+        if indexed.sessionID == current.sessionID || current.lastActivityAt >= indexed.lastActivityAt {
+            liveSessionIDBySurfaceID[currentSurfaceID] = current.sessionID
+        }
+    }
+
+    private func rebuildLiveSessionIndex(surfaceID: String?) {
         guard let surfaceID else { return }
         if let newest = records.values
             .filter({ $0.surfaceID == surfaceID && $0.state != .ended })
@@ -286,6 +312,17 @@ final class AgentChatSessionRegistry {
         } else {
             liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
         }
+    }
+
+    private static func liveSurfaceID(_ record: AgentChatSessionRecord?) -> String? {
+        guard let record, record.state != .ended else {
+            return nil
+        }
+        return record.surfaceID
+    }
+
+    private func processIsDead(_ pid: Int) -> Bool {
+        kill(pid_t(pid), 0) != 0 && errno == ESRCH
     }
 
     /// Strips an agent-name prefix from prefixed workstream ids
