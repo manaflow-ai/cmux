@@ -44,6 +44,9 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
     /// "Open live session" action can register a card's shared process store
     /// before ``KanbanEngine/dispatchLive(cardId:)``.
     private var liveBackend: CmuxLiveBackend?
+    /// Retained so the "Open live session" action can provision a card's
+    /// worktree on demand (when the card has not been dispatched yet).
+    private var worktreeProvisioner: GitWorktreeProvisioner?
     private var didStartEngine = false
     private var subscriptions: [Task<Void, Never>] = []
 
@@ -359,6 +362,9 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
         case "openWorktreeTerminal":
             let cardId = try request.requiredUUID("cardId")
             return ["opened": try await openWorktreeTerminal(cardId: cardId)]
+        case "openAgentSession":
+            let cardId = try request.requiredUUID("cardId")
+            return ["opened": try await openAgentSession(cardId: cardId)]
         default:
             throw KanbanBridgeError.unsupportedMethod(request.method)
         }
@@ -389,6 +395,88 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
         return terminal != nil
     }
 
+    /// Opens a live, interactive agent session for the card: resolves (or
+    /// provisions) the card's worktree, dispatches the card to the live backend,
+    /// and opens an `agentSession` surface that shares one process with that
+    /// backend — so the board card and the visible tab are the same run.
+    ///
+    /// A card already in flight, in a remote-tmux mirror workspace, or whose
+    /// worktree cannot be resolved is a no-op reporting `opened: false`. Mirrors
+    /// ``openWorktreeTerminal(cardId:)`` for the workspace/pane resolution; the
+    /// worktree path is read from the engine's authoritative board, never the
+    /// webview.
+    private func openAgentSession(cardId: UUID) async throws -> Bool {
+        let engine = try await startedEngine()
+        let board = await engine.currentBoard()
+        guard let card = board.card(id: cardId), !card.column.occupiesWipSlot else {
+            return false
+        }
+        guard let app = AppDelegate.shared,
+              let location = app.workspaceContainingPanel(
+                  panelId: panelId,
+                  preferredWorkspaceId: workspaceId
+              ),
+              let paneId = location.workspace.paneId(forPanelId: panelId),
+              !location.workspace.isRemoteTmuxMirror else {
+            return false
+        }
+
+        // Reuse the card's worktree if it has one, otherwise provision a fresh
+        // one on demand (a live card need not be dispatched headless first).
+        let worktreePath: String
+        let branchName: String?
+        if let existing = card.worktreePath, !existing.isEmpty {
+            worktreePath = existing
+            branchName = card.branchName
+        } else if let root = workingDirectory,
+                  let provisioner = worktreeProvisioner,
+                  let provisioned = await provisioner.provision(cardId: cardId, repoRoot: root) {
+            worktreePath = provisioned.worktreePath
+            branchName = provisioned.branchName
+        } else {
+            return false
+        }
+
+        let provider = AgentSessionProviderID(
+            rawValue: card.agentProvider ?? AgentSessionProviderID.claude.rawValue
+        ) ?? .claude
+        let firstPrompt = card.detail.isEmpty ? card.title : card.detail
+
+        // One shared store: the live backend observes it for board progress while
+        // the surface owns the single process. Register before dispatchLive so the
+        // observer is attached before the surface starts the agent.
+        let sharedStore = AgentSessionProcessStore()
+        liveBackend?.registerSharedStore(
+            cardId: cardId,
+            store: sharedStore,
+            worktreePath: worktreePath,
+            branchName: branchName
+        )
+        do {
+            try await engine.dispatchLive(cardId: cardId)
+        } catch {
+            liveBackend?.clearPendingSharedStore(cardId: cardId)
+            return false
+        }
+
+        let panel = location.workspace.newAgentSessionSurface(
+            inPane: paneId,
+            providerID: provider,
+            rendererKind: .react,
+            workingDirectory: worktreePath,
+            focus: true,
+            prebuiltProcessStore: sharedStore,
+            injectedFirstPrompt: firstPrompt
+        )
+        if panel == nil {
+            // Dispatch already moved the card to building; without a surface its
+            // process never starts, so roll the run back.
+            await engine.cancel(cardId: cardId)
+            return false
+        }
+        return true
+    }
+
     /// Returns the engine, creating and subscribing to it on first use and
     /// running its one-time ``KanbanEngine/start()`` (load + orphan reconcile).
     private func startedEngine() async throws -> KanbanEngine {
@@ -409,6 +497,7 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
         let provisioner = GitWorktreeProvisioner(
             baseDirectory: base.appendingPathComponent("worktrees", isDirectory: true)
         )
+        self.worktreeProvisioner = provisioner
         let backend = CmuxNativeBackend(workspaceRoot: workingDirectory, worktreeProvisioner: provisioner)
         let liveBackend = CmuxLiveBackend()
         let engine = KanbanEngine(
@@ -482,6 +571,7 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
             "dispatch": String(localized: "kanban.web.dispatch", defaultValue: "Run"),
             "cancel": String(localized: "kanban.web.cancel", defaultValue: "Cancel"),
             "openWorktree": String(localized: "kanban.web.openWorktree", defaultValue: "Worktree"),
+            "openLiveSession": String(localized: "kanban.web.openLiveSession", defaultValue: "Live"),
             "emptyColumn": String(localized: "kanban.web.emptyColumn", defaultValue: "No tasks"),
             "loading": String(localized: "kanban.web.loading", defaultValue: "Loading board…"),
             "requestFailed": String(localized: "kanban.web.requestFailed", defaultValue: "Board request failed.")

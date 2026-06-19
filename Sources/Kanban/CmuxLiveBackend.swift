@@ -58,6 +58,13 @@ final class CmuxLiveBackend: DispatchBackend {
         pending[cardId] = PendingRun(store: store, worktreePath: worktreePath, branchName: branchName)
     }
 
+    /// Drops a pending registration that never reached ``dispatch(card:workingDirectory:)``
+    /// (e.g. the engine rejected the dispatch), so a leftover store reference is
+    /// not held.
+    func clearPendingSharedStore(cardId: UUID) {
+        pending[cardId] = nil
+    }
+
     func dispatch(card: KanbanCard, workingDirectory: String?) async throws -> KanbanDispatchSession {
         guard let prepared = pending.removeValue(forKey: card.id) else {
             throw CmuxLiveBackendError.noSharedStore(cardId: card.id)

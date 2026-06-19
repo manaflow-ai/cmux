@@ -16,6 +16,7 @@ import {
   initialState,
   loadInitialBoard,
   moveCard,
+  openLiveSession,
   openWorktreeTerminal,
   reduceBoard,
   type KanbanCopy,
@@ -94,6 +95,7 @@ export function KanbanApp() {
             onDispatch={(cardId) => void dispatchCard(dispatch, copy, cardId)}
             onCancel={(cardId) => void cancelCard(dispatch, copy, cardId)}
             onOpenWorktree={(cardId) => void openWorktreeTerminal(dispatch, copy, cardId)}
+            onOpenLiveSession={(cardId) => void openLiveSession(dispatch, copy, cardId)}
           />
         ))}
       </div>
@@ -110,6 +112,7 @@ function KanbanColumnView({
   onDispatch,
   onCancel,
   onOpenWorktree,
+  onOpenLiveSession,
 }: {
   column: KanbanColumn;
   cards: KanbanCard[];
@@ -119,6 +122,7 @@ function KanbanColumnView({
   onDispatch: (cardId: string) => void;
   onCancel: (cardId: string) => void;
   onOpenWorktree: (cardId: string) => void;
+  onOpenLiveSession: (cardId: string) => void;
 }) {
   const label = copy ? copy[COLUMN_LABEL_KEYS[column]] : column;
   return (
@@ -141,6 +145,7 @@ function KanbanColumnView({
               onDispatch={onDispatch}
               onCancel={onCancel}
               onOpenWorktree={onOpenWorktree}
+              onOpenLiveSession={onOpenLiveSession}
             />
           ))
         )}
@@ -157,6 +162,7 @@ function KanbanCardView({
   onDispatch,
   onCancel,
   onOpenWorktree,
+  onOpenLiveSession,
 }: {
   card: KanbanCard;
   copy: KanbanCopy | null;
@@ -165,6 +171,7 @@ function KanbanCardView({
   onDispatch: (cardId: string) => void;
   onCancel: (cardId: string) => void;
   onOpenWorktree: (cardId: string) => void;
+  onOpenLiveSession: (cardId: string) => void;
 }) {
   const left = adjacentColumn(card.column, -1);
   const right = adjacentColumn(card.column, 1);
@@ -221,6 +228,15 @@ function KanbanCardView({
               onClick={() => onDispatch(card.id)}
             >
               {copy?.dispatch ?? "Run"}
+            </button>
+          ) : null}
+          {canDispatch ? (
+            <button
+              className="kanban-button kanban-button--live"
+              type="button"
+              onClick={() => onOpenLiveSession(card.id)}
+            >
+              {copy?.openLiveSession ?? "Live"}
             </button>
           ) : null}
           {isRunning ? (

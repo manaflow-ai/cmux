@@ -221,7 +221,8 @@ body {
 
 .kanban-button--dispatch,
 .kanban-button--cancel,
-.kanban-button--worktree {
+.kanban-button--worktree,
+.kanban-button--live {
   height: 24px;
   padding: 0 10px;
   font-size: 12px;
@@ -235,6 +236,12 @@ body {
   background: var(--agent-surface-elevated, rgba(128, 128, 128, 0.16));
   color: var(--agent-text, inherit);
   border-color: var(--agent-border, rgba(128, 128, 128, 0.25));
+}
+
+.kanban-button--live {
+  background: var(--agent-accent, #2f7de1);
+  color: #fff;
+  border-color: transparent;
 }
 
 .kanban-loading {

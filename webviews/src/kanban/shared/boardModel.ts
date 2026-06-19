@@ -27,6 +27,7 @@ export type KanbanCopy = {
   dispatch: string;
   cancel: string;
   openWorktree: string;
+  openLiveSession: string;
   emptyColumn: string;
   loading: string;
   requestFailed: string;
@@ -217,6 +218,22 @@ export async function openWorktreeTerminal(
 ): Promise<void> {
   try {
     await callNativeKanban<{ opened: boolean }>("openWorktreeTerminal", { cardId });
+  } catch (error) {
+    dispatch({ type: "error", message: messageForError(error, copy) });
+  }
+}
+
+/** Opens a live, interactive agent session for the card. The native side
+ * resolves or provisions the worktree from the authoritative board and shares
+ * one process between the board card and the visible tab, so this only sends
+ * the id. */
+export async function openLiveSession(
+  dispatch: Dispatch,
+  copy: KanbanCopy | null,
+  cardId: string,
+): Promise<void> {
+  try {
+    await callNativeKanban<{ opened: boolean }>("openAgentSession", { cardId });
   } catch (error) {
     dispatch({ type: "error", message: messageForError(error, copy) });
   }
