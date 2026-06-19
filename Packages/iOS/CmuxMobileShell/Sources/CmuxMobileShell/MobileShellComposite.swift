@@ -594,6 +594,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connection drives terminal I/O and the connected UI.
     private var connections: [String: MacConnection] = [:]
     private var foregroundMacDeviceID: String?
+    /// Workspaces fetched per Mac for the aggregated multi-Mac list (P3), keyed
+    /// by `macDeviceID`. The foreground Mac's list flows through the normal
+    /// connect/refresh path; this holds the OTHER known Macs' lists, fetched
+    /// read-only. Merged into the published `workspaces` only when multi-Mac
+    /// aggregation is wired into the list (the next, device-verified step), so
+    /// populating it here cannot disturb the single-Mac flow.
+    private var secondaryWorkspacesByMac: [String: [MobileWorkspacePreview]] = [:]
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -2465,6 +2472,74 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macDeviceID: "manual-\(host):\(port)",
             route: directRoute
         )
+    }
+
+    /// Fetch one OTHER Mac's workspace list read-only, for the aggregated
+    /// multi-Mac list (P3). Builds its own short-lived client (like
+    /// `requestManualAttachTicket`), so it never touches the foreground
+    /// connection. Routes are loopback-deprioritized on device. Returns the
+    /// Mac's workspaces tagged with its `macDeviceID`, or nil on any failure
+    /// (best-effort; an unreachable Mac just contributes nothing).
+    private func fetchSecondaryWorkspaceList(for mac: MobilePairedMac) async -> [MobileWorkspacePreview]? {
+        guard let runtime else { return nil }
+        let supportedKinds = runtime.supportedRouteKinds
+        guard let (host, port) = Self.firstReconnectHostPortRoute(
+            mac.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        ) else {
+            return nil
+        }
+        let ticket: CmxAttachTicket
+        do {
+            ticket = try await manualHostTicket(name: mac.displayName ?? host, host: host, port: port)
+        } catch {
+            mobileShellLog.warning(
+                "secondary workspace fetch: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+        let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
+        guard let route = supportedRoutes.first else { return nil }
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+        )
+        defer { Task { await client.disconnect() } }
+        do {
+            let requestData = try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
+            let resultData = try await client.sendRequest(
+                requestData,
+                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+            )
+            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            return response.workspaces.map { remote in
+                var workspace = MobileWorkspacePreview(remote: remote)
+                workspace.macDeviceID = mac.macDeviceID
+                return workspace
+            }
+        } catch {
+            mobileShellLog.warning(
+                "secondary workspace fetch failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    /// Refresh the read-only workspace lists for every signed-in paired Mac that
+    /// is NOT the foreground connection, into `secondaryWorkspacesByMac` (P3).
+    /// Best-effort and additive; does not publish into `workspaces` yet.
+    func refreshSecondaryMacWorkspaces() async {
+        guard let pairedMacStore else { return }
+        let account = identityProvider?.currentUserID
+        let macs = (try? await pairedMacStore.loadAll(stackUserID: account)) ?? []
+        for mac in macs where !mac.macDeviceID.isEmpty && mac.macDeviceID != foregroundMacDeviceID {
+            if let previews = await fetchSecondaryWorkspaceList(for: mac) {
+                secondaryWorkspacesByMac[mac.macDeviceID] = previews
+            }
+        }
     }
 
     private static func shouldFallbackToSyntheticManualTicket(after error: any Error) -> Bool {
