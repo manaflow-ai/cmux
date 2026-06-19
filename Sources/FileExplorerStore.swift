@@ -729,7 +729,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         let lsFlags = showHidden ? "-1paFA" : "-1paF"
         let output = try await runSSHCommand(
             connection: connection,
-            command: "ls \(lsFlags) \(escapedPath) 2>/dev/null"
+            command: "ls \(lsFlags) \(escapedPath)"
         )
 
         let normalizedPath = path.hasSuffix("/") ? path : path + "/"
@@ -785,6 +785,7 @@ enum FileExplorerError: LocalizedError {
         case hostUnresolved
         case hostUnreachable
         case remoteHomeUnresolved
+        case remotePathNotFound
         case unknown
 
         /// The localized, cmux-phrased message shown to the user for this category.
@@ -804,6 +805,8 @@ enum FileExplorerError: LocalizedError {
                 return String(localized: "fileExplorer.error.ssh.hostUnreachable", defaultValue: "SSH host is unreachable")
             case .remoteHomeUnresolved:
                 return String(localized: "fileExplorer.error.ssh.remoteHomeUnresolved", defaultValue: "Couldn't determine the remote home directory")
+            case .remotePathNotFound:
+                return String(localized: "fileExplorer.error.ssh.remotePathNotFound", defaultValue: "Remote path not found")
             case .unknown:
                 return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed")
             }
@@ -852,6 +855,9 @@ enum FileExplorerError: LocalizedError {
             }
             if lowered.contains("remote home was empty") {
                 return .remoteHomeUnresolved
+            }
+            if lowered.contains("no such file or directory") || lowered.contains("not a directory") {
+                return .remotePathNotFound
             }
         }
         return .unknown
