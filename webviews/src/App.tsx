@@ -1089,11 +1089,19 @@ function resolveChecksSummary(payload: any): ChecksSummary {
 }
 
 function normalizeCheckRecordStatus(check: any): ChecksSummary["status"] {
-  return normalizeCheckStatus(check?.conclusion) ??
+  return normalizeCheckConclusion(check?.conclusion) ??
     normalizeCheckStatus(check?.bucket) ??
     normalizeCheckStatus(check?.state) ??
     normalizeCheckStatus(check?.status) ??
     "pending";
+}
+
+function normalizeCheckConclusion(value: unknown): ChecksSummary["status"] | null {
+  const status = normalizeCheckStatus(value);
+  if (status != null) {
+    return status;
+  }
+  return typeof value === "string" && value.trim() !== "" ? "fail" : null;
 }
 
 function normalizeCheckStatus(value: unknown): ChecksSummary["status"] | null {
@@ -1101,7 +1109,17 @@ function normalizeCheckStatus(value: unknown): ChecksSummary["status"] | null {
   if (["pass", "passed", "success", "successful", "neutral", "skipped"].includes(status)) {
     return "pass";
   }
-  if (["fail", "failed", "failure", "error", "cancelled", "timed_out", "action_required"].includes(status)) {
+  if ([
+    "fail",
+    "failed",
+    "failure",
+    "error",
+    "cancelled",
+    "timed_out",
+    "action_required",
+    "startup_failure",
+    "stale",
+  ].includes(status)) {
     return "fail";
   }
   if (["pending", "queued", "running", "in_progress", "waiting"].includes(status)) {
