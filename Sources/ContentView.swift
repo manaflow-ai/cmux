@@ -17,6 +17,7 @@ import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettingsUI
 import CmuxSidebar
+import CmuxSidebarUI
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -7491,27 +7492,6 @@ extension SidebarDragState {
     }
 }
 
-/// Per-row drop-indicator visibility, computed by the parent from value
-/// inputs only. Takes UUIDs (not `Tab` objects or `SidebarDragState`) so it's
-/// trivially unit-testable and the row's view subtree never reads the
-/// `@Observable` store directly. Same predicate that used to live inside
-/// `SidebarTabDropIndicatorOverlay`.
-struct SidebarWorkspaceTopDropIndicator: View {
-    let isVisible: Bool
-    let isFirstRow: Bool
-    let rowSpacing: CGFloat
-
-    var body: some View {
-        if isVisible {
-            Rectangle()
-                .fill(cmuxAccentColor())
-                .frame(height: 2)
-                .padding(.horizontal, 8)
-                .offset(y: isFirstRow ? 0 : -(rowSpacing / 2))
-        }
-    }
-}
-
 /// Freezes `showsModifierShortcutHints` for the row whose context menu is open,
 /// so pressing/releasing the modifier key while the menu is up does not flip
 /// the underlying row's shortcut badges (which would be visible around the
@@ -9703,36 +9683,6 @@ struct VerticalTabsSidebar: View {
     }
 }
 
-struct SidebarWorkspaceFrameAnchorModifier: ViewModifier {
-    let id: UUID
-    let isEnabled: Bool
-
-    func body(content: Content) -> some View {
-        // Branchless: always apply anchorPreference, emit [:] when disabled. An
-        // if/else gives `content` distinct identity per state, so flipping
-        // isEnabled at drag start/end recreated every visible row's subtree
-        // (lost @State, fresh snapshot builds + relayout mid-drag). The frame
-        // *reader* stays gated on the drag (#5325), so an empty emit costs nothing.
-        content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
-            isEnabled ? [id: anchor] : [:]
-        }
-    }
-}
-
-extension View {
-    func sidebarWorkspaceFrameAnchor(id: UUID, isEnabled: Bool) -> some View {
-        modifier(SidebarWorkspaceFrameAnchorModifier(id: id, isEnabled: isEnabled))
-    }
-}
-
-struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [UUID: Anchor<CGRect>] = [:]
-
-    static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
-        value.merge(nextValue()) { _, next in next }
-    }
-}
-
 @MainActor
 private final class SidebarDragFailsafeMonitor: ObservableObject {
     private static let escapeKeyCode: UInt16 = 53
@@ -11238,7 +11188,8 @@ struct TabItemView: View, Equatable {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
                 isFirstRow: index == 0,
-                rowSpacing: rowSpacing
+                rowSpacing: rowSpacing,
+                accent: cmuxAccentColor()
             )
         }
         .onAppear {

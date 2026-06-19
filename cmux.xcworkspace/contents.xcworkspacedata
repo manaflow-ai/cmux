@@ -163,6 +163,9 @@
          location = "group:CmuxSidebarProviderKit">
       </FileRef>
       <FileRef
+         location = "group:CmuxSidebarUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSwiftRender">
       </FileRef>
       <FileRef

@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSidebar
+import CmuxSidebarUI
 import SwiftUI
 import CmuxSettings
 
@@ -235,7 +236,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
                 isFirstRow: isFirstRow,
-                rowSpacing: rowSpacing
+                rowSpacing: rowSpacing,
+                accent: cmuxAccentColor()
             )
         }
         .onDrag(onDragStart)
