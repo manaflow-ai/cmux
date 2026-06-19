@@ -24,6 +24,7 @@ const checkRateLimit = mock(async () => ({ rateLimited: true, error: null }));
 const cloudDb = mock(() => {
   throw new Error("cloudDb should not be reached after a push rate-limit block");
 });
+const closeCloudDbForTests = mock(async () => {});
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -36,6 +37,7 @@ mock.module("@vercel/firewall", () => ({
 
 mock.module("../db/client", () => ({
   cloudDb,
+  closeCloudDbForTests,
 }));
 
 const pushRoute = await import("../app/api/notifications/push/route");
@@ -56,6 +58,7 @@ beforeEach(() => {
   checkRateLimit.mockClear();
   checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
   cloudDb.mockClear();
+  closeCloudDbForTests.mockClear();
 });
 
 describe("notifications push route", () => {

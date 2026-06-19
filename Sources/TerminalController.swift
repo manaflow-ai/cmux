@@ -11043,19 +11043,19 @@ class TerminalController {
         case "left":
             storedKey = "←"
             keyCode = 123
-            charactersIgnoringModifiers = storedKey
+            charactersIgnoringModifiers = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
         case "right":
             storedKey = "→"
             keyCode = 124
-            charactersIgnoringModifiers = storedKey
+            charactersIgnoringModifiers = String(UnicodeScalar(NSRightArrowFunctionKey)!)
         case "down":
             storedKey = "↓"
             keyCode = 125
-            charactersIgnoringModifiers = storedKey
+            charactersIgnoringModifiers = String(UnicodeScalar(NSDownArrowFunctionKey)!)
         case "up":
             storedKey = "↑"
             keyCode = 126
-            charactersIgnoringModifiers = storedKey
+            charactersIgnoringModifiers = String(UnicodeScalar(NSUpArrowFunctionKey)!)
         case "enter", "return":
             storedKey = "\r"
             keyCode = UInt16(kVK_Return)
