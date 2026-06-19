@@ -29,29 +29,33 @@ require_job_contains() {
   fi
 }
 
+# macOS CI now routes straight to PAID managed runners (warp/depot); the
+# vars.MACOS_RUNNER_* indirection was removed intentionally. These checks still
+# assert the SDK lane split (helper built on macOS 15, app signed/built on
+# macOS 26) but key off the literal paid Warp labels instead of the old vars.
 require_job_contains \
   "$RELEASE_FILE" \
   "build-ghostty-cli-helper" \
-  'runs-on: ${{ vars.MACOS_RUNNER_15 || '\''warp-macos-15-arm64-6x'\'' }}' \
-  "release must build the real Ghostty CLI helper on macOS 15"
+  'runs-on: warp-macos-15-arm64-6x' \
+  "release must build the real Ghostty CLI helper on the paid macOS 15 runner"
 
 require_job_contains \
   "$RELEASE_FILE" \
   "build-sign-notarize" \
-  'runs-on: ${{ vars.MACOS_RUNNER_26 || '\''warp-macos-26-arm64-6x'\'' }}' \
-  "release must sign+notarize on the macOS 26 runner variable after importing the Developer ID intermediate chain"
+  'runs-on: warp-macos-26-arm64-6x' \
+  "release must sign+notarize on the paid macOS 26 runner after importing the Developer ID intermediate chain"
 
 require_job_contains \
   "$CI_FILE" \
   "release-ghostty-cli-helper" \
-  'runs-on: ${{ vars.MACOS_RUNNER_15 || '\''warp-macos-15-arm64-6x'\'' }}' \
-  "CI must build the real Ghostty CLI helper on macOS 15"
+  'runs-on: warp-macos-15-arm64-6x' \
+  "CI must build the real Ghostty CLI helper on the paid macOS 15 runner"
 
 require_job_contains \
   "$CI_FILE" \
   "release-build" \
-  'runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || '\''warp-macos-26-arm64-6x'\'' }}' \
-  "CI release-build must compile the app on macOS 26 using the release-specific runner variable"
+  'runs-on: warp-macos-26-arm64-6x' \
+  "CI release-build must compile the app on the paid macOS 26 runner"
 
 for workflow in "$CI_FILE" "$RELEASE_FILE"; do
   if ! grep -Fq "CMUX_SKIP_ZIG_BUILD=1 xcodebuild" "$workflow"; then

@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Regression test for https://github.com/manaflow-ai/cmux/issues/385.
-# Ensures paid CI jobs use a paid macOS runner (Blacksmith or WarpBuild, routed
-# through the MACOS_RUNNER_15 / MACOS_RUNNER_26 repo variables), never a free
-# GitHub-hosted runner. Flip Blacksmith<->Warp by editing those repo variables;
-# see docs/ci-runners.md.
+# Ensures guarded macOS CI jobs run on a PAID managed runner (WarpBuild or
+# Depot, pinned by literal label such as warp-macos-15-arm64-6x /
+# warp-macos-26-arm64-6x / depot-macos-*), never a free GitHub-hosted runner.
+# The vars.MACOS_RUNNER_* indirection was removed; macOS jobs now name the paid
+# label directly. Linux jobs still route through vars.LINUX_RUNNER. The retired
+# self-hosted Mac minis (labels cmux-aws-macos-15 / cmux-macos-26) must never
+# return. The only sanctioned bare GitHub-hosted runner is hosted macos-26 for
+# the iOS jobs in test-ios.yml / ios-testflight.yml. See docs/ci-runners.md.
 # Fork PRs are gated by GitHub's built-in "Require approval for outside
 # collaborators" setting, so workflow-level fork guards are not needed.
 set -euo pipefail
@@ -31,11 +35,18 @@ check_macos_runner() {
 }
 
 check_display_runner_identity_guard() {
+  # The display jobs (tests-build-and-lag, ui-regressions) no longer route
+  # through vars.MACOS_RUNNER_DISPLAY; they pin the paid Warp label
+  # warp-macos-15-arm64-6x directly. The Depot identity guard STEP is still
+  # present and still meaningful: if someone repoints REQUESTED_RUNNER at a
+  # depot-* label, the step verifies the resolved runner.name actually is Depot
+  # and fails otherwise. We keep validating that guard, keyed off the literal
+  # paid Warp label instead of the removed var.
   local file="$1" job="$2"
   if ! awk -v job="$job" '
     $0 ~ "^  "job":" { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /REQUESTED_RUNNER:.*vars\.MACOS_RUNNER_DISPLAY/ { saw_requested=1 }
+    in_job && /REQUESTED_RUNNER:[[:space:]]*warp-macos-15-arm64-6x/ { saw_requested=1 }
     in_job && /RUNNER_CONTEXT_NAME:[[:space:]]*\$\{\{ runner\.name \}\}/ { saw_runner_name=1 }
     in_job && /case "\$REQUESTED_RUNNER" in/ { saw_requested_case=1 }
     in_job && /depot-\*\)/ { saw_depot_case=1 }
@@ -43,25 +54,29 @@ check_display_runner_identity_guard() {
     in_job && /resolved outside Depot/ { saw_error=1 }
     END { exit !(saw_requested && saw_runner_name && saw_requested_case && saw_depot_case && saw_non_depot_skip && saw_error) }
   ' "$file"; then
-    echo "FAIL: $job in $(basename "$file") must validate actual Depot identity when MACOS_RUNNER_DISPLAY resolves to a depot-* runner"
+    echo "FAIL: $job in $(basename "$file") must pin the paid Warp display runner and still validate actual Depot identity when REQUESTED_RUNNER resolves to a depot-* runner"
     exit 1
   fi
 
-  echo "PASS: $job in $(basename "$file") validates display runner identity"
+  echo "PASS: $job in $(basename "$file") pins the paid display runner and validates Depot identity"
 }
 
 check_release_build_runner_disk_capacity() {
+  # release-build now pins the paid macOS 26 Warp runner directly
+  # (vars.MACOS_RUNNER_26_RELEASE was removed with the rest of the macOS runner
+  # vars). Assert the literal paid label so a disk-heavy universal Release build
+  # can never silently land on a free hosted macOS runner.
   if ! awk '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /runs-on:/ && /vars\.MACOS_RUNNER_26_RELEASE/ && /warp-macos-26-arm64-6x/ { saw_release_runner=1 }
+    in_job && /runs-on:[[:space:]]*warp-macos-26-arm64-6x[[:space:]]*$/ { saw_release_runner=1 }
     END { exit !saw_release_runner }
   ' "$CI_FILE"; then
-    echo "FAIL: release-build must use the release-specific macOS 26 runner var with clean Warp fallback for disk-heavy universal builds"
+    echo "FAIL: release-build must run on the paid macOS 26 runner warp-macos-26-arm64-6x for disk-heavy universal builds"
     exit 1
   fi
 
-  echo "PASS: release-build uses release-specific macOS 26 runner fallback"
+  echo "PASS: release-build pins the paid macOS 26 runner"
 }
 
 check_e2e_runner_fallbacks() {
@@ -96,7 +111,9 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
+  # `auto` now resolves straight to the paid Warp label (no vars.MACOS_RUNNER_15
+  # indirection). The Depot identity guard still gates every depot-macos-* choice.
+  if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && 'warp-macos-15-arm64-6x' || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must validate all Depot macOS runner choices"
     exit 1
   fi
@@ -678,20 +695,57 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 check_no_bare_github_hosted_runners() {
-  # Every job must route its runner through a repo variable (LINUX_RUNNER,
-  # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
-  # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
-  # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
-  # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
-  # deliberate single-runner pins such as the testmanagerd-wedged `tests` job.
+  # Core purpose (issue #385): no GUARDED macOS CI job may run on a free
+  # GitHub-hosted runner. Linux jobs still route through vars.LINUX_RUNNER so
+  # the Blacksmith<->Warp overflow switch is a single repo-variable flip; a bare
+  # ubuntu-* label is therefore still forbidden. Paid macOS jobs run directly on
+  # paid managed labels (warp-*, depot-*, blacksmith-*), which stay allowed.
+  #
+  # The ONLY sanctioned bare GitHub-hosted macOS pins are the iOS jobs in
+  # test-ios.yml and ios-testflight.yml: iOS simulator XCUITests and the
+  # TestFlight upload deliberately run on hosted `macos-26` (the paid Mac minis
+  # were retired and the iOS sim path does not need a paid GUI-activation
+  # runner). Those, and only those, are excluded below; every other bare hosted
+  # runner still fails this guard.
   local hits
-  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)[[:space:]]*$" "$ROOT_DIR/.github/workflows" || true)"
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)[[:space:]]*$" "$ROOT_DIR/.github/workflows" \
+    | grep -vE "/(test-ios|ios-testflight)\.yml:[0-9]+:[[:space:]]*runs-on:[[:space:]]*macos-26[[:space:]]*$" \
+    || true)"
   if [[ -n "$hits" ]]; then
-    echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
+    echo "FAIL: these jobs use a bare free GitHub-hosted runner; Linux must route through vars.LINUX_RUNNER and macOS jobs must use a paid managed label (warp-*/depot-*/blacksmith-*). Only the iOS macos-26 jobs in test-ios.yml/ios-testflight.yml are exempt:"
     echo "$hits"
     exit 1
   fi
-  echo "PASS: no workflow pins a bare GitHub-hosted runner; all route through runner repo variables"
+
+  # Defense in depth: the iOS exemption must stay narrow. If an iOS workflow
+  # ever pins a different bare hosted macOS label (e.g. macos-15, macos-latest),
+  # that is NOT covered by the exclusion above and must be caught here so the
+  # exemption can't silently widen.
+  local ios_bad
+  ios_bad="$(grep -rnE "runs-on:[[:space:]]*macos-[a-z0-9]+[[:space:]]*$" \
+    "$ROOT_DIR/.github/workflows/test-ios.yml" \
+    "$ROOT_DIR/.github/workflows/ios-testflight.yml" 2>/dev/null \
+    | grep -vE "runs-on:[[:space:]]*macos-26[[:space:]]*$" || true)"
+  if [[ -n "$ios_bad" ]]; then
+    echo "FAIL: iOS workflows may only use the sanctioned bare hosted runner macos-26; this pins a different free hosted label:"
+    echo "$ios_bad"
+    exit 1
+  fi
+
+  # The retired self-hosted Mac minis (labels cmux-aws-macos-15 / cmux-macos-26)
+  # were intentionally removed. They must never come back as a runs-on label,
+  # since a self-hosted runner is exactly the unpaid/unmanaged surface this
+  # guard exists to keep macOS CI off of. (They would not match the hosted
+  # ubuntu-*/macos-* pattern above, so they need their own check.)
+  local retired
+  retired="$(grep -rnE "runs-on:.*(self-hosted|cmux-aws-macos|cmux-macos-26)" "$ROOT_DIR/.github/workflows" || true)"
+  if [[ -n "$retired" ]]; then
+    echo "FAIL: a job pins a retired self-hosted Mac runner; macOS CI must stay on paid managed runners (warp-*/depot-*/blacksmith-*):"
+    echo "$retired"
+    exit 1
+  fi
+
+  echo "PASS: no guarded job pins a free GitHub-hosted or retired self-hosted runner (iOS macos-26 jobs are the only sanctioned exemption)"
 }
 
 # ci.yml jobs
@@ -708,7 +762,7 @@ check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
-# ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
+# ci-macos-compat.yml (matrix.os pins paid warp-macos-* labels directly)
 check_macos_runner "$COMPAT_FILE" "compat-tests"
 
 # test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
