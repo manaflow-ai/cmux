@@ -33,9 +33,18 @@ nonisolated final class SocketAsyncResponsePipe: @unchecked Sendable {
 
     func complete(_ response: String) {
         let bytes = Array(response.utf8)
-        var encodedLength = UInt64(bytes.count).bigEndian
-        guard withUnsafeBytes(of: &encodedLength, writeAll(_:)) else { return }
+        guard !bytes.isEmpty, bytes.count <= Self.maximumResponseBytes else {
+            writeLength(0)
+            return
+        }
+
+        writeLength(UInt64(bytes.count))
         _ = bytes.withUnsafeBytes(writeAll(_:))
+    }
+
+    private func writeLength(_ length: UInt64) {
+        var encodedLength = length.bigEndian
+        _ = withUnsafeBytes(of: &encodedLength, writeAll(_:))
     }
 
     func wait() -> String? {
@@ -44,7 +53,8 @@ nonisolated final class SocketAsyncResponsePipe: @unchecked Sendable {
             return nil
         }
         let responseLength = UInt64(bigEndian: encodedLength)
-        guard responseLength <= Self.maximumResponseBytes,
+        guard responseLength > 0,
+              responseLength <= Self.maximumResponseBytes,
               let byteCount = Int(exactly: responseLength) else {
             return nil
         }
