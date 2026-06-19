@@ -184,43 +184,37 @@ private func installFileDropOverlayWhenReady(
         )
 }
 
+/// App-target `SelectedWorkspaceReading` adapter: a byte-faithful lift of the
+/// former `SelectedWorkspaceDirectoryObserver` Combine pipeline whose terminal
+/// `.sink` now yields each distinct snapshot into the `AsyncStream` consumed by
+/// `SelectedWorkspaceDirectoryModel` (which owns the generation counter + dedup)
+/// instead of bumping a `@Published` counter. Migrating `TabManager`/`Workspace`
+/// off Combine is deferred to those gods' own modernization PRs.
 @MainActor
-private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
-    private struct Snapshot: Equatable {
-        let workspaceId: UUID?
-        let currentDirectory: String?
-        let remoteConfiguration: WorkspaceRemoteConfiguration?
-        let remoteConnectionState: WorkspaceRemoteConnectionState?
-        let remoteConnectionDetail: String?
-        let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
-    }
-
-    @Published private(set) var directoryChangeGeneration: UInt64 = 0
+private final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceReading {
+    let directorySnapshots: AsyncStream<SelectedWorkspaceDirectorySnapshot>
+    private let continuation: AsyncStream<SelectedWorkspaceDirectorySnapshot>.Continuation
     private weak var tabManager: TabManager?
     private var cancellable: AnyCancellable?
+
+    init() {
+        (directorySnapshots, continuation) = AsyncStream.makeStream(
+            of: SelectedWorkspaceDirectorySnapshot.self, bufferingPolicy: .bufferingNewest(1))
+    }
 
     func wire(tabManager: TabManager) {
         guard self.tabManager !== tabManager || cancellable == nil else { return }
         self.tabManager = tabManager
+        let continuation = continuation
         cancellable = tabManager.selectedTabIdPublisher
             .map { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<Snapshot, Never> in
+            .map { workspace -> AnyPublisher<SelectedWorkspaceDirectorySnapshot, Never> in
                 guard let workspace else {
-                    return Just(
-                        Snapshot(
-                            workspaceId: nil,
-                            currentDirectory: nil,
-                            remoteConfiguration: nil,
-                            remoteConnectionState: nil,
-                            remoteConnectionDetail: nil,
-                            remoteDaemonStatus: nil
-                        )
-                    )
-                    .eraseToAnyPublisher()
+                    return Just(.none).eraseToAnyPublisher()
                 }
                 return workspace.$currentDirectory
                     .combineLatest(
@@ -236,7 +230,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConnectionState,
                             remoteConnectionDetail
                         ) = values
-                        return Snapshot(
+                        return SelectedWorkspaceDirectorySnapshot(
                             workspaceId: workspace.id,
                             currentDirectory: currentDirectory,
                             remoteConfiguration: remoteConfiguration,
@@ -250,9 +244,13 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
             .switchToLatest()
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.directoryChangeGeneration &+= 1
+            .sink { snapshot in
+                continuation.yield(snapshot)
             }
+    }
+
+    deinit {
+        continuation.finish()
     }
 }
 
@@ -295,7 +293,8 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
-    @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
+    @State private var selectedWorkspaceDirectoryModel = SelectedWorkspaceDirectoryModel()
+    @State private var selectedWorkspaceDirectoryReading = SelectedWorkspaceDirectoryReadingAdapter()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var fileExplorerWidth: CGFloat = 220
@@ -1808,7 +1807,8 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
-            selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
+            selectedWorkspaceDirectoryReading.wire(tabManager: tabManager)
+            selectedWorkspaceDirectoryModel.wire(reading: selectedWorkspaceDirectoryReading)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -1908,8 +1908,8 @@ struct ContentView: View {
             syncSidebarSelectedWorkspaceIds()
         })
 
-        // File explorer: keep the Combine subscription stable across body re-evaluations.
-        view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
+        // File explorer: keep the directory-change subscription stable across body re-evaluations.
+        view = AnyView(view.onChange(of: selectedWorkspaceDirectoryModel.directoryChangeGeneration) { _ in
             syncFileExplorerDirectory()
         })
 

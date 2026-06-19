@@ -14,6 +14,9 @@ let package = Package(
         ),
     ],
     dependencies: [
+        // CmuxCore owns the WorkspaceRemote* value types carried by
+        // SelectedWorkspaceDirectorySnapshot.
+        .package(path: "../CmuxCore"),
         // WorkspaceGroupNewPlacement (the typed setting value for new
         // in-group workspace placement) is owned by CmuxSettings.
         .package(path: "../CmuxSettings"),
@@ -28,6 +31,7 @@ let package = Package(
         .target(
             name: "CmuxWorkspaces",
             dependencies: [
+                .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
@@ -43,6 +47,7 @@ let package = Package(
             name: "CmuxWorkspacesTests",
             dependencies: [
                 "CmuxWorkspaces",
+                .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
             ],
