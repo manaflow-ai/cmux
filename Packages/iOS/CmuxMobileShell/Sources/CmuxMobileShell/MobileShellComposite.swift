@@ -587,6 +587,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
+    /// The per-Mac connection pool (P2 of the multi-Mac work), keyed by
+    /// `macDeviceID`. Today it tracks the single foreground connection; P3 adds
+    /// read-only connections to the user's other Macs so every connected Mac's
+    /// workspaces can be aggregated. `foregroundMacDeviceID` is the Mac whose
+    /// connection drives terminal I/O and the connected UI.
+    private var connections: [String: MacConnection] = [:]
+    private var foregroundMacDeviceID: String?
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -3398,6 +3405,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
                     markMacConnectionHealthy()
+                    // Record this as the foreground entry in the per-Mac
+                    // connection pool (P2). Anonymous (empty-id) tickets are not
+                    // pooled, since a per-Mac key is required to aggregate.
+                    if !ticket.macDeviceID.isEmpty {
+                        connections[ticket.macDeviceID] = MacConnection(
+                            macDeviceID: ticket.macDeviceID,
+                            ticket: ticket,
+                            route: firstRoute,
+                            client: client,
+                            generation: generation
+                        )
+                        foregroundMacDeviceID = ticket.macDeviceID
+                    }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
@@ -3564,6 +3584,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearActiveConnectionContext()
         macConnectionStatus = .unavailable
         replaceRemoteClient(with: nil)
+        // Drop the foreground entry from the connection pool (P2). Secondary
+        // read-only connections (P3) are torn down separately.
+        if let foreground = foregroundMacDeviceID {
+            connections[foreground] = nil
+        }
+        foregroundMacDeviceID = nil
         rawTerminalInputBuffer.clear()
     }
 
