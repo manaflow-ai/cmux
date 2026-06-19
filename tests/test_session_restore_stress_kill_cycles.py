@@ -245,6 +245,7 @@ def _collect_all_scrollbacks(client: cmux) -> str:
     workspaces = client.list_workspaces()
     for index in range(len(workspaces)):
         client.select_workspace(index)
+        time.sleep(0.1)
         chunks.append(_read_scrollback(client))
     return "\n".join(chunks)
 

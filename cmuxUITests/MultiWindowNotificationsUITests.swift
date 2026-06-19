@@ -379,9 +379,17 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let notifyStdout = readTrimmedFile(atPath: commandStdoutPath) ?? ""
         let notifyStderr = readTrimmedFile(atPath: commandStderrPath) ?? ""
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        var observedForeground = false
+        let foregroundCheckDeadline = Date().addingTimeInterval(2.0)
+        while Date() < foregroundCheckDeadline {
+            if app.state == .runningForeground {
+                observedForeground = true
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
         XCTAssertFalse(
-            app.state == .runningForeground,
+            observedForeground,
             "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyStderr)"
         )
         guard notifyExitStatus == "0" else {
@@ -876,11 +884,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in predicate() },
-            object: nil
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if predicate() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return predicate()
     }
 
     private func firstSurfaceIdViaCLI(forWorkspaceId workspaceId: String) -> String? {
