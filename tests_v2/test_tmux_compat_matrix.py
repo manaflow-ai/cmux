@@ -144,7 +144,7 @@ def main() -> int:
         ws = c.new_workspace()
         c.select_workspace(ws)
         _ = c.new_split("right")
-        time.sleep(0.2)
+        _wait_for(lambda: len([pid for _pidx, pid, _count, _focused in c.list_panes()]) >= 2)
 
         panes = [pid for _pidx, pid, _count, _focused in c.list_panes()]
         _must(len(panes) >= 2, f"Expected >=2 panes, got {panes}")
@@ -175,7 +175,10 @@ def main() -> int:
             text=True,
             env={k: v for k, v in os.environ.items() if k not in {"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID"}},
         )
-        time.sleep(0.2)
+        # The signal persists as a file on disk, so signaling before the waiter
+        # has registered is benign: the waiter finds the file the instant it polls.
+        # communicate() below blocks on the waiter's real completion (returncode),
+        # which is the actual outcome under test, so no startup delay is needed.
         _run_cli(cli, ["wait-for", "-S", wait_name])
         out, err = signaler.communicate(timeout=5)
         _must(signaler.returncode == 0, f"wait-for signal/wait failed: out={out!r} err={err!r}")
@@ -217,7 +220,7 @@ def main() -> int:
         current_panes = [pid for _pidx, pid, _count, _focused in c.list_panes()]
         if len(current_panes) < 2:
             _ = c.new_split("right")
-            time.sleep(0.2)
+            _wait_for(lambda: len([pid for _pidx, pid, _count, _focused in c.list_panes()]) >= 2)
             current_panes = [pid for _pidx, pid, _count, _focused in c.list_panes()]
         _must(len(current_panes) >= 2, f"Expected >=2 panes after break/join, got {current_panes}")
         lp_source, lp_target = current_panes[0], current_panes[1]
