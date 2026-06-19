@@ -77,9 +77,7 @@ def is_go_change(path: str) -> bool:
 def is_macos_neutral(path: str) -> bool:
     if path.startswith(("docs/", "design/", "plans/", "ios/", "web/", "webviews/", "daemon/remote/")):
         return True
-    if path.startswith(".github/") and not is_workflow(path):
-        return True
-    return path.endswith((".md", ".mdx", ".rst"))
+    return path == "README.md" or (path.startswith("README.") and path.endswith(".md"))
 
 
 def is_macos_change(path: str) -> bool:

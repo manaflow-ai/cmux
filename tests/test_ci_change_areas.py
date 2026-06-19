@@ -36,7 +36,7 @@ def test_cli_contract_doc_runs_macos_contract_tests() -> None:
 
 
 def test_changelog_runs_web_validation() -> None:
-    assert_areas(["CHANGELOG.md"], macos=False, web=True, go=False)
+    assert_areas(["CHANGELOG.md"], macos=True, web=True, go=False)
 
 
 def test_web_only_runs_web_without_macos() -> None:
@@ -93,8 +93,12 @@ def test_ghosttykit_checksum_pin_runs_macos() -> None:
     assert_areas(["scripts/ghosttykit-checksums.txt"], macos=True, web=False, go=False)
 
 
-def test_non_workflow_github_metadata_is_neutral() -> None:
-    assert_areas([".github/review-bot-rules/code.yml"], macos=False, web=False, go=False)
+def test_app_bundled_markdown_runs_macos() -> None:
+    assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False, go=False)
+
+
+def test_swift_warning_budget_runs_macos() -> None:
+    assert_areas([".github/swift-warning-budget.tsv"], macos=True, web=False, go=False)
 
 
 def test_cli_writes_github_outputs() -> None:
