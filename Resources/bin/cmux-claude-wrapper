@@ -309,7 +309,6 @@ extract_claude_resume_session_id() {
                 fi
                 ;;
             *)
-                return 1
                 ;;
         esac
         index=$((index + 1))
@@ -340,7 +339,6 @@ claude_explicit_session_flag_present() {
                 fi
                 ;;
             *)
-                return 1
                 ;;
         esac
         index=$((index + 1))
