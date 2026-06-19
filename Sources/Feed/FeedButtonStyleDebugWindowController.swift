@@ -778,10 +778,10 @@ extension FeedButton.Kind: CaseIterable, Identifiable {
     }
 }
 
-final class FeedButtonStyleDebugWindowController: NSWindowController, NSWindowDelegate {
+final class FeedButtonStyleDebugWindowController: ReleasingWindowController {
     static let shared = FeedButtonStyleDebugWindowController()
 
-    private init() {
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 650),
             styleMask: [.titled, .closable, .resizable, .utilityWindow],
@@ -795,22 +795,16 @@ final class FeedButtonStyleDebugWindowController: NSWindowController, NSWindowDe
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.feedButtonStyleDebug")
         window.minSize = NSSize(width: 460, height: 520)
         window.center()
         window.contentView = NSHostingView(rootView: FeedButtonStyleDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 

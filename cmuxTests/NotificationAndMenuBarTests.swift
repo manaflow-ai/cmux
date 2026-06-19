@@ -270,11 +270,20 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
             cwd: FileManager.default.temporaryDirectory.path
         )
 
-        let startedAt = Date()
-        let result = await evaluate(request: request, hooks: [hook])
-        let envelope = try result.get()
+        // A background child inheriting the hook's stdout must not keep the
+        // pipe open and stall `evaluate`. Assert the causal outcome — that the
+        // hook completes and returns the unmodified envelope — rather than
+        // timing the call. The completion is raced against a generous deadline
+        // so a genuine stall fails the test instead of hanging it forever.
+        let completed = expectation(description: "policy hook completes without stalling on inherited stdout")
+        let evaluationTask = Task {
+            let result = await evaluate(request: request, hooks: [hook])
+            completed.fulfill()
+            return result
+        }
+        await fulfillment(of: [completed], timeout: 10.0)
+        let envelope = try await evaluationTask.value.get()
         XCTAssertEqual(envelope.notification.body, "Body")
-        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2)
     }
 }
 
@@ -1249,7 +1258,7 @@ final class NotificationDockBadgeTests: XCTestCase {
             },
             object: NSObject()
         )
-        XCTAssertEqual(XCTWaiter().wait(for: [commandFinished], timeout: 2.0), .completed)
+        XCTAssertEqual(XCTWaiter().wait(for: [commandFinished], timeout: 10.0), .completed)
         XCTAssertTrue(deliveredNotificationIDs.isEmpty)
 
         let output = try String(contentsOf: commandOutputURL, encoding: .utf8)

@@ -2,26 +2,21 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import CmuxBrowser
-import CmuxBrowserPanel
 import CmuxCommandPalette
-import CmuxCommandPaletteUI
 import CmuxPanes
 import CmuxControlSocket
-import CmuxIPCService
+import CmuxWindowing
 import CmuxNotifications
 import CmuxTerminalCore
-import CmuxTerminalEngine
-import CmuxTerminalServices
+import CmuxTerminal
 import CmuxSettings
 import CmuxSettingsUI
-import CmuxSocketControl
 import CmuxUpdater
 import CmuxWorkspaces
 import CmuxUpdaterUI
-import CmuxWindowing
 import SwiftUI
 import Bonsplit
-import CMUXWorkstream
+import CMUXAgentLaunch
 import CoreServices
 import UserNotifications
 import Sentry
@@ -31,8 +26,6 @@ import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
 import CmuxSidebar
-import CmuxSession
-import CmuxTerminal
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
@@ -554,6 +547,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
+        var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
 
         init(
@@ -4522,6 +4516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let cmuxConfigStore {
                 existing.cmuxConfigStore = cmuxConfigStore
             }
+            existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             if let existingWindow = existing.window,
                existingWindow !== window,
@@ -4559,10 +4554,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 existing.cmuxConfigStore = cmuxConfigStore
             }
             reindexMainWindowContextIfNeeded(existing, for: window)
+            existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         } else {
             tabManager.window = window
             tabManager.windowId = windowId
-            mainWindowContexts[key] = MainWindowContext(
+            let context = MainWindowContext(
                 windowId: windowId,
                 tabManager: tabManager,
                 sidebarState: sidebarState,
@@ -4571,14 +4567,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 cmuxConfigStore: cmuxConfigStore,
                 window: window
             )
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.willCloseNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] note in
-                guard let self, let closing = note.object as? NSWindow else { return }
-                self.unregisterMainWindow(closing)
-            }
+            mainWindowContexts[key] = context
+            context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         }
         commandPaletteWindowStore.registerWindow(windowId)
 
@@ -15728,6 +15718,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isTerminatingApp {
             persistWindowGeometry(from: window)
         }
+        mainWindowVisibilityController.discardClosedWindow(window)
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
@@ -17485,10 +17476,8 @@ private extension NSWindow {
 
 // MARK: - CmuxUpdater seams
 
-/// Conforms the composition root to the updater package's inversion seams: the host actions the
-/// updater triggers (``UpdateActionsHost``) and the retry/relaunch hooks it calls back into
-/// (``UpdateActionDelegate``). `checkForUpdatesInCustomUI()` is satisfied by the method on the
-/// main `AppDelegate` declaration.
+/// Conforms the composition root to updater host actions, retry, and relaunch seams.
+/// `checkForUpdatesInCustomUI()` is satisfied by the main `AppDelegate` declaration.
 extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     func updaterRequestsRetryCheckForUpdates() {
         checkForUpdates(nil)

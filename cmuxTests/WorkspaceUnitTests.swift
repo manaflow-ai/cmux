@@ -15,7 +15,6 @@ import CmuxSidebar
 import UserNotifications
 import Combine
 import CmuxTerminal
-import CmuxWorkspaceCore
 import CmuxBrowser
 import struct CmuxSettings.IntegrationsCatalogSection
 import enum CmuxSettings.KiroNotificationLevel
