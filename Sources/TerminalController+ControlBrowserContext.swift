@@ -511,4 +511,24 @@ extension TerminalController: ControlBrowserContext {
         if browsers.count == 1 { return (browsers[0].1, browsers[0].0) }
         return nil
     }
+
+    // MARK: - network.route / unroute / requests (unsupported-attempt log)
+
+    func controlBrowserRecordUnsupportedNetworkRequest(
+        surfaceID: UUID,
+        action: String,
+        params: [String: JSONValue]
+    ) {
+        let foundationParams = JSONValue.object(params).foundationObject
+        v2BrowserRecordUnsupportedRequest(
+            surfaceId: surfaceID,
+            request: ["action": action, "params": foundationParams]
+        )
+    }
+
+    func controlBrowserUnsupportedNetworkRequests(surfaceID: UUID) -> [JSONValue] {
+        v2BrowserUnsupportedNetworkRequests(surfaceId: surfaceID).compactMap {
+            JSONValue(foundationObject: $0)
+        }
+    }
 }

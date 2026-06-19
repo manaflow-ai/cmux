@@ -106,6 +106,14 @@ extension ControlBrowserContext {
     func controlBrowserStorageClear(
         params: [String: JSONValue]
     ) -> ControlBrowserStorageClearResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserRecordUnsupportedNetworkRequest(
+        surfaceID: UUID,
+        action: String,
+        params: [String: JSONValue]
+    ) {}
+
+    func controlBrowserUnsupportedNetworkRequests(surfaceID: UUID) -> [JSONValue] { [] }
 }
 
 extension ControlBrowserPanelContext {
