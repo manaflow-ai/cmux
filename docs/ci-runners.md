@@ -1,9 +1,12 @@
 # CI runners
 
 Every CI/CD job picks its runner from a repository variable instead of a
-hardcoded label. Blacksmith is the primary provider for every runner type;
-WarpBuild is the overflow fallback. Switching a runner type between Blacksmith
-and the fallback is a single repo-variable change that takes effect on the next
+hardcoded label. We run **Blacksmith only** for every runner type and accept
+the occasional sub-minute Blacksmith queue rather than overflowing elsewhere.
+There is no automatic Warp overflow. WarpBuild stays wired in only as a manual
+break-glass fallback (and as the home of the macOS XCTest/GUI jobs Blacksmith
+can't run; see exceptions below). Switching a runner type to the break-glass
+fallback is a single repo-variable change that takes effect on the next
 workflow run, with no PR or commit.
 
 | Variable            | Used by                                                    | Blacksmith (primary)        | Fallback baked into the workflow |
@@ -38,9 +41,12 @@ green there. These stay on Warp or Depot on purpose:
 testmanagerd limitation. If an iOS job wedges on Blacksmith, flip
 `MACOS_RUNNER_IOS` back to `macos-26`.
 
-## Switch a runner type Blacksmith <-> fallback
+## Break-glass: switch a runner type off Blacksmith
 
-The switch is a repo-variable change. Use Blacksmith (default):
+We do not auto-overflow. If Blacksmith is genuinely down or queuing for minutes
+(not the sub-minute queue we accept by default), manually flip the affected
+variable to its fallback; revert it once Blacksmith recovers. Use Blacksmith
+(default):
 
 ```bash
 gh variable set LINUX_RUNNER          --repo manaflow-ai/cmux -b blacksmith-4vcpu-ubuntu-2404
@@ -50,9 +56,9 @@ gh variable set MACOS_RUNNER_26_RELEASE --repo manaflow-ai/cmux -b blacksmith-6v
 gh variable set MACOS_RUNNER_IOS      --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
 ```
 
-Overflow a type to WarpBuild when Blacksmith capacity is queuing (as happened
-for macOS in https://github.com/manaflow-ai/cmux/pull/4926). Either delete the
-variable to use the baked-in fallback, or set it explicitly:
+Break-glass a type to WarpBuild only when Blacksmith is down or queuing for
+minutes (as happened for macOS in https://github.com/manaflow-ai/cmux/pull/4926).
+Either delete the variable to use the baked-in fallback, or set it explicitly:
 
 ```bash
 gh variable set LINUX_RUNNER    --repo manaflow-ai/cmux -b warp-ubuntu-latest-x64-4x
