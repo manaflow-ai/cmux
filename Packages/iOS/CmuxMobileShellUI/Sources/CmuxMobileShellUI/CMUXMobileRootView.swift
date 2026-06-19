@@ -197,9 +197,10 @@ struct CMUXMobileRootView: View {
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
                 store: store
             )
-            .onAppear {
-                showAddDevice()
-            }
+            // The disconnected view decides whether to auto-present the pairing
+            // sheet: it loads saved Macs first and only pops the sheet when there
+            // are none to pick (otherwise it lists them for one-tap reconnect).
+            // See DisconnectedWorkspaceShellView.task.
         } else {
             WorkspaceShellView(store: store, signOut: signOut)
         }
