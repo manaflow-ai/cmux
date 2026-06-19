@@ -1290,7 +1290,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
+    func testClaudePromptSubmitResumeBindingPersistsSafeAuthSelectionValues() throws {
         let context = try makeClaudeHookContext(name: "claude-resume-env-redaction")
         defer { context.cleanup() }
 
@@ -1309,7 +1309,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "ANTHROPIC_MODEL": "claude-sonnet-test",
             "CLAUDE_CONFIG_DIR": context.root.appendingPathComponent("claude-config", isDirectory: true).path,
         ]
-        let start = runClaudeHook(
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [context.surfaceId],
+            connectionLimit: 5
+        )
+
+        let start = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
@@ -1319,7 +1325,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(start.status, 0, start.stderr)
 
         let commandStart = context.state.commands.count
-        let prompt = runClaudeHook(
+        let prompt = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "prompt-submit"],
             standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
@@ -1346,9 +1352,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "ANTHROPIC_BASE_URL,ANTHROPIC_MODEL,CLAUDE_CONFIG_DIR"
         )
         XCTAssertNil(environment["ANTHROPIC_API_KEY"])
-        XCTAssertNil(environment["ANTHROPIC_BASE_URL"])
-        XCTAssertNil(environment["ANTHROPIC_MODEL"])
-        XCTAssertNil(environment["CLAUDE_CONFIG_DIR"])
+        XCTAssertEqual(environment["ANTHROPIC_BASE_URL"] as? String, "https://api.example.test")
+        XCTAssertEqual(environment["ANTHROPIC_MODEL"] as? String, "claude-sonnet-test")
+        XCTAssertEqual(
+            environment["CLAUDE_CONFIG_DIR"] as? String,
+            context.root.appendingPathComponent("claude-config", isDirectory: true).path
+        )
     }
 
     func testClaudeSessionEndChecksConsumedWorkspaceBeforeClearingVisibleState() throws {
