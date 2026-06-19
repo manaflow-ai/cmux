@@ -1,6 +1,5 @@
 import Foundation
 import CmuxBrowser
-import CmuxBrowserImport
 
 enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
     case noBrowsers

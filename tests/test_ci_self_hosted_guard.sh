@@ -3,7 +3,7 @@
 # Ensures paid CI jobs use a paid macOS runner (Blacksmith or WarpBuild, routed
 # through the MACOS_RUNNER_15 / MACOS_RUNNER_26 repo variables), never a free
 # GitHub-hosted runner. Flip Blacksmith<->Warp by editing those repo variables;
-# see docs/macos-ci-runners.md.
+# see docs/ci-runners.md.
 # Fork PRs are gated by GitHub's built-in "Require approval for outside
 # collaborators" setting, so workflow-level fork guards are not needed.
 set -euo pipefail
@@ -221,7 +221,19 @@ check_signing_intermediate_imports() {
       echo "FAIL: signing helper must import Apple's $cert intermediate"
       exit 1
     fi
+    # Both intermediates must be vendored in-repo so signing never depends on a
+    # live www.apple.com fetch (a flaky request was producing intermittent
+    # "unable to build chain to self-signed root" codesign failures).
+    if [[ ! -s "$ROOT_DIR/scripts/apple-developer-id-certs/$cert" ]]; then
+      echo "FAIL: signing helper must vendor scripts/apple-developer-id-certs/$cert"
+      exit 1
+    fi
   done
+
+  if ! grep -Fq 'apple-developer-id-certs' "$helper"; then
+    echo "FAIL: signing helper must prefer the vendored apple-developer-id-certs copies before downloading"
+    exit 1
+  fi
 
   for curl_flag in "--connect-timeout 20" "--max-time 120"; do
     if ! grep -Fq -- "$curl_flag" "$helper"; then
@@ -306,24 +318,57 @@ esac
 EOF
   chmod +x "$bin_dir/security"
 
+  # --- Vendored path (default): the real helper has the certs committed beside
+  # it, so it must import both WITHOUT touching the network. ---
   if ! PATH="$bin_dir:/usr/bin:/bin" CMUX_STUB_CURL_LOG="$curl_log" CMUX_STUB_SECURITY_LOG="$security_log" "$helper" "$keychain" >"$tmp_dir/success.out" 2>"$tmp_dir/success.err"; then
-    echo "FAIL: signing helper behavior test should import both intermediates"
+    echo "FAIL: signing helper behavior test should import both intermediates from vendored copies"
     cat "$tmp_dir/success.err" >&2 || true
     exit 1
   fi
 
+  if [[ -s "$curl_log" ]]; then
+    echo "FAIL: signing helper must not hit the network when vendored intermediates are present"
+    cat "$curl_log" >&2 || true
+    exit 1
+  fi
+
+  if [[ "$(grep -c -- '-k '"$keychain" "$security_log")" -ne 2 ]]; then
+    echo "FAIL: signing helper behavior test did not add both vendored certificates to the requested keychain"
+    exit 1
+  fi
+
+  # --- Fallback path: run a copy of the helper with no vendored certs beside it
+  # (VENDOR_DIR resolves next to the script). It must download both intermediates. ---
+  local fb_dir fb_helper fb_curl_log fb_security_log fb_keychain
+  fb_dir="$tmp_dir/fallback"
+  mkdir -p "$fb_dir"
+  fb_helper="$fb_dir/import-apple-developer-id-intermediates.sh"
+  cp "$helper" "$fb_helper"
+  chmod +x "$fb_helper"
+  fb_curl_log="$tmp_dir/fb_curl.log"
+  fb_security_log="$tmp_dir/fb_security.log"
+  fb_keychain="$tmp_dir/fb_build.keychain"
+  touch "$fb_curl_log" "$fb_security_log" "$fb_keychain"
+
+  if ! PATH="$bin_dir:/usr/bin:/bin" CMUX_STUB_CURL_LOG="$fb_curl_log" CMUX_STUB_SECURITY_LOG="$fb_security_log" "$fb_helper" "$fb_keychain" >"$tmp_dir/fb.out" 2>"$tmp_dir/fb.err"; then
+    echo "FAIL: signing helper fallback should download and import both intermediates"
+    cat "$tmp_dir/fb.err" >&2 || true
+    exit 1
+  fi
+
   for cert in DeveloperIDCA.cer DeveloperIDG2CA.cer; do
-    if ! grep -Fq "https://www.apple.com/certificateauthority/$cert" "$curl_log"; then
-      echo "FAIL: signing helper behavior test did not download $cert"
+    if ! grep -Fq "https://www.apple.com/certificateauthority/$cert" "$fb_curl_log"; then
+      echo "FAIL: signing helper fallback did not download $cert when no vendored copy was present"
       exit 1
     fi
   done
 
-  if [[ "$(grep -c -- '-k '"$keychain" "$security_log")" -ne 2 ]]; then
-    echo "FAIL: signing helper behavior test did not add both certificates to the requested keychain"
+  if [[ "$(grep -c -- '-k '"$fb_keychain" "$fb_security_log")" -ne 2 ]]; then
+    echo "FAIL: signing helper fallback did not add both downloaded certificates to the requested keychain"
     exit 1
   fi
 
+  # --- Count guard: helper must fail when fewer than two intermediates land. ---
   if PATH="$bin_dir:/usr/bin:/bin" CMUX_STUB_CURL_LOG="$curl_log" CMUX_STUB_SECURITY_LOG="$security_log" CMUX_STUB_CERT_COUNT_OVERRIDE=1 "$helper" "$keychain" >"$tmp_dir/fail.out" 2>"$tmp_dir/fail.err"; then
     echo "FAIL: signing helper behavior test should fail when fewer than two intermediates are visible"
     exit 1
@@ -335,7 +380,7 @@ EOF
   fi
 
   rm -rf "$tmp_dir"
-  echo "PASS: signing helper downloads, imports, and verifies Developer ID intermediates"
+  echo "PASS: signing helper imports vendored intermediates offline, downloads as fallback, and verifies the count"
 }
 
 check_sentry_cli_install_portability() {
@@ -632,7 +677,25 @@ check_tmux_terminal_nightly_isolation() {
   echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
 }
 
+check_no_bare_github_hosted_runners() {
+  # Every job must route its runner through a repo variable (LINUX_RUNNER,
+  # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
+  # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
+  # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
+  # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
+  # deliberate single-runner pins such as the testmanagerd-wedged `tests` job.
+  local hits
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)[[:space:]]*$" "$ROOT_DIR/.github/workflows" || true)"
+  if [[ -n "$hits" ]]; then
+    echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
+    echo "$hits"
+    exit 1
+  fi
+  echo "PASS: no workflow pins a bare GitHub-hosted runner; all route through runner repo variables"
+}
+
 # ci.yml jobs
+check_no_bare_github_hosted_runners
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"

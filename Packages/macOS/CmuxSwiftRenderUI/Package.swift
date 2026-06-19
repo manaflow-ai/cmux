@@ -17,7 +17,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxSwiftRender"),
         .package(path: "../CmuxSettings"),
-        .package(path: "../CmuxFileWatch"),
+        .package(path: "../CmuxFoundation"),
     ],
     targets: [
         .target(
@@ -25,7 +25,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
-                .product(name: "CmuxFileWatch", package: "CmuxFileWatch"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             resources: [
                 .process("Resources"),
