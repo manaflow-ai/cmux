@@ -11290,7 +11290,6 @@ struct CMUXCLI {
         }
         var connectedFD: Int32?
         var bridgeHandshakeSize = Self.currentCLITerminalSize()
-        let controlSocketLock = NSLock()
         do {
             let host = (bridge["host"] as? String) ?? "127.0.0.1"
             guard let port = cliStrictInt(bridge["port"]), port > 0, port <= 65535 else {
@@ -11371,8 +11370,7 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceID: surfaceID,
                     sessionID: sessionID,
-                    attachmentID: attachmentID,
-                    socketLock: controlSocketLock
+                    attachmentID: attachmentID
                 )
                 attachFinished = true
                 return
@@ -11384,8 +11382,7 @@ struct CMUXCLI {
                         workspaceId: workspaceId,
                         surfaceID: surfaceID,
                         sessionID: sessionID,
-                        attachmentID: attachmentID,
-                        socketLock: controlSocketLock
+                        attachmentID: attachmentID
                     )
                     attachFinished = true
                     return
@@ -11441,12 +11438,8 @@ struct CMUXCLI {
         workspaceId: String,
         surfaceID: String?,
         sessionID: String,
-        attachmentID: String,
-        socketLock: NSLock
+        attachmentID: String
     ) throws {
-        socketLock.lock()
-        defer { socketLock.unlock() }
-
         let response: [String: Any]
         do {
             var params: [String: Any] = [

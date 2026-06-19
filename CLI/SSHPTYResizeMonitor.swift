@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 
 actor SSHPTYResizeMonitor {
+    private typealias ResizeEvent = (size: (cols: Int, rows: Int), force: Bool)
+
     private let socketPath: String
     private let explicitPassword: String?
     private let workspaceId: String
@@ -12,6 +14,10 @@ actor SSHPTYResizeMonitor {
     // DispatchSourceSignal supports cross-thread cancel/resume; all mutable
     // resize state stays actor-isolated.
     private nonisolated(unsafe) let source: DispatchSourceSignal
+    // AsyncStream.Continuation is safe to yield from stdin/signal callbacks;
+    // the newest-1 buffer bounds input-hot-path work while actor state drains.
+    private nonisolated(unsafe) let eventContinuation: AsyncStream<ResizeEvent>.Continuation
+    private var eventTask: Task<Void, Never>?
     private var lastSentSize: (cols: Int, rows: Int)
     private var pendingSize: (cols: Int, rows: Int)?
     private var isCancelled = false
@@ -34,34 +40,40 @@ actor SSHPTYResizeMonitor {
         self.attachmentID = attachmentID
         self.attachmentToken = attachmentToken
         self.lastSentSize = initialSize
+        let events = AsyncStream<ResizeEvent>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        self.eventContinuation = events.continuation
         self.source = DispatchSource.makeSignalSource(
             signal: SIGWINCH,
             queue: DispatchQueue(label: "com.cmux.ssh-pty.resize.signal")
         )
         signal(SIGWINCH, SIG_IGN)
-        source.setEventHandler { [weak self] in
-            Task { await self?.enqueueCurrentSize(force: true) }
+        source.setEventHandler { [eventContinuation] in
+            let size = CMUXCLI.currentCLITerminalSize()
+            eventContinuation.yield((size: size, force: true))
         }
         source.resume()
+        self.eventTask = Task { [stream = events.stream] in
+            await self.processResizeEvents(stream)
+        }
     }
 
     nonisolated func enqueueResizeIfNeeded() {
         let size = CMUXCLI.currentCLITerminalSize()
-        Task { await self.enqueue(size: size, force: false) }
+        eventContinuation.yield((size: size, force: false))
     }
 
     nonisolated func cancel() {
         source.cancel()
-        Task { await self.cancelState() }
+        eventContinuation.finish()
     }
 
-    private func enqueueCurrentSize(force: Bool) {
-        enqueue(size: CMUXCLI.currentCLITerminalSize(), force: force)
-    }
-
-    private func cancelState() {
+    private func processResizeEvents(_ events: AsyncStream<ResizeEvent>) async {
+        for await event in events {
+            enqueue(size: event.size, force: event.force)
+        }
         isCancelled = true
         pendingSize = nil
+        eventTask = nil
     }
 
     private func enqueue(size: (cols: Int, rows: Int), force: Bool) {
