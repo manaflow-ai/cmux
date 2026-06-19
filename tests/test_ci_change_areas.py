@@ -90,12 +90,13 @@ def test_workflow_has_trusted_self_change_guard() -> None:
     assert "CI router changed; running all CI areas." in workflow
     assert "--files-from /tmp/cmux-ci-changed-files.txt" in workflow
     assert r"\.github/workflows/ci\.yml" in workflow
-    assert r"scripts/ci/detect_ci_change_areas\.py" in workflow
+    assert r"scripts/ci/[^/]+\.py" in workflow
     assert r"tests/test_ci_change_areas\.py" in workflow
 
 
 def test_router_changes_run_everything() -> None:
     assert_areas(["scripts/ci/detect_ci_change_areas.py"], macos=True, web=True, go=True)
+    assert_areas(["scripts/ci/subprocess.py"], macos=True, web=True, go=True)
     assert_areas(["tests/test_ci_change_areas.py"], macos=True, web=True, go=True)
 
 

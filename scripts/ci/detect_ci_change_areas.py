@@ -46,10 +46,11 @@ def is_workflow(path: str) -> bool:
 
 
 def forces_all_areas(path: str) -> bool:
-    return is_workflow(path) or path in {
-        "scripts/ci/detect_ci_change_areas.py",
-        "tests/test_ci_change_areas.py",
-    }
+    ci_script_prefix = "scripts/ci/"
+    is_direct_ci_python = path.startswith(ci_script_prefix) and path.endswith(".py")
+    if is_direct_ci_python:
+        is_direct_ci_python = "/" not in path[len(ci_script_prefix) :]
+    return is_workflow(path) or is_direct_ci_python or path == "tests/test_ci_change_areas.py"
 
 
 def is_web_change(path: str) -> bool:

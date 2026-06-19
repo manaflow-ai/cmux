@@ -44,7 +44,7 @@ jobs:
             # This guard lives in workflow YAML, before the PR-editable detector
             # runs. Router/workflow edits must fail open even if a PR breaks the
             # detector's own self-change classification.
-            if grep -Eq '^(\.github/workflows/ci\.yml|scripts/ci/detect_ci_change_areas\.py|tests/test_ci_change_areas\.py)$' /tmp/cmux-ci-changed-files.txt; then
+            if grep -Eq '^(\.github/workflows/ci\.yml|scripts/ci/[^/]+\.py|tests/test_ci_change_areas\.py)$' /tmp/cmux-ci-changed-files.txt; then
               echo "CI router changed; running all CI areas."
               echo "macos=true" >> "$GITHUB_OUTPUT"
               echo "web=true" >> "$GITHUB_OUTPUT"
