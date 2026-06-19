@@ -65,7 +65,9 @@ final class AgentChatSessionRegistry {
     /// - Returns: A non-ended record bound to the surface, or `nil`.
     func liveSession(surfaceID: String) -> AgentChatSessionRecord? {
         sweepDeadProcesses()
-        return records.values.first { $0.surfaceID == surfaceID && $0.state != .ended }
+        return records.values
+            .filter { $0.surfaceID == surfaceID && $0.state != .ended }
+            .max { $0.lastActivityAt < $1.lastActivityAt }
     }
 
     /// Every session id the registry already tracks. Title-detected adoption

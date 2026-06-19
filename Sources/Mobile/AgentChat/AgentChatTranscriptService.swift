@@ -373,7 +373,8 @@ final class AgentChatTranscriptService {
                 key: key,
                 workspaceID: workspaceID,
                 workingDirectory: workingDirectory,
-                surfaceID: surfaceID
+                surfaceID: surfaceID,
+                titleHint: titleHint
             )
         }
     }
@@ -383,7 +384,8 @@ final class AgentChatTranscriptService {
         key: ClaudeTranscriptResolutionKey,
         workspaceID: String,
         workingDirectory: String,
-        surfaceID: String
+        surfaceID: String,
+        titleHint: String?
     ) {
         guard transcriptResolutionKeys[surfaceID] == key else {
             return
@@ -393,11 +395,27 @@ final class AgentChatTranscriptService {
 
         guard let resolved else { return }
         guard !claimedDetectedTranscriptSessionIDs.contains(resolved.sessionID) else {
+            scheduleClaudeTranscriptResolution(
+                workspaceID: workspaceID,
+                workingDirectory: workingDirectory,
+                surfaceID: surfaceID,
+                excludingSessionID: registry.liveSession(surfaceID: surfaceID)?.sessionID,
+                titleHint: titleHint,
+                forceScan: true
+            )
             return
         }
         if let claimed = registry.record(sessionID: resolved.sessionID),
            claimed.surfaceID != nil,
            claimed.surfaceID != surfaceID {
+            scheduleClaudeTranscriptResolution(
+                workspaceID: workspaceID,
+                workingDirectory: workingDirectory,
+                surfaceID: surfaceID,
+                excludingSessionID: registry.liveSession(surfaceID: surfaceID)?.sessionID,
+                titleHint: titleHint,
+                forceScan: true
+            )
             return
         }
 
@@ -545,7 +563,7 @@ final class AgentChatTranscriptService {
             return nil
         }
         detectionScanAt[surfaceID] = now
-        var claimed = registry.claimedSessionIDs()
+        var claimed = registry.claimedSessionIDs().union(claimedDetectedTranscriptSessionIDs)
         if let excludingSessionID {
             claimed.remove(excludingSessionID)
         }
