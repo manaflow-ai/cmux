@@ -228,20 +228,7 @@ final class JumpUnreadUITestRecorder: UITestRecording {
     /// recorder's own flow) writes through the same single capture-file writer.
     func writeData(_ updates: [String: String]) {
         guard let path = environment["CMUX_UI_TEST_JUMP_UNREAD_PATH"], !path.isEmpty else { return }
-        var payload = Self.load(at: path)
-        for (key, value) in updates {
-            payload[key] = value
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
-    }
-
-    private static func load(at path: String) -> [String: String] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return [:]
-        }
-        return object
+        UITestKeyValueCaptureFile(path: path).merge(updates)
     }
 }
 #endif

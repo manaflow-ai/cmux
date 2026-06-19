@@ -9347,21 +9347,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         publishCurrentState(isTimedOut: false)
     }
 
+    /// Merges `updates` into the multi-window notification capture file at
+    /// `path`. The byte-faithful unsorted-keys merge/load/write lives in
+    /// ``UITestKeyValueCaptureFile``; this shim only resolves the live path the
+    /// app-coupled harness orchestration computed.
     private func writeMultiWindowNotificationTestData(_ updates: [String: String], at path: String) {
-        var payload = loadMultiWindowNotificationTestData(at: path)
-        for (key, value) in updates {
-            payload[key] = value
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        UITestKeyValueCaptureFile(path: path).merge(updates)
     }
 
+    /// Reads the multi-window notification capture file at `path`, returning
+    /// `[:]` for an absent or unparsable file. Forwards to
+    /// ``UITestKeyValueCaptureFile``.
     private func loadMultiWindowNotificationTestData(at path: String) -> [String: String] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return [:]
-        }
-        return object
+        UITestKeyValueCaptureFile(path: path).load()
     }
 
     private func recordMultiWindowNotificationFocusIfNeeded(
