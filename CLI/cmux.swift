@@ -11624,9 +11624,9 @@ struct CMUXCLI {
         let queue = DispatchQueue(label: "com.cmux.ssh-pty.resize")
         var lastSentSize = currentCLITerminalSize()
 
-        func sendResizeIfNeeded() {
+        func sendResize(force: Bool) {
             let size = self.currentCLITerminalSize()
-            guard size.cols != lastSentSize.cols || size.rows != lastSentSize.rows else {
+            guard force || size.cols != lastSentSize.cols || size.rows != lastSentSize.rows else {
                 return
             }
             lastSentSize = size
@@ -11653,7 +11653,7 @@ struct CMUXCLI {
             queue: queue
         )
         source.setEventHandler {
-            sendResizeIfNeeded()
+            sendResize(force: true)
         }
 
         // Some persistent SSH PTY attach chains miss SIGWINCH even though the
@@ -11666,7 +11666,7 @@ struct CMUXCLI {
             leeway: .milliseconds(100)
         )
         pollSource.setEventHandler {
-            sendResizeIfNeeded()
+            sendResize(force: false)
         }
         source.resume()
         pollSource.resume()
