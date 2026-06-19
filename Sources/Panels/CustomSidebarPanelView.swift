@@ -18,8 +18,8 @@ struct CustomSidebarPanelView: View {
 
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @State private var renderWorkerClient: RenderWorkerClient?
-    @State private var focusFlashOpacity: Double = 0.0
-    @State private var focusFlashAnimationGeneration: Int = 0
+    @State private var focusFlashStartedAt: Date?
+    @State private var completedFocusFlashStartedAt: Date?
 
     var body: some View {
         Group {
@@ -41,11 +41,11 @@ struct CustomSidebarPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: appearance.backgroundColor))
         .overlay {
-            WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
+            focusFlashOverlay
         }
         .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
         .onChange(of: panel.focusFlashToken) { _, _ in
-            triggerFocusFlashAnimation()
+            focusFlashStartedAt = Date()
         }
         .onChange(of: isVisibleInUI) { _, visible in
             if !visible {
@@ -164,29 +164,27 @@ struct CustomSidebarPanelView: View {
         onRequestPanelFocus()
     }
 
-    private func triggerFocusFlashAnimation() {
-        focusFlashAnimationGeneration &+= 1
-        let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
-
-        for segment in FocusFlashPattern.segments {
-            Task { @MainActor in
-                let nanoseconds = UInt64(max(0, segment.delay) * 1_000_000_000)
-                try? await Task.sleep(nanoseconds: nanoseconds)
-                guard focusFlashAnimationGeneration == generation else { return }
-                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
-                    focusFlashOpacity = segment.targetOpacity
+    @ViewBuilder
+    private var focusFlashOverlay: some View {
+        if shouldAnimateFocusFlash, let focusFlashStartedAt {
+            TimelineView(CustomSidebarFocusFlashTimelineSchedule(startDate: focusFlashStartedAt)) { timeline in
+                WorkspaceAttentionFlashRingView(
+                    opacity: FocusFlashPattern.opacity(at: timeline.date.timeIntervalSince(focusFlashStartedAt))
+                )
+                .onChange(of: timeline.date) { _, date in
+                    if date.timeIntervalSince(focusFlashStartedAt) >= FocusFlashPattern.duration {
+                        completedFocusFlashStartedAt = focusFlashStartedAt
+                    }
                 }
             }
+        } else {
+            Color.clear
         }
     }
 
-    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
-        switch curve {
-        case .easeIn:
-            return .easeIn(duration: duration)
-        case .easeOut:
-            return .easeOut(duration: duration)
-        }
+    private var shouldAnimateFocusFlash: Bool {
+        guard let focusFlashStartedAt else { return false }
+        guard completedFocusFlashStartedAt != focusFlashStartedAt else { return false }
+        return Date() <= focusFlashStartedAt.addingTimeInterval(FocusFlashPattern.duration)
     }
 }
