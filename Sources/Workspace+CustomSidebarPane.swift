@@ -114,7 +114,11 @@ extension Workspace {
         if shouldFocusNewTab {
             focusPanel(customPanel.id)
         } else if let previousFocusedPanelId {
-            focusPanel(previousFocusedPanelId)
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: customPanel.id,
+                previousHostedView: nil
+            )
         }
 
         return customPanel
