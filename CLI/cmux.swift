@@ -11310,7 +11310,7 @@ struct CMUXCLI {
                 "client_pid": Int(getpid()),
             ], options: [])
             handshakeData.append(0x0A)
-            try writeAll(fd: fd, data: handshakeData)
+            try Self.writeAll(fd: fd, data: handshakeData)
             attachmentToken = try readSSHPTYBridgeReady(fd: fd)
             bridgeReachedReady = true
         } catch {
@@ -11336,14 +11336,14 @@ struct CMUXCLI {
         )
         defer { resizeMonitor.cancel() }
 
-        DispatchQueue.global(qos: .userInteractive).async {
+        Task.detached(priority: .userInitiated) { [resizeMonitor, fd] in
             var buffer = [UInt8](repeating: 0, count: 8192)
             while true {
                 let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
                 if count > 0 {
-                    resizeMonitor.enqueueResizeIfNeeded()
+                    await resizeMonitor.resizeBeforeInputIfNeeded()
                     do {
-                        try self.writeAll(fd: fd, data: Data(buffer.prefix(count)))
+                        try Self.writeAll(fd: fd, data: Data(buffer.prefix(count)))
                     } catch {
                         _ = shutdown(fd, SHUT_WR)
                         return
@@ -11652,7 +11652,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func writeAll(fd: Int32, data: Data) throws {
+    private static func writeAll(fd: Int32, data: Data) throws {
         try data.withUnsafeBytes { rawBuffer in
             guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
             var remaining = rawBuffer.count

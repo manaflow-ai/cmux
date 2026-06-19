@@ -5,7 +5,7 @@ import Testing
 @Suite(.serialized)
 struct CLISSHPTYResizeInputTests {
     @Test
-    func attachReportsPTYSizeChangeFromInputWithoutBlockingInputOnResizeResponse() throws {
+    func attachReportsPTYSizeChangeBeforeForwardingInput() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyinputresize")
         var listenerFD = try bindUnixSocket(at: socketPath)
@@ -17,7 +17,6 @@ struct CLISSHPTYResizeInputTests {
         let token = "bridge-token"
         let resizeRequestReceived = DispatchSemaphore(value: 0)
         let inputForwarded = DispatchSemaphore(value: 0)
-        let inputForwardedForResizeResponse = DispatchSemaphore(value: 0)
         let bridgeReady = DispatchSemaphore(value: 0)
         let closeBridge = DispatchSemaphore(value: 0)
         let bridgeCloseObserved = DispatchSemaphore(value: 0)
@@ -64,7 +63,6 @@ struct CLISSHPTYResizeInputTests {
                 capturedResizeParams.store(params)
                 eventRecorder.append("resize")
                 resizeRequestReceived.signal()
-                _ = inputForwardedForResizeResponse.wait(timeout: .now() + 5)
                 return v2Response(id: id, ok: true, result: [:])
             case "workspace.remote.pty_sessions":
                 return v2Response(id: id, ok: true, result: ["sessions": []])
@@ -92,7 +90,6 @@ struct CLISSHPTYResizeInputTests {
             bridge: bridge,
             bridgeReady: bridgeReady,
             inputForwarded: inputForwarded,
-            inputForwardedForResizeResponse: inputForwardedForResizeResponse,
             closeBridge: closeBridge,
             bridgeCloseObserved: bridgeCloseObserved,
             eventRecorder: eventRecorder
@@ -181,8 +178,13 @@ struct CLISSHPTYResizeInputTests {
         #expect(resizeParams?["cols"] as? Int == 120)
         #expect(resizeParams?["rows"] as? Int == 40)
         let events = eventRecorder.snapshot()
-        #expect(events.contains("resize"))
-        #expect(events.contains("input"))
+        let firstResizeIndex = events.firstIndex(of: "resize")
+        let firstInputIndex = events.firstIndex(of: "input")
+        #expect(firstResizeIndex != nil)
+        #expect(firstInputIndex != nil)
+        if let firstResizeIndex, let firstInputIndex {
+            #expect(firstResizeIndex < firstInputIndex)
+        }
     }
 
     private final class BundleToken {}
@@ -445,7 +447,6 @@ struct CLISSHPTYResizeInputTests {
         bridge: LoopbackTCPListener,
         bridgeReady: DispatchSemaphore,
         inputForwarded: DispatchSemaphore,
-        inputForwardedForResizeResponse: DispatchSemaphore,
         closeBridge: DispatchSemaphore,
         bridgeCloseObserved: DispatchSemaphore,
         eventRecorder: EventRecorder
@@ -485,7 +486,6 @@ struct CLISSHPTYResizeInputTests {
                 if count > 0 {
                     eventRecorder.append("input")
                     inputForwarded.signal()
-                    inputForwardedForResizeResponse.signal()
                     break
                 }
                 if count == 0 { return }

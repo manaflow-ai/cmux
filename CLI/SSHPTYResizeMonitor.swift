@@ -54,9 +54,9 @@ actor SSHPTYResizeMonitor {
         }
     }
 
-    nonisolated func enqueueResizeIfNeeded() {
+    func resizeBeforeInputIfNeeded() async {
         let size = CMUXCLI.currentCLITerminalSize()
-        eventContinuation.yield((size: size, force: false))
+        await enqueue(size: size, force: false)
     }
 
     nonisolated func cancel() {
