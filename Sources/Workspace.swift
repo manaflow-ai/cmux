@@ -2112,16 +2112,6 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// `PendingTabSelectionRequest` is app-private).
     private let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
 
-    /// The package-pure reuse resolver (CmuxWorkspaces) driving the five
-    /// `openOrFocus…` entry points. Each entry point builds a candidate list in
-    /// `panels` iteration order and asks the resolver for the first surface of
-    /// the requested kind whose identity (resolved file path, or right-sidebar
-    /// mode) matches, focusing it if appropriate and otherwise creating a new
-    /// surface. The scan-and-route decision carries no live AppKit state, so it
-    /// lives in the package as a value-in/value-out resolver this god object
-    /// drives.
-    private let surfaceReuseResolver = SurfaceReuseResolver()
-
     /// The per-workspace surface-directory sub-model (CmuxWorkspaces): owns the
     /// directory-report and listening-port-fusion logic the legacy `Workspace`
     /// god object kept inline (`updatePanelDirectory`, `configTrackingDirectory`,
@@ -7510,22 +7500,13 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         from panelId: UUID,
         filePath: String
     ) -> MarkdownPanel? {
-        var candidates: [SurfaceReuseCandidate<String>] = []
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let md = panel as? MarkdownPanel else { continue }
-            candidates.append(
-                SurfaceReuseCandidate(panelId: existingId, key: md.filePath.surfaceFilePathIdentity)
-            )
-        }
-        if case let .focusExisting(matchedId, shouldFocus) = surfaceReuseResolver.decision(
-            candidates: candidates,
-            requestedKey: filePath.surfaceFilePathIdentity,
-            shouldFocusExisting: true
-        ) {
-            if shouldFocus {
-                focusPanel(matchedId)
+            if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
+                focusPanel(existingId)
+                return md
             }
-            return panels[matchedId] as? MarkdownPanel
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
@@ -7713,22 +7694,15 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         filePath: String,
         focus: Bool = true
     ) -> MarkdownPanel? {
-        var candidates: [SurfaceReuseCandidate<String>] = []
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let markdownPanel = panel as? MarkdownPanel else { continue }
-            candidates.append(
-                SurfaceReuseCandidate(panelId: existingId, key: markdownPanel.filePath.surfaceFilePathIdentity)
-            )
-        }
-        if case let .focusExisting(matchedId, shouldFocus) = surfaceReuseResolver.decision(
-            candidates: candidates,
-            requestedKey: filePath.surfaceFilePathIdentity,
-            shouldFocusExisting: focus
-        ) {
-            if shouldFocus {
-                focusPanel(matchedId)
+            if (markdownPanel.filePath as NSString).resolvingSymlinksInPath == canonical {
+                if focus {
+                    focusPanel(existingId)
+                }
+                return markdownPanel
             }
-            return panels[matchedId] as? MarkdownPanel
         }
 
         return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
@@ -7781,22 +7755,15 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         filePath: String,
         focus: Bool = true
     ) -> FilePreviewPanel? {
-        var candidates: [SurfaceReuseCandidate<String>] = []
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let preview = panel as? FilePreviewPanel else { continue }
-            candidates.append(
-                SurfaceReuseCandidate(panelId: existingId, key: preview.filePath.surfaceFilePathIdentity)
-            )
-        }
-        if case let .focusExisting(matchedId, shouldFocus) = surfaceReuseResolver.decision(
-            candidates: candidates,
-            requestedKey: filePath.surfaceFilePathIdentity,
-            shouldFocusExisting: focus
-        ) {
-            if shouldFocus {
-                focusPanel(matchedId)
+            if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
+                if focus {
+                    focusPanel(existingId)
+                }
+                return preview
             }
-            return panels[matchedId] as? FilePreviewPanel
         }
 
         return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
@@ -7807,22 +7774,13 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         from panelId: UUID,
         filePath: String
     ) -> FilePreviewPanel? {
-        var candidates: [SurfaceReuseCandidate<String>] = []
+        let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let preview = panel as? FilePreviewPanel else { continue }
-            candidates.append(
-                SurfaceReuseCandidate(panelId: existingId, key: preview.filePath.surfaceFilePathIdentity)
-            )
-        }
-        if case let .focusExisting(matchedId, shouldFocus) = surfaceReuseResolver.decision(
-            candidates: candidates,
-            requestedKey: filePath.surfaceFilePathIdentity,
-            shouldFocusExisting: true
-        ) {
-            if shouldFocus {
-                focusPanel(matchedId)
+            if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
+                focusPanel(existingId)
+                return preview
             }
-            return panels[matchedId] as? FilePreviewPanel
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
@@ -7896,22 +7854,15 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         focus: Bool = true
     ) -> RightSidebarToolPanel? {
         guard mode.canOpenAsPane else { return nil }
-        var candidates: [SurfaceReuseCandidate<RightSidebarMode>] = []
         for (existingId, panel) in panels {
-            guard let toolPanel = panel as? RightSidebarToolPanel else { continue }
-            candidates.append(
-                SurfaceReuseCandidate(panelId: existingId, key: toolPanel.mode)
-            )
-        }
-        if case let .focusExisting(matchedId, shouldFocus) = surfaceReuseResolver.decision(
-            candidates: candidates,
-            requestedKey: mode,
-            shouldFocusExisting: focus
-        ) {
-            if shouldFocus {
-                focusPanel(matchedId)
+            guard let toolPanel = panel as? RightSidebarToolPanel,
+                  toolPanel.mode == mode else {
+                continue
             }
-            return panels[matchedId] as? RightSidebarToolPanel
+            if focus {
+                focusPanel(existingId)
+            }
+            return toolPanel
         }
         return newRightSidebarToolSurface(inPane: paneId, mode: mode, focus: focus)
     }
