@@ -50,35 +50,6 @@ final class CustomSidebarPanel: Panel, ObservableObject {
 }
 
 @MainActor
-private final class CustomSidebarPaneTicker: ObservableObject {
-    static let shared = CustomSidebarPaneTicker()
-
-    @Published private(set) var date = Date()
-    private var retainCount = 0
-    private var task: Task<Void, Never>?
-
-    func retain() {
-        retainCount += 1
-        guard task == nil else { return }
-        date = Date()
-        task = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { return }
-                self?.date = Date()
-            }
-        }
-    }
-
-    func release() {
-        retainCount = max(0, retainCount - 1)
-        guard retainCount == 0 else { return }
-        task?.cancel()
-        task = nil
-    }
-}
-
-@MainActor
 private final class CustomSidebarPaneDataContextCache {
     static let shared = CustomSidebarPaneDataContextCache()
 
@@ -110,7 +81,6 @@ private final class CustomSidebarPaneDataContextCache {
 
 struct CustomSidebarPanelView: View {
     @ObservedObject var panel: CustomSidebarPanel
-    @ObservedObject private var paneTicker = CustomSidebarPaneTicker.shared
     let tabManager: TabManager
     let sidebarUnread: SidebarUnreadModel
     let isFocused: Bool
@@ -120,21 +90,22 @@ struct CustomSidebarPanelView: View {
 
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @State private var renderWorkerClient: RenderWorkerClient?
-    @State private var retainedTicker = false
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
 
     var body: some View {
         Group {
             if isVisibleInUI {
-                CustomSidebarSurface(
-                    fileURL: panel.fileURL,
-                    dataContext: customSidebarDataContext(now: paneTicker.date),
-                    dispatch: makeCmuxSidebarActionDispatch(),
-                    contentInsets: CustomSidebarContentInsets.zero,
-                    rendersInProcess: customSidebarRenderer == .inProcess,
-                    client: $renderWorkerClient
-                )
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    CustomSidebarSurface(
+                        fileURL: panel.fileURL,
+                        dataContext: customSidebarDataContext(now: timeline.date),
+                        dispatch: makeCmuxSidebarActionDispatch(),
+                        contentInsets: CustomSidebarContentInsets.zero,
+                        rendersInProcess: customSidebarRenderer == .inProcess,
+                        client: $renderWorkerClient
+                    )
+                }
             } else {
                 Color.clear
             }
@@ -152,13 +123,8 @@ struct CustomSidebarPanelView: View {
             if !visible {
                 shutdownRenderWorkerClient()
             }
-            updateTickerRetention(visible: visible)
-        }
-        .onAppear {
-            updateTickerRetention(visible: isVisibleInUI)
         }
         .onDisappear {
-            updateTickerRetention(visible: false)
             shutdownRenderWorkerClient()
         }
     }
@@ -167,16 +133,6 @@ struct CustomSidebarPanelView: View {
         guard let client = renderWorkerClient else { return }
         renderWorkerClient = nil
         Task { await client.shutdown() }
-    }
-
-    private func updateTickerRetention(visible: Bool) {
-        if visible, !retainedTicker {
-            retainedTicker = true
-            paneTicker.retain()
-        } else if !visible, retainedTicker {
-            retainedTicker = false
-            paneTicker.release()
-        }
     }
 
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
