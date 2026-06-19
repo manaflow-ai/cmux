@@ -164,7 +164,6 @@ struct PostHogAnalyticsPropertiesTests {
         let flushRanOnMainThread = DispatchSemaphore(value: 0)
         let flushRanOffMainThread = DispatchSemaphore(value: 0)
         let callerReturnedPromptly = DispatchSemaphore(value: 0)
-        let callerReturnedSlowly = DispatchSemaphore(value: 0)
         let analytics = PostHogAnalytics.makeForTesting(
             workQueue: DispatchQueue(label: "com.cmux.tests.posthog.analytics"),
             didStart: true,
@@ -178,7 +177,7 @@ struct PostHogAnalyticsPropertiesTests {
                     flushRanOffMainThread.signal()
                 }
                 flushStarted.signal()
-                _ = flushCanReturn.wait(timeout: .now() + .seconds(1))
+                _ = flushCanReturn.wait(timeout: .now() + .seconds(5))
                 flushReturned.signal()
             }
         )
@@ -189,8 +188,6 @@ struct PostHogAnalyticsPropertiesTests {
             let elapsedSeconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
             if elapsedSeconds < 0.25 {
                 callerReturnedPromptly.signal()
-            } else {
-                callerReturnedSlowly.signal()
             }
         }
 
@@ -201,7 +198,6 @@ struct PostHogAnalyticsPropertiesTests {
         }
 
         #expect(callerReturnedPromptly.wait(timeout: .now() + .seconds(1)) == .success)
-        #expect(callerReturnedSlowly.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
         #expect(flushStarted.wait(timeout: .now() + .seconds(1)) == .success)
         #expect(flushRanOffMainThread.wait(timeout: .now() + .seconds(1)) == .success)
         #expect(flushRanOnMainThread.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
