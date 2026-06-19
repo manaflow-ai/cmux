@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     defaults:
       run:
         working-directory: workers/presence
@@ -41,6 +41,14 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      # Wrangler requires Node >= 22; the Blacksmith ubuntu-2404 image ships
+      # Node 20, so pin it explicitly instead of relying on the runner's
+      # ambient version (GitHub-hosted ubuntu-latest happened to ship 22).
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -57,7 +65,7 @@ jobs:
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     concurrency:
       group: presence-deploy
       cancel-in-progress: false
@@ -70,6 +78,12 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      # Wrangler requires Node >= 22; Blacksmith ubuntu-2404 ships Node 20.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
