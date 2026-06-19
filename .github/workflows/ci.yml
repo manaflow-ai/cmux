@@ -59,6 +59,9 @@ jobs:
       - name: Validate app-host xcodebuild attempt budget
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
 
+      - name: Validate cmux profiling support scripts
+        run: ./tests/test_start_cmux_profiling.sh
+
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
