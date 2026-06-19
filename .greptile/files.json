@@ -56,6 +56,11 @@
       "scope": ["**/*.swift"]
     },
     {
+      "path": ".github/review-bot-rules/no-test-debug-seam-in-production-source.md",
+      "description": "Source-of-truth cmux review rule against adding test-only or debug-only seams to production Swift Sources.",
+      "scope": ["**/Sources/**/*.swift"]
+    },
+    {
       "path": ".github/review-bot-rules/source-control-artifacts.md",
       "description": "Source-of-truth cmux review rule for local/generated artifacts that should not enter source control.",
       "scope": ["**/*"]
