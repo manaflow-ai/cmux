@@ -4151,7 +4151,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.identifier = browserOmnibarTextFieldIdentifier
         field.panelId = browserPanelId
         field.stringValue = "example"
-        contentView.addSubview(field)
+        attachTestResponder(field, to: window)
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
         defer {
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: browserPanelId)
@@ -6916,7 +6916,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textBoxView.onToggleFocus = { _ = terminalPanel.focusTextBoxInputOrTerminal() }
         let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
         textBoxScrollView.documentView = textBoxView
-        contentView.addSubview(textBoxScrollView)
+        attachTestResponder(textBoxScrollView, to: window)
         defer { textBoxScrollView.removeFromSuperview() }
 
         window.makeKeyAndOrderFront(nil)
