@@ -12,6 +12,7 @@ public enum PanelType: String, Codable, Sendable {
     case agentSession
     case project
     case extensionBrowser
+    case kanban
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -30,6 +31,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
             self = .agentSession
+            return
+        }
+        if rawValue.lowercased() == Self.kanban.rawValue.lowercased() {
+            self = .kanban
             return
         }
         throw DecodingError.dataCorruptedError(

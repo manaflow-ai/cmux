@@ -527,6 +527,10 @@ struct cmuxApp: App {
                     openSolid: { appDelegate.openDebugAgentSessionSolid(nil) }
                 )
 
+                Button("New Kanban Board") {
+                    appDelegate.openDebugKanbanBoard(nil)
+                }
+
                 Button("Open Workspaces for All Workspace Colors") {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }

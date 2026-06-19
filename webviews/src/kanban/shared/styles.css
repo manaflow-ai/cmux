@@ -1,0 +1,213 @@
+:root {
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--agent-text, #1c1c1e);
+  background: var(--agent-page-bg, transparent);
+  -webkit-font-smoothing: antialiased;
+}
+
+.kanban-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.kanban-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--agent-border, rgba(128, 128, 128, 0.2));
+}
+
+.kanban-toolbar__title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-right: auto;
+}
+
+.kanban-new-task {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.kanban-input {
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 7px;
+  border: 1px solid var(--agent-border, rgba(128, 128, 128, 0.28));
+  background: var(--agent-input-bg, rgba(128, 128, 128, 0.08));
+  color: var(--agent-text, inherit);
+  font-size: 13px;
+  outline: none;
+}
+
+.kanban-input::placeholder {
+  color: var(--agent-muted, rgba(128, 128, 128, 0.7));
+}
+
+.kanban-input--title {
+  width: 200px;
+}
+
+.kanban-input--detail {
+  width: 240px;
+}
+
+.kanban-button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: var(--agent-accent, #2f6feb);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.kanban-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.kanban-error {
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--agent-danger, #d23b2e);
+  border-bottom: 1px solid var(--agent-border, rgba(128, 128, 128, 0.2));
+}
+
+.kanban-board {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  overflow-x: auto;
+  align-items: flex-start;
+}
+
+.kanban-column {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.kanban-column__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--agent-muted, rgba(128, 128, 128, 0.75));
+}
+
+.kanban-column__count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.kanban-column__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kanban-column__empty {
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--agent-muted, rgba(128, 128, 128, 0.6));
+  border: 1px dashed var(--agent-border, rgba(128, 128, 128, 0.25));
+  border-radius: 9px;
+  text-align: center;
+}
+
+.kanban-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 9px;
+  border: 1px solid var(--agent-border, rgba(128, 128, 128, 0.22));
+  background: var(--agent-surface, rgba(128, 128, 128, 0.06));
+  box-shadow: 0 1px 2px var(--agent-shadow, rgba(0, 0, 0, 0.08));
+}
+
+.kanban-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.kanban-card__detail {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--agent-soft, rgba(128, 128, 128, 0.85));
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.kanban-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.kanban-card__move {
+  display: flex;
+  gap: 4px;
+}
+
+.kanban-icon-button {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--agent-border, rgba(128, 128, 128, 0.25));
+  background: var(--agent-surface-elevated, rgba(128, 128, 128, 0.1));
+  color: var(--agent-text, inherit);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.kanban-icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.kanban-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 13px;
+  color: var(--agent-muted, rgba(128, 128, 128, 0.7));
+}

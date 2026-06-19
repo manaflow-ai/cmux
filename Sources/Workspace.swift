@@ -590,6 +590,10 @@ extension Workspace {
                 workingDirectory: directory
             )
             projectSnapshot = nil
+        case .kanban:
+            // The board persists to ~/.local/state/cmux/kanban; the open panel
+            // surface itself is not restored across relaunch in this phase.
+            return nil
         case .project:
             guard let projectPanel = panel as? ProjectPanel else { return nil }
             terminalSnapshot = nil
@@ -1409,6 +1413,8 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
         case .extensionBrowser:
+            return nil
+        case .kanban:
             return nil
         }
     }
@@ -3705,6 +3711,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.project.rawValue
         case .extensionBrowser:
             return SurfaceKind.extensionBrowser.rawValue
+        case .kanban:
+            return SurfaceKind.kanban.rawValue
         }
     }
 
@@ -8173,6 +8181,71 @@ final class Workspace: Identifiable, ObservableObject {
         installAgentSessionPanelSubscription(agentPanel)
 
         return agentPanel
+    }
+
+    @discardableResult
+    func newKanbanSurface(
+        inPane paneId: PaneID,
+        workingDirectory: String? = nil,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> KanbanPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        let directory = workingDirectory ?? currentDirectory
+
+        let kanbanPanel = KanbanPanel(
+            workspaceId: id,
+            rendererKind: .react,
+            workingDirectory: directory
+        )
+        panels[kanbanPanel.id] = kanbanPanel
+        panelTitles[kanbanPanel.id] = kanbanPanel.displayTitle
+        if !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            panelDirectories[kanbanPanel.id] = directory
+        }
+
+        guard let newTabId = bonsplitController.createTab(
+            title: kanbanPanel.displayTitle,
+            icon: kanbanPanel.displayIcon,
+            kind: SurfaceKind.kanban.rawValue,
+            isDirty: kanbanPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: kanbanPanel.id)
+            panelTitles.removeValue(forKey: kanbanPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = kanbanPanel.id
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+        publishCmuxSurfaceCreated(
+            kanbanPanel.id,
+            paneId: paneId,
+            kind: "kanban",
+            origin: "kanban_tab",
+            focused: shouldFocusNewTab
+        )
+
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            kanbanPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: kanbanPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return kanbanPanel
     }
 
     @discardableResult

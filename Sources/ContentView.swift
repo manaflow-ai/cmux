@@ -5511,6 +5511,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .kanban:
+            return String(localized: "commandPalette.kind.kanban", defaultValue: "Kanban")
         }
     }
 
@@ -5532,6 +5534,8 @@ struct ContentView: View {
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
+        case .kanban:
+            return ["kanban", "board", "tasks", "todo"]
         }
     }
 
@@ -11051,6 +11055,8 @@ struct VerticalTabsSidebar: View {
         case .project:
             return .project
         case .extensionBrowser:
+            return .unknown
+        case .kanban:
             return .unknown
         }
     }

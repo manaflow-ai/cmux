@@ -34,11 +34,17 @@ export function createWebviewsRouter(WebviewComponent: WebviewRouteComponent) {
     path: "/agent-session",
     component: WebviewComponent,
   });
+  const kanbanRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/kanban",
+    component: WebviewComponent,
+  });
   const routeTree = rootRoute.addChildren([
     indexRoute,
     diffRoute,
     generatedDiffRoute,
     agentSessionRoute,
+    kanbanRoute,
   ]);
   return createRouter({
     history: createHashHistory(),

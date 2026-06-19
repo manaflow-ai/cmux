@@ -467,6 +467,18 @@
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
+		A48B22F421B91F2A60E587C4 /* KanbanBoardRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419941387A69EEAE79000926 /* KanbanBoardRepository.swift */; };
+		260F9852CF3377BB28E7F30D /* KanbanBoardRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F406CB1E6587FAECF8FFBDFC /* KanbanBoardRepositoryTests.swift */; };
+		D7722CB8EB81320314C8441F /* KanbanBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8650AD1417F35AAE380AC0C /* KanbanBridge.swift */; };
+		A2A41DAB55707C3968EEC641 /* KanbanBridgeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4078D7E4C85529D6719EE9E9 /* KanbanBridgeError.swift */; };
+		4E43EDAA9130842768BC0348 /* KanbanBridgeRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B306988871523FDFAB6332 /* KanbanBridgeRequest.swift */; };
+		32B1A766FC5E4517E74259B0 /* KanbanModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BC82B4603637DCBC39B9599 /* KanbanModels.swift */; };
+		A2ABF6D5387B5D9D9705D9C0 /* KanbanPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D22B495D7654520266D3BEB9 /* KanbanPanel.swift */; };
+		38394FC213190CFBF55B7F45 /* KanbanPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C24A8341FB5F7D946CC02559 /* KanbanPanelView.swift */; };
+		5AE265626A5EF6148E5AB2C8 /* KanbanRendererKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4182D7D5CBF13C42DAB4CEC /* KanbanRendererKind.swift */; };
+		370038DE2AD9DEB27B17B832 /* KanbanWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF3BBE0463218576517125E /* KanbanWebRenderer.swift */; };
+		175373678401E1890E0AF062 /* KanbanWebRendererCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B5AB3CB8272C3618E10029 /* KanbanWebRendererCoordinator.swift */; };
+		028867E46392BF643EF0A1AB /* KanbanWebRendererSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52A2C965EEA763FD23B90E3F /* KanbanWebRendererSession.swift */; };
 		A50012F5 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F4 /* KeyboardLayout.swift */; };
 		C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670030000000000000002 /* KeyboardShortcutContext.swift */; };
 		C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670020000000000000002 /* KeyboardShortcutContextTests.swift */; };
@@ -1028,10 +1040,10 @@
 				B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */,
 				C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */,
 				C1ADE10002A1B2C3D4E5F719 /* grok in Copy CLI */,
-					D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */,
-					C0DE70500000000000000002 /* start-cmux-profiling in Copy CLI */,
-					C0DE70530000000000000002 /* submit-cmux-profile in Copy CLI */,
-				);
+				D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */,
+				C0DE70500000000000000002 /* start-cmux-profiling in Copy CLI */,
+				C0DE70530000000000000002 /* submit-cmux-profile in Copy CLI */,
+			);
 			name = "Copy CLI";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1051,13 +1063,13 @@
 /* Begin PBXFileReference section */
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
-		ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatHookSessionStore.swift"; sourceTree = "<group>"; };
-		ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRecord.swift"; sourceTree = "<group>"; };
-		ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry.swift"; sourceTree = "<group>"; };
-		ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptResolver.swift"; sourceTree = "<group>"; };
+		ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentChatHookSessionStore.swift; sourceTree = "<group>"; };
+		ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRecord.swift; sourceTree = "<group>"; };
+		ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistry.swift; sourceTree = "<group>"; };
+		ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentChatTranscriptResolver.swift; sourceTree = "<group>"; };
 		A9E010000000000000000010 /* AgentChatTranscriptResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatTranscriptResolverTests.swift; sourceTree = "<group>"; };
-		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
-		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
+		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentChatTranscriptService.swift; sourceTree = "<group>"; };
+		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentChatTranscriptTailer.swift; sourceTree = "<group>"; };
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
@@ -1180,11 +1192,11 @@
 		A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
 		C0DE62600000000000000002 /* BrowserWindowPortalRegistryNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortalRegistryNotificationTests.swift; sourceTree = "<group>"; };
 		C0DE35530000000000000102 /* BundledCLILinkageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledCLILinkageTests.swift; sourceTree = "<group>"; };
-		CA52C0010000000000000000 /* CanvasAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasAction.swift"; sourceTree = "<group>"; };
-		CA52C0050000000000000000 /* CanvasHostedPanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasHostedPanelContentView.swift"; sourceTree = "<group>"; };
-		CA52F0030000000000000000 /* CanvasInlineBrowserHostingEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasInlineBrowserHostingEnvironment.swift"; sourceTree = "<group>"; };
-		CA52C0060000000000000000 /* CanvasLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasLayoutSettings.swift"; sourceTree = "<group>"; };
-		CA52C0070000000000000000 /* CanvasPaneContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasPaneContent.swift"; sourceTree = "<group>"; };
+		CA52C0010000000000000000 /* CanvasAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasAction.swift; sourceTree = "<group>"; };
+		CA52C0050000000000000000 /* CanvasHostedPanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasHostedPanelContentView.swift; sourceTree = "<group>"; };
+		CA52F0030000000000000000 /* CanvasInlineBrowserHostingEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasInlineBrowserHostingEnvironment.swift; sourceTree = "<group>"; };
+		CA52C0060000000000000000 /* CanvasLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasLayoutSettings.swift; sourceTree = "<group>"; };
+		CA52C0070000000000000000 /* CanvasPaneContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasPaneContent.swift; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeConfigDirectoryPathTests.swift; sourceTree = "<group>"; };
@@ -1455,6 +1467,18 @@
 		610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
 		C0DEF0B10000000000000002 /* JSONCParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCParser.swift; sourceTree = "<group>"; };
 		B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
+		419941387A69EEAE79000926 /* KanbanBoardRepository.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanBoardRepository.swift; sourceTree = "<group>"; };
+		F406CB1E6587FAECF8FFBDFC /* KanbanBoardRepositoryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanBoardRepositoryTests.swift; sourceTree = "<group>"; };
+		C8650AD1417F35AAE380AC0C /* KanbanBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanBridge.swift; sourceTree = "<group>"; };
+		4078D7E4C85529D6719EE9E9 /* KanbanBridgeError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanBridgeError.swift; sourceTree = "<group>"; };
+		70B306988871523FDFAB6332 /* KanbanBridgeRequest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanBridgeRequest.swift; sourceTree = "<group>"; };
+		7BC82B4603637DCBC39B9599 /* KanbanModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanModels.swift; sourceTree = "<group>"; };
+		D22B495D7654520266D3BEB9 /* KanbanPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanPanel.swift; sourceTree = "<group>"; };
+		C24A8341FB5F7D946CC02559 /* KanbanPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanPanelView.swift; sourceTree = "<group>"; };
+		B4182D7D5CBF13C42DAB4CEC /* KanbanRendererKind.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanRendererKind.swift; sourceTree = "<group>"; };
+		7BF3BBE0463218576517125E /* KanbanWebRenderer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanWebRenderer.swift; sourceTree = "<group>"; };
+		66B5AB3CB8272C3618E10029 /* KanbanWebRendererCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanWebRendererCoordinator.swift; sourceTree = "<group>"; };
+		52A2C965EEA763FD23B90E3F /* KanbanWebRendererSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanWebRendererSession.swift; sourceTree = "<group>"; };
 		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
 		C34670030000000000000002 /* KeyboardShortcutContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContext.swift; sourceTree = "<group>"; };
 		C34670020000000000000002 /* KeyboardShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextTests.swift; sourceTree = "<group>"; };
@@ -1517,10 +1541,10 @@
 		4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostStatusVerificationLimiter.swift; sourceTree = "<group>"; };
 		4C1A7E10B2D34F56A8C90014 /* MobileHostStatusVerificationLimiterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostStatusVerificationLimiterTests.swift; sourceTree = "<group>"; };
 		A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingConnectionTransitionTests.swift; sourceTree = "<group>"; };
-		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
-		B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingQRImageView.swift"; sourceTree = "<group>"; };
-		F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingView.swift"; sourceTree = "<group>"; };
-		5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingWindowController.swift"; sourceTree = "<group>"; };
+		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Pairing/MobilePairingModel.swift; sourceTree = "<group>"; };
+		B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Pairing/MobilePairingQRImageView.swift; sourceTree = "<group>"; };
+		F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Pairing/MobilePairingView.swift; sourceTree = "<group>"; };
+		5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Pairing/MobilePairingWindowController.swift; sourceTree = "<group>"; };
 		7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileRouteResolver.swift; sourceTree = "<group>"; };
 		4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTee.swift; sourceTree = "<group>"; };
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
@@ -1531,7 +1555,7 @@
 		596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationFallbackCommandTests.swift; sourceTree = "<group>"; };
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
-		D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationDismissSyncTests.swift"; sourceTree = "<group>"; };
+		D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationDismissSyncTests.swift; sourceTree = "<group>"; };
 		B7F00001 /* NotificationSoundSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettings.swift; sourceTree = "<group>"; };
 		4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettingsTests.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
@@ -1906,7 +1930,7 @@
 		A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceConfigResolutionTests.swift; sourceTree = "<group>"; };
 		A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceResolution.swift; sourceTree = "<group>"; };
 		A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionFlashRingView.swift; sourceTree = "<group>"; };
-		CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceCanvasHostView.swift"; sourceTree = "<group>"; };
+		CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCanvasHostView.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsBatching.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsContextMenuTests.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
@@ -1918,7 +1942,7 @@
 		C9A57204C9A57204C9A57204 /* WorkspaceGroupMenuSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupMenuSnapshot.swift; sourceTree = "<group>"; };
 		C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupTests.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000008 /* WorkspaceIndicatorStyle+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceIndicatorStyle+Display.swift"; sourceTree = "<group>"; };
-		CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceLayoutMode.swift"; sourceTree = "<group>"; };
+		CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLayoutMode.swift; sourceTree = "<group>"; };
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspacePlacement+Resolution.swift"; sourceTree = "<group>"; };
 		D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalPaneDrop.swift; sourceTree = "<group>"; };
@@ -2061,18 +2085,17 @@
 			children = (
 				B2E7294509CC42FE9191870E /* xterm-ghostty */,
 				A5002001 /* THIRD_PARTY_LICENSES.md */,
-					C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */,
-					C1ADE10001A1B2C3D4E5F719 /* grok */,
-					C0DE70500000000000000001 /* start-cmux-profiling */,
-					C0DE70530000000000000001 /* submit-cmux-profile */,
-					DA7A10CA710E000000000001 /* Localizable.xcstrings */,
+				C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */,
+				C1ADE10001A1B2C3D4E5F719 /* grok */,
+				C0DE70500000000000000001 /* start-cmux-profiling */,
+				C0DE70530000000000000001 /* submit-cmux-profile */,
+				DA7A10CA710E000000000001 /* Localizable.xcstrings */,
 				DA7A10CA710E000000000002 /* InfoPlist.xcstrings */,
 				FEED0000000000000000F006 /* opencode-plugin.js */,
 				FEED0A00000000000000F006 /* feed-tui */,
 				A9D9000000000000000F0016 /* markdown-viewer */,
 				A9E010000000000000000006 /* agent-session-react */,
 				A9E010000000000000000007 /* agent-session-solid */,
-
 				A5001622 /* cmux.sdef */,
 			);
 			path = Resources;
@@ -2088,6 +2111,25 @@
 			);
 			name = Auth;
 			path = Auth;
+			sourceTree = "<group>";
+		};
+		267C0A13C2809F2A4DCDDE91 /* Kanban */ = {
+			isa = PBXGroup;
+			children = (
+				7BC82B4603637DCBC39B9599 /* KanbanModels.swift */,
+				419941387A69EEAE79000926 /* KanbanBoardRepository.swift */,
+				B4182D7D5CBF13C42DAB4CEC /* KanbanRendererKind.swift */,
+				C8650AD1417F35AAE380AC0C /* KanbanBridge.swift */,
+				4078D7E4C85529D6719EE9E9 /* KanbanBridgeError.swift */,
+				70B306988871523FDFAB6332 /* KanbanBridgeRequest.swift */,
+				66B5AB3CB8272C3618E10029 /* KanbanWebRendererCoordinator.swift */,
+				52A2C965EEA763FD23B90E3F /* KanbanWebRendererSession.swift */,
+				7BF3BBE0463218576517125E /* KanbanWebRenderer.swift */,
+				D22B495D7654520266D3BEB9 /* KanbanPanel.swift */,
+				C24A8341FB5F7D946CC02559 /* KanbanPanelView.swift */,
+			);
+			name = Kanban;
+			path = Kanban;
 			sourceTree = "<group>";
 		};
 		3196C9C2D01F054C1D3385DD /* cmuxUITests */ = {
@@ -2133,20 +2175,6 @@
 				AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */,
 			);
 			path = cmuxUITests;
-			sourceTree = "<group>";
-		};
-		ACA7C4A70000000000000100 /* AgentChat */ = {
-			isa = PBXGroup;
-			children = (
-				ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */,
-				ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */,
-				ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */,
-				ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */,
-				ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */,
-				ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */,
-			);
-			name = AgentChat;
-			path = AgentChat;
 			sourceTree = "<group>";
 		};
 		59065015952E1B5BE5E23519 /* Mobile */ = {
@@ -2306,12 +2334,12 @@
 				604500200000000000000002 /* WindowTitleTemplateContext.swift */,
 				604500100000000000000002 /* WindowTitleTemplate.swift */,
 				AB7F2E9143904957AAA70726 /* ShortcutBareStartRouting.swift */,
-					E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */,
-					C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */,
-					C0DE70510000000000000001 /* MenuBarProfilingLauncher.swift */,
-					C0DE70550000000000000001 /* MenuBarProfilingMenuItem.swift */,
-					C0DE70540000000000000001 /* MenuBarProfilingMenuItemTarget.swift */,
-					2F0C07000000000000000001 /* CmuxMainWindow.swift */,
+				E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */,
+				C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */,
+				C0DE70510000000000000001 /* MenuBarProfilingLauncher.swift */,
+				C0DE70550000000000000001 /* MenuBarProfilingMenuItem.swift */,
+				C0DE70540000000000000001 /* MenuBarProfilingMenuItemTarget.swift */,
+				2F0C07000000000000000001 /* CmuxMainWindow.swift */,
 				AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */,
 				A6D1F0200000000000000001 /* WindowCloseObserver.swift */,
 				A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */,
@@ -2588,7 +2616,6 @@
 				A9E01000000000000000000C /* AgentSessionWebRendererSession.swift */,
 				A9E01000000000000000000D /* AgentSessionWebTheme.swift */,
 				A9E010000000000000000004 /* AgentSessionPanelView.swift */,
-
 				B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */,
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
 				C76D07ED88D244B1B02FAF3C /* BrowserOmnibarSubmitSupport.swift */,
@@ -2727,24 +2754,9 @@
 				FEED0000000000000000F003 /* Feed */,
 				59065015952E1B5BE5E23519 /* Mobile */,
 				31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */,
+				267C0A13C2809F2A4DCDDE91 /* Kanban */,
 			);
 			path = Sources;
-			sourceTree = "<group>";
-		};
-		CA52D0010000000000000000 /* Canvas */ = {
-			isa = PBXGroup;
-			children = (
-				CA52C0010000000000000000 /* CanvasAction.swift */,
-				CA52F0030000000000000000 /* CanvasInlineBrowserHostingEnvironment.swift */,
-				CA52F0010000000000000000 /* ContentView+CanvasCommandPalette.swift */,
-				CA52C0050000000000000000 /* CanvasHostedPanelContentView.swift */,
-				CA52C0060000000000000000 /* CanvasLayoutSettings.swift */,
-				CA52C0070000000000000000 /* CanvasPaneContent.swift */,
-				CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */,
-				CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */,
-				CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */,
-			);
-			path = Canvas;
 			sourceTree = "<group>";
 		};
 		A5001042 /* Products */ = {
@@ -2757,6 +2769,20 @@
 				F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		ACA7C4A70000000000000100 /* AgentChat */ = {
+			isa = PBXGroup;
+			children = (
+				ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */,
+				ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */,
+				ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */,
+				ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */,
+				ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */,
+				ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */,
+			);
+			name = AgentChat;
+			path = AgentChat;
 			sourceTree = "<group>";
 		};
 		B9000003A1B2C3D4E5F60719 /* CLI */ = {
@@ -2799,6 +2825,22 @@
 				C12985000000000000000001 /* CLISocketSentryTelemetry.swift */,
 			);
 			path = CLI;
+			sourceTree = "<group>";
+		};
+		CA52D0010000000000000000 /* Canvas */ = {
+			isa = PBXGroup;
+			children = (
+				CA52C0010000000000000000 /* CanvasAction.swift */,
+				CA52F0030000000000000000 /* CanvasInlineBrowserHostingEnvironment.swift */,
+				CA52F0010000000000000000 /* ContentView+CanvasCommandPalette.swift */,
+				CA52C0050000000000000000 /* CanvasHostedPanelContentView.swift */,
+				CA52C0060000000000000000 /* CanvasLayoutSettings.swift */,
+				CA52C0070000000000000000 /* CanvasPaneContent.swift */,
+				CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */,
+				CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */,
+				CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */,
+			);
+			path = Canvas;
 			sourceTree = "<group>";
 		};
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
@@ -2940,7 +2982,7 @@
 				D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
 				2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
 				E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
-		C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
+				C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
 				120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */,
 				4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */,
 				A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */,
@@ -2968,10 +3010,10 @@
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
 				86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */,
 				645645000000000000000001 /* NumberedShortcutSwapTests.swift */,
-					B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
-					D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
-					C0DE70520000000000000001 /* MenuBarProfilingLauncherTests.swift */,
-					596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */,
+				B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
+				D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
+				C0DE70520000000000000001 /* MenuBarProfilingLauncherTests.swift */,
+				596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */,
 				596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */,
 				D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */,
 				4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */,
@@ -3049,6 +3091,7 @@
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
 				5E2701030000000000000002 /* SentryEventScrubberTests.swift */,
+				F406CB1E6587FAECF8FFBDFC /* KanbanBoardRepositoryTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -3086,7 +3129,6 @@
 				C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
 				A9E030000000000000000009 /* Reject Bundled Provider Binaries */,
-
 			);
 			buildRules = (
 			);
@@ -3335,7 +3377,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-
 				A9E020000000000000000006 /* agent-session-react in Resources */,
 				A9E020000000000000000007 /* agent-session-solid in Resources */,
 				A5001100 /* Assets.xcassets in Resources */,
@@ -3374,6 +3415,42 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		A5001300A1B2C3D4E5F60719 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nGHOSTTY_DEST=\"${DEST}/ghostty\"\nTERMINFO_DEST=\"${DEST}/terminfo\"\nCMUX_SHELL_DEST=\"${DEST}/shell-integration\"\nBIN_DEST=\"${DEST}/bin\"\nSRC_SHARE=\"${SRCROOT}/ghostty/zig-out/share\"\nGHOSTTY_SRC=\"${SRC_SHARE}/ghostty\"\nTERMINFO_SRC=\"${SRC_SHARE}/terminfo\"\nFALLBACK_GHOSTTY=\"${SRCROOT}/Resources/ghostty\"\nFALLBACK_TERMINFO=\"${SRCROOT}/Resources/ghostty/terminfo\"\nTERMINFO_OVERLAY=\"${SRCROOT}/Resources/terminfo-overlay\"\nCMUX_SHELL_SRC=\"${SRCROOT}/Resources/shell-integration\"\nCMUX_GHOSTTY_ZSH_SRC=\"${SRCROOT}/ghostty/src/shell-integration/zsh/ghostty-integration\"\nBUILD_GHOSTTY_HELPER=\"${SRCROOT}/scripts/build-ghostty-cli-helper.sh\"\nGHOSTTY_HELPER_DEST=\"${BIN_DEST}/ghostty\"\nmkdir -p \"$BIN_DEST\"\nif [ -d \"$GHOSTTY_SRC\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$GHOSTTY_SRC/\" \"$GHOSTTY_DEST/\"\nelif [ -d \"$FALLBACK_GHOSTTY\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$FALLBACK_GHOSTTY/\" \"$GHOSTTY_DEST/\"\nfi\nif [ -d \"$TERMINFO_SRC\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$TERMINFO_SRC/\" \"$TERMINFO_DEST/\"\nelif [ -d \"$FALLBACK_TERMINFO\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$FALLBACK_TERMINFO/\" \"$TERMINFO_DEST/\"\nfi\n# Overlay any cmux-specific terminfo adjustments.\n# This intentionally does not use --delete so we only patch specific entries.\nif [ -d \"$TERMINFO_OVERLAY\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a \"$TERMINFO_OVERLAY/\" \"$TERMINFO_DEST/\"\nfi\nif [ -d \"$CMUX_SHELL_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  # Use '/.' so dotfiles like .zshenv/.zprofile are copied too.\n  rsync -a \"$CMUX_SHELL_SRC/.\" \"$CMUX_SHELL_DEST/\"\nfi\nif [ -f \"$CMUX_GHOSTTY_ZSH_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  rsync -a \"$CMUX_GHOSTTY_ZSH_SRC\" \"$CMUX_SHELL_DEST/ghostty-integration.zsh\"\nfi\nif [ ! -x \"$BUILD_GHOSTTY_HELPER\" ]; then\n  echo \"error: missing Ghostty CLI helper build script at $BUILD_GHOSTTY_HELPER\" >&2\n  exit 1\nfi\nARCHS_LIST=\" ${ARCHS:-} \"\nHAS_ARM64=0\nHAS_X86_64=0\nGHOSTTY_HELPER_TARGET=\"\"\ncase \"$ARCHS_LIST\" in\n  *\" arm64 \"*) HAS_ARM64=1 ;;\nesac\ncase \"$ARCHS_LIST\" in\n  *\" x86_64 \"*) HAS_X86_64=1 ;;\nesac\nif [ \"$HAS_ARM64\" -eq 1 ] && [ \"$HAS_X86_64\" -eq 1 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --universal --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"aarch64-macos\"\nelif [ \"$HAS_X86_64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"x86_64-macos\"\nfi\nif [ -n \"$GHOSTTY_HELPER_TARGET\" ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --target \"$GHOSTTY_HELPER_TARGET\" --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 0 ] || [ \"$HAS_X86_64\" -eq 0 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --output \"$GHOSTTY_HELPER_DEST\"\nfi\nif [ ! -x \"$GHOSTTY_HELPER_DEST\" ]; then\n  echo \"error: Ghostty CLI helper was not created at $GHOSTTY_HELPER_DEST\" >&2\n  exit 1\nfi\nINFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nCOMMIT=\"$(git -C \"${SRCROOT}\" rev-parse --short=9 HEAD 2>/dev/null || true)\"\nif [ -n \"$COMMIT\" ] && [ -f \"$INFO_PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CMUXCommit $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c \"Add :CMUXCommit string $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || true\nfi\n";
+		};
+		A9E030000000000000000009 /* Reject Bundled Provider Binaries */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Reject Bundled Provider Binaries";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nBIN_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin\"\nPROVIDERS=\"codex claude opencode pi\"\nfor provider in $PROVIDERS; do\n  if [ -e \"${SRCROOT}/Resources/bin/${provider}\" ]; then\n    echo \"error: provider executable must not be checked in at Resources/bin/${provider}\" >&2\n    exit 1\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    rm -rf \"${BIN_DIR:?}/${provider}\"\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    echo \"error: provider executable must not be bundled at ${BIN_DIR}/${provider}\" >&2\n    exit 1\n  fi\ndone\n";
+		};
 		C0DE47000000000000000003 /* Write Extension Point */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -3394,23 +3471,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/write-sidebar-extension-point.sh\"\n";
-		};
-		A5001300A1B2C3D4E5F60719 /* ShellScript */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nGHOSTTY_DEST=\"${DEST}/ghostty\"\nTERMINFO_DEST=\"${DEST}/terminfo\"\nCMUX_SHELL_DEST=\"${DEST}/shell-integration\"\nBIN_DEST=\"${DEST}/bin\"\nSRC_SHARE=\"${SRCROOT}/ghostty/zig-out/share\"\nGHOSTTY_SRC=\"${SRC_SHARE}/ghostty\"\nTERMINFO_SRC=\"${SRC_SHARE}/terminfo\"\nFALLBACK_GHOSTTY=\"${SRCROOT}/Resources/ghostty\"\nFALLBACK_TERMINFO=\"${SRCROOT}/Resources/ghostty/terminfo\"\nTERMINFO_OVERLAY=\"${SRCROOT}/Resources/terminfo-overlay\"\nCMUX_SHELL_SRC=\"${SRCROOT}/Resources/shell-integration\"\nCMUX_GHOSTTY_ZSH_SRC=\"${SRCROOT}/ghostty/src/shell-integration/zsh/ghostty-integration\"\nBUILD_GHOSTTY_HELPER=\"${SRCROOT}/scripts/build-ghostty-cli-helper.sh\"\nGHOSTTY_HELPER_DEST=\"${BIN_DEST}/ghostty\"\nmkdir -p \"$BIN_DEST\"\nif [ -d \"$GHOSTTY_SRC\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$GHOSTTY_SRC/\" \"$GHOSTTY_DEST/\"\nelif [ -d \"$FALLBACK_GHOSTTY\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$FALLBACK_GHOSTTY/\" \"$GHOSTTY_DEST/\"\nfi\nif [ -d \"$TERMINFO_SRC\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$TERMINFO_SRC/\" \"$TERMINFO_DEST/\"\nelif [ -d \"$FALLBACK_TERMINFO\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$FALLBACK_TERMINFO/\" \"$TERMINFO_DEST/\"\nfi\n# Overlay any cmux-specific terminfo adjustments.\n# This intentionally does not use --delete so we only patch specific entries.\nif [ -d \"$TERMINFO_OVERLAY\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a \"$TERMINFO_OVERLAY/\" \"$TERMINFO_DEST/\"\nfi\nif [ -d \"$CMUX_SHELL_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  # Use '/.' so dotfiles like .zshenv/.zprofile are copied too.\n  rsync -a \"$CMUX_SHELL_SRC/.\" \"$CMUX_SHELL_DEST/\"\nfi\nif [ -f \"$CMUX_GHOSTTY_ZSH_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  rsync -a \"$CMUX_GHOSTTY_ZSH_SRC\" \"$CMUX_SHELL_DEST/ghostty-integration.zsh\"\nfi\nif [ ! -x \"$BUILD_GHOSTTY_HELPER\" ]; then\n  echo \"error: missing Ghostty CLI helper build script at $BUILD_GHOSTTY_HELPER\" >&2\n  exit 1\nfi\nARCHS_LIST=\" ${ARCHS:-} \"\nHAS_ARM64=0\nHAS_X86_64=0\nGHOSTTY_HELPER_TARGET=\"\"\ncase \"$ARCHS_LIST\" in\n  *\" arm64 \"*) HAS_ARM64=1 ;;\nesac\ncase \"$ARCHS_LIST\" in\n  *\" x86_64 \"*) HAS_X86_64=1 ;;\nesac\nif [ \"$HAS_ARM64\" -eq 1 ] && [ \"$HAS_X86_64\" -eq 1 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --universal --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"aarch64-macos\"\nelif [ \"$HAS_X86_64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"x86_64-macos\"\nfi\nif [ -n \"$GHOSTTY_HELPER_TARGET\" ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --target \"$GHOSTTY_HELPER_TARGET\" --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 0 ] || [ \"$HAS_X86_64\" -eq 0 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --output \"$GHOSTTY_HELPER_DEST\"\nfi\nif [ ! -x \"$GHOSTTY_HELPER_DEST\" ]; then\n  echo \"error: Ghostty CLI helper was not created at $GHOSTTY_HELPER_DEST\" >&2\n  exit 1\nfi\nINFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nCOMMIT=\"$(git -C \"${SRCROOT}\" rev-parse --short=9 HEAD 2>/dev/null || true)\"\nif [ -n \"$COMMIT\" ] && [ -f \"$INFO_PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CMUXCommit $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c \"Add :CMUXCommit string $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || true\nfi\n";
 		};
 		C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -3434,25 +3494,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/build-command-palette-nucleo-ffi.sh\"\n";
-		};
-		A9E030000000000000000009 /* Reject Bundled Provider Binaries */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Reject Bundled Provider Binaries";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nBIN_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin\"\nPROVIDERS=\"codex claude opencode pi\"\nfor provider in $PROVIDERS; do\n  if [ -e \"${SRCROOT}/Resources/bin/${provider}\" ]; then\n    echo \"error: provider executable must not be checked in at Resources/bin/${provider}\" >&2\n    exit 1\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    rm -rf \"${BIN_DIR:?}/${provider}\"\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    echo \"error: provider executable must not be bundled at ${BIN_DIR}/${provider}\" >&2\n    exit 1\n  fi\ndone\n";
 		};
 		D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -3482,7 +3523,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-
 				ACA7C4A70000000000000003 /* AgentChatHookSessionStore.swift in Sources */,
 				ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */,
 				ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
@@ -3682,13 +3722,13 @@
 				A5001429 /* FilePreviewPDFViewport.swift in Sources */,
 				DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */,
 				D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */,
-					F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */,
+				F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */,
 				A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */,
 				F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */,
 				F0C05170000000000000002 /* FocusHistory.swift in Sources */,
 				C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */,
 				5E55400000000000000000D1 /* FocusStealingResponderConformances.swift in Sources */,
-					C0DEFB100000000000000001 /* FocusSurfaceBroadcaster.swift in Sources */,
+				C0DEFB100000000000000001 /* FocusSurfaceBroadcaster.swift in Sources */,
 				AA5269A0C0DE0002FACE0002 /* ForeignFirstResponderPolicy.swift in Sources */,
 				D0B10012A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift in Sources */,
 				A5001004 /* GhosttyConfig.swift in Sources */,
@@ -3704,7 +3744,7 @@
 				D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */,
 				D7C6F5000000000000000000 /* GhosttyTitleChange.swift in Sources */,
 				D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */,
-					3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
+				3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 				3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
@@ -3712,6 +3752,17 @@
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
+				A48B22F421B91F2A60E587C4 /* KanbanBoardRepository.swift in Sources */,
+				D7722CB8EB81320314C8441F /* KanbanBridge.swift in Sources */,
+				A2A41DAB55707C3968EEC641 /* KanbanBridgeError.swift in Sources */,
+				4E43EDAA9130842768BC0348 /* KanbanBridgeRequest.swift in Sources */,
+				32B1A766FC5E4517E74259B0 /* KanbanModels.swift in Sources */,
+				A2ABF6D5387B5D9D9705D9C0 /* KanbanPanel.swift in Sources */,
+				38394FC213190CFBF55B7F45 /* KanbanPanelView.swift in Sources */,
+				5AE265626A5EF6148E5AB2C8 /* KanbanRendererKind.swift in Sources */,
+				370038DE2AD9DEB27B17B832 /* KanbanWebRenderer.swift in Sources */,
+				175373678401E1890E0AF062 /* KanbanWebRendererCoordinator.swift in Sources */,
+				028867E46392BF643EF0A1AB /* KanbanWebRendererSession.swift in Sources */,
 				A50012F5 /* KeyboardLayout.swift in Sources */,
 				C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */,
 				A50012F7 /* KeyboardShortcutRecorder.swift in Sources */,
@@ -3739,12 +3790,12 @@
 				F5168A060000000000000001 /* MarkdownTypographyDefaults.swift in Sources */,
 				A50014F3 /* MarkdownViewerAssets.swift in Sources */,
 				A50014F5 /* MarkdownWebRenderer.swift in Sources */,
-					A50014F9 /* MarkdownWebSupport.swift in Sources */,
-					1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */,
-					C0DE70510000000000000002 /* MenuBarProfilingLauncher.swift in Sources */,
-					C0DE70550000000000000002 /* MenuBarProfilingMenuItem.swift in Sources */,
-					C0DE70540000000000000002 /* MenuBarProfilingMenuItemTarget.swift in Sources */,
-					3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */,
+				A50014F9 /* MarkdownWebSupport.swift in Sources */,
+				1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */,
+				C0DE70510000000000000002 /* MenuBarProfilingLauncher.swift in Sources */,
+				C0DE70550000000000000002 /* MenuBarProfilingMenuItem.swift in Sources */,
+				C0DE70540000000000000002 /* MenuBarProfilingMenuItemTarget.swift in Sources */,
+				3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */,
 				C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */,
 				284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */,
 				C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */,
@@ -3791,12 +3842,12 @@
 				A5001521 /* PostHogAnalytics.swift in Sources */,
 				D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */,
 				D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */,
-					A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */,
-					A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */,
-					A5C0DE0000000000000000B2 /* ProjectPanel.swift in Sources */,
-					A5C0DE0000000000000000B4 /* ProjectPanelView.swift in Sources */,
-					A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */,
-					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
+				A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */,
+				A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */,
+				A5C0DE0000000000000000B2 /* ProjectPanel.swift in Sources */,
+				A5C0DE0000000000000000B4 /* ProjectPanelView.swift in Sources */,
+				A5C0DE0000000000000000BC /* ProjectSchemesTabView.swift in Sources */,
+				A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
 				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
@@ -4083,7 +4134,7 @@
 				B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
-					FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
+				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
@@ -4262,6 +4313,7 @@
 				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
 				4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
+				260F9852CF3377BB28E7F30D /* KanbanBoardRepositoryTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
 				6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */,
 				E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */,
@@ -4274,16 +4326,16 @@
 				D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */,
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,
 				606500010000000000000001 /* MenuBarOnlyActivationPolicyTests.swift in Sources */,
-					C0DE70520000000000000002 /* MenuBarProfilingLauncherTests.swift in Sources */,
+				C0DE70520000000000000002 /* MenuBarProfilingLauncherTests.swift in Sources */,
 				6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */,
 				DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,
 				4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */,
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
-					596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,
-					734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
-					D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,
+				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,
+				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
+				D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,
 				4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */,
 				645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */,
 				4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,
@@ -4293,9 +4345,9 @@
 				C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */,
 				6313FACE0000000000000000 /* PaneMemoryGuardrailTests.swift in Sources */,
 				D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */,
-					B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
-					D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */,
-					F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
+				B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
+				D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */,
+				F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
@@ -4311,10 +4363,10 @@
 				FA00C0DE0001BEEF0001CAFE /* RemoteTmuxWindowRegistryTests.swift in Sources */,
 				C58410010000000000000001 /* RenderableSystemSymbolTests.swift in Sources */,
 				D36A00050000000000000001 /* RendererRealizationPlannerTests.swift in Sources */,
-					F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */,
-					F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */,
-					F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */,
-					F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */,
+				F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */,
+				F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */,
+				F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */,
+				F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
 				5F5553CB5553CB5553CB0001 /* RightSidebarRemoteCommandTests.swift in Sources */,
 				C46790000000000000000007 /* RosettaNativeRelaunchTests.swift in Sources */,
@@ -4538,12 +4590,9 @@
 					"-framework",
 					Carbon,
 				);
+				OTHER_SWIFT_FLAGS = "-Xllvm -global-isel=0";
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
 				PRODUCT_NAME = "cmux DEV";
-				OTHER_SWIFT_FLAGS = (
-					"-Xllvm",
-					"-global-isel=0",
-				);
 				SPARKLE_PUBLIC_KEY = "avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_ENABLE_BATCH_MODE = NO;
@@ -4812,6 +4861,14 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxAuthRuntime;
 		};
+		5E55200000000000000000B1 /* XCLocalSwiftPackageReference "CmuxWindowing" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxWindowing;
+		};
+		5E55500000000000000000E1 /* XCLocalSwiftPackageReference "CmuxCommandPalette" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxCommandPalette;
+		};
 		A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = vendor/bonsplit;
@@ -4819,14 +4876,6 @@
 		A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CMUXDebugLog;
-		};
-		CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxCanvas;
-		};
-		CA53A004CA53A004CA53A004 /* XCLocalSwiftPackageReference "CmuxCanvasUI" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxCanvasUI;
 		};
 		A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -4852,6 +4901,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxSidebarProviderKit;
 		};
+		C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxSwiftRender;
+		};
 		C5A1FED100000000000000D4 /* XCLocalSwiftPackageReference "CmuxSwiftRenderUI" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxSwiftRenderUI;
@@ -4860,25 +4913,81 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxSidebarInterpreterService;
 		};
-		C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */ = {
+		C5B6A10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarGit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxSwiftRender;
-		};
-		5E55200000000000000000B1 /* XCLocalSwiftPackageReference "CmuxWindowing" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxWindowing;
-		};
-		5E55500000000000000000E1 /* XCLocalSwiftPackageReference "CmuxCommandPalette" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxCommandPalette;
+			relativePath = Packages/macOS/CmuxSidebarGit;
 		};
 		C617000000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxGit;
 		};
-		C5B6A10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarGit" */ = {
+		C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxSidebarGit;
+			relativePath = Packages/macOS/CmuxControlSocket;
+		};
+		C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxTerminalCore;
+		};
+		C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxTerminal;
+		};
+		C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxAppKitSupportUI;
+		};
+		C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxFeedback;
+		};
+		CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxCanvas;
+		};
+		CA53A004CA53A004CA53A004 /* XCLocalSwiftPackageReference "CmuxCanvasUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxCanvasUI;
+		};
+		CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxCore;
+		};
+		CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxRemoteDaemon;
+		};
+		CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxRemoteWorkspace;
+		};
+		CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxRemoteSession;
+		};
+		CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxSettings;
+		};
+		CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxSettingsUI;
+		};
+		CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxUpdater;
+		};
+		CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxUpdaterUI;
+		};
+		CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxFoundation;
+		};
+		CFF12E0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTestSupport" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxTestSupport;
 		};
 		E3B7A30000000000000000B1 /* XCLocalSwiftPackageReference "CmuxSidebar" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -4899,66 +5008,6 @@
 		E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxWorkspaces;
-		};
-		C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxControlSocket;
-		};
-		C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxAppKitSupportUI;
-		};
-		C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxFeedback;
-		};
-		C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxTerminalCore;
-		};
-		C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxTerminal;
-		};
-		CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxSettings;
-		};
-		CFF12E0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTestSupport" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxTestSupport;
-		};
-		CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxSettingsUI;
-		};
-		CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxUpdater;
-		};
-		CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxUpdaterUI;
-		};
-		CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxCore;
-		};
-		CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxRemoteDaemon;
-		};
-		CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxRemoteWorkspace;
-		};
-		CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxRemoteSession;
-		};
-		CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/macOS/CmuxFoundation;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -5008,6 +5057,86 @@
 			package = 53750001A0B1C2D3E4F50001 /* XCLocalSwiftPackageReference "CmuxAuthRuntime" */;
 			productName = CmuxAuthRuntime;
 		};
+		5E2701040000000000000001 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
+		};
+		5E2701040000000000000002 /* CmuxFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */;
+			productName = CmuxFoundation;
+		};
+		5E27010400000000000000A3 /* CmuxSettings */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */;
+			productName = CmuxSettings;
+		};
+		5E27010400000000000000A4 /* CmuxWorkspaces */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */;
+			productName = CmuxWorkspaces;
+		};
+		5E55200000000000000000B2 /* CmuxWindowing */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E55200000000000000000B1 /* XCLocalSwiftPackageReference "CmuxWindowing" */;
+			productName = CmuxWindowing;
+		};
+		5E55500000000000000000E2 /* CmuxCommandPalette */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E55500000000000000000E1 /* XCLocalSwiftPackageReference "CmuxCommandPalette" */;
+			productName = CmuxCommandPalette;
+		};
+		A5001231 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		A5001251 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
+		};
+		A5001261 /* Bonsplit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
+			productName = Bonsplit;
+		};
+		A5001262 /* Bonsplit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
+			productName = Bonsplit;
+		};
+		A5001271 /* PostHog */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */;
+			productName = PostHog;
+		};
+		A5001291 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
+		};
+		A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */;
+			productName = CMUXDebugLog;
+		};
+		A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */;
+			productName = CMUXAgentLaunch;
+		};
+		A5C0DE0000000000000000A2 /* CMUXProjectModel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */;
+			productName = CMUXProjectModel;
+		};
+		A8BD195031FC4B82B4354297 /* StackAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */;
+			productName = StackAuth;
+		};
 		AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */;
@@ -5033,30 +5162,6 @@
 			package = C0DE4A000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */;
 			productName = CmuxSidebarProviderKit;
 		};
-		A5C0DE0000000000000000A2 /* CMUXProjectModel */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */;
-			productName = CMUXProjectModel;
-		};
-		A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5B00001A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXAgentLaunch" */;
-			productName = CMUXAgentLaunch;
-		};
-		A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CMUXDebugLog" */;
-			productName = CMUXDebugLog;
-		};
-		CA52A005CA52A005CA52A005 /* CmuxCanvas */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */;
-			productName = CmuxCanvas;
-		};
-		CA53A005CA53A005CA53A005 /* CmuxCanvasUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = CmuxCanvasUI;
-		};
 		C5A1FED000000000000000C3 /* CmuxSwiftRender */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */;
@@ -5077,15 +5182,104 @@
 			package = C5A1FED200000000000000E4 /* XCLocalSwiftPackageReference "CmuxSidebarInterpreterService" */;
 			productName = CmuxSidebarRemoteRender;
 		};
+		C5B6A10000000000000000A2 /* CmuxSidebarGit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C5B6A10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarGit" */;
+			productName = CmuxSidebarGit;
+		};
 		C617000000000000000000A2 /* CmuxGit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C617000000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGit" */;
 			productName = CmuxGit;
 		};
-		C5B6A10000000000000000A2 /* CmuxSidebarGit */ = {
+		C750100000000000000000A2 /* CmuxControlSocket */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C5B6A10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSidebarGit" */;
-			productName = CmuxSidebarGit;
+			package = C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */;
+			productName = CmuxControlSocket;
+		};
+		C750200000000000000000A2 /* CmuxTerminalCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */;
+			productName = CmuxTerminalCore;
+		};
+		C750500000000000000000A2 /* CmuxTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */;
+			productName = CmuxTerminal;
+		};
+		C9A2B00000000000000000B2 /* CmuxAppKitSupportUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */;
+			productName = CmuxAppKitSupportUI;
+		};
+		C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */;
+			productName = CmuxAppKitSupportUI;
+		};
+		C9A2C00000000000000000C2 /* CmuxFeedback */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */;
+			productName = CmuxFeedback;
+		};
+		CA52A005CA52A005CA52A005 /* CmuxCanvas */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA52A004CA52A004CA52A004 /* XCLocalSwiftPackageReference "CmuxCanvas" */;
+			productName = CmuxCanvas;
+		};
+		CA53A005CA53A005CA53A005 /* CmuxCanvasUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxCanvasUI;
+		};
+		CC0DE00000000000000000A2 /* CmuxCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */;
+			productName = CmuxCore;
+		};
+		CC0DE10000000000000000A2 /* CmuxRemoteDaemon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */;
+			productName = CmuxRemoteDaemon;
+		};
+		CC0DE20000000000000000A2 /* CmuxRemoteWorkspace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */;
+			productName = CmuxRemoteWorkspace;
+		};
+		CC0DE30000000000000000A2 /* CmuxRemoteSession */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */;
+			productName = CmuxRemoteSession;
+		};
+		CD0CFE5200000000CD0CFE52 /* CmuxSettings */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */;
+			productName = CmuxSettings;
+		};
+		CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */;
+			productName = CmuxSettingsUI;
+		};
+		CDFEED0200000000CDFEED02 /* CmuxUpdater */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */;
+			productName = CmuxUpdater;
+		};
+		CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */;
+			productName = CmuxUpdaterUI;
+		};
+		CF00F00000000000000000A2 /* CmuxFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */;
+			productName = CmuxFoundation;
+		};
+		CFF12E0000000000000000A2 /* CmuxTestSupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CFF12E0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTestSupport" */;
+			productName = CmuxTestSupport;
 		};
 		E3B7A30000000000000000B2 /* CmuxSidebar */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -5111,151 +5305,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */;
 			productName = CmuxWorkspaces;
-		};
-		C750100000000000000000A2 /* CmuxControlSocket */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */;
-			productName = CmuxControlSocket;
-		};
-		C9A2B00000000000000000B2 /* CmuxAppKitSupportUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */;
-			productName = CmuxAppKitSupportUI;
-		};
-		C9A2C00000000000000000C2 /* CmuxFeedback */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */;
-			productName = CmuxFeedback;
-		};
-		5E55200000000000000000B2 /* CmuxWindowing */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5E55200000000000000000B1 /* XCLocalSwiftPackageReference "CmuxWindowing" */;
-			productName = CmuxWindowing;
-		};
-		5E55500000000000000000E2 /* CmuxCommandPalette */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5E55500000000000000000E1 /* XCLocalSwiftPackageReference "CmuxCommandPalette" */;
-			productName = CmuxCommandPalette;
-		};
-		C750200000000000000000A2 /* CmuxTerminalCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */;
-			productName = CmuxTerminalCore;
-		};
-		C750500000000000000000A2 /* CmuxTerminal */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */;
-			productName = CmuxTerminal;
-		};
-		CD0CFE5200000000CD0CFE52 /* CmuxSettings */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */;
-			productName = CmuxSettings;
-		};
-		CFF12E0000000000000000A2 /* CmuxTestSupport */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CFF12E0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTestSupport" */;
-			productName = CmuxTestSupport;
-		};
-		CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */;
-			productName = CmuxSettingsUI;
-		};
-		CDFEED0200000000CDFEED02 /* CmuxUpdater */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */;
-			productName = CmuxUpdater;
-		};
-		CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */;
-			productName = CmuxUpdaterUI;
-		};
-		CC0DE00000000000000000A2 /* CmuxCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */;
-			productName = CmuxCore;
-		};
-		CC0DE10000000000000000A2 /* CmuxRemoteDaemon */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */;
-			productName = CmuxRemoteDaemon;
-		};
-		CC0DE20000000000000000A2 /* CmuxRemoteWorkspace */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */;
-			productName = CmuxRemoteWorkspace;
-		};
-		CC0DE30000000000000000A2 /* CmuxRemoteSession */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */;
-			productName = CmuxRemoteSession;
-		};
-		CF00F00000000000000000A2 /* CmuxFoundation */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */;
-			productName = CmuxFoundation;
-		};
-		A5001231 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
-		};
-		A5001251 /* Sentry */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
-			productName = Sentry;
-		};
-		5E2701040000000000000001 /* Sentry */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
-			productName = Sentry;
-		};
-		5E2701040000000000000002 /* CmuxFoundation */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */;
-			productName = CmuxFoundation;
-		};
-		5E27010400000000000000A3 /* CmuxSettings */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */;
-			productName = CmuxSettings;
-		};
-		5E27010400000000000000A4 /* CmuxWorkspaces */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */;
-			productName = CmuxWorkspaces;
-		};
-		C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */;
-			productName = CmuxAppKitSupportUI;
-		};
-		A5001261 /* Bonsplit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
-			productName = Bonsplit;
-		};
-		A5001262 /* Bonsplit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
-			productName = Bonsplit;
-		};
-		A5001271 /* PostHog */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */;
-			productName = PostHog;
-		};
-		A5001291 /* MarkdownUI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
-			productName = MarkdownUI;
-		};
-		A8BD195031FC4B82B4354297 /* StackAuth */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */;
-			productName = StackAuth;
 		};
 		EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */ = {
 			isa = XCSwiftPackageProductDependency;
