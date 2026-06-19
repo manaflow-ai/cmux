@@ -22,7 +22,7 @@ struct TerminalKeyboardCopyModeResolverTests {
 
         for testCase in cases {
             #expect(
-                terminalKeyboardCopyModeAction(
+                TerminalKeyboardCopyModeResolution.action(
                     keyCode: testCase.keyCode,
                     charactersIgnoringModifiers: testCase.characters,
                     modifiers: [],
@@ -43,7 +43,7 @@ struct TerminalKeyboardCopyModeResolverTests {
 
         for testCase in cases {
             #expect(
-                terminalKeyboardCopyModeAction(
+                TerminalKeyboardCopyModeResolution.action(
                     keyCode: testCase.keyCode,
                     charactersIgnoringModifiers: testCase.characters,
                     modifiers: [.capsLock],
@@ -55,7 +55,7 @@ struct TerminalKeyboardCopyModeResolverTests {
 
     @Test func lineBoundaryKeysMoveCursorOutsideVisualMode() {
         #expect(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 29,
                 charactersIgnoringModifiers: "0",
                 modifiers: [],
@@ -63,7 +63,7 @@ struct TerminalKeyboardCopyModeResolverTests {
             ) == .adjustSelection(.beginningOfLine)
         )
         #expect(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 21,
                 charactersIgnoringModifiers: "4",
                 modifiers: [.shift],
@@ -76,7 +76,7 @@ struct TerminalKeyboardCopyModeResolverTests {
         var state = TerminalKeyboardCopyModeInputState()
 
         #expect(
-            terminalKeyboardCopyModeResolve(
+            TerminalKeyboardCopyModeResolution.resolve(
                 keyCode: 29,
                 charactersIgnoringModifiers: "0",
                 modifiers: [],
@@ -91,7 +91,7 @@ struct TerminalKeyboardCopyModeResolverTests {
         var state = TerminalKeyboardCopyModeInputState(countPrefix: 3, pendingG: true)
 
         #expect(
-            terminalKeyboardCopyModeResolve(
+            TerminalKeyboardCopyModeResolution.resolve(
                 keyCode: 38,
                 charactersIgnoringModifiers: "j",
                 modifiers: [],
@@ -106,7 +106,7 @@ struct TerminalKeyboardCopyModeResolverTests {
         var state = TerminalKeyboardCopyModeInputState(countPrefix: 3, pendingYankLine: true)
 
         #expect(
-            terminalKeyboardCopyModeResolve(
+            TerminalKeyboardCopyModeResolution.resolve(
                 keyCode: 40,
                 charactersIgnoringModifiers: "k",
                 modifiers: [],
@@ -123,7 +123,7 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
     @Test func motionThenVisualSelectionUsesMovedCursorAsAnchor() {
         var cursor = TerminalKeyboardCopyModeCursor(row: 8, column: 7)
 
-        let moveAction = terminalKeyboardCopyModeAction(
+        let moveAction = TerminalKeyboardCopyModeResolution.action(
             keyCode: 38,
             charactersIgnoringModifiers: "j",
             modifiers: [],
@@ -135,7 +135,7 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
         }
 
         #expect(
-            terminalKeyboardCopyModeAction(
+            TerminalKeyboardCopyModeResolution.action(
                 keyCode: 9,
                 charactersIgnoringModifiers: "v",
                 modifiers: [],

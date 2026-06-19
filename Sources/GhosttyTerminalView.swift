@@ -199,81 +199,71 @@ struct TerminalBrowserHostNormalizer: BrowserHostNormalizing {
     }
 }
 
-func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
-    TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer())
-        .resolveOpenURLTarget(rawValue)
-}
+// resolveTerminalOpenURLTarget, the copy-mode AppKit resolvers, and the
+// key-table indicator text are scoped onto their CmuxTerminalCore owning
+// types via the app-target extensions below. TerminalLinkRouter owns link
+// routing; TerminalKeyboardCopyModeResolution owns the AppKit-flavored
+// copy-mode resolvers; TerminalKeyTableIndicator owns the locale-independent
+// indicator classification (the localized labels stay app-side on GhosttyNSView,
+// where the xcstrings catalog keys resolve).
 
-private var terminalKeyboardCopyModeIndicatorText: String {
-    String(localized: "ghostty.copy-mode.indicator", defaultValue: "vim")
-}
-
-private var terminalKeyTableIndicatorDefaultText: String {
-    String(localized: "ghostty.key-table.indicator", defaultValue: "key table")
-}
-
-private var terminalKeyTableIndicatorAccessibilityLabel: String {
-    String(localized: "ghostty.key-table.icon.accessibility", defaultValue: "Key table")
-}
-
-private func terminalKeyTableIndicatorText(_ name: String) -> String {
-    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    switch trimmed.lowercased() {
-    case "", "set":
-        return terminalKeyTableIndicatorDefaultText
-    case "vi", "vim":
-        return terminalKeyboardCopyModeIndicatorText
-    default:
-        let normalized = trimmed
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(of: "-", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? terminalKeyTableIndicatorDefaultText : normalized
+extension TerminalKeyboardCopyModeResolution {
+    /// AppKit entry point for ``shouldBypassForShortcut(modifiers:)``.
+    ///
+    /// - Parameter modifierFlags: The raw `NSEvent` modifier flags.
+    /// - Returns: `true` when the event should stay available to app-level
+    ///   shortcut handling.
+    static func shouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
+        shouldBypassForShortcut(
+            modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags)
+        )
     }
-}
 
-func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
-    CmuxTerminalCore.terminalKeyboardCopyModeShouldBypassForShortcut(
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags)
-    )
-}
+    /// AppKit entry point for ``action(keyCode:charactersIgnoringModifiers:modifiers:hasSelection:asciiCharacterProvider:)``.
+    ///
+    /// Adapts the `NSEvent` modifier flags and the AppKit ascii-fallback
+    /// provider to the package resolver's value types.
+    static func action(
+        keyCode: UInt16,
+        charactersIgnoringModifiers: String?,
+        modifierFlags: NSEvent.ModifierFlags,
+        hasSelection: Bool,
+        asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) -> TerminalKeyboardCopyModeAction? {
+        action(
+            keyCode: keyCode,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
+            hasSelection: hasSelection,
+            asciiCharacterProvider: { keyCode in
+                asciiCharacterProvider(keyCode, [])
+            }
+        )
+    }
 
-func terminalKeyboardCopyModeAction(
-    keyCode: UInt16,
-    charactersIgnoringModifiers: String?,
-    modifierFlags: NSEvent.ModifierFlags,
-    hasSelection: Bool,
-    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
-) -> TerminalKeyboardCopyModeAction? {
-    CmuxTerminalCore.terminalKeyboardCopyModeAction(
-        keyCode: keyCode,
-        charactersIgnoringModifiers: charactersIgnoringModifiers,
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
-        hasSelection: hasSelection,
-        asciiCharacterProvider: { keyCode in
-            asciiCharacterProvider(keyCode, [])
-        }
-    )
-}
-
-func terminalKeyboardCopyModeResolve(
-    keyCode: UInt16,
-    charactersIgnoringModifiers: String?,
-    modifierFlags: NSEvent.ModifierFlags,
-    hasSelection: Bool,
-    state: inout TerminalKeyboardCopyModeInputState,
-    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
-) -> TerminalKeyboardCopyModeResolution {
-    CmuxTerminalCore.terminalKeyboardCopyModeResolve(
-        keyCode: keyCode,
-        charactersIgnoringModifiers: charactersIgnoringModifiers,
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
-        hasSelection: hasSelection,
-        state: &state,
-        asciiCharacterProvider: { keyCode in
-            asciiCharacterProvider(keyCode, [])
-        }
-    )
+    /// AppKit entry point for ``resolve(keyCode:charactersIgnoringModifiers:modifiers:hasSelection:state:asciiCharacterProvider:)``.
+    ///
+    /// Adapts the `NSEvent` modifier flags and the AppKit ascii-fallback
+    /// provider to the package resolver's value types.
+    static func resolve(
+        keyCode: UInt16,
+        charactersIgnoringModifiers: String?,
+        modifierFlags: NSEvent.ModifierFlags,
+        hasSelection: Bool,
+        state: inout TerminalKeyboardCopyModeInputState,
+        asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) -> TerminalKeyboardCopyModeResolution {
+        resolve(
+            keyCode: keyCode,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
+            hasSelection: hasSelection,
+            state: &state,
+            asciiCharacterProvider: { keyCode in
+                asciiCharacterProvider(keyCode, [])
+            }
+        )
+    }
 }
 
 // GhosttySurfaceCallbackContext moved to CmuxTerminalCore behind the
@@ -284,6 +274,41 @@ func terminalKeyboardCopyModeResolve(
 extension GhosttyNSView: TerminalSurfaceHosting {
     var hostedTabId: UUID? { tabId }
     var attachedSurfaceController: (any TerminalSurfaceControlling)? { terminalSurface }
+}
+
+// The status indicator's localized labels are scoped onto the CmuxTerminalCore
+// classification type: ``TerminalKeyTableIndicator`` owns the
+// locale-independent classification, and this app-target extension resolves
+// the xcstrings catalog keys in the app bundle (String(localized:) binds to
+// the package bundle when called from a package, so the labels must stay
+// app-side).
+extension TerminalKeyTableIndicator {
+    /// The copy-mode (vim) status label.
+    static var copyModeIndicatorText: String {
+        String(localized: "ghostty.copy-mode.indicator", defaultValue: "vim")
+    }
+
+    /// The generic key-table status label.
+    static var keyTableDefaultText: String {
+        String(localized: "ghostty.key-table.indicator", defaultValue: "key table")
+    }
+
+    /// The accessibility label for the key-table status icon.
+    static var accessibilityLabel: String {
+        String(localized: "ghostty.key-table.icon.accessibility", defaultValue: "Key table")
+    }
+
+    /// The localized status label for this classification.
+    var indicatorText: String {
+        switch self {
+        case .keyTableDefault:
+            return Self.keyTableDefaultText
+        case .copyMode:
+            return Self.copyModeIndicatorText
+        case .custom(let displayName):
+            return displayName
+        }
+    }
 }
 
 extension GhosttySurfaceCallbackContext {
@@ -3066,7 +3091,8 @@ class GhosttyApp {
                 }
             }
 
-            guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
+            guard let target = TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer())
+                .resolveOpenURLTarget(normalizedOpenURLString) else {
                 #if DEBUG
                 cmuxDebugLog("link.openURL resolve failed, returning false")
                 #endif
@@ -3328,17 +3354,10 @@ private final class TerminalSharedBackdropCutoutFilter: CIFilter {
 
 // TerminalSurfaceFocusPlacement moved to CmuxTerminalCore (SurfaceRegistry/).
 
-private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
-    guard AgentHibernationTrackingGate.isEnabled() else { return }
-    let recordedAt = Date()
-    Task { @MainActor in
-        AgentHibernationController.shared.recordTerminalInput(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            recordedAt: recordedAt
-        )
-    }
-}
+// recordAgentHibernationTerminalInput is now the injected
+// TerminalAgentHibernationRecorder behind the CmuxTerminal
+// AgentHibernationRecording seam (see TerminalSurfaceRuntimeWiring.swift); the
+// view records through GhosttyApp.terminalSurfaceRuntimeDependencies.
 
 // TerminalSurface and its SearchState moved to the CmuxTerminal package
 // (Surface/TerminalSurface*.swift), with the legacy GhosttyApp /
@@ -3539,11 +3558,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
     var currentKeyStateIndicatorText: String? {
         if let name = keyTables.last {
-            return terminalKeyTableIndicatorText(name)
+            return TerminalKeyTableIndicator(name: name).indicatorText
         }
 
         if keyboardCopyModeActive {
-            return terminalKeyboardCopyModeIndicatorText
+            return TerminalKeyTableIndicator.copyModeIndicatorText
         }
 
         return nil
@@ -4575,7 +4594,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
         guard keyboardCopyModeActive else { return false }
 
-        if terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: event.modifierFlags) {
+        if TerminalKeyboardCopyModeResolution.shouldBypassForShortcut(modifierFlags: event.modifierFlags) {
             keyboardCopyModeInputState.reset()
             return false
         }
@@ -4583,7 +4602,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Use the visual-mode flag instead of raw has_selection; non-visual
         // cursor state is owned by the copy-mode cursor model.
         let hasSelection = keyboardCopyModeVisualActive
-        let resolution = terminalKeyboardCopyModeResolve(
+        let resolution = TerminalKeyboardCopyModeResolution.resolve(
             keyCode: event.keyCode,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers,
             modifierFlags: event.modifierFlags,
@@ -4721,7 +4740,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func recordDirectAgentHibernationTerminalInput() {
         guard let terminalSurface else { return }
-        recordAgentHibernationTerminalInput(
+        GhosttyApp.terminalSurfaceRuntimeDependencies.hibernationRecorder.recordTerminalInput(
             workspaceId: terminalSurface.tabId,
             panelId: terminalSurface.id
         )
@@ -7825,7 +7844,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeContainerView = GhosttyFlashOverlayView(frame: .zero)
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
-        keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
+        keyboardCopyModeBadgeLabel = NSTextField(labelWithString: TerminalKeyTableIndicator.copyModeIndicatorText)
         imageTransferIndicatorContainerView = NSView(frame: .zero)
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
         imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
@@ -7932,7 +7951,7 @@ final class GhosttySurfaceScrollView: NSView {
         )
         keyboardCopyModeBadgeIconView.image = NSImage(
             systemSymbolName: "keyboard.badge.ellipsis",
-            accessibilityDescription: terminalKeyTableIndicatorAccessibilityLabel
+            accessibilityDescription: TerminalKeyTableIndicator.accessibilityLabel
         )
         keyboardCopyModeBadgeIconView.contentTintColor = NSColor.secondaryLabelColor
         keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -8976,7 +8995,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        keyboardCopyModeBadgeIconView.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
+        keyboardCopyModeBadgeIconView.setAccessibilityLabel(TerminalKeyTableIndicator.accessibilityLabel)
         keyboardCopyModeBadgeContainerView.isHidden = true
     }
 
