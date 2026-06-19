@@ -65,6 +65,11 @@ actor SSHPTYResizeMonitor {
         }
     }
 
+    nonisolated func requestCurrentResize() {
+        let size = CMUXCLI.currentCLITerminalSize()
+        eventContinuation.yield((size: size, force: true))
+    }
+
     nonisolated func cancel() {
         source.cancel()
         eventContinuation.finish()
