@@ -23,6 +23,9 @@ let package = Package(
         .package(path: "../CMUXDebugLog"),
         // CmuxTestSupport backs FileOpen/ PreferredEditorService UI-test capture.
         .package(path: "../CmuxTestSupport"),
+        // SessionDisplayGeometry (the live-screen geometry value the session
+        // frame resolver reads) is owned by CmuxWindowing.
+        .package(path: "../CmuxWindowing"),
     ],
     targets: [
         .target(
@@ -32,6 +35,7 @@ let package = Package(
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
+                .product(name: "CmuxWindowing", package: "CmuxWindowing"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -45,6 +49,7 @@ let package = Package(
                 "CmuxWorkspaces",
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
+                .product(name: "CmuxWindowing", package: "CmuxWindowing"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
