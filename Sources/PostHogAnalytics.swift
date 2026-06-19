@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 import PostHog
 
@@ -73,7 +74,7 @@ final class PostHogAnalytics: @unchecked Sendable {
 #endif
 
     private var isEnabled: Bool {
-        guard TelemetrySettings.enabledForCurrentLaunch else { return false }
+        guard telemetrySettings.enabledForCurrentLaunch else { return false }
 #if DEBUG
         // Avoid polluting production analytics while iterating locally.
         return ProcessInfo.processInfo.environment["CMUX_POSTHOG_ENABLE"] == "1"

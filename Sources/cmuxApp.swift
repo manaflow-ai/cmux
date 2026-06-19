@@ -4407,14 +4407,14 @@ final class AppIconAppearanceObserver: NSObject {
 // call site.
 typealias BuildFlavor = CmuxFoundation.BuildFlavor
 
-enum TelemetrySettings {
-    // Launch-frozen telemetry enablement: read once at process start so settings
-    // changes apply on next restart. The persisted key, default, and read logic
-    // live in `CmuxSettings` (`AppCatalogSection().sendAnonymousTelemetry`) as the
-    // single source of truth; this anchor only freezes that read for the lifetime
-    // of the launch.
-    static let enabledForCurrentLaunch = AppCatalogSection().sendAnonymousTelemetry.value(in: .standard)
-}
+// Composition-root anchor for app-target global callers (`sentry*` helpers,
+// `PostHogAnalytics`, scroll-lag capture, launch breadcrumbs) with no injected
+// dependency to thread the store through. Exactly one `TelemetrySettingsStore`
+// is constructed here at process start; its read logic and launch-freeze live
+// in `CmuxSettings`. The binding is lazy and thread-safe like the `static let`
+// it replaced, so the freeze point is identical. Callers depend on the
+// `TelemetrySettingsReading` seam, never the storage mechanism.
+let telemetrySettings: any TelemetrySettingsReading = TelemetrySettingsStore(defaults: .standard)
 
 @MainActor
 func openCmuxSettingsFileInEditor() {
