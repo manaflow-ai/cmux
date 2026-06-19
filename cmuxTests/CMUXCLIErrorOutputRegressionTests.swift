@@ -1,4 +1,4 @@
-import CmuxSocketControl
+import CmuxSettings
 import Darwin
 import Foundation
 import XCTest

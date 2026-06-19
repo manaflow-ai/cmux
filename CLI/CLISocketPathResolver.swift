@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import CmuxSocketControl
+import CmuxSettings
 
 enum CLIExecutableLocator {
     static func currentExecutableURL() -> URL? {
