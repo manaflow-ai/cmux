@@ -1762,24 +1762,17 @@ class TabManager: ObservableObject {
     }
 
     func setTabColor(tabId: UUID, color: String?) {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.setCustomColor(color)
+        workspaceReordering.setTabColor(tabId: tabId, color: color)
     }
 
     func applyWorkspaceColor(_ color: String?, toWorkspaceIds workspaceIds: [UUID]) {
-        guard !workspaceIds.isEmpty else { return }
-        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
-            setTabColor(tabId: workspaceId, color: color)
-            return
-        }
-
-        let targetIds = Set(workspaceIds)
-        for tab in tabs where targetIds.contains(tab.id) {
-            tab.setCustomColor(color)
-        }
+        workspaceReordering.applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
     }
 
     func applyWorkspacePaletteColor(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
+        // The palette-name → hex codec is an app-side `UserDefaults`-backed
+        // settings namespace (a separate settings slice); resolve here, then
+        // forward the resolved hex to the reorder coordinator's apply plan.
         guard let color = WorkspaceTabColorSettings.currentColorHex(named: name) else { return }
         applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
     }

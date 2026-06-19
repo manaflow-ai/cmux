@@ -28,6 +28,7 @@ private final class StubTab: WorkspaceTabRepresenting {
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         shellActivityUpdates.append((panelId, state))
     }
+    func setCustomColor(_ hex: String?) {}
 }
 
 @MainActor

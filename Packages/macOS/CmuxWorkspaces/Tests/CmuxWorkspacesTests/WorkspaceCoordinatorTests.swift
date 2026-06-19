@@ -10,6 +10,7 @@ private final class CoordinatorStubTab: WorkspaceTabRepresenting {
     var isPinned: Bool
     var currentDirectory: String
     var title: String
+    var customColor: String?
 
     init(
         groupId: UUID? = nil,
@@ -25,6 +26,7 @@ private final class CoordinatorStubTab: WorkspaceTabRepresenting {
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {}
+    func setCustomColor(_ hex: String?) { customColor = hex }
 }
 
 /// Window-side stand-in: creates stub workspaces on demand, records every
@@ -326,5 +328,40 @@ struct WorkspaceCoordinatorTests {
         #expect(model.workspaceGroups[0].anchorWorkspaceId == b.id)
         let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
         #expect(memberIds.first == b.id)
+    }
+
+    // MARK: Tab color
+
+    @Test
+    func setTabColorMutatesOnlyTheNamedWorkspace() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        model.tabs = [a, b]
+
+        reorder.setTabColor(tabId: a.id, color: "#112233")
+
+        #expect(a.customColor == "#112233")
+        #expect(b.customColor == nil)
+    }
+
+    @Test
+    func applyWorkspaceColorMultiTargetSetsAndClearsEachMatch() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        model.tabs = [a, b, c]
+
+        reorder.applyWorkspaceColor("#ABCDEF", toWorkspaceIds: [a.id, c.id])
+        #expect(a.customColor == "#ABCDEF")
+        #expect(b.customColor == nil)
+        #expect(c.customColor == "#ABCDEF")
+
+        reorder.applyWorkspaceColor(nil, toWorkspaceIds: [a.id, c.id])
+        #expect(a.customColor == nil)
+        #expect(c.customColor == nil)
     }
 }
