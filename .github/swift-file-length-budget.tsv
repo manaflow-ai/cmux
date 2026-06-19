@@ -4,7 +4,7 @@
 34179	CLI/cmux.swift
 17654	Sources/AppDelegate.swift
 15321	Sources/ContentView.swift
-12899	Sources/TerminalController.swift
+12836	Sources/TerminalController.swift
 12451	Sources/Workspace.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11698	Sources/GhosttyTerminalView.swift
@@ -203,6 +203,7 @@
 526	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
 524	Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/HostBrowserSignInFlowTests.swift
+522	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
 522	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
@@ -218,7 +219,6 @@
 506	Sources/App/MainWindowVisibilityController.swift
 505	Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/DomainSettingsStoreTests.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
-504	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift
 502	Sources/CmuxEventPublishing.swift
