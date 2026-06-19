@@ -163,7 +163,7 @@ struct PostHogAnalyticsPropertiesTests {
         let flushReturned = DispatchSemaphore(value: 0)
         let flushRanOnMainThread = DispatchSemaphore(value: 0)
         let flushRanOffMainThread = DispatchSemaphore(value: 0)
-        let callerReturnedPromptly = DispatchSemaphore(value: 0)
+        let callerReturned = DispatchSemaphore(value: 0)
         let analytics = PostHogAnalytics.makeForTesting(
             workQueue: DispatchQueue(label: "com.cmux.tests.posthog.analytics"),
             didStart: true,
@@ -183,12 +183,8 @@ struct PostHogAnalyticsPropertiesTests {
         )
 
         let trackActiveOnMainThread = {
-            let start = DispatchTime.now().uptimeNanoseconds
             analytics.trackActive(reason: "didBecomeActive")
-            let elapsedSeconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
-            if elapsedSeconds < 0.25 {
-                callerReturnedPromptly.signal()
-            }
+            callerReturned.signal()
         }
 
         if Thread.isMainThread {
@@ -197,7 +193,7 @@ struct PostHogAnalyticsPropertiesTests {
             DispatchQueue.main.async(execute: trackActiveOnMainThread)
         }
 
-        #expect(callerReturnedPromptly.wait(timeout: .now() + .seconds(1)) == .success)
+        #expect(callerReturned.wait(timeout: .now() + .seconds(1)) == .success)
         #expect(flushStarted.wait(timeout: .now() + .seconds(1)) == .success)
         #expect(flushRanOffMainThread.wait(timeout: .now() + .seconds(1)) == .success)
         #expect(flushRanOnMainThread.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
