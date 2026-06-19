@@ -9,9 +9,11 @@ public struct SidebarTabDropIndicatorPredicate {
         forTabId tabId: UUID,
         draggedTabId: UUID?,
         dropIndicator: SidebarDropIndicator?,
-        tabIds: [UUID]
+        tabIds: [UUID],
+        isExternalDragActive: Bool = false
     ) -> Bool {
-        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
+        guard draggedTabId != nil || isExternalDragActive,
+              let indicator = dropIndicator else { return false }
         if indicator.tabId == tabId && indicator.edge == .top {
             return true
         }
@@ -31,9 +33,11 @@ public struct SidebarTabDropIndicatorPredicate {
     public func emptyAreaTopVisible(
         draggedTabId: UUID?,
         dropIndicator: SidebarDropIndicator?,
-        lastTabId: UUID?
+        lastTabId: UUID?,
+        isExternalDragActive: Bool = false
     ) -> Bool {
-        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
+        guard draggedTabId != nil || isExternalDragActive,
+              let indicator = dropIndicator else { return false }
         if indicator.tabId == nil {
             return true
         }
