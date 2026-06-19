@@ -211,6 +211,21 @@ cmux_claude_config_dir_has_session() {
     return 1
 }
 
+claude_option_consumes_value() {
+    case "$1" in
+        --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
+        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
+        --disallowed-tools|--effort|--fallback-model|--file|\
+        --input-format|--json-schema|--max-budget-usd|--mcp-config|\
+        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
+        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
+        --settings|--system-prompt|--tools)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 extract_claude_resume_session_id() {
     local expect_resume_value=false
     local skip_next=false
@@ -463,21 +478,6 @@ encode_launch_argv() {
             printf '%s\0' "$@"
         fi
     } | base64 | tr -d '\n'
-}
-
-claude_option_consumes_value() {
-    case "$1" in
-        --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
-        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
-        --disallowed-tools|--effort|--fallback-model|--file|\
-        --input-format|--json-schema|--max-budget-usd|--mcp-config|\
-        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
-        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
-        --settings|--system-prompt|--tools)
-            return 0
-            ;;
-    esac
-    return 1
 }
 
 claude_interactive_entry_flag() {

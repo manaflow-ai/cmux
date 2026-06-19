@@ -1080,6 +1080,52 @@ def test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures: l
     )
 
 
+def test_stale_socket_resume_self_heals_after_value_option(failures: list[str]) -> None:
+    # The stale-socket path runs before hook injection. Its resume parser still
+    # has to skip value-taking options that appear before `--resume`.
+    session_id = "017427ef-1828-43d9-ae1d-8ec6d4b2bdb7"
+    expected: dict[str, str] = {}
+
+    def setup_env(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        default_root = home / ".claude"
+        (default_root / "projects" / "-Users-austinwang-manaflow-term-cmux166").mkdir(parents=True)
+        (
+            default_root / "projects" / "-Users-austinwang-manaflow-term-cmux166" / f"{session_id}.jsonl"
+        ).write_text("{}\n", encoding="utf-8")
+        foreign_root = home / ".codex-accounts" / "claude" / "_pforeign"
+        (foreign_root / "projects").mkdir(parents=True)
+        expected["path"] = str(default_root)
+        return {
+            "HOME": str(home),
+            "CLAUDE_CONFIG_DIR": str(foreign_root),
+        }
+
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--model", "sonnet", "--resume", session_id],
+        inherited_env={},
+        socket_state="stale",
+        setup_env=setup_env,
+    )
+    expect(code == 0, f"stale socket option resume self-heal: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv == ["--model", "sonnet", "--resume", session_id],
+        f"stale socket option resume self-heal: expected passthrough argv, got {real_argv}",
+        failures,
+    )
+    expect(
+        auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"],
+        "stale socket option resume self-heal: expected CLAUDE_CONFIG_DIR reset to the transcript's config root "
+        f"{expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}",
+        failures,
+    )
+    expect(
+        "command not found" not in stderr,
+        f"stale socket option resume self-heal: parser emitted shell diagnostic: {stderr}",
+        failures,
+    )
+
+
 def test_live_socket_resume_self_heals_nested_claude_transcript_config_dir(failures: list[str]) -> None:
     # Claude can store transcripts below nested project subdirectories. The
     # self-heal must still detect the holding config root, or `claude --resume`
@@ -1603,6 +1649,7 @@ def main() -> int:
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_resume_self_heals_mismatched_claude_config_dir(failures)
     test_stale_socket_resume_self_heals_mismatched_claude_config_dir(failures)
+    test_stale_socket_resume_self_heals_after_value_option(failures)
     test_live_socket_resume_self_heals_nested_claude_transcript_config_dir(failures)
     test_live_socket_resume_keeps_correct_claude_config_dir(failures)
     test_live_socket_resume_self_heal_ignores_prompt_text_after_double_dash(failures)
