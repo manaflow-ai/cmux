@@ -342,7 +342,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         surfacesByWorkspace: [String: [SurfaceFixture]]? = nil
     ) -> DispatchSemaphore {
         let resolvedTTYWorkspaceId = ttyWorkspaceId ?? context.workspaceId
-        startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+        return startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
