@@ -11289,7 +11289,7 @@ struct CMUXCLI {
             throw CLIError(message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))")
         }
         var connectedFD: Int32?
-        var bridgeHandshakeSize = currentCLITerminalSize()
+        var bridgeHandshakeSize = Self.currentCLITerminalSize()
         let controlSocketLock = NSLock()
         do {
             let host = (bridge["host"] as? String) ?? "127.0.0.1"
@@ -11302,7 +11302,7 @@ struct CMUXCLI {
 
             connectedFD = try connectLoopbackTCP(host: host, port: port)
             let fd = connectedFD!
-            let size = currentCLITerminalSize()
+            let size = Self.currentCLITerminalSize()
             bridgeHandshakeSize = size
             var handshakeData = try JSONSerialization.data(withJSONObject: [
                 "token": token,
@@ -11325,7 +11325,7 @@ struct CMUXCLI {
 
         let rawMode = TerminalRawMode()
         defer { rawMode?.restore() }
-        let cancelResizeMonitor = startSSHPTYResizeSource(
+        let resizeMonitor = SSHPTYResizeMonitor(
             client: client,
             workspaceId: workspaceId,
             surfaceID: surfaceID,
@@ -11335,13 +11335,14 @@ struct CMUXCLI {
             initialSize: bridgeHandshakeSize,
             socketLock: controlSocketLock
         )
-        defer { cancelResizeMonitor() }
+        defer { resizeMonitor.cancel() }
 
         DispatchQueue.global(qos: .userInteractive).async {
             var buffer = [UInt8](repeating: 0, count: 8192)
             while true {
                 let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
                 if count > 0 {
+                    resizeMonitor.sendResizeIfNeeded()
                     do {
                         try self.writeAll(fd: fd, data: Data(buffer.prefix(count)))
                     } catch {
@@ -11364,7 +11365,7 @@ struct CMUXCLI {
             if count > 0 {
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
-                cancelResizeMonitor()
+                resizeMonitor.cancel()
                 try handleSSHPTYBridgeEOF(
                     client: client,
                     workspaceId: workspaceId,
@@ -11377,7 +11378,7 @@ struct CMUXCLI {
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
-                    cancelResizeMonitor()
+                    resizeMonitor.cancel()
                     try handleSSHPTYBridgeEOF(
                         client: client,
                         workspaceId: workspaceId,
@@ -11614,29 +11615,72 @@ struct CMUXCLI {
         throw CLIError(message: "ssh-pty-attach: bridge status exceeded \(maxStatusBytes) bytes")
     }
 
-    private func startSSHPTYResizeSource(
-        client: SocketClient,
-        workspaceId: String,
-        surfaceID: String?,
-        sessionID: String,
-        attachmentID: String,
-        attachmentToken: String,
-        initialSize: (cols: Int, rows: Int),
-        socketLock: NSLock
-    ) -> () -> Void {
-        signal(SIGWINCH, SIG_IGN)
-        let queue = DispatchQueue(label: "com.cmux.ssh-pty.resize")
-        var lastSentSize = initialSize
+    // Shared by the SIGWINCH source and stdin pump; `socketLock` serializes
+    // SocketClient access and the last-sent size cache.
+    private final class SSHPTYResizeMonitor: @unchecked Sendable {
+        private let client: SocketClient
+        private let workspaceId: String
+        private let surfaceID: String?
+        private let sessionID: String
+        private let attachmentID: String
+        private let attachmentToken: String
+        private let socketLock: NSLock
+        private let source: DispatchSourceSignal
+        private var lastSentSize: (cols: Int, rows: Int)
+        private var isCancelled = false
 
-        func sendResize(force: Bool) {
-            let size = self.currentCLITerminalSize()
+        init(
+            client: SocketClient,
+            workspaceId: String,
+            surfaceID: String?,
+            sessionID: String,
+            attachmentID: String,
+            attachmentToken: String,
+            initialSize: (cols: Int, rows: Int),
+            socketLock: NSLock
+        ) {
+            self.client = client
+            self.workspaceId = workspaceId
+            self.surfaceID = surfaceID
+            self.sessionID = sessionID
+            self.attachmentID = attachmentID
+            self.attachmentToken = attachmentToken
+            self.socketLock = socketLock
+            self.lastSentSize = initialSize
+            self.source = DispatchSource.makeSignalSource(
+                signal: SIGWINCH,
+                queue: DispatchQueue(label: "com.cmux.ssh-pty.resize")
+            )
+            signal(SIGWINCH, SIG_IGN)
+            source.setEventHandler { [weak self] in
+                self?.sendResize(force: true)
+            }
+            source.resume()
+        }
+
+        func sendResizeIfNeeded() {
+            sendResize(force: false)
+        }
+
+        func cancel() {
+            socketLock.lock()
+            let shouldCancel = !isCancelled
+            isCancelled = true
+            socketLock.unlock()
+            if shouldCancel {
+                source.cancel()
+            }
+        }
+
+        private func sendResize(force: Bool) {
+            let size = CMUXCLI.currentCLITerminalSize()
+            socketLock.lock()
+            defer { socketLock.unlock() }
+            guard !isCancelled else { return }
             guard force || size.cols != lastSentSize.cols || size.rows != lastSentSize.rows else {
                 return
             }
-            lastSentSize = size
 
-            socketLock.lock()
-            defer { socketLock.unlock() }
             var params: [String: Any] = [
                 "workspace_id": workspaceId,
                 "session_id": sessionID,
@@ -11649,34 +11693,12 @@ struct CMUXCLI {
                 params["surface_id"] = surfaceID
                 params["allow_moved_surface"] = true
             }
-            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
-        }
-
-        let source = DispatchSource.makeSignalSource(
-            signal: SIGWINCH,
-            queue: queue
-        )
-        source.setEventHandler {
-            sendResize(force: true)
-        }
-
-        // Some persistent SSH PTY attach chains miss SIGWINCH even though the
-        // local Ghostty PTY's winsize has changed. Poll the cheap ioctl so the
-        // remote PTY still tracks pane/window resizes.
-        let pollSource = DispatchSource.makeTimerSource(queue: queue)
-        pollSource.schedule(
-            deadline: .now() + .milliseconds(250),
-            repeating: .milliseconds(250),
-            leeway: .milliseconds(100)
-        )
-        pollSource.setEventHandler {
-            sendResize(force: false)
-        }
-        source.resume()
-        pollSource.resume()
-        return {
-            source.cancel()
-            pollSource.cancel()
+            do {
+                _ = try client.sendV2(method: "workspace.remote.pty_resize", params: params)
+                lastSentSize = size
+            } catch {
+                // Retry on the next SIGWINCH or input edge at this size.
+            }
         }
     }
 
@@ -31976,7 +31998,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         scrollOffset: Int
     ) -> Int {
         guard itemCount > 0 else { return 0 }
-        let size = currentCLITerminalSize()
+        let size = Self.currentCLITerminalSize()
         let layout = FeedTUILayout(width: max(size.cols, 1), rows: max(size.rows, 1))
         let visibleCount = layout.visibleItemCount
         let maxOffset = max(itemCount - visibleCount, 0)
@@ -31995,7 +32017,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         scrollOffset: Int,
         statusLine: String
     ) {
-        let size = currentCLITerminalSize()
+        let size = Self.currentCLITerminalSize()
         let layout = FeedTUILayout(width: max(size.cols, 1), rows: max(size.rows, 1))
         let width = layout.width
         let pendingCount = items.filter(\.isPending).count
@@ -32450,7 +32472,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
     }
 
-    private func currentCLITerminalSize() -> (cols: Int, rows: Int) {
+    private static func currentCLITerminalSize() -> (cols: Int, rows: Int) {
         var size = winsize()
         if ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0,
            size.ws_col > 0,
