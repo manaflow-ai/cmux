@@ -1,4 +1,5 @@
 import XCTest
+import CmuxTerminal
 import AppKit
 import Bonsplit
 
@@ -470,7 +471,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
         let surfaceId = terminalPanel.id
-        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: surfaceId) === terminalPanel.surface)
+        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceId) === terminalPanel.surface)
         XCTAssertEqual(terminalPanel.surface.debugLastKnownWorkspaceId(), workspace.id)
 
         try assertWorkspaceListContains(try workspaceListPayload(surfaceId: surfaceId), workspaceId: workspace.id)
@@ -913,7 +914,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
         let surfaceId = terminalPanel.id
-        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: surfaceId) === terminalPanel.surface)
+        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceId) === terminalPanel.surface)
         XCTAssertEqual(terminalPanel.surface.debugLastKnownWorkspaceId(), workspace.id)
 
         try assertWorkspaceListContains(try v2Result(method: "workspace.list"), workspaceId: workspace.id)
@@ -1024,7 +1025,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         let recoveredWorkspace = try XCTUnwrap(recoveredManager.selectedWorkspace)
         let recoveredTerminal = try XCTUnwrap(recoveredWorkspace.focusedTerminalPanel)
-        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
+        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
 
         app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
         TerminalController.shared.setActiveTabManager(nil)
@@ -1118,7 +1119,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         let terminalWorkspace = try XCTUnwrap(terminalManager.selectedWorkspace)
         let terminalPanel = try XCTUnwrap(terminalWorkspace.focusedTerminalPanel)
-        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: terminalPanel.id) === terminalPanel.surface)
+        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
 
         let browserOnlyWorkspace = try XCTUnwrap(browserOnlyManager.selectedWorkspace)
         let browserOnlyTerminal = try XCTUnwrap(browserOnlyWorkspace.focusedTerminalPanel)
@@ -1175,12 +1176,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         TerminalController.shared.setActiveTabManager(staleManager)
 
         let originalLiveWorkspaceCount = liveManager.tabs.count
-        let createdWorkspaceId = app.addWorkspaceInPreferredMainWindow(
+        let createdWorkspace = app.addWorkspaceInPreferredMainWindow(
             shouldBringToFront: false,
             debugSource: "test.issue2907.staleActiveContext"
         )
 
-        let unwrappedCreatedWorkspaceId = try XCTUnwrap(createdWorkspaceId)
+        let unwrappedCreatedWorkspaceId = try XCTUnwrap(createdWorkspace).id
         XCTAssertEqual(liveManager.tabs.count, originalLiveWorkspaceCount + 1)
         XCTAssertTrue(liveManager.tabs.contains { $0.id == unwrappedCreatedWorkspaceId })
     }

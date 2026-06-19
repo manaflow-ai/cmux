@@ -1,6 +1,6 @@
 import AppKit
 import Bonsplit
-import CMUXWorkstream
+import CMUXAgentLaunch
 import SwiftUI
 #if DEBUG
 private func feedDebugResponderSummary(_ responder: NSResponder?) -> String {
@@ -793,7 +793,7 @@ final class FeedKeyboardFocusView: NSView {
             "fr=\(feedDebugResponderSummary(window?.firstResponder))"
         )
 #endif
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,

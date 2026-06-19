@@ -18,4 +18,8 @@ struct AuthCoordinatorIdentityProvider: MobileIdentityProviding {
     @MainActor var currentUserID: String? {
         coordinator.currentUser?.id
     }
+
+    @MainActor var currentUserEmail: String? {
+        coordinator.currentUser?.primaryEmail
+    }
 }

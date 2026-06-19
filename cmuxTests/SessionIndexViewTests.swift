@@ -82,7 +82,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+            posixShWrappedForTest("env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" --resume claude-session-123")
         )
     }
 
@@ -114,7 +114,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+            posixShWrappedForTest("env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" --resume claude-session-123")
         )
     }
 
@@ -341,6 +341,55 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertEqual(outcome.entries.map(\.sessionId), ["codex-transcript-match"])
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6302.
+    // The always-visible sidebar list is built from `scanAll()`, which loads
+    // only each agent's 30 most-recent sessions across ALL folders and then
+    // groups that already-capped pool by folder. A folder can therefore
+    // contribute ≤ collapsedRowLimit sessions to the in-memory list even
+    // though more exist on disk. "Show more" is the ONLY trigger for the
+    // complete folder-scoped query (`loadDirectorySnapshot`), so it must be
+    // offered for every directory section regardless of the truncated count —
+    // otherwise the rest of a folder's sessions are permanently unreachable.
+    func testDirectorySectionOffersShowMoreEvenWhenUnderRowLimit() {
+        let section = IndexSection(
+            key: .directory("/Users/me/dev/codexbarlite"),
+            title: "codexbarlite",
+            icon: .folder,
+            entries: [makeEntry(title: "a"), makeEntry(title: "b")]
+        )
+
+        XCTAssertTrue(section.shouldOfferShowMore(rowLimit: 5))
+    }
+
+    func testNoFolderDirectorySectionOffersShowMore() {
+        let section = IndexSection(
+            key: .directory(nil),
+            title: "(no folder)",
+            icon: .folder,
+            entries: [makeEntry(title: "x")]
+        )
+
+        XCTAssertTrue(section.shouldOfferShowMore(rowLimit: 5))
+    }
+
+    func testAgentSectionUsesRowCountThresholdForShowMore() {
+        let under = IndexSection(
+            key: .agent(.claude),
+            title: "Claude",
+            icon: .agent(.claude),
+            entries: [makeEntry(title: "a"), makeEntry(title: "b")]
+        )
+        XCTAssertFalse(under.shouldOfferShowMore(rowLimit: 5))
+
+        let over = IndexSection(
+            key: .agent(.claude),
+            title: "Claude",
+            icon: .agent(.claude),
+            entries: (0..<6).map { makeEntry(title: "s\($0)") }
+        )
+        XCTAssertTrue(over.shouldOfferShowMore(rowLimit: 5))
+    }
+
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
         let harness = makeHarness()
         let coordinator = harness.host.makeCoordinator()
@@ -562,6 +611,13 @@ final class SessionIndexViewTests: XCTestCase {
     private func sqliteMessage(_ db: OpaquePointer) -> String? {
         guard let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
+    }
+
+    /// Mirrors `AgentResumeArgv.portableClaudeResumeShellCommand`: the rendered claude
+    /// resume command is wrapped as `/bin/sh -c '…'` so it parses in non-POSIX shells
+    /// (fish/csh/tcsh). https://github.com/manaflow-ai/cmux/issues/5639
+    private func posixShWrappedForTest(_ posixCommand: String) -> String {
+        "/bin/sh -c '" + posixCommand.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": [
+    "test/**/*.ts",
+    "src/core.ts",
+    "src/auth.ts",
+    "src/validate.ts",
+    "src/sync.ts",
+    "src/syncDevices.ts",
+    "src/syncStorage.ts"
+  ]
+}

@@ -1,11 +1,62 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Verify a built/exported IPA's single .app is strictly signed AND carries
+# aps-environment == "production" in its actual code signature. A config-level
+# entitlement only delivers push if it survives into the SIGNED binary; only
+# `codesign -d --entitlements` on the .app proves it (see the #5496 regression
+# note below). The VALUE matters, not just presence: a "development" value
+# registers a sandbox token that the production APNs host (which TestFlight runs
+# against) rejects with BadDeviceToken, which is the exact failure this guards.
+# Returns 0 only when production push is genuinely wired; non-zero otherwise.
+# One shared check used by both signing paths (manual post-re-sign gate,
+# automatic pre-upload gate) so the two paths can't drift.
+verify_ipa_aps_environment_production() {
+  local ipa="$1"
+  local workdir app ent aps rc
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  # --verify --strict catches a corrupt bundle (e.g. a bad re-zip).
+  if ! codesign --verify --strict --verbose=2 "$app" >&2; then
+    rm -rf "$workdir"
+    return 1
+  fi
+  # Read the signed entitlements and assert aps-environment == production.
+  ent="$workdir/signed-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
+    echo "error: could not read entitlements from signed app: $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  # PlistBuddy exits non-zero (and prints to stdout) when the key is absent, so
+  # capture rc and require an exact "production" match.
+  aps="$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ent" 2>/dev/null)"
+  rc=$?
+  if [[ $rc -ne 0 || "$aps" != "production" ]]; then
+    echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $app" >&2
+    plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  rm -rf "$workdir"
+  return 0
+}
+
 usage() {
   cat <<'EOF'
 Usage:
   ios/scripts/upload-testflight.sh [--lane beta] [--build-number <number>]
-                                  [--signing manual|automatic]
+                                  [--signing manual|automatic] [--external]
                                   [--archive-path <path>] [--export-only]
 
 Archives cmux iOS, exports an App Store Connect IPA, and uploads it to
@@ -13,6 +64,17 @@ TestFlight. The default lane is beta:
 
   bundle id: dev.cmux.app.beta
   profile:   cmux Beta Distribution
+
+On the manual signing path the exported app is RE-SIGNED with the full
+entitlements before upload. The archive is built unsigned (to avoid
+distribution-cert churn), so -exportArchive re-adds only the profile baseline
+and silently DROPS app-capability entitlements like aps-environment. That is
+the https://github.com/manaflow-ai/cmux/pull/5496 regression that killed
+beta/prod push. A config-level entitlements file alone does not prove the
+entitlement reaches the signed binary; only codesign -d --entitlements on the
+exported app does. So the re-sign merges Config/cmux-release.entitlements into
+the export baseline and signs with the local distribution cert, gated on
+codesign showing aps-environment and a strict signature verify.
 
 Authentication uses one of:
 
@@ -49,8 +111,21 @@ Options:
                             uses Xcode cloud-managed signing via the ASC API key
                             and -allowProvisioningUpdates, so CI does not need an
                             iOS distribution cert/profile in the keychain.
+  --external                Make the build eligible for EXTERNAL TestFlight
+                            testers (sets testFlightInternalTestingOnly=NO).
+                            Default is internal-only: builds reach internal
+                            groups (e.g. "cmux beta") instantly but can never
+                            be added to an external group. External-eligible
+                            builds must pass Apple Beta App Review (~24h) before
+                            external testers can install. Also set via
+                            CMUX_TESTFLIGHT_EXTERNAL=1.
   --archive-path <path>     Reuse an existing archive instead of archiving.
   --export-only             Stop after exporting the signed IPA.
+  --skip-notes              Do not set the TestFlight "What to Test" notes after
+                            upload. By default a successful upload pushes the top
+                            ios/CHANGELOG.md entry to the build (the Internal block,
+                            or the External block with --external). Also via
+                            CMUX_TESTFLIGHT_SKIP_NOTES=1.
   -h, --help                Show this help.
 EOF
 }
@@ -84,6 +159,22 @@ EXPORT_ONLY=0
 # "automatic" switches the export to Xcode cloud-managed signing (used by CI,
 # which has no iOS distribution cert/profile, only the ASC API key).
 SIGNING="manual"
+# Whether the exported build is eligible for external TestFlight testers.
+# Default 0 keeps the historical internal-only behavior (fast dogfood, no Apple
+# review). Set to 1 by --external or CMUX_TESTFLIGHT_EXTERNAL=1 to drop the
+# testFlightInternalTestingOnly flag so the build can be added to an external
+# group; such builds then require a one-time Apple Beta App Review per version.
+EXTERNAL_TESTING=0
+if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
+  EXTERNAL_TESTING=1
+fi
+# After a successful upload, push the top ios/CHANGELOG.md entry to the build's
+# TestFlight "What to Test" so testers see what changed instead of an opaque
+# timestamp. Set to 1 by --skip-notes or CMUX_TESTFLIGHT_SKIP_NOTES=1.
+SKIP_NOTES=0
+if [[ "${CMUX_TESTFLIGHT_SKIP_NOTES:-}" == "1" ]]; then
+  SKIP_NOTES=1
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -108,8 +199,16 @@ while [[ $# -gt 0 ]]; do
       ARCHIVE_PATH="$2"
       shift 2
       ;;
+    --external)
+      EXTERNAL_TESTING=1
+      shift
+      ;;
     --export-only)
       EXPORT_ONLY=1
+      shift
+      ;;
+    --skip-notes)
+      SKIP_NOTES=1
       shift
       ;;
     -h|--help)
@@ -150,6 +249,25 @@ IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
+
+# Notes audience is driven by the testing lane (External block for --external).
+NOTES_AUDIENCE="internal"
+[[ "$EXTERNAL_TESTING" == "1" ]] && NOTES_AUDIENCE="external"
+
+# Preflight the TestFlight "What to Test" notes BEFORE the expensive archive, so a
+# deterministic local error (missing ios/CHANGELOG.md, empty audience block) fails
+# fast here instead of being discovered only AFTER the build is already uploaded
+# (where the notes step is non-fatal). This validate-only call contacts NO network
+# and needs no ASC credentials. The version-match check (changelog top == the
+# build's marketing version) happens later for a reused --archive-path / post-build,
+# where the actual marketing version is known. Skipped when there is no upload to
+# annotate (--export-only) or notes are turned off (--skip-notes).
+if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 ]]; then
+  if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only --audience "$NOTES_AUDIENCE"; then
+    echo "error: TestFlight What to Test notes preflight failed (see above). Fix ios/CHANGELOG.md before uploading, or pass --skip-notes to upload without notes." >&2
+    exit 1
+  fi
+fi
 
 # Resolve App Store Connect API auth (env, else local plist) BEFORE the
 # monotonic guard and output-path computation below: the guard may finalize
@@ -291,31 +409,72 @@ fi
 
 if [[ -z "$ARCHIVE_PATH" ]]; then
   ARCHIVE_PATH="$OUT_DIR/cmux.xcarchive"
-  # Archive WITHOUT signing. The export step below does all signing (manual cert
-  # or automatic cloud distribution). Signing the archive with automatic +
-  # -allowProvisioningUpdates makes Xcode mint a NEW Apple Development cert on
-  # every ephemeral CI runner, which exhausts the account's certificate cap and
-  # then fails ("maximum number of certificates" / "no profiles found"). An
-  # unsigned archive creates no certs; the reused (cloud-managed) distribution
-  # cert is applied only at export, where it does not churn.
-  xcodebuild archive \
-    -workspace "$WORKSPACE" \
-    -scheme "$SCHEME" \
-    -configuration Release \
-    -destination "generic/platform=iOS" \
-    -archivePath "$ARCHIVE_PATH" \
-    -derivedDataPath "$DERIVED_DATA" \
-    DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-    PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
-    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-    CODE_SIGNING_ALLOWED=NO \
-    CODE_SIGNING_REQUIRED=NO \
-    CODE_SIGN_IDENTITY="" \
-    | tee "$OUT_DIR/archive.log"
+  if [[ "$SIGNING" == "automatic" ]]; then
+    # Automatic signing must archive a signed app so Xcode has the requested
+    # Release entitlements to preserve during App Store Connect export. An
+    # unsigned archive exports with only the profile baseline and drops
+    # aps-environment, which the gate below correctly refuses to upload.
+    xcodebuild archive \
+      -workspace "$WORKSPACE" \
+      -scheme "$SCHEME" \
+      -configuration Release \
+      -destination "generic/platform=iOS" \
+      -archivePath "$ARCHIVE_PATH" \
+      -derivedDataPath "$DERIVED_DATA" \
+      -allowProvisioningUpdates \
+      "${XCODE_AUTH_ARGS[@]}" \
+      DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CODE_SIGN_STYLE=Automatic \
+      CODE_SIGN_ENTITLEMENTS="Config/cmux-release.entitlements" \
+      CODE_SIGN_IDENTITY="Apple Distribution" \
+      CODE_SIGNING_ALLOWED=YES \
+      CODE_SIGNING_REQUIRED=YES \
+      | tee "$OUT_DIR/archive.log"
+  else
+    # Manual signing archives WITHOUT signing. The export step signs with the
+    # installed distribution profile, then the manual path below re-signs with
+    # the full Release entitlements from the local Apple Distribution cert.
+    # This keeps signing material off shared fleet builders.
+    xcodebuild archive \
+      -workspace "$WORKSPACE" \
+      -scheme "$SCHEME" \
+      -configuration Release \
+      -destination "generic/platform=iOS" \
+      -archivePath "$ARCHIVE_PATH" \
+      -derivedDataPath "$DERIVED_DATA" \
+      DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      CODE_SIGNING_ALLOWED=NO \
+      CODE_SIGNING_REQUIRED=NO \
+      CODE_SIGN_IDENTITY="" \
+      | tee "$OUT_DIR/archive.log"
+  fi
 else
   if [[ ! -d "$ARCHIVE_PATH" ]]; then
     echo "error: archive not found: $ARCHIVE_PATH" >&2
     exit 1
+  fi
+fi
+
+# Now that the archive exists, its marketing version (CFBundleShortVersionString)
+# is the version testers will see. Re-run the notes preflight WITH that version so
+# a deterministic mismatch (changelog top is 1.0.3 but the archived build is 1.0.0)
+# fails BEFORE the export/upload, not after (when the notes step is non-fatal and
+# would just ship an opaque build). Skipped for --export-only / --skip-notes. If the
+# archive's version is unreadable, the version-match guard simply does not run.
+if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 ]]; then
+  ARCHIVE_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
+  if [[ "$ARCHIVE_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+    if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only \
+        --audience "$NOTES_AUDIENCE" --expect-marketing-version "$ARCHIVE_MARKETING_VERSION"; then
+      echo "error: ios/CHANGELOG.md top entry does not match the archived marketing version $ARCHIVE_MARKETING_VERSION (see above); refusing to upload a build whose What to Test notes would be for the wrong version. Update ios/CHANGELOG.md, or pass --skip-notes." >&2
+      exit 1
+    fi
+  else
+    echo "note: could not read the archive's marketing version; deferring the notes version-match guard to the post-upload step" >&2
   fi
 fi
 
@@ -329,7 +488,14 @@ plutil -insert method -string app-store-connect "$EXPORT_OPTIONS"
 plutil -insert destination -string export "$EXPORT_OPTIONS"
 plutil -insert teamID -string "$DEVELOPMENT_TEAM" "$EXPORT_OPTIONS"
 plutil -insert manageAppVersionAndBuildNumber -bool NO "$EXPORT_OPTIONS"
-plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
+if [[ "$EXTERNAL_TESTING" == "1" ]]; then
+  # External-eligible: omit/clear the internal-only restriction so the build can
+  # be added to an external group (after Apple Beta App Review).
+  plutil -insert testFlightInternalTestingOnly -bool NO "$EXPORT_OPTIONS"
+  echo "note: --external set; build will be eligible for external TestFlight testers (requires Apple Beta App Review per version)." >&2
+else
+  plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
+fi
 plutil -insert uploadSymbols -bool YES "$EXPORT_OPTIONS"
 if [[ "$SIGNING" == "automatic" ]]; then
   # Cloud-managed signing: Xcode mints the distribution cert/profile on demand
@@ -359,6 +525,181 @@ IPA_PATH="$EXPORT_PATH/cmux.ipa"
 if [[ ! -f "$IPA_PATH" ]]; then
   echo "error: IPA was not exported at $IPA_PATH" >&2
   exit 1
+fi
+
+# Re-sign the exported app with the FULL entitlements (production aps-environment
+# et al.), then point $IPA_PATH at the re-signed IPA so the upload below ships it.
+#
+# Why this is necessary for the manual path: the archive is built UNSIGNED
+# (CODE_SIGNING_ALLOWED=NO, see above) to keep distribution material off shared
+# fleet builders. An unsigned archive carries NO entitlements, so
+# `-exportArchive` re-adds only the profile baseline (application-identifier,
+# com.apple.developer.team-identifier, get-task-allow, beta-reports-active) and
+# SILENTLY DROPS app-capability entitlements such as aps-environment. This
+# regressed in
+# https://github.com/manaflow-ai/cmux/pull/5496 (June 2026): the signed beta IPA
+# had aps-environment absent entirely, so the device registered no push token and
+# beta/prod push was dead. The per-config entitlements file fix
+# (Config/cmux-release.entitlements) is necessary but NOT sufficient on its own:
+# a config-level entitlement only ships if it survives into the signed binary,
+# and only `codesign -d --entitlements` on the EXPORTED app proves that. So we
+# re-sign here with the export baseline MERGED with the Release entitlements file.
+#
+# The merged set MUST then be reconciled against the provisioning profile, in
+# both directions (hit 2026-06-11, ASC error 90163): App Store Connect rejects
+# any signed entitlement key the profile does not authorize. The Release file
+# carries com.apple.developer.usernotifications.time-sensitive, the App ID has
+# the capability enabled, but the installed "cmux Beta Distribution" profile
+# predates it and does not list the key, so a naive baseline+Release merge is
+# rejected at upload ("bundle contains a key not in the provisioning profile").
+# The same naive merge also SHIPS WITHOUT keychain-access-groups (authorized by
+# the profile but absent from both the export baseline and the Release file).
+# So below we (1) seed from the profile's own Entitlements dict, the exact set
+# ASC validates against, and (2) drop any merged key the profile does not
+# authorize, warning per key. Restoring a dropped capability (e.g.
+# time-sensitive) requires REGENERATING the profile so it snapshots the App
+# ID's current capabilities, not editing this script or the Release file.
+#
+# This runs on the MANUAL signing path only: it re-signs with the named
+# distribution cert from the local keychain ("Apple Distribution: Manaflow,
+# Inc."), which is present for local/fleet-archive beta cuts. The cmux iOS app is
+# a single self-contained bundle (no Frameworks/, no PlugIns/, GhosttyKit is
+# static), so only the top-level .app is signed; there is no nested code to
+# re-sign. Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
+# "-") is rejected by the iOS SDK for an entitled app, and signing on the shared
+# fleet would put distribution material on shared Macs.
+if [[ "$SIGNING" == "manual" ]]; then
+  # Resolve the Release entitlements file. Release.xcconfig statically sets
+  # CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements, so default to that
+  # path rather than parsing xcodebuild -showBuildSettings (slower, more brittle).
+  RELEASE_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS:-$IOS_DIR/Config/cmux-release.entitlements}"
+  RESIGN_IDENTITY="${IOS_DISTRIBUTION_IDENTITY:-Apple Distribution: Manaflow, Inc. (7WLXT3NR37)}"
+
+  if [[ ! -f "$RELEASE_ENTITLEMENTS" ]]; then
+    echo "error: re-sign needs the Release entitlements file but it is missing: $RELEASE_ENTITLEMENTS (set IOS_RELEASE_ENTITLEMENTS to override)" >&2
+    exit 1
+  fi
+  if ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$RESIGN_IDENTITY"; then
+    echo "error: re-sign needs the distribution identity '$RESIGN_IDENTITY' in the keychain, but it was not found (security find-identity -v -p codesigning). Set IOS_DISTRIBUTION_IDENTITY, or run on a Mac with the Apple Distribution cert." >&2
+    exit 1
+  fi
+
+  RESIGN_DIR="$OUT_DIR/resign"
+  rm -rf "$RESIGN_DIR"
+  mkdir -p "$RESIGN_DIR"
+  ( cd "$RESIGN_DIR" && unzip -q "$IPA_PATH" )
+  RESIGN_APP="$(find "$RESIGN_DIR/Payload" -maxdepth 1 -name '*.app' -type d | head -n 1)"
+  if [[ -z "$RESIGN_APP" || ! -d "$RESIGN_APP" ]]; then
+    echo "error: could not find Payload/*.app inside the exported IPA to re-sign" >&2
+    exit 1
+  fi
+
+  # Start from the exported app's current (profile-baseline) entitlements, then
+  # MERGE the profile's authorized Entitlements dict, then every key from the
+  # Release entitlements file. The merge is GENERIC: PlistBuddy Merge copies all
+  # keys from the source and skips any that already exist, so future entitlements
+  # survive automatically and existing baseline values (e.g. get-task-allow=false)
+  # are preserved. Seeding from the profile is what carries profile-authorized
+  # keys that appear in NEITHER the baseline NOR the Release file (concretely:
+  # keychain-access-groups, which the 2026-06-10 accepted upload shipped and a
+  # baseline+Release-only merge silently lost).
+  MERGED_ENTITLEMENTS="$RESIGN_DIR/entitlements.plist"
+  codesign -d --entitlements :- --xml "$RESIGN_APP" > "$MERGED_ENTITLEMENTS" 2>/dev/null || {
+    echo "error: could not read current entitlements from the exported app: $RESIGN_APP" >&2
+    exit 1
+  }
+  PROFILE_ENTITLEMENTS="$RESIGN_DIR/profile-entitlements.plist"
+  security cms -D -i "$RESIGN_APP/embedded.mobileprovision" > "$RESIGN_DIR/profile.plist" || {
+    echo "error: could not decode embedded.mobileprovision from the exported app: $RESIGN_APP" >&2
+    exit 1
+  }
+  plutil -extract Entitlements xml1 -o "$PROFILE_ENTITLEMENTS" "$RESIGN_DIR/profile.plist"
+  # `|| true`: PlistBuddy Merge prints "Duplicate Entry Was Skipped" if a
+  # source key overlaps an existing key. That is the intended behavior
+  # (existing wins), but its exit code on that path is not contractually 0 across
+  # OS versions, and a stray non-zero would kill the script under `set -e`. The
+  # exit code is non-load-bearing anyway: a genuinely failed merge produces no
+  # aps-environment and is caught by the hard gate below with a clear error.
+  /usr/libexec/PlistBuddy -c "Merge $PROFILE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
+  /usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
+  # Intersect against the profile: ASC rejects the upload (error 90163, "bundle
+  # contains a key not in the provisioning profile") for ANY signed key the
+  # profile does not authorize. Baseline keys are authorized by construction
+  # (the export minted them FROM this profile), so a strict top-level-key
+  # intersection is safe. Each dropped key is warned so the loss is visible in
+  # the cut log (e.g. time-sensitive until the profile is regenerated).
+  python3 - "$MERGED_ENTITLEMENTS" "$PROFILE_ENTITLEMENTS" <<'PY'
+import plistlib, sys
+merged_path, profile_path = sys.argv[1], sys.argv[2]
+with open(merged_path, "rb") as f:
+    merged = plistlib.load(f)
+with open(profile_path, "rb") as f:
+    profile = plistlib.load(f)
+for key in [k for k in merged if k not in profile]:
+    del merged[key]
+    print(
+        f"warning: dropping entitlement the provisioning profile does not "
+        f"authorize (ASC error 90163 otherwise): {key}",
+        file=sys.stderr,
+    )
+with open(merged_path, "wb") as f:
+    plistlib.dump(merged, f)
+PY
+  plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
+
+  codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
+
+  # HARD GATES on the signed .app: the entitlement we are fixing must be present,
+  # and the signature must be strictly valid. A config-level check cannot prove
+  # either; only codesign on the actual binary does.
+  if ! codesign -d --entitlements :- --xml "$RESIGN_APP" 2>/dev/null | plutil -p - | grep -q '"aps-environment"'; then
+    echo "error: re-signed app is still missing aps-environment; refusing to upload a push-broken build" >&2
+    codesign -d --entitlements :- --xml "$RESIGN_APP" 2>/dev/null | plutil -p - >&2 || true
+    exit 1
+  fi
+  codesign --verify --strict --verbose=2 "$RESIGN_APP"
+
+  # Re-zip with the exact IPA layout (Payload/ at archive root) and repoint
+  # $IPA_PATH so the existing upload step ships the re-signed IPA.
+  RESIGNED_IPA="$EXPORT_PATH/cmux-resigned.ipa"
+  rm -f "$RESIGNED_IPA"
+  ( cd "$RESIGN_DIR" && zip -qrX "$RESIGNED_IPA" Payload )
+
+  # Post-zip gate: a wrong Payload root or stripped attributes corrupts the bundle
+  # silently, and the whole point is that aps-environment survives. Re-verify the
+  # produced IPA (strict signature + aps-environment) so altool is not the first
+  # thing to notice. Same shared check the automatic path uses.
+  if ! verify_ipa_aps_environment_production "$RESIGNED_IPA"; then
+    echo "error: re-signed IPA failed verification (corrupt bundle, or aps-environment not production); refusing to upload" >&2
+    exit 1
+  fi
+
+  IPA_PATH="$RESIGNED_IPA"
+  echo "re-signed IPA with full entitlements (aps-environment=production): $IPA_PATH"
+else
+  # Automatic (cloud-managed) signing: there is no named distribution cert in the
+  # keychain to re-sign with, so we cannot re-add a dropped entitlement here. The
+  # archive is unsigned and -exportArchive does NOT mine the profile's
+  # app-capability entitlements (verified: even a manual export with the
+  # push-capable "cmux Beta Distribution" profile produced only the 4-key baseline
+  # with no aps-environment), so an automatic export almost certainly drops it too.
+  #
+  # Rather than upload a known-push-broken build with only a warning (CI warnings
+  # are effectively silent, and ios-testflight.yml drives the PRIMARY beta cut with
+  # --signing automatic), FAIL CLOSED: verify the exported IPA actually carries
+  # aps-environment, and refuse the upload if it does not. If automatic ever does
+  # preserve it, the gate passes and upload proceeds.
+  #
+  # To make CI cut a push-WORKING beta, ios-testflight.yml must import the iOS
+  # distribution cert and call this script with --signing manual (nightly.yml /
+  # release.yml already import a signing cert on ephemeral runners, so the pattern
+  # exists). That is a security-relevant workflow + secrets decision, deliberately
+  # out of scope here; this gate just stops shipping a broken artifact until then.
+  if ! verify_ipa_aps_environment_production "$IPA_PATH"; then
+    echo "error: --signing automatic produced an IPA without aps-environment=production; refusing to upload a push-broken beta. Cut the beta via --signing manual (import the iOS distribution cert in CI), or re-sign with the distribution cert." >&2
+    exit 1
+  fi
+  echo "automatic-signed IPA verified to carry aps-environment=production: $IPA_PATH"
 fi
 
 echo "IPA_PATH=$IPA_PATH"
@@ -409,4 +750,49 @@ APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_PROVIDER_PUBLIC_ID. You can
 also create ios/Config/AppStoreConnect.local.plist with the ASC_* keys.
 EOF
   exit 2
+fi
+
+# Set the TestFlight "What to Test" notes from the top ios/CHANGELOG.md entry so
+# the build is not an opaque MARKETING_VERSION (timestamp) on install/update.
+#
+# Non-fatal by design: the binary is already on TestFlight at this point. A failure
+# to set notes (build still processing past the timeout, transient API error) must
+# NOT fail the upload, so a `set -e` script must not let a non-zero exit propagate.
+# The notes can always be re-applied later with set-testflight-notes.sh. The notes
+# API needs the ASC API key (JWT); the Apple ID upload path has no key, so notes are
+# only attempted when the ASC API creds are present.
+#
+# Audience: --external uses the curated External block; the default internal cut uses
+# the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that actually
+# shipped (post-guard, or the reused archive's embedded version).
+if [[ "$SKIP_NOTES" -eq 1 ]]; then
+  echo "note: --skip-notes set; not setting TestFlight What to Test notes" >&2
+elif [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+  echo "note: no ASC API key (JWT) available; skipping TestFlight What to Test notes (set ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH, or run ios/scripts/set-testflight-notes.sh later)" >&2
+else
+  # The local preconditions (changelog present, audience block non-empty, top
+  # version == the archived marketing version) were already enforced FATALLY before
+  # the upload. This post-upload step is the ONLY non-fatal part: it just performs
+  # the App Store Connect mutation, which can legitimately fail transiently (build
+  # still processing past the timeout, network/API hiccup) without that meaning the
+  # release is broken. The binary is already on TestFlight; the notes can be
+  # re-applied later. NOTES_AUDIENCE was set early. Re-read the archived marketing
+  # version so the mutation still carries the version-match guard.
+  NOTES_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
+  NOTES_VERSION_ARGS=()
+  if [[ "$NOTES_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+    NOTES_VERSION_ARGS=( --expect-marketing-version "$NOTES_MARKETING_VERSION" )
+  fi
+  echo "setting TestFlight '$NOTES_AUDIENCE' What to Test notes for build $SHIPPED_BUILD_NUMBER (${NOTES_MARKETING_VERSION:-unknown version}) from ios/CHANGELOG.md" >&2
+  if ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
+     ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
+     "$SCRIPT_DIR/set-testflight-notes.sh" \
+       --build-number "$SHIPPED_BUILD_NUMBER" \
+       --audience "$NOTES_AUDIENCE" \
+       --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
+       "${NOTES_VERSION_ARGS[@]}"; then
+    echo "TestFlight What to Test notes set for build $SHIPPED_BUILD_NUMBER" >&2
+  else
+    echo "warning: could not set TestFlight What to Test notes for build $SHIPPED_BUILD_NUMBER (the upload succeeded; re-run ios/scripts/set-testflight-notes.sh --build-number $SHIPPED_BUILD_NUMBER --audience $NOTES_AUDIENCE once the build finishes processing)" >&2
+  fi
 fi

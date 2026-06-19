@@ -6,7 +6,7 @@ native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
 state, and can run cmux commands on tap. This guide is the authoring contract
 for you or a coding agent.
 
-It is an opt-in beta: turn on **Settings → Beta features → Custom sidebars**
+It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 (`customSidebars.beta.enabled`). While off, custom sidebars do not appear.
 
 ## If you are an agent building this for someone
@@ -49,6 +49,48 @@ hot-reloads. If both `<name>.swift` and `<name>.json` exist, `.swift` wins.
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
 
+## Choosing the renderer (in-process vs remote)
+
+By default a custom sidebar renders in-process: the interpreted view mounts
+as real SwiftUI inside the cmux window, so hover styling, focus, keyboard,
+and same-frame resize all work natively. The tradeoff is that the
+interpreter shares the host process.
+
+For sidebars from sources you do not fully trust you can switch to the
+remote renderer, an out-of-process worker. That is the containment lane: a
+crash or hang caused by the interpreted file cannot take down cmux, but
+input is limited to forwarded clicks (no hover, focus, or keyboard).
+
+Set it in **Settings → Custom Sidebars**, or in `~/.config/cmux/cmux.json`:
+
+    { "customSidebars": { "renderer": "remote" } }
+
+Valid values are `"inProcess"` (default) and `"remote"`. The setting is read
+live; flipping it re-renders the selected sidebar without a restart. Both
+renderers protect the host against pathological sources with an evaluation
+budget (nesting depth and total produced nodes): a render that exceeds the
+budget is discarded and the last good render stays up.
+
+## Downloadable examples
+
+The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
+
+- `status-board.swift` groups workspaces by live signals like urgent bugs,
+  review, progress, research, and done.
+- `finder.swift` shows a macOS Finder-style workspace browser with a source
+  list, selected workspace details, and tabs.
+
+Install one from a cmux checkout:
+
+    mkdir -p ~/.config/cmux/sidebars
+    cp Examples/CustomSidebars/status-board.swift ~/.config/cmux/sidebars/status-board.swift
+    cp Examples/CustomSidebars/finder.swift ~/.config/cmux/sidebars/finder.swift
+
+Then validate and select it:
+
+    cmux sidebar validate status-board
+    cmux sidebar select status-board
+
 ## Quick start
 
     cat > ~/.config/cmux/sidebars/mine.swift <<'SWIFT'
@@ -77,7 +119,9 @@ Then right-click the sidebar button and choose **mine**.
   (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
   Present when the workspace has them (use `if let` / ternary): `description`,
   `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
-  (`{ number, label, url, status: open|merged|closed, stale, branch }`),
+  (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
+  workspace's first pull request in sidebar display order) + `prs` (array of
+  the same shape with every pull request cmux knows for the workspace),
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
   (`{ target, state, connected }`).

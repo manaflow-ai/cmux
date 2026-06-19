@@ -1,15 +1,21 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
+import CmuxPanes
 import CmuxSidebarInterpreterClient
 import CmuxSidebarRemoteRender
-import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxWorkspaces
+import CmuxTestSupport
+import CmuxUpdater
 import CmuxUpdaterUI
 import SwiftUI
 import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+import CmuxTerminal
 
 /// The process entry point. When the binary is launched with a sidebar worker
 /// flag (the app re-executes its own binary that way so a crash in the
@@ -169,7 +175,8 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.loaded")
 
         // Apply saved language preference before any UI loads
-        LanguageSettings.apply(LanguageSettings.languageAtLaunch)
+        let languageSettingsStore = LanguageSettingsStore(defaults: .standard)
+        languageSettingsStore.applyLanguageOverride(languageSettingsStore.storedLanguage)
         StartupBreadcrumbLog.append("app.init.language.applied")
 
         let startupAppearance = AppearanceSettings.resolvedMode()
@@ -446,6 +453,13 @@ struct cmuxApp: App {
                 Button("Show Loading State") {
                     appDelegate.showUpdatePillLoading(nil)
                 }
+                Menu("Show Update Error…") {
+                    ForEach(DebugUpdateErrorScenario.allCases, id: \.self) { scenario in
+                        Button(scenario.menuTitle) {
+                            appDelegate.updateViewModel.debugShowUpdateError(scenario)
+                        }
+                    }
+                }
                 Button("Hide Update Pill") {
                     appDelegate.hideUpdatePill(nil)
                 }
@@ -553,6 +567,14 @@ struct cmuxApp: App {
                     Button("Debug Window Controls…") {
                         DebugWindowControlsWindowController.shared.show()
                     }
+                    Button(
+                        String(
+                            localized: "debug.menu.devWindowDisplay",
+                            defaultValue: "Dev Window Display…"
+                        )
+                    ) {
+                        DevWindowDisplayDebugWindowController.shared.show()
+                    }
                     Button("Feed Preview…") {
                         FeedPreviewWindowController.shared.show()
                     }
@@ -589,7 +611,7 @@ struct cmuxApp: App {
                             defaultValue: "About Titlebar Debug…"
                         )
                     ) {
-                        AboutTitlebarDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
                     }
                     Button(
                         String(
@@ -696,6 +718,20 @@ struct cmuxApp: App {
                         )
                     } else {
                         activeTabManager.addWorkspace()
+                    }
+                }
+
+                splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
+                    if let appDelegate = AppDelegate.shared {
+                        appDelegate.performNewBrowserWorkspaceAction(
+                            tabManager: activeTabManager,
+                            debugSource: "menu.newBrowserWorkspace"
+                        )
+                    } else if BrowserAvailabilitySettings.isEnabled() {
+                        // Last-resort fallback for a missing AppDelegate; keep
+                        // the browser-availability gate identical to the
+                        // shared action path.
+                        activeTabManager.addWorkspace(initialSurface: .browser)
                     }
                 }
 
@@ -821,7 +857,7 @@ struct cmuxApp: App {
             windowAndViewCommands
         }
 
-        Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
+        WindowGroup(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
             SettingsWindowRoot(runtime: settingsRuntime)
                 .settingsRuntime(settingsRuntime)
                 .background(WindowAccessor(dedupeByWindow: false) { window in
@@ -988,8 +1024,29 @@ struct cmuxApp: App {
             equalizeSplitsCommandButton()
             Divider()
 
+            splitCommandButton(title: String(localized: "menu.view.toggleCanvasLayout", defaultValue: "Toggle Canvas Layout"), shortcut: menuShortcut(for: .toggleCanvasLayout)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.toggleLayout)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.canvasOverview", defaultValue: "Canvas Overview"), shortcut: menuShortcut(for: .canvasOverview)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.canvasTidy", defaultValue: "Tidy Canvas"), shortcut: menuShortcut(for: .canvasTidy)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.alignment(.tidy))
+            }
+
+            Divider()
+
             // Numbered workspace selection (9 = last workspace)
             ForEach(1...9, id: \.self) { number in
+                // `menuShortcut(for:)` already returns `.unbound` when the action
+                // carries a configured `shortcuts.when` clause, so a context-gated
+                // workspace shortcut takes the no-key-equivalent branch and the
+                // gated keyDown handler owns dispatch (issue #5189).
                 let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
                 if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord {
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
@@ -1358,7 +1415,7 @@ struct cmuxApp: App {
         DebugWindowControlsWindowController.shared.show()
         BrowserImportHintDebugWindowController.shared.show()
         BrowserProfilePopoverDebugWindowController.shared.show()
-        AboutTitlebarDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
         TitlebarLayoutDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
         BackgroundDebugWindowController.shared.show()
@@ -1418,6 +1475,8 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
     "cmux.titlebarLayoutDebug",
+    "cmux.devWindowDisplay",
+    "cmux.mobilePairingWindow",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -1426,412 +1485,6 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
 func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
     guard let identifier = window?.identifier?.rawValue else { return false }
     return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
-}
-
-private enum AboutWindowKind: String, CaseIterable, Identifiable {
-    case about
-
-    var id: String { rawValue }
-
-    var displayTitle: String {
-        switch self {
-        case .about:
-            return "About Window"
-        }
-    }
-
-    var windowIdentifier: String {
-        switch self {
-        case .about:
-            return "cmux.about"
-        }
-    }
-
-    var fallbackTitle: String {
-        switch self {
-        case .about:
-            return "About cmux"
-        }
-    }
-
-    var minimumSize: NSSize {
-        switch self {
-        case .about:
-            return NSSize(width: 360, height: 520)
-        }
-    }
-}
-
-private enum TitlebarVisibilityOption: String, CaseIterable, Identifiable {
-    case hidden
-    case visible
-
-    var id: String { rawValue }
-
-    var displayTitle: String {
-        switch self {
-        case .hidden:
-            return "Hidden"
-        case .visible:
-            return "Visible"
-        }
-    }
-
-    var windowValue: NSWindow.TitleVisibility {
-        switch self {
-        case .hidden:
-            return .hidden
-        case .visible:
-            return .visible
-        }
-    }
-}
-
-private enum TitlebarToolbarStyleOption: String, CaseIterable, Identifiable {
-    case automatic
-    case expanded
-    case preference
-    case unified
-    case unifiedCompact
-
-    var id: String { rawValue }
-
-    var displayTitle: String {
-        switch self {
-        case .automatic:
-            return "Automatic"
-        case .expanded:
-            return "Expanded"
-        case .preference:
-            return "Preference"
-        case .unified:
-            return "Unified"
-        case .unifiedCompact:
-            return "Unified Compact"
-        }
-    }
-
-    var windowValue: NSWindow.ToolbarStyle {
-        switch self {
-        case .automatic:
-            return .automatic
-        case .expanded:
-            return .expanded
-        case .preference:
-            return .preference
-        case .unified:
-            return .unified
-        case .unifiedCompact:
-            return .unifiedCompact
-        }
-    }
-}
-
-private struct AboutTitlebarDebugOptions: Equatable {
-    var overridesEnabled: Bool
-    var windowTitle: String
-    var titleVisibility: TitlebarVisibilityOption
-    var titlebarAppearsTransparent: Bool
-    var movableByWindowBackground: Bool
-    var titled: Bool
-    var closable: Bool
-    var miniaturizable: Bool
-    var resizable: Bool
-    var fullSizeContentView: Bool
-    var showToolbar: Bool
-    var toolbarStyle: TitlebarToolbarStyleOption
-
-    static func defaults(for kind: AboutWindowKind) -> AboutTitlebarDebugOptions {
-        switch kind {
-        case .about:
-            return AboutTitlebarDebugOptions(
-                overridesEnabled: false,
-                windowTitle: "About cmux",
-                titleVisibility: .hidden,
-                titlebarAppearsTransparent: true,
-                movableByWindowBackground: false,
-                titled: true,
-                closable: true,
-                miniaturizable: true,
-                resizable: false,
-                fullSizeContentView: false,
-                showToolbar: false,
-                toolbarStyle: .automatic
-            )
-        }
-    }
-}
-
-@MainActor
-private final class AboutTitlebarDebugStore: ObservableObject {
-    static let shared = AboutTitlebarDebugStore()
-
-    @Published var aboutOptions = AboutTitlebarDebugOptions.defaults(for: .about) {
-        didSet { applyToOpenWindows(for: .about) }
-    }
-
-    private init() {}
-
-    func options(for kind: AboutWindowKind) -> AboutTitlebarDebugOptions {
-        switch kind {
-        case .about:
-            return aboutOptions
-        }
-    }
-
-    func update(_ newValue: AboutTitlebarDebugOptions, for kind: AboutWindowKind) {
-        switch kind {
-        case .about:
-            aboutOptions = newValue
-        }
-    }
-
-    func reset(_ kind: AboutWindowKind) {
-        update(AboutTitlebarDebugOptions.defaults(for: kind), for: kind)
-    }
-
-    func applyToOpenWindows(for kind: AboutWindowKind) {
-        for window in NSApp.windows where window.identifier?.rawValue == kind.windowIdentifier {
-            apply(options(for: kind), to: window, for: kind)
-        }
-    }
-
-    func applyToOpenWindows() {
-        applyToOpenWindows(for: .about)
-    }
-
-    func applyCurrentOptions(to window: NSWindow, for kind: AboutWindowKind) {
-        apply(options(for: kind), to: window, for: kind)
-    }
-
-    func copyConfigToPasteboard() {
-        let about = options(for: .about)
-        let payload = """
-        # About Titlebar Debug
-        about.overridesEnabled=\(about.overridesEnabled)
-        about.title=\(about.windowTitle)
-        about.titleVisibility=\(about.titleVisibility.rawValue)
-        about.titlebarAppearsTransparent=\(about.titlebarAppearsTransparent)
-        about.movableByWindowBackground=\(about.movableByWindowBackground)
-        about.titled=\(about.titled)
-        about.closable=\(about.closable)
-        about.miniaturizable=\(about.miniaturizable)
-        about.resizable=\(about.resizable)
-        about.fullSizeContentView=\(about.fullSizeContentView)
-        about.showToolbar=\(about.showToolbar)
-        about.toolbarStyle=\(about.toolbarStyle.rawValue)
-        """
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(payload, forType: .string)
-    }
-
-    private func apply(_ options: AboutTitlebarDebugOptions, to window: NSWindow, for kind: AboutWindowKind) {
-        let effective = options.overridesEnabled ? options : AboutTitlebarDebugOptions.defaults(for: kind)
-        let resolvedTitle = effective.windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        window.title = resolvedTitle.isEmpty ? kind.fallbackTitle : resolvedTitle
-        window.titleVisibility = effective.titleVisibility.windowValue
-        window.titlebarAppearsTransparent = effective.titlebarAppearsTransparent
-        window.isMovableByWindowBackground = effective.movableByWindowBackground
-        window.toolbarStyle = effective.toolbarStyle.windowValue
-
-        if effective.showToolbar {
-            ensureToolbar(on: window, kind: kind)
-        } else if window.toolbar != nil {
-            window.toolbar = nil
-        }
-
-        var styleMask = window.styleMask
-        setStyleMaskBit(&styleMask, .titled, enabled: effective.titled)
-        setStyleMaskBit(&styleMask, .closable, enabled: effective.closable)
-        setStyleMaskBit(&styleMask, .miniaturizable, enabled: effective.miniaturizable)
-        setStyleMaskBit(&styleMask, .resizable, enabled: effective.resizable)
-        setStyleMaskBit(&styleMask, .fullSizeContentView, enabled: effective.fullSizeContentView)
-        window.styleMask = styleMask
-
-        let maxSize = effective.resizable ? NSSize(width: 8192, height: 8192) : kind.minimumSize
-        window.minSize = kind.minimumSize
-        window.maxSize = maxSize
-        window.contentMinSize = kind.minimumSize
-        window.contentMaxSize = maxSize
-        window.invalidateShadow()
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-    }
-
-    private func ensureToolbar(on window: NSWindow, kind: AboutWindowKind) {
-        guard window.toolbar == nil else { return }
-        let identifier = NSToolbar.Identifier("cmux.debug.titlebar.\(kind.rawValue)")
-        let toolbar = NSToolbar(identifier: identifier)
-        toolbar.allowsUserCustomization = false
-        toolbar.autosavesConfiguration = false
-        toolbar.displayMode = .iconOnly
-        toolbar.showsBaselineSeparator = false
-        window.toolbar = toolbar
-    }
-
-    private func setStyleMaskBit(
-        _ styleMask: inout NSWindow.StyleMask,
-        _ bit: NSWindow.StyleMask,
-        enabled: Bool
-    ) {
-        if enabled {
-            styleMask.insert(bit)
-        } else {
-            styleMask.remove(bit)
-        }
-    }
-}
-
-private final class AboutTitlebarDebugWindowController: NSWindowController, NSWindowDelegate {
-    static let shared = AboutTitlebarDebugWindowController()
-
-    private init() {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 470, height: 690),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = String(
-            localized: "debug.aboutTitlebarDebug.title",
-            defaultValue: "About Titlebar Debug"
-        )
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.aboutTitlebarDebug")
-        window.center()
-        window.contentView = NSHostingView(rootView: AboutTitlebarDebugView())
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-        AboutTitlebarDebugStore.shared.applyToOpenWindows()
-    }
-}
-
-private struct AboutTitlebarDebugView: View {
-    @ObservedObject private var store = AboutTitlebarDebugStore.shared
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(String(localized: "debug.aboutTitlebarDebug.title", defaultValue: "About Titlebar Debug"))
-                    .font(.headline)
-
-                editor(for: .about)
-
-                GroupBox("Actions") {
-                    HStack(spacing: 10) {
-                        Button("Reset All") {
-                            store.reset(.about)
-                        }
-                        Button("Reapply to Open Windows") {
-                            store.applyToOpenWindows()
-                        }
-                        Button("Copy Config") {
-                            store.copyConfigToPasteboard()
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func editor(for kind: AboutWindowKind) -> some View {
-        let overridesEnabled = binding(for: kind, keyPath: \.overridesEnabled)
-
-        return GroupBox(kind.displayTitle) {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle("Enable Debug Overrides", isOn: overridesEnabled)
-
-                Text("When disabled, cmux uses normal default titlebar behavior for this window.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        Text("Window Title")
-                        TextField("", text: binding(for: kind, keyPath: \.windowTitle))
-                    }
-
-                    HStack(spacing: 10) {
-                        Picker("Title Visibility", selection: binding(for: kind, keyPath: \.titleVisibility)) {
-                            ForEach(TitlebarVisibilityOption.allCases) { option in
-                                Text(option.displayTitle).tag(option)
-                            }
-                        }
-                        Picker("Toolbar Style", selection: binding(for: kind, keyPath: \.toolbarStyle)) {
-                            ForEach(TitlebarToolbarStyleOption.allCases) { option in
-                                Text(option.displayTitle).tag(option)
-                            }
-                        }
-                    }
-
-                    Toggle("Show Toolbar", isOn: binding(for: kind, keyPath: \.showToolbar))
-                    Toggle("Transparent Titlebar", isOn: binding(for: kind, keyPath: \.titlebarAppearsTransparent))
-                    Toggle("Movable by Window Background", isOn: binding(for: kind, keyPath: \.movableByWindowBackground))
-
-                    Divider()
-
-                    Text("Style Mask")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Toggle("Titled", isOn: binding(for: kind, keyPath: \.titled))
-                    Toggle("Closable", isOn: binding(for: kind, keyPath: \.closable))
-                    Toggle("Miniaturizable", isOn: binding(for: kind, keyPath: \.miniaturizable))
-                    Toggle("Resizable", isOn: binding(for: kind, keyPath: \.resizable))
-                    Toggle("Full Size Content View", isOn: binding(for: kind, keyPath: \.fullSizeContentView))
-
-                    HStack(spacing: 10) {
-                        Button(String(localized: "debug.aboutTitlebarDebug.resetAbout", defaultValue: "Reset About")) {
-                            store.reset(kind)
-                        }
-                        Button("Apply Now") {
-                            store.applyToOpenWindows(for: kind)
-                        }
-                    }
-                }
-                .disabled(!overridesEnabled.wrappedValue)
-                .opacity(overridesEnabled.wrappedValue ? 1 : 0.75)
-            }
-            .padding(.top, 2)
-        }
-    }
-
-    private func binding<Value>(
-        for kind: AboutWindowKind,
-        keyPath: WritableKeyPath<AboutTitlebarDebugOptions, Value>
-    ) -> Binding<Value> {
-        Binding(
-            get: { store.options(for: kind)[keyPath: keyPath] },
-            set: { newValue in
-                var updated = store.options(for: kind)
-                updated[keyPath: keyPath] = newValue
-                store.update(updated, for: kind)
-            }
-        )
-    }
 }
 
 private enum DebugWindowConfigSnapshot {
@@ -1853,10 +1506,10 @@ private enum DebugWindowConfigSnapshot {
         sidebarTintHexDark=\(stringValue(defaults, key: "sidebarTintHexDark", fallback: "(nil)"))
         sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
-        sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
-        sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarBranchDirectoryStackedSettings.key, fallback: SidebarBranchDirectoryStackedSettings.defaultStacked))
-        sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarPathLastSegmentSettings.key, fallback: SidebarPathLastSegmentSettings.defaultLastSegmentOnly))
-        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
+        sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarCatalogSection().branchVerticalLayout.userDefaultsKey, fallback: SidebarCatalogSection().branchVerticalLayout.defaultValue))
+        sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarCatalogSection().stackBranchDirectory.userDefaultsKey, fallback: SidebarCatalogSection().stackBranchDirectory.defaultValue))
+        sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey, fallback: SidebarCatalogSection().pathLastSegmentOnly.defaultValue))
+        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey, fallback: WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue))
         sidebarDevBuildBannerVisible=\(boolValue(defaults, key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
         sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
         """
@@ -1911,10 +1564,10 @@ private enum DebugWindowConfigSnapshot {
 }
 
 #if DEBUG
-private final class DebugWindowControlsWindowController: NSWindowController, NSWindowDelegate {
+private final class DebugWindowControlsWindowController: ReleasingWindowController {
     static let shared = DebugWindowControlsWindowController()
 
-    private init() {
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 560),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -1925,29 +1578,21 @@ private final class DebugWindowControlsWindowController: NSWindowController, NSW
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.debugWindowControls")
         window.center()
         window.contentView = NSHostingView(rootView: DebugWindowControlsView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return window
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
 private struct DebugWindowControlsView: View {
-    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
-    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
+    private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
 
@@ -1959,8 +1604,9 @@ private struct DebugWindowControlsView: View {
         BrowserDevToolsIconColorOption(rawValue: browserDevToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
     }
 
-    private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
-        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    private var selectedSidebarActiveTabIndicatorStyle: WorkspaceIndicatorStyle {
+        WorkspaceIndicatorStyle.decodeFromUserDefaults(sidebarActiveTabIndicatorStyle)
+            ?? WorkspaceColorsCatalogSection().indicatorStyle.defaultValue
     }
 
     private var sidebarIndicatorStyleSelection: Binding<String> {
@@ -1995,7 +1641,7 @@ private struct DebugWindowControlsView: View {
                                 defaultValue: "About Titlebar Debug…"
                             )
                         ) {
-                            AboutTitlebarDebugWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
                         }
                         Button(
                             String(
@@ -2058,7 +1704,7 @@ private struct DebugWindowControlsView: View {
                             DebugWindowControlsWindowController.shared.show()
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
-                            AboutTitlebarDebugWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
                             TitlebarLayoutDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
                             BackgroundDebugWindowController.shared.show()
@@ -2077,14 +1723,14 @@ private struct DebugWindowControlsView: View {
                 GroupBox("Active Workspace Indicator") {
                     VStack(alignment: .leading, spacing: 8) {
                         Picker("Style", selection: sidebarIndicatorStyleSelection) {
-                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                            ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
                                 Text(style.displayName).tag(style.rawValue)
                             }
                         }
                         .pickerStyle(.menu)
 
                         Button("Reset Indicator Style") {
-                            sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+                            sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
                         }
                     }
                     .padding(.top, 2)
@@ -2171,10 +1817,10 @@ private struct DebugWindowControlsView: View {
 }
 #endif
 
-private final class BrowserImportHintDebugWindowController: NSWindowController, NSWindowDelegate {
+private final class BrowserImportHintDebugWindowController: ReleasingWindowController {
     static let shared = BrowserImportHintDebugWindowController()
 
-    private init() {
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 380, height: 420),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -2185,30 +1831,22 @@ private final class BrowserImportHintDebugWindowController: NSWindowController, 
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.browserImportHintDebug")
         window.center()
         window.contentView = NSHostingView(rootView: BrowserImportHintDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return window
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
-private final class BrowserProfilePopoverDebugWindowController: NSWindowController, NSWindowDelegate {
+private final class BrowserProfilePopoverDebugWindowController: ReleasingWindowController {
     static let shared = BrowserProfilePopoverDebugWindowController()
 
-    private init() {
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 340),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -2222,23 +1860,15 @@ private final class BrowserProfilePopoverDebugWindowController: NSWindowControll
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.browserProfilePopoverDebug")
         window.center()
         window.contentView = NSHostingView(rootView: BrowserProfilePopoverDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return window
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
@@ -2576,56 +2206,51 @@ private struct BrowserImportHintDebugView: View {
     }
 }
 
-private final class AboutWindowController: NSWindowController, NSWindowDelegate {
+private final class AboutWindowController: ReleasingWindowController {
     static let shared = AboutWindowController()
 
-    private init() {
+    override func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 520),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
         window.center()
         window.contentView = NSHostingView(rootView: AboutPanelView())
-        AboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .about)
+        AppDelegate.shared?.aboutTitlebarDebugStore.applyCurrentOptions(to: window, for: .about)
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        return window
     }
 
     func show() {
-        guard let window else { return }
-        AboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .about)
+        let window = managedWindow()
+        AppDelegate.shared?.aboutTitlebarDebugStore.applyCurrentOptions(to: window, for: .about)
         window.center()
         window.makeKeyAndOrderFront(nil)
     }
 }
 
-private final class AcknowledgmentsWindowController: NSWindowController, NSWindowDelegate {
+private final class AcknowledgmentsWindowController: ReleasingWindowController {
     static let shared = AcknowledgmentsWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 480),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.isReleasedWhenClosed = false
         window.title = String(localized: "about.licenses.windowTitle", defaultValue: "Third-Party Licenses")
         window.identifier = NSUserInterfaceItemIdentifier("cmux.licenses")
         window.center()
         window.contentView = NSHostingView(rootView: AcknowledgmentsView())
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -2634,8 +2259,7 @@ private final class AcknowledgmentsWindowController: NSWindowController, NSWindo
     }
 
     func show() {
-        guard let window else { return }
-        window.makeKeyAndOrderFront(nil)
+        showManagedWindow(centerWhenHidden: false)
     }
 }
 
@@ -2733,13 +2357,16 @@ private struct FileExplorerStyleDebugView: View {
 
 extension Notification.Name {
     static let fileExplorerStyleDidChange = Notification.Name("fileExplorerStyleDidChange")
-    static let titlebarShortcutHintsVisibilityChanged = Notification.Name("titlebarShortcutHintsVisibilityChanged")
 }
 
-private final class FileExplorerStyleDebugWindowController: NSWindowController, NSWindowDelegate {
+private final class FileExplorerStyleDebugWindowController: ReleasingWindowController {
     static let shared = FileExplorerStyleDebugWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 340, height: 380),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -2750,13 +2377,11 @@ private final class FileExplorerStyleDebugWindowController: NSWindowController, 
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.fileExplorerStyleDebug")
         window.center()
         window.contentView = NSHostingView(rootView: FileExplorerStyleDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -2765,15 +2390,18 @@ private final class FileExplorerStyleDebugWindowController: NSWindowController, 
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
-private final class SidebarDebugWindowController: NSWindowController, NSWindowDelegate {
+private final class SidebarDebugWindowController: ReleasingWindowController {
     static let shared = SidebarDebugWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 520),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -2784,13 +2412,11 @@ private final class SidebarDebugWindowController: NSWindowController, NSWindowDe
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.sidebarDebug")
         window.center()
         window.contentView = NSHostingView(rootView: SidebarDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -2799,8 +2425,7 @@ private final class SidebarDebugWindowController: NSWindowController, NSWindowDe
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
@@ -2896,8 +2521,8 @@ private struct AboutPanelView: View {
 private struct SidebarDebugView: View {
     @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
@@ -2905,17 +2530,21 @@ private struct SidebarDebugView: View {
     @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
-    @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
-    @AppStorage(SidebarBranchDirectoryStackedSettings.key) private var sidebarBranchDirectoryStacked = SidebarBranchDirectoryStackedSettings.defaultStacked
-    @AppStorage(SidebarPathLastSegmentSettings.key) private var sidebarPathLastSegmentOnly = SidebarPathLastSegmentSettings.defaultLastSegmentOnly
+    @AppStorage(SidebarCatalogSection().branchVerticalLayout.userDefaultsKey)
+    private var sidebarBranchVerticalLayout = SidebarCatalogSection().branchVerticalLayout.defaultValue
+    @AppStorage(SidebarCatalogSection().stackBranchDirectory.userDefaultsKey)
+    private var sidebarBranchDirectoryStacked = SidebarCatalogSection().stackBranchDirectory.defaultValue
+    @AppStorage(SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey)
+    private var sidebarPathLastSegmentOnly = SidebarCatalogSection().pathLastSegmentOnly.defaultValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
-    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
-    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
+    private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
 
-    private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
-        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    private var selectedSidebarIndicatorStyle: WorkspaceIndicatorStyle {
+        WorkspaceIndicatorStyle.decodeFromUserDefaults(sidebarActiveTabIndicatorStyle)
+            ?? WorkspaceColorsCatalogSection().indicatorStyle.defaultValue
     }
 
     private var sidebarIndicatorStyleSelection: Binding<String> {
@@ -3020,7 +2649,7 @@ private struct SidebarDebugView: View {
                 GroupBox("Active Workspace Indicator") {
                     VStack(alignment: .leading, spacing: 8) {
                         Picker("Style", selection: sidebarIndicatorStyleSelection) {
-                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                            ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
                                 Text(style.displayName).tag(style.rawValue)
                             }
                         }
@@ -3049,8 +2678,8 @@ private struct SidebarDebugView: View {
 
                 HStack(spacing: 12) {
                     Button("Reset Tint") {
-                        sidebarTintOpacity = 0.62
-                        sidebarTintHex = SidebarTintDefaults.hex
+                        sidebarTintOpacity = SidebarTintDefaults().opacity
+                        sidebarTintHex = SidebarTintDefaults().hex
                         sidebarTintHexLight = nil
                         sidebarTintHexDark = nil
                     }
@@ -3064,7 +2693,7 @@ private struct SidebarDebugView: View {
                         sidebarCornerRadius = 0.0
                     }
                     Button("Reset Active Indicator") {
-                        sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+                        sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
                         sidebarSelectionColorHex = nil
                     }
                 }
@@ -3131,10 +2760,14 @@ private struct SidebarDebugView: View {
 
 // MARK: - Menu Bar Extra Debug Window
 
-private final class MenuBarExtraDebugWindowController: NSWindowController, NSWindowDelegate {
+private final class MenuBarExtraDebugWindowController: ReleasingWindowController {
     static let shared = MenuBarExtraDebugWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 430),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -3145,13 +2778,11 @@ private final class MenuBarExtraDebugWindowController: NSWindowController, NSWin
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.menubarDebug")
         window.center()
         window.contentView = NSHostingView(rootView: MenuBarExtraDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -3160,8 +2791,7 @@ private final class MenuBarExtraDebugWindowController: NSWindowController, NSWin
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
@@ -3301,10 +2931,10 @@ private struct MenuBarExtraDebugView: View {
 
 // MARK: - Split Button Layout Debug Window
 
-private final class SplitButtonLayoutDebugWindowController: NSWindowController, NSWindowDelegate {
+private final class SplitButtonLayoutDebugWindowController: ReleasingWindowController {
     static let shared = SplitButtonLayoutDebugWindowController()
 
-    private init() {
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -3315,21 +2945,15 @@ private final class SplitButtonLayoutDebugWindowController: NSWindowController, 
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.splitButtonLayoutDebug")
         window.center()
         window.contentView = NSHostingView(rootView: SplitButtonLayoutDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
@@ -3375,10 +2999,10 @@ private struct SplitButtonLayoutDebugView: View {
 
 // MARK: - Tab Bar Backdrop Lab Window
 
-private final class TabBarBackdropLabWindowController: NSWindowController, NSWindowDelegate {
+private final class TabBarBackdropLabWindowController: ReleasingWindowController {
     static let shared = TabBarBackdropLabWindowController()
 
-    private init() {
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1040),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
@@ -3389,7 +3013,6 @@ private final class TabBarBackdropLabWindowController: NSWindowController, NSWin
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.isOpaque = false
         window.backgroundColor = .clear
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
@@ -3402,17 +3025,11 @@ private final class TabBarBackdropLabWindowController: NSWindowController, NSWin
         hostingView.layer?.backgroundColor = NSColor.clear.cgColor
         window.contentView = hostingView
 
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-        window?.orderFrontRegardless()
+        showManagedWindow(orderFrontRegardless: true)
     }
 }
 
@@ -3436,7 +3053,7 @@ private struct TabBarBackdropLabView: View {
     }
 
     private var separatorColor: NSColor {
-        WindowChromeSeparatorColor.color(forChromeBackground: terminalColor)
+        WindowChromeColorResolver().separatorColor(forChromeBackground: terminalColor)
     }
 
     private var candidateBackdropEffect: BonsplitConfiguration.Appearance.SplitButtonBackdropEffect {
@@ -4015,10 +3632,14 @@ private struct TabBarBackdropLabTerminalPane: View {
 
 // MARK: - Background Debug Window
 
-private final class BackgroundDebugWindowController: NSWindowController, NSWindowDelegate {
+private final class BackgroundDebugWindowController: ReleasingWindowController {
     static let shared = BackgroundDebugWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -4029,13 +3650,11 @@ private final class BackgroundDebugWindowController: NSWindowController, NSWindo
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.backgroundDebug")
         window.center()
         window.contentView = NSHostingView(rootView: BackgroundDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -4044,8 +3663,7 @@ private final class BackgroundDebugWindowController: NSWindowController, NSWindo
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
@@ -4135,7 +3753,7 @@ private struct BackgroundDebugView: View {
         }()
         guard let window else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
-        WindowBackdropController.updateGlassTint(to: window, color: tintColor)
+        AppWindowChromeComposition().backdropController.updateGlassTint(to: window, color: tintColor)
     }
 
     private var tintColorBinding: Binding<Color> {
@@ -4163,10 +3781,14 @@ private struct BackgroundDebugView: View {
     }
 }
 
-private final class StartupAppearanceDebugWindowController: NSWindowController, NSWindowDelegate {
+private final class StartupAppearanceDebugWindowController: ReleasingWindowController {
     static let shared = StartupAppearanceDebugWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 500),
             styleMask: [.titled, .closable, .utilityWindow],
@@ -4180,13 +3802,11 @@ private final class StartupAppearanceDebugWindowController: NSWindowController, 
         window.titleVisibility = .visible
         window.titlebarAppearsTransparent = false
         window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.startupAppearanceDebug")
         window.center()
         window.contentView = NSHostingView(rootView: StartupAppearanceDebugView())
         AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -4195,8 +3815,7 @@ private final class StartupAppearanceDebugWindowController: NSWindowController, 
     }
 
     func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
+        showManagedWindow()
     }
 }
 
@@ -4529,73 +4148,6 @@ private struct AboutVisualEffectBackground: NSViewRepresentable {
     }
 }
 
-enum AppLanguage: String, CaseIterable, Identifiable {
-    case system
-    case en
-    case ar
-    case bs
-    case zhHans = "zh-Hans"
-    case zhHant = "zh-Hant"
-    case da
-    case de
-    case es
-    case fr
-    case it
-    case ja
-    case ko
-    case nb
-    case pl
-    case ptBR = "pt-BR"
-    case ru
-    case th
-    case tr
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .system: return String(localized: "language.system", defaultValue: "System")
-        case .en: return "English"
-        case .ar: return "\u{200E}العربية (Arabic)"
-        case .bs: return "Bosanski (Bosnian)"
-        case .zhHans: return "简体中文 (Chinese Simplified)"
-        case .zhHant: return "繁體中文 (Chinese Traditional)"
-        case .da: return "Dansk (Danish)"
-        case .de: return "Deutsch (German)"
-        case .es: return "Español (Spanish)"
-        case .fr: return "Français (French)"
-        case .it: return "Italiano (Italian)"
-        case .ja: return "日本語 (Japanese)"
-        case .ko: return "한국어 (Korean)"
-        case .nb: return "Norsk (Norwegian)"
-        case .pl: return "Polski (Polish)"
-        case .ptBR: return "Português (Brasil)"
-        case .ru: return "Русский (Russian)"
-        case .th: return "ไทย (Thai)"
-        case .tr: return "Türkçe (Turkish)"
-        }
-    }
-}
-
-enum LanguageSettings {
-    static let languageKey = "appLanguage"
-    static let defaultLanguage: AppLanguage = .system
-
-    static func apply(_ language: AppLanguage) {
-        if language == .system {
-            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
-        } else {
-            UserDefaults.standard.set([language.rawValue], forKey: "AppleLanguages")
-        }
-    }
-
-    static var languageAtLaunch: AppLanguage = {
-        let stored = UserDefaults.standard.string(forKey: languageKey)
-        guard let stored, let lang = AppLanguage(rawValue: stored) else { return .system }
-        return lang
-    }()
-}
-
 enum AppIconMode: String, CaseIterable, Identifiable {
     case automatic
     case light
@@ -4850,85 +4402,6 @@ final class AppIconAppearanceObserver: NSObject {
     }
 }
 
-enum QuitWarningSettings {
-    static let warnBeforeQuitKey = "warnBeforeQuitShortcut"
-    static let confirmQuitKey = "confirmQuit"
-    static let defaultWarnBeforeQuit = true
-    static let defaultConfirmQuitMode = QuitConfirmationMode.always
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        confirmQuitMode(defaults: defaults) != .never
-    }
-
-    static func shouldShowConfirmation(
-        isQuitWarningConfirmed: Bool,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        shouldShowConfirmation(
-            isQuitWarningConfirmed: isQuitWarningConfirmed,
-            hasDirtyWorkspaces: true,
-            buildFlavor: .current,
-            defaults: defaults
-        )
-    }
-
-    static func shouldShowConfirmation(
-        isQuitWarningConfirmed: Bool,
-        hasDirtyWorkspaces: Bool,
-        buildFlavor: BuildFlavor,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        guard !isQuitWarningConfirmed else { return false }
-        guard buildFlavor != .dev else { return false }
-
-        switch confirmQuitMode(defaults: defaults) {
-        case .always:
-            return true
-        case .dirtyOnly:
-            return hasDirtyWorkspaces
-        case .never:
-            return false
-        }
-    }
-
-    static func confirmQuitMode(defaults: UserDefaults = .standard) -> QuitConfirmationMode {
-        if let rawValue = defaults.string(forKey: confirmQuitKey),
-           let mode = QuitConfirmationMode(rawValue: rawValue) {
-            return mode
-        }
-        if defaults.object(forKey: warnBeforeQuitKey) == nil {
-            return defaultConfirmQuitMode
-        }
-        return defaults.bool(forKey: warnBeforeQuitKey) ? .always : .never
-    }
-
-    static func setMode(_ mode: QuitConfirmationMode, defaults: UserDefaults = .standard) {
-        defaults.set(mode.rawValue, forKey: confirmQuitKey)
-        defaults.set(mode != .never, forKey: warnBeforeQuitKey)
-    }
-
-    static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
-        setMode(isEnabled ? .always : .never, defaults: defaults)
-    }
-}
-
-nonisolated enum QuitConfirmationMode: String, CaseIterable, Sendable {
-    case always
-    case dirtyOnly = "dirty-only"
-    case never
-
-    var localizedSettingsTitle: String {
-        switch self {
-        case .always:
-            return String(localized: "settings.app.confirmQuit.always", defaultValue: "Always")
-        case .dirtyOnly:
-            return String(localized: "settings.app.confirmQuit.dirtyOnly", defaultValue: "Dirty Only")
-        case .never:
-            return String(localized: "settings.app.confirmQuit.never", defaultValue: "Never")
-        }
-    }
-}
-
 nonisolated enum BuildFlavor: String, Sendable {
     case dev
     case nightly
@@ -4988,440 +4461,17 @@ nonisolated enum BuildFlavor: String, Sendable {
     }
 }
 
-enum CloseTabWarningSettings {
-    static let warnBeforeClosingTabKey = "warnBeforeClosingTabShortcut"
-    static let defaultWarnBeforeClosingTab = true
-    static let warnBeforeClosingTabXButtonKey = "warnBeforeClosingTabXButton"
-    static let defaultWarnBeforeClosingTabXButton = false
-    static let hideTabCloseButtonKey = "hideTabCloseButton"
-    static let defaultHideTabCloseButton = false
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: warnBeforeClosingTabKey) == nil {
-            return defaultWarnBeforeClosingTab
-        }
-        return defaults.bool(forKey: warnBeforeClosingTabKey)
-    }
-
-    static func warnsBeforeClosingTabXButton(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: warnBeforeClosingTabXButtonKey) == nil {
-            return defaultWarnBeforeClosingTabXButton
-        }
-        return defaults.bool(forKey: warnBeforeClosingTabXButtonKey)
-    }
-
-    static func hidesTabCloseButton(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hideTabCloseButtonKey) == nil {
-            return defaultHideTabCloseButton
-        }
-        return defaults.bool(forKey: hideTabCloseButtonKey)
-    }
-
-    static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
-        defaults.set(isEnabled, forKey: warnBeforeClosingTabKey)
-    }
-}
-
-enum CloseTabConfirmationPolicy {
-    enum Source: Equatable {
-        case shortcut
-        case tabCloseButton
-    }
-
-    enum Decision: Equatable {
-        case closeImmediately
-        case confirmBeforeClosing
-    }
-
-    static func decision(
-        requiresConfirmation: Bool,
-        source: Source,
-        defaults: UserDefaults = .standard
-    ) -> Decision {
-        let shouldConfirm: Bool
-        switch source {
-        case .shortcut:
-            shouldConfirm = requiresConfirmation && CloseTabWarningSettings.isEnabled(defaults: defaults)
-        case .tabCloseButton:
-            shouldConfirm = CloseTabWarningSettings.warnsBeforeClosingTabXButton(defaults: defaults)
-                || (requiresConfirmation && CloseTabWarningSettings.isEnabled(defaults: defaults))
-        }
-
-        guard shouldConfirm else {
-            return .closeImmediately
-        }
-        return .confirmBeforeClosing
-    }
-
-    static func shouldConfirm(
-        requiresConfirmation: Bool,
-        source: Source,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        decision(
-            requiresConfirmation: requiresConfirmation,
-            source: source,
-            defaults: defaults
-        ) == .confirmBeforeClosing
-    }
-}
-
-enum CommandPaletteRenameSelectionSettings {
-    static let selectAllOnFocusKey = "commandPalette.renameSelectAllOnFocus"
-    static let defaultSelectAllOnFocus = true
-
-    static func selectAllOnFocusEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: selectAllOnFocusKey) == nil {
-            return defaultSelectAllOnFocus
-        }
-        return defaults.bool(forKey: selectAllOnFocusKey)
-    }
-}
-
-enum CommandPaletteSwitcherSearchSettings {
-    static let searchAllSurfacesKey = "commandPalette.switcherSearchAllSurfaces"
-    static let defaultSearchAllSurfaces = false
-
-    static func searchAllSurfacesEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: searchAllSurfacesKey) == nil {
-            return defaultSearchAllSurfaces
-        }
-        return defaults.bool(forKey: searchAllSurfacesKey)
-    }
-}
-
-enum ClaudeCodeIntegrationSettings {
-    static let hooksEnabledKey = "claudeCodeHooksEnabled"
-    static let defaultHooksEnabled = true
-    static let customClaudePathKey = "claudeCodeCustomClaudePath"
-
-    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hooksEnabledKey) == nil {
-            return defaultHooksEnabled
-        }
-        return defaults.bool(forKey: hooksEnabledKey)
-    }
-
-    static func customClaudePath(defaults: UserDefaults = .standard) -> String? {
-        let value = defaults.string(forKey: customClaudePathKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return value.isEmpty ? nil : value
-    }
-}
-
-enum AgentSubagentNotificationSettings {
-    static let suppressNotificationsKey = "suppressSubagentNotifications"
-    static let defaultSuppressNotifications = true
-    static let environmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
-
-    static func suppressNotifications(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: suppressNotificationsKey) == nil {
-            return defaultSuppressNotifications
-        }
-        return defaults.bool(forKey: suppressNotificationsKey)
-    }
-}
-
-enum CursorIntegrationSettings {
-    static let hooksEnabledKey = "cursorHooksEnabled"
-    static let defaultHooksEnabled = true
-
-    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hooksEnabledKey) == nil {
-            return defaultHooksEnabled
-        }
-        return defaults.bool(forKey: hooksEnabledKey)
-    }
-}
-
-enum GeminiIntegrationSettings {
-    static let hooksEnabledKey = "geminiHooksEnabled"
-    static let defaultHooksEnabled = true
-
-    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hooksEnabledKey) == nil {
-            return defaultHooksEnabled
-        }
-        return defaults.bool(forKey: hooksEnabledKey)
-    }
-}
-
-enum KiroIntegrationSettings {
-    enum NotificationLevel: String, CaseIterable, Identifiable {
-        case minimal
-        case standard
-        case verbose
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .minimal:
-                return String(localized: "settings.automation.kiro.notificationLevel.minimal", defaultValue: "Minimal")
-            case .standard:
-                return String(localized: "settings.automation.kiro.notificationLevel.standard", defaultValue: "Standard")
-            case .verbose:
-                return String(localized: "settings.automation.kiro.notificationLevel.verbose", defaultValue: "Verbose")
-            }
-        }
-    }
-
-    static let hooksEnabledKey = "kiroHooksEnabled"
-    static let defaultHooksEnabled = true
-    static let notificationLevelKey = "kiroNotificationLevel"
-    static let defaultNotificationLevel = NotificationLevel.standard
-
-    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hooksEnabledKey) == nil {
-            return defaultHooksEnabled
-        }
-        return defaults.bool(forKey: hooksEnabledKey)
-    }
-
-    static func notificationLevel(defaults: UserDefaults = .standard) -> NotificationLevel {
-        guard let raw = defaults.string(forKey: notificationLevelKey),
-              let level = NotificationLevel(rawValue: raw) else {
-            return defaultNotificationLevel
-        }
-        return level
-    }
-}
-
-enum AmpIntegrationSettings {
-    static let hooksEnabledKey = "ampHooksEnabled"
-    static let defaultHooksEnabled = true
-
-    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hooksEnabledKey) == nil {
-            return defaultHooksEnabled
-        }
-        return defaults.bool(forKey: hooksEnabledKey)
-    }
-}
-
-enum WelcomeSettings {
-    static let shownKey = "cmuxWelcomeShown"
-}
-
 enum TelemetrySettings {
-    static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
-    static let defaultSendAnonymousTelemetry = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: sendAnonymousTelemetryKey) == nil {
-            return defaultSendAnonymousTelemetry
-        }
-        return defaults.bool(forKey: sendAnonymousTelemetryKey)
-    }
-
-    // Freeze telemetry enablement once per launch. Settings changes apply on next restart.
-    static let enabledForCurrentLaunch = isEnabled()
+    // Launch-frozen telemetry enablement: read once at process start so settings
+    // changes apply on next restart. The persisted key, default, and read logic
+    // live in `CmuxSettings` (`AppCatalogSection().sendAnonymousTelemetry`) as the
+    // single source of truth; this anchor only freezes that read for the lifetime
+    // of the launch.
+    static let enabledForCurrentLaunch = AppCatalogSection().sendAnonymousTelemetry.value(in: .standard)
 }
 
-enum CmdClickMarkdownRouteSettings {
-    static let key = "openMarkdownInCmuxViewer"
-    static let didChangeNotification = Notification.Name("cmux.cmdClickMarkdownRouteDidChange")
-    static let defaultValue = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
-    }
-
-    static func setEnabled(
-        _ enabled: Bool,
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        defaults.set(enabled, forKey: key)
-        notifyDidChange(notificationCenter: notificationCenter)
-    }
-
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        notificationCenter.post(name: didChangeNotification, object: nil)
-    }
-
-    /// Cheap extension check. Safe to call off the main thread before any
-    /// filesystem probe so remote/non-markdown paths can be filtered early.
-    static func isMarkdownPath(_ path: String) -> Bool {
-        let ext = (path as NSString).pathExtension.lowercased()
-        return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mdx"
-    }
-
-    static func shouldRoute(path: String, defaults: UserDefaults = .standard) -> Bool {
-        guard isEnabled(defaults: defaults),
-              isMarkdownPath(path) else { return false }
-        // Match the `markdown.open` socket path: only route real, readable
-        // files. Rejects FIFOs, device nodes, sockets, symlinks to non-regular
-        // targets, and permission-denied paths so the viewer never opens into
-        // an unavailable state.
-        return CmdClickSupportedFileRouteSettings.isReadableRegularFile(path: path)
-    }
-}
-
-enum CmdClickSupportedFileRouteSettings {
-    static let key = "openSupportedFilesInCmux"
-    static let didChangeNotification = Notification.Name("cmux.cmdClickSupportedFileRouteDidChange")
-    static let defaultValue = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        return defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
-    }
-
-    static func setEnabled(
-        _ enabled: Bool,
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        defaults.set(enabled, forKey: key)
-        notifyDidChange(notificationCenter: notificationCenter)
-    }
-
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        notificationCenter.post(name: didChangeNotification, object: nil)
-    }
-
-    static func shouldRoute(path: String, defaults: UserDefaults = .standard) -> Bool {
-        guard isEnabled(defaults: defaults) else { return false }
-        return isReadableRegularFile(path: path)
-    }
-
-    static func isReadableRegularFile(path: String) -> Bool {
-        let resolved = (path as NSString).resolvingSymlinksInPath
-        guard FileManager.default.isReadableFile(atPath: resolved),
-              let attrs = try? FileManager.default.attributesOfItem(atPath: resolved),
-              (attrs[.type] as? FileAttributeType) == .typeRegular else {
-            return false
-        }
-        return true
-    }
-}
-
-enum PreferredEditorSettings {
-    static let key = "preferredEditorCommand"
-
-    /// Returns the configured editor command, or nil to use system default.
-    static func resolvedCommand(defaults: UserDefaults = .standard) -> String? {
-        guard let stored = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !stored.isEmpty else {
-            return nil
-        }
-        return stored
-    }
-
-    /// Open a file path with the user's preferred editor, falling back to system default.
-    static func open(_ url: URL) {
-        if CmuxUITestCapture.appendLineIfConfigured(
-            envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
-            line: url.path
-        ) {
-            return
-        }
-
-        guard let command = resolvedCommand() else {
-            NSWorkspace.shared.open(url)
-            return
-        }
-        let path = url.path
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(command) \(shellQuote(path))"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            // Check exit status on a background thread; fall back on failure
-            // (e.g. command not found exits 127 but /bin/sh itself succeeds)
-            DispatchQueue.global(qos: .userInitiated).async {
-                process.waitUntilExit()
-                if process.terminationStatus != 0 {
-                    DispatchQueue.main.async { NSWorkspace.shared.open(url) }
-                }
-            }
-        } catch {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-}
-
-enum CmuxUITestCapture {
-    static func appendLineIfConfigured(envKey: String, line: String) -> Bool {
-        guard let url = configuredURL(for: envKey) else { return false }
-        appendLine(line, to: url)
-        return true
-    }
-
-    static func mutateJSONObjectIfConfigured(
-        envKey: String,
-        _ update: (inout [String: Any]) -> Void
-    ) -> Bool {
-        guard let url = configuredURL(for: envKey) else { return false }
-        mutateJSONObject(at: url, update)
-        return true
-    }
-
-    private static func configuredURL(for envKey: String) -> URL? {
-        let env = ProcessInfo.processInfo.environment
-        guard let rawPath = env[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawPath.isEmpty else {
-            return nil
-        }
-        return URL(fileURLWithPath: rawPath)
-    }
-
-    private static func appendLine(_ line: String, to url: URL) {
-        ensureParentDirectory(for: url)
-        let payload = (line + "\n").data(using: .utf8) ?? Data()
-
-        if FileManager.default.fileExists(atPath: url.path) {
-            do {
-                let handle = try FileHandle(forWritingTo: url)
-                defer { try? handle.close() }
-                try handle.seekToEnd()
-                try handle.write(contentsOf: payload)
-            } catch {
-                if let existing = try? Data(contentsOf: url) {
-                    var combined = existing
-                    combined.append(payload)
-                    try? combined.write(to: url, options: .atomic)
-                } else {
-                    try? payload.write(to: url, options: .atomic)
-                }
-            }
-            return
-        }
-
-        try? payload.write(to: url, options: .atomic)
-    }
-
-    private static func mutateJSONObject(
-        at url: URL,
-        _ update: (inout [String: Any]) -> Void
-    ) {
-        ensureParentDirectory(for: url)
-        var payload: [String: Any] = [:]
-        if let data = try? Data(contentsOf: url),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            payload = object
-        }
-        update(&payload)
-        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
-            return
-        }
-        try? data.write(to: url, options: .atomic)
-    }
-
-    private static func ensureParentDirectory(for url: URL) {
-        let directory = url.deletingLastPathComponent()
-        guard !directory.path.isEmpty else { return }
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    }
-}
-
+@MainActor
 func openCmuxSettingsFileInEditor() {
     let url = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
-    PreferredEditorSettings.open(url)
+    PreferredEditorService(defaults: .standard).open(url)
 }

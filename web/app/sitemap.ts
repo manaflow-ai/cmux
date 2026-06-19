@@ -25,6 +25,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/blog/cmd-shift-u", lastModified: "2026-03-04", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/getting-started", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.9 },
     { path: "/docs/concepts", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/docs/workspace-groups", lastModified: "2026-06-09", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/configuration", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/textbox", lastModified: "2026-05-26", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/custom-commands", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.7 },

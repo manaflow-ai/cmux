@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import ObjectiveC
 import SwiftUI
 import WebKit
@@ -1756,6 +1757,12 @@ final class WindowBrowserSlotView: NSView {
         return false
     }
 
+#if DEBUG
+    // Test seam for #5733: exposes the slot's search-overlay view so tests can
+    // route a responder that this slot owns.
+    var browserPortalTestSearchOverlayView: NSView? { searchOverlayHostingView }
+#endif
+
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
         guard let overlay = searchOverlayHostingView else { return nil }
 
@@ -2035,6 +2042,7 @@ final class WindowBrowserPortal: NSObject {
 
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
+    private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var hasDeferredFullSyncScheduled = false
@@ -2067,6 +2075,19 @@ final class WindowBrowserPortal: NSObject {
 
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+#if DEBUG
+    // Test seam for https://github.com/manaflow-ai/cmux/issues/5733. Installs a
+    // slot container into the portal host without registering an Entry, so tests
+    // can prove the find-overlay lookup resolves off the live slot view hierarchy
+    // rather than by enumerating/copying Entry values out of entriesByWebViewId
+    // (each Entry copy = 3 objc_copyWeak ops under the global weak-table lock;
+    // O(panes) per keystroke — the stack-exhaustion fault site and a
+    // typing-latency contributor, #4405).
+    func browserPortalTestInstallSlotWithoutEntry(_ slot: WindowBrowserSlotView) {
+        hostView.addSubview(slot)
+    }
+#endif
 
     init(window: NSWindow) {
         self.window = window
@@ -2314,14 +2335,10 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
-        if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
-            return glassTarget
-        }
-
-        guard let contentView = window.contentView else { return nil }
-
-        guard let themeFrame = contentView.superview else { return nil }
-        return (themeFrame, contentView)
+        guard let target = chromeComposition
+            .contentOverlayTargetResolver
+            .installationTarget(for: window) else { return nil }
+        return (target.container, target.reference)
     }
 
     private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
@@ -2968,12 +2985,13 @@ final class WindowBrowserPortal: NSObject {
     /// Update the visibleInUI/zPriority state on an existing entry without rebinding.
     /// Used when a bind is deferred (host not yet in window) so stale portal syncs
     /// do not keep an old anchor visible.
-    func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) {
-        guard var entry = entriesByWebViewId[webViewId] else { return }
-        guard entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return }
-        entry.visibleInUI = visibleInUI
-        entry.zPriority = zPriority
+    @discardableResult
+    func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) -> Bool {
+        guard var entry = entriesByWebViewId[webViewId],
+              entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return false }
+        entry.visibleInUI = visibleInUI; entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
+        return true
     }
 
     func isWebViewBoundToAnchor(withId webViewId: ObjectIdentifier, anchorView: NSView) -> Bool {
@@ -2982,12 +3000,13 @@ final class WindowBrowserPortal: NSObject {
         return boundAnchor === anchorView
     }
 
-    func hideWebView(withId webViewId: ObjectIdentifier, source: String = "externalHide") {
-        guard var entry = entriesByWebViewId[webViewId] else { return }
-        entry.visibleInUI = false
-        entry.zPriority = 0
+    @discardableResult func hideWebView(withId webViewId: ObjectIdentifier, source: String = "externalHide") -> Bool {
+        guard var entry = entriesByWebViewId[webViewId] else { return false }
+        let previous = (entry.visibleInUI, entry.zPriority, entry.containerView?.isHidden ?? true)
+        entry.visibleInUI = false; entry.zPriority = 0
         entriesByWebViewId[webViewId] = entry
         synchronizeWebView(withId: webViewId, source: source)
+        return previous.0 || previous.1 != 0 || previous.2 != (entriesByWebViewId[webViewId]?.containerView?.isHidden ?? true)
     }
 
     func updateDropZoneOverlay(forWebViewId webViewId: ObjectIdentifier, zone: DropZone?) {
@@ -3029,8 +3048,18 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
-        for entry in entriesByWebViewId.values {
-            if let panelId = entry.containerView?.searchOverlayPanelId(for: responder) {
+        // Drive the lookup off the live slot view hierarchy rather than copying
+        // Entry structs out of entriesByWebViewId. Each Entry copy performs 3
+        // objc_copyWeak ops under the global weak-table lock, so the old
+        // `.values` scan did O(panes) weak-table churn on every keystroke — the
+        // stack-exhaustion fault site in #5733 and a typing-latency contributor
+        // (#4405). Slot containers are the portal host's subviews, and only a
+        // container in the view hierarchy can own the window's first responder,
+        // so iterating subviews covers every slot that could match. The slot's
+        // own searchOverlayPanelId(for:) early-returns when it has no open find
+        // overlay, keeping the common (no-find) case cheap.
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            if let panelId = container.searchOverlayPanelId(for: responder) {
                 return panelId
             }
         }
@@ -3040,8 +3069,10 @@ final class WindowBrowserPortal: NSObject {
     @discardableResult
     func yieldSearchOverlayFocusIfOwned(by panelId: UUID) -> Bool {
         guard let window else { return false }
-        for entry in entriesByWebViewId.values {
-            if entry.containerView?.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
+        // See searchOverlayPanelId(for:) — iterate the live slot hierarchy to
+        // avoid per-call Entry weak-copy churn (#5733).
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            if container.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
                 return true
             }
         }
@@ -4060,8 +4091,7 @@ enum BrowserWindowPortalRegistry {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
-        portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority)
-        postRegistryDidChange(for: webView)
+        if portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority) { postRegistryDidChange(for: webView) }
     }
 
     static func isWebView(_ webView: WKWebView, boundTo anchorView: NSView) -> Bool {
@@ -4077,8 +4107,7 @@ enum BrowserWindowPortalRegistry {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
-        portal.hideWebView(withId: webViewId, source: source)
-        postRegistryDidChange(for: webView)
+        if portal.hideWebView(withId: webViewId, source: source) { postRegistryDidChange(for: webView) }
     }
 
     static func discard(

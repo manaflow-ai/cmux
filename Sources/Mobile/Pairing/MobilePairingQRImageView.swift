@@ -1,17 +1,20 @@
 import AppKit
-import CoreImage
-import CoreImage.CIFilterBuiltins
+import CMUXMobileCore
 import SwiftUI
 
-/// Renders a payload string as a crisp QR code for the iOS pairing window.
+/// Renders a payload string as a crisp, square QR code for the iOS pairing
+/// window.
 ///
-/// The image is generated with `CIQRCodeGenerator` and scaled with no
-/// interpolation so the modules stay sharp at the requested `dimension`.
+/// The view is flexible: it fills whatever width the layout offers (keeping a
+/// 1:1 aspect), so the pairing window can show the code as large as possible.
+/// ``CmxPairingQRBitmap`` supplies the bitmap at one pixel per module, pure
+/// black on pure white, ECC M, with the full 4-module quiet zone baked in so
+/// the white margin scales with the code and cannot be cropped by layout.
+/// SwiftUI upscales it with interpolation disabled, so every module stays a
+/// sharp nearest-neighbor square at any display size and backing scale.
 struct MobilePairingQRImageView: View {
     /// The string encoded into the QR (the `cmux-ios://attach?...` URL).
     let payload: String
-    /// The rendered side length, in points.
-    let dimension: CGFloat
 
     var body: some View {
         Group {
@@ -19,7 +22,7 @@ struct MobilePairingQRImageView: View {
                 Image(nsImage: image)
                     .interpolation(.none)
                     .resizable()
-                    .frame(width: dimension, height: dimension)
+                    .aspectRatio(1, contentMode: .fit)
                     .accessibilityLabel(
                         String(
                             localized: "mobile.pairing.qrAccessibilityLabel",
@@ -29,10 +32,10 @@ struct MobilePairingQRImageView: View {
             } else {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.secondary.opacity(0.12))
-                    .frame(width: dimension, height: dimension)
+                    .aspectRatio(1, contentMode: .fit)
                     .overlay(
                         Image(systemName: "qrcode")
-                            .font(.system(size: dimension * 0.3))
+                            .font(.system(size: 48))
                             .foregroundStyle(.secondary)
                     )
                     .accessibilityLabel(
@@ -45,21 +48,17 @@ struct MobilePairingQRImageView: View {
         }
     }
 
-    /// The payload rendered to an `NSImage` via Core Image, or `nil` if the
-    /// generator produced no output for the given string.
+    /// The payload rendered at native module resolution, or `nil` if the
+    /// generator produced no output for the given string. No scaling happens
+    /// here; the view upscales with interpolation disabled so modules stay
+    /// sharp.
     private var qrImage: NSImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(payload.utf8)
-        filter.correctionLevel = "M"
-        guard let output = filter.outputImage, output.extent.width > 0 else {
+        guard let cgImage = CmxPairingQRBitmap().makeImage(payload: payload) else {
             return nil
         }
-        let scale = dimension / output.extent.width
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let context = CIContext()
-        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else {
-            return nil
-        }
-        return NSImage(cgImage: cgImage, size: NSSize(width: dimension, height: dimension))
+        return NSImage(
+            cgImage: cgImage,
+            size: NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
+        )
     }
 }

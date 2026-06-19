@@ -5,17 +5,8 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { changelogMedia, type VersionMedia } from "./changelog-media";
+import { pngDimensions } from "./png-dimensions";
 import { DocsHeading } from "../../components/docs-heading";
-
-/** Read PNG dimensions from the IHDR chunk (bytes 16-23). */
-function pngDimensions(filePath: string): { width: number; height: number } {
-  const abs = path.join(process.cwd(), "public", filePath);
-  const buf = fs.readFileSync(abs);
-  return {
-    width: buf.readUInt32BE(16),
-    height: buf.readUInt32BE(24),
-  };
-}
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

@@ -151,3 +151,9 @@ Without a justification comment, the diff is rejected. `@unchecked Sendable` on 
 - Applies to: every new file in `Packages/`, every new file in the app target, every meaningful rewrite of an existing Swift file.
 - Existing app target code may continue to use the old primitives until rewritten. Do not retrofit blindly.
 - Code review checklist (Codex, CodeRabbit, Greptile, and human reviewers): reject diffs that introduce `@Published`/`ObservableObject`/`DispatchQueue.main.async`/`addObserver(_:forKeyPath:...)`/`DispatchQueue.asyncAfter` in new code, or `Task.sleep`/`Clock.sleep` used to poll, settle, or race rather than as a bounded, cancellable, injected-clock delay with justification. Reject a lock (`NSLock`/`OSAllocatedUnfairLock`/etc.) or `@unchecked Sendable`/`nonisolated(unsafe)` unless it falls under a documented carve-out *and* carries a one-line justification — and reject a single-method `actor` that exists only to guard a flag (use the lock carve-out instead).
+
+## Detailed references
+
+- Read [references/package-boundaries.md](references/package-boundaries.md) for detailed package extraction, dependency graph, composition-root, and pbxproj wiring guidance.
+- Read [references/concurrency-carveouts.md](references/concurrency-carveouts.md) for detailed examples and review guidance around actors, locks, DispatchSource, sleep, `@unchecked Sendable`, and `nonisolated(unsafe)`.
+- Read [references/file-api-discipline.md](references/file-api-discipline.md) for one-type-per-file, DocC, public API, and design-smell details.

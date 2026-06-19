@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 import Bonsplit
 import SwiftUI
 
@@ -892,7 +893,7 @@ final class DockKeyboardFocusView: NSView {
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false
         }
-        return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: surfaceId)
+        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: surfaceId)
     }
 
     func focusFirstItemFromCoordinator() { _ = focusFirstControl?() }
@@ -906,7 +907,7 @@ final class DockKeyboardFocusView: NSView {
     override func keyDown(with event: NSEvent) { if !handleModeShortcut(event) { super.keyDown(with: event) } }
 
     private func handleModeShortcut(_ event: NSEvent) -> Bool {
-        guard let mode = RightSidebarMode.modeShortcut(for: event) else { return false }
+        guard let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) else { return false }
         _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
         return true
     }
