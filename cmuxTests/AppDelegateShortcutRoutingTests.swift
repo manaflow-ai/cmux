@@ -167,7 +167,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         AppDelegate.installWindowResponderSwizzlesForTesting()
         #if DEBUG
         KeyboardShortcutRecorderActivity.resetForTesting()
-        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        AppDelegate.shared?.debugBeginShortcutRoutingFocusedWindowCaptureForTesting()
         #endif
         actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
@@ -189,7 +189,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     override func tearDown() {
         #if DEBUG
         KeyboardShortcutRecorderActivity.resetForTesting()
-        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        AppDelegate.shared?.debugEndShortcutRoutingFocusedWindowCaptureForTesting()
         KeyboardShortcutSettings.shortcutLookupObserver = nil
         TextBoxSubmit.debugResetForTesting()
         #endif

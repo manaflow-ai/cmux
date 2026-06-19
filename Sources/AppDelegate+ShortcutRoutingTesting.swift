@@ -5,6 +5,11 @@ import ObjectiveC.runtime
 final class DebugShortcutRoutingFocusedWindowOverrideForTesting {
     weak var window: NSWindow?
     weak var keyRepairFirstResponder: NSResponder?
+    var focusedWindowCaptureDepth = 0
+
+    var shouldCaptureFocusedWindow: Bool {
+        focusedWindowCaptureDepth > 0
+    }
 }
 
 let debugShortcutRoutingFocusedWindowOverrideForTesting = DebugShortcutRoutingFocusedWindowOverrideForTesting()
@@ -42,6 +47,17 @@ extension AppDelegate {
         debugShortcutRoutingFocusedWindowOverrideForTesting.keyRepairFirstResponder = responder
     }
 
+    func debugBeginShortcutRoutingFocusedWindowCaptureForTesting() {
+        debugShortcutRoutingFocusedWindowOverrideForTesting.focusedWindowCaptureDepth += 1
+        debugResetShortcutRoutingStateForTesting()
+    }
+
+    func debugEndShortcutRoutingFocusedWindowCaptureForTesting() {
+        let override = debugShortcutRoutingFocusedWindowOverrideForTesting
+        override.focusedWindowCaptureDepth = max(override.focusedWindowCaptureDepth - 1, 0)
+        debugResetShortcutRoutingStateForTesting()
+    }
+
     static func installShortcutRoutingFocusedWindowSwizzleForTesting() {
         _ = AppDelegateShortcutRoutingTestingSwizzles.didInstallWindowMakeKeyAndOrderFront
     }
@@ -50,6 +66,9 @@ extension AppDelegate {
 extension NSWindow {
     @objc func cmux_makeKeyAndOrderFront(_ sender: Any?) {
         cmux_makeKeyAndOrderFront(sender)
+        guard debugShortcutRoutingFocusedWindowOverrideForTesting.shouldCaptureFocusedWindow else {
+            return
+        }
         AppDelegate.shared?.debugSetShortcutRoutingFocusedWindowForTesting(self)
     }
 }
