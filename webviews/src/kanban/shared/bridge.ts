@@ -3,10 +3,30 @@ import { makeClientId } from "../../agent-session/shared/ids";
 import { applyAgentTheme } from "../../agent-session/shared/theme";
 import type { KanbanBoard } from "./types";
 
+/**
+ * A per-card dispatch lifecycle event. The board column updates via
+ * `kanban.boardUpdated`; this carries the fine-grained run progress (live agent
+ * output, session id, worktree, exit) so the UI can show a status line.
+ */
+export type KanbanTaskProgress =
+  | { type: "kanban.taskProgress"; cardId: string; kind: "started"; sessionId: string }
+  | {
+      type: "kanban.taskProgress";
+      cardId: string;
+      kind: "provisioned";
+      worktreePath: string;
+      branchName: string;
+    }
+  | { type: "kanban.taskProgress"; cardId: string; kind: "output"; text: string }
+  | { type: "kanban.taskProgress"; cardId: string; kind: "turnComplete" }
+  | { type: "kanban.taskProgress"; cardId: string; kind: "exited"; status: number }
+  | { type: "kanban.taskProgress"; cardId: string; kind: "failed"; message: string };
+
 /** Push events the native coordinator sends to the board webview. */
 export type KanbanEvent =
   | { type: "app.theme"; theme: AgentSessionTheme }
-  | { type: "kanban.boardUpdated"; board: KanbanBoard };
+  | { type: "kanban.boardUpdated"; board: KanbanBoard }
+  | KanbanTaskProgress;
 
 type NativeReply<T> =
   | { ok: true; value: T }

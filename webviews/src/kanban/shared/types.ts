@@ -1,4 +1,5 @@
-// Mirrors the Swift Kanban models in `Sources/Kanban/KanbanModels.swift`.
+// Mirrors the Swift Kanban models in the `CmuxKanbanCore` package
+// (`Packages/macOS/CmuxKanbanCore/Sources/CmuxKanbanCore/`).
 //
 // The native side persists a `KanbanBoard` as JSON (`JSONEncoder` with the
 // `.iso8601` date strategy) and ships it across the bridge verbatim. Swift's
@@ -31,7 +32,8 @@ export const KANBAN_COLUMNS: readonly KanbanColumn[] = [
 /** The dispatch backend that executes a card's task. Mirrors `KanbanBackendKind`. */
 export type KanbanBackendKind = "cmux" | "cnvs" | "hermes";
 
-/** Native agent provider used when `backendKind` is `"cmux"`. Mirrors `AgentSessionProviderID`. */
+/** Native agent provider used when `backendKind` is `"cmux"`. The core stores
+ * this as the provider's raw string; these are the values the app validates. */
 export type KanbanAgentProvider = "codex" | "claude" | "opencode";
 
 /** A single task on the board. Mirrors Swift `KanbanCard`. */

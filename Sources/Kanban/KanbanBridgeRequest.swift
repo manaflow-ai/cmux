@@ -1,3 +1,4 @@
+import CmuxKanbanCore
 import Foundation
 
 /// A decoded request from the Kanban webview: `{ id, method, params }`.
@@ -69,10 +70,17 @@ struct KanbanBridgeRequest {
         return kind
     }
 
-    /// The optional `agentProvider` parameter resolved into an
-    /// ``AgentSessionProviderID``, or `nil` when absent or unrecognized.
-    func agentProvider(_ key: String = "agentProvider") -> AgentSessionProviderID? {
-        guard let raw = string(key) else { return nil }
-        return AgentSessionProviderID(rawValue: raw)
+    /// The optional `agentProvider` parameter, validated against the app's known
+    /// providers and returned as its raw identifier.
+    ///
+    /// ``CmuxKanbanCore`` stores the provider as a plain string (see
+    /// ``KanbanCard/agentProvider``) so the core stays decoupled from the app's
+    /// provider taxonomy; this is the validation boundary. Returns `nil` when the
+    /// parameter is absent or names an unknown provider.
+    func agentProvider(_ key: String = "agentProvider") -> String? {
+        guard let raw = string(key), let provider = AgentSessionProviderID(rawValue: raw) else {
+            return nil
+        }
+        return provider.rawValue
     }
 }

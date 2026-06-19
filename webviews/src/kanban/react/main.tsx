@@ -1,10 +1,18 @@
 import { useEffect, useReducer, useState } from "react";
-import { cardsInColumn, KANBAN_COLUMNS, type KanbanCard, type KanbanColumn } from "../shared/types";
+import {
+  cardsInColumn,
+  KANBAN_COLUMNS,
+  occupiesWipSlot,
+  type KanbanCard,
+  type KanbanColumn,
+} from "../shared/types";
 import { subscribeToKanbanEvents } from "../shared/bridge";
 import {
   adjacentColumn,
+  cancelCard,
   COLUMN_LABEL_KEYS,
   createTask,
+  dispatchCard,
   initialState,
   loadInitialBoard,
   moveCard,
@@ -20,7 +28,7 @@ import {
  */
 export function KanbanApp() {
   const [state, dispatch] = useReducer(reduceBoard, initialState);
-  const { board, copy, status, error } = state;
+  const { board, copy, status, error, progress } = state;
 
   useEffect(() => {
     void loadInitialBoard(dispatch);
@@ -80,7 +88,10 @@ export function KanbanApp() {
             column={column}
             copy={copy}
             cards={board ? cardsInColumn(board, column) : []}
+            progress={progress}
             onMove={(cardId, target) => void moveCard(dispatch, copy, cardId, target)}
+            onDispatch={(cardId) => void dispatchCard(dispatch, copy, cardId)}
+            onCancel={(cardId) => void cancelCard(dispatch, copy, cardId)}
           />
         ))}
       </div>
@@ -92,12 +103,18 @@ function KanbanColumnView({
   column,
   cards,
   copy,
+  progress,
   onMove,
+  onDispatch,
+  onCancel,
 }: {
   column: KanbanColumn;
   cards: KanbanCard[];
   copy: KanbanCopy | null;
+  progress: Record<string, string>;
   onMove: (cardId: string, target: KanbanColumn) => void;
+  onDispatch: (cardId: string) => void;
+  onCancel: (cardId: string) => void;
 }) {
   const label = copy ? copy[COLUMN_LABEL_KEYS[column]] : column;
   return (
@@ -110,7 +127,17 @@ function KanbanColumnView({
         {cards.length === 0 ? (
           <div className="kanban-column__empty">{copy?.emptyColumn ?? "No tasks"}</div>
         ) : (
-          cards.map((card) => <KanbanCardView key={card.id} card={card} copy={copy} onMove={onMove} />)
+          cards.map((card) => (
+            <KanbanCardView
+              key={card.id}
+              card={card}
+              copy={copy}
+              progressLine={progress[card.id]}
+              onMove={onMove}
+              onDispatch={onDispatch}
+              onCancel={onCancel}
+            />
+          ))
         )}
       </div>
     </div>
@@ -120,18 +147,27 @@ function KanbanColumnView({
 function KanbanCardView({
   card,
   copy,
+  progressLine,
   onMove,
+  onDispatch,
+  onCancel,
 }: {
   card: KanbanCard;
   copy: KanbanCopy | null;
+  progressLine: string | undefined;
   onMove: (cardId: string, target: KanbanColumn) => void;
+  onDispatch: (cardId: string) => void;
+  onCancel: (cardId: string) => void;
 }) {
   const left = adjacentColumn(card.column, -1);
   const right = adjacentColumn(card.column, 1);
+  const isRunning = occupiesWipSlot(card.column);
+  const canDispatch = card.backendKind === "cmux" && (card.column === "backlog" || card.column === "ready");
   return (
     <div className="kanban-card">
       <div className="kanban-card__title">{card.title}</div>
       {card.detail.trim().length > 0 ? <div className="kanban-card__detail">{card.detail}</div> : null}
+      {progressLine ? <div className="kanban-card__progress">{progressLine}</div> : null}
       <div className="kanban-card__footer">
         <div className="kanban-card__move">
           <button
@@ -160,6 +196,26 @@ function KanbanCardView({
           >
             ▶
           </button>
+        </div>
+        <div className="kanban-card__actions">
+          {canDispatch ? (
+            <button
+              className="kanban-button kanban-button--dispatch"
+              type="button"
+              onClick={() => onDispatch(card.id)}
+            >
+              {copy?.dispatch ?? "Run"}
+            </button>
+          ) : null}
+          {isRunning ? (
+            <button
+              className="kanban-button kanban-button--cancel"
+              type="button"
+              onClick={() => onCancel(card.id)}
+            >
+              {copy?.cancel ?? "Cancel"}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

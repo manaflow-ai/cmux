@@ -13,6 +13,7 @@ final class KanbanWebRendererSession {
     func coordinator(
         panelId: UUID,
         workspaceId: UUID,
+        workingDirectory: String?,
         rendererKind: KanbanRendererKind,
         theme: AgentSessionWebTheme,
         isFocused: Bool
@@ -20,6 +21,7 @@ final class KanbanWebRendererSession {
         ownedCoordinator.bind(
             panelId: panelId,
             workspaceId: workspaceId,
+            workingDirectory: workingDirectory,
             rendererKind: rendererKind,
             theme: theme,
             isFocused: isFocused

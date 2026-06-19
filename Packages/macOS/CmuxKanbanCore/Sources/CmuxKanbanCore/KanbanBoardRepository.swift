@@ -1,11 +1,4 @@
-import Foundation
-
-/// Errors surfaced by ``KanbanBoardRepository``.
-enum KanbanBoardRepositoryError: Error, Equatable {
-    /// The board file on disk exists but could not be decoded. The repository
-    /// refuses to overwrite it so the user's data is not silently destroyed.
-    case corruptedBoardFile(workspaceId: UUID)
-}
+public import Foundation
 
 /// Persists one ``KanbanBoard`` per workspace as JSON under the cmux runtime
 /// state directory.
@@ -23,17 +16,15 @@ enum KanbanBoardRepositoryError: Error, Equatable {
 /// clobbers real data on the next save.
 ///
 /// ```swift
-/// let home = FileManager.default.homeDirectoryForCurrentUser
-/// let base = CmuxStateDirectory.url(homeDirectory: home)
-///     .appendingPathComponent("kanban", isDirectory: true)
+/// let base = URL(fileURLWithPath: "/tmp/kanban")
 /// let repo = KanbanBoardRepository(baseDirectory: base)
 /// var board = try await repo.load(workspaceId: workspaceId, now: Date())
 /// board = board.upserting(KanbanCard(title: "Fix bug", createdAt: now, updatedAt: now), now: now)
 /// try await repo.save(board)
 /// ```
-actor KanbanBoardRepository {
+public actor KanbanBoardRepository {
     /// Directory holding the per-workspace board JSON files.
-    let baseDirectory: URL
+    public let baseDirectory: URL
 
     private let fileManager: FileManager
     private let encoder: JSONEncoder
@@ -45,7 +36,7 @@ actor KanbanBoardRepository {
     ///   - baseDirectory: Directory under which `<workspaceId>.json` board files
     ///     and the `logs/` subdirectory live. Created lazily on first save.
     ///   - fileManager: Filesystem accessor; injected for testing.
-    init(baseDirectory: URL, fileManager: FileManager = .default) {
+    public init(baseDirectory: URL, fileManager: FileManager = .default) {
         self.baseDirectory = baseDirectory
         self.fileManager = fileManager
 
@@ -60,17 +51,17 @@ actor KanbanBoardRepository {
     }
 
     /// The on-disk location of a workspace's board file.
-    func boardURL(workspaceId: UUID) -> URL {
+    public func boardURL(workspaceId: UUID) -> URL {
         baseDirectory.appendingPathComponent("\(workspaceId.uuidString).json", isDirectory: false)
     }
 
     /// The directory where per-card log files are written.
-    var logsDirectory: URL {
+    public var logsDirectory: URL {
         baseDirectory.appendingPathComponent("logs", isDirectory: true)
     }
 
     /// The append-only log file for a card.
-    func logURL(cardId: UUID) -> URL {
+    public func logURL(cardId: UUID) -> URL {
         logsDirectory.appendingPathComponent("\(cardId.uuidString).log", isDirectory: false)
     }
 
@@ -79,7 +70,7 @@ actor KanbanBoardRepository {
     ///
     /// - Throws: ``KanbanBoardRepositoryError/corruptedBoardFile(workspaceId:)``
     ///   when the file exists but cannot be decoded.
-    func load(workspaceId: UUID, now: Date) throws -> KanbanBoard {
+    public func load(workspaceId: UUID, now: Date) throws -> KanbanBoard {
         let url = boardURL(workspaceId: workspaceId)
         let data: Data
         do {
@@ -102,7 +93,7 @@ actor KanbanBoardRepository {
     /// directory if needed.
     ///
     /// - Throws: Errors from `FileManager` or `JSONEncoder`.
-    func save(_ board: KanbanBoard) throws {
+    public func save(_ board: KanbanBoard) throws {
         try fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
         let data = try encoder.encode(board)
         try data.write(to: boardURL(workspaceId: board.workspaceId), options: [.atomic])
@@ -112,7 +103,7 @@ actor KanbanBoardRepository {
     /// the file on first write.
     ///
     /// - Throws: Errors from `FileManager` writing the file.
-    func appendLog(cardId: UUID, text: String) throws {
+    public func appendLog(cardId: UUID, text: String) throws {
         try fileManager.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
         let url = logURL(cardId: cardId)
         let data = Data(text.utf8)

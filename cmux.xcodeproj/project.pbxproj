@@ -251,11 +251,14 @@
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
 		C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */; };
+		CCB0000000000000000000B3 /* CmuxKanbanCore in Frameworks */ = {isa = PBXBuildFile; productRef = CCB0000000000000000000B2 /* CmuxKanbanCore */; };
+		CCB0000000000000000000B4 /* CmuxKanbanCore in Frameworks */ = {isa = PBXBuildFile; productRef = CCB0000000000000000000B2 /* CmuxKanbanCore */; };
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */; };
+		9552222CDC7031553A909AFE /* CmuxNativeBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148E422243F3D224DC2EAED8 /* CmuxNativeBackend.swift */; };
 		E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000D2 /* CmuxNotifications */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
 		E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000F2 /* CmuxPanes */; };
@@ -451,6 +454,7 @@
 		D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */; };
 		D7C6F5000000000000000000 /* GhosttyTitleChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C6F5000000000000000001 /* GhosttyTitleChange.swift */; };
 		D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */; };
+		900DCECF01CED501BA1AB0E3 /* GitWorktreeProvisioner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25CC1284562D1FBCC79F8195 /* GitWorktreeProvisioner.swift */; };
 		3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */; };
 		3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */; };
 		3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */; };
@@ -467,12 +471,9 @@
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
-		A48B22F421B91F2A60E587C4 /* KanbanBoardRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419941387A69EEAE79000926 /* KanbanBoardRepository.swift */; };
-		260F9852CF3377BB28E7F30D /* KanbanBoardRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F406CB1E6587FAECF8FFBDFC /* KanbanBoardRepositoryTests.swift */; };
 		D7722CB8EB81320314C8441F /* KanbanBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8650AD1417F35AAE380AC0C /* KanbanBridge.swift */; };
 		A2A41DAB55707C3968EEC641 /* KanbanBridgeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4078D7E4C85529D6719EE9E9 /* KanbanBridgeError.swift */; };
 		4E43EDAA9130842768BC0348 /* KanbanBridgeRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B306988871523FDFAB6332 /* KanbanBridgeRequest.swift */; };
-		32B1A766FC5E4517E74259B0 /* KanbanModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BC82B4603637DCBC39B9599 /* KanbanModels.swift */; };
 		A2ABF6D5387B5D9D9705D9C0 /* KanbanPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D22B495D7654520266D3BEB9 /* KanbanPanel.swift */; };
 		38394FC213190CFBF55B7F45 /* KanbanPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C24A8341FB5F7D946CC02559 /* KanbanPanelView.swift */; };
 		5AE265626A5EF6148E5AB2C8 /* KanbanRendererKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4182D7D5CBF13C42DAB4CEC /* KanbanRendererKind.swift */; };
@@ -1283,6 +1284,7 @@
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxModalAlertPresentation.swift; sourceTree = "<group>"; };
+		148E422243F3D224DC2EAED8 /* CmuxNativeBackend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxNativeBackend.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000005 /* CmuxRuntimeDebugCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCapture.swift; sourceTree = "<group>"; };
 		A9F100000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCaptureConfiguration.swift; sourceTree = "<group>"; };
@@ -1452,6 +1454,7 @@
 		D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTextInputSupport.swift; sourceTree = "<group>"; };
 		D7C6F5000000000000000001 /* GhosttyTitleChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleChange.swift; sourceTree = "<group>"; };
 		D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleChangeSubscription.swift; sourceTree = "<group>"; };
+		25CC1284562D1FBCC79F8195 /* GitWorktreeProvisioner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GitWorktreeProvisioner.swift; sourceTree = "<group>"; };
 		3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchCoordinator.swift; sourceTree = "<group>"; };
 		3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchDocuments.swift; sourceTree = "<group>"; };
 		3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchPanelCaptureManager.swift; sourceTree = "<group>"; };
@@ -1467,12 +1470,9 @@
 		610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
 		C0DEF0B10000000000000002 /* JSONCParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCParser.swift; sourceTree = "<group>"; };
 		B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
-		419941387A69EEAE79000926 /* KanbanBoardRepository.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanBoardRepository.swift; sourceTree = "<group>"; };
-		F406CB1E6587FAECF8FFBDFC /* KanbanBoardRepositoryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanBoardRepositoryTests.swift; sourceTree = "<group>"; };
 		C8650AD1417F35AAE380AC0C /* KanbanBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanBridge.swift; sourceTree = "<group>"; };
 		4078D7E4C85529D6719EE9E9 /* KanbanBridgeError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanBridgeError.swift; sourceTree = "<group>"; };
 		70B306988871523FDFAB6332 /* KanbanBridgeRequest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanBridgeRequest.swift; sourceTree = "<group>"; };
-		7BC82B4603637DCBC39B9599 /* KanbanModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanModels.swift; sourceTree = "<group>"; };
 		D22B495D7654520266D3BEB9 /* KanbanPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanPanel.swift; sourceTree = "<group>"; };
 		C24A8341FB5F7D946CC02559 /* KanbanPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanPanelView.swift; sourceTree = "<group>"; };
 		B4182D7D5CBF13C42DAB4CEC /* KanbanRendererKind.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KanbanRendererKind.swift; sourceTree = "<group>"; };
@@ -2000,6 +2000,7 @@
 				C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
+				CCB0000000000000000000B3 /* CmuxKanbanCore in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
 				E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */,
 				E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */,
@@ -2071,6 +2072,7 @@
 				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
 				CC0DE00000000000000000A4 /* CmuxCore in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
+				CCB0000000000000000000B4 /* CmuxKanbanCore in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
@@ -2116,8 +2118,6 @@
 		267C0A13C2809F2A4DCDDE91 /* Kanban */ = {
 			isa = PBXGroup;
 			children = (
-				7BC82B4603637DCBC39B9599 /* KanbanModels.swift */,
-				419941387A69EEAE79000926 /* KanbanBoardRepository.swift */,
 				B4182D7D5CBF13C42DAB4CEC /* KanbanRendererKind.swift */,
 				C8650AD1417F35AAE380AC0C /* KanbanBridge.swift */,
 				4078D7E4C85529D6719EE9E9 /* KanbanBridgeError.swift */,
@@ -2127,6 +2127,8 @@
 				7BF3BBE0463218576517125E /* KanbanWebRenderer.swift */,
 				D22B495D7654520266D3BEB9 /* KanbanPanel.swift */,
 				C24A8341FB5F7D946CC02559 /* KanbanPanelView.swift */,
+				148E422243F3D224DC2EAED8 /* CmuxNativeBackend.swift */,
+				25CC1284562D1FBCC79F8195 /* GitWorktreeProvisioner.swift */,
 			);
 			name = Kanban;
 			path = Kanban;
@@ -3091,7 +3093,6 @@
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
 				5E2701030000000000000002 /* SentryEventScrubberTests.swift */,
-				F406CB1E6587FAECF8FFBDFC /* KanbanBoardRepositoryTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -3174,6 +3175,7 @@
 				CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
+				CCB0000000000000000000B2 /* CmuxKanbanCore */,
 				CC0DE10000000000000000A2 /* CmuxRemoteDaemon */,
 				CC0DE20000000000000000A2 /* CmuxRemoteWorkspace */,
 				CC0DE30000000000000000A2 /* CmuxRemoteSession */,
@@ -3270,6 +3272,7 @@
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
+				CCB0000000000000000000B2 /* CmuxKanbanCore */,
 				A5001262 /* Bonsplit */,
 			);
 			productName = cmuxTests;
@@ -3353,6 +3356,7 @@
 				CDFEED0400000000CDFEED04 /* XCLocalSwiftPackageReference "CmuxUpdaterUI" */,
 				CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
+				CCB0000000000000000000B1 /* XCLocalSwiftPackageReference "CmuxKanbanCore" */,
 				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
 				CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */,
 				CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */,
@@ -3637,6 +3641,7 @@
 				E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */,
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */,
+				9552222CDC7031553A909AFE /* CmuxNativeBackend.swift in Sources */,
 				A9F200000000000000000005 /* CmuxRuntimeDebugCapture.swift in Sources */,
 				A9F200000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift in Sources */,
 				A9F20000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift in Sources */,
@@ -3744,6 +3749,7 @@
 				D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */,
 				D7C6F5000000000000000000 /* GhosttyTitleChange.swift in Sources */,
 				D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */,
+				900DCECF01CED501BA1AB0E3 /* GitWorktreeProvisioner.swift in Sources */,
 				3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 				3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
@@ -3752,11 +3758,9 @@
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
-				A48B22F421B91F2A60E587C4 /* KanbanBoardRepository.swift in Sources */,
 				D7722CB8EB81320314C8441F /* KanbanBridge.swift in Sources */,
 				A2A41DAB55707C3968EEC641 /* KanbanBridgeError.swift in Sources */,
 				4E43EDAA9130842768BC0348 /* KanbanBridgeRequest.swift in Sources */,
-				32B1A766FC5E4517E74259B0 /* KanbanModels.swift in Sources */,
 				A2ABF6D5387B5D9D9705D9C0 /* KanbanPanel.swift in Sources */,
 				38394FC213190CFBF55B7F45 /* KanbanPanelView.swift in Sources */,
 				5AE265626A5EF6148E5AB2C8 /* KanbanRendererKind.swift in Sources */,
@@ -4313,7 +4317,6 @@
 				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
 				4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */,
 				F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */,
-				260F9852CF3377BB28E7F30D /* KanbanBoardRepositoryTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
 				6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */,
 				E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */,
@@ -4965,6 +4968,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxRemoteSession;
 		};
+		CCB0000000000000000000B1 /* XCLocalSwiftPackageReference "CmuxKanbanCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxKanbanCore;
+		};
 		CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxSettings;
@@ -5250,6 +5257,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */;
 			productName = CmuxRemoteSession;
+		};
+		CCB0000000000000000000B2 /* CmuxKanbanCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCB0000000000000000000B1 /* XCLocalSwiftPackageReference "CmuxKanbanCore" */;
+			productName = CmuxKanbanCore;
 		};
 		CD0CFE5200000000CD0CFE52 /* CmuxSettings */ = {
 			isa = XCSwiftPackageProductDependency;

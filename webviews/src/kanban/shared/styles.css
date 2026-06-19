@@ -203,6 +203,33 @@ body {
   cursor: default;
 }
 
+.kanban-card__progress {
+  font-size: 11px;
+  line-height: 1.35;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--agent-muted, rgba(128, 128, 128, 0.85));
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 3.6em;
+  overflow: hidden;
+}
+
+.kanban-card__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.kanban-button--dispatch,
+.kanban-button--cancel {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.kanban-button--cancel {
+  background: var(--agent-danger, #d23b2e);
+}
+
 .kanban-loading {
   display: flex;
   align-items: center;

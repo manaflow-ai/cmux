@@ -19,6 +19,7 @@ struct KanbanWebRenderer: NSViewRepresentable {
         panel.rendererSession.coordinator(
             panelId: panel.id,
             workspaceId: panel.workspaceId,
+            workingDirectory: panel.workingDirectory,
             rendererKind: panel.rendererKind,
             theme: theme,
             isFocused: isFocused
@@ -37,6 +38,7 @@ struct KanbanWebRenderer: NSViewRepresentable {
         context.coordinator.bind(
             panelId: panel.id,
             workspaceId: panel.workspaceId,
+            workingDirectory: panel.workingDirectory,
             rendererKind: panel.rendererKind,
             theme: theme,
             isFocused: isFocused
