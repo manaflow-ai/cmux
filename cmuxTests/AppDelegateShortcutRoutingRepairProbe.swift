@@ -23,7 +23,7 @@ extension AppDelegateShortcutRoutingTests {
         let previousRepairObserver = appDelegate.debugFocusedTerminalKeyRepairObserverForTesting
         appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { window, event, responder in
             previousRepairObserver?(window, event, responder)
-            guard event.keyCode == keyCode else { return }
+            guard UInt32(event.keyCode) == keyCode else { return }
             repairCount += 1
             repairResponder = responder
         }
