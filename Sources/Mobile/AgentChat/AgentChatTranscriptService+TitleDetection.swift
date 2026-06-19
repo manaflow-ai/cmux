@@ -1,0 +1,190 @@
+import Foundation
+
+extension AgentChatTranscriptService {
+    func scheduleTitleDetectedAdoption(_ change: GhosttyTitleChange) {
+        let surfaceID = change.surfaceId.uuidString
+        guard let titleKey = Self.claudeTitleDetectionKey(change.title) else {
+            clearTitleDetectionState(surfaceID: surfaceID)
+            return
+        }
+        if pendingTitleChanges[surfaceID]?.titleKey == titleKey {
+            return
+        }
+        if pendingTitleChanges[surfaceID] == nil,
+           deliveredTitleKeys[surfaceID] == titleKey,
+           registry.liveSession(surfaceID: surfaceID)?.transcriptPath != nil {
+            return
+        }
+
+        pendingTitleChanges[surfaceID] = (change: change, titleKey: titleKey)
+        titleChangeCoalescer.signal { [weak self] in
+            self?.flushTitleDetectedAdoptions()
+        }
+    }
+
+    func flushTitleDetectedAdoptions() {
+        guard !pendingTitleChanges.isEmpty else {
+            return
+        }
+        let pendingBySurface = pendingTitleChanges
+        pendingTitleChanges.removeAll(keepingCapacity: true)
+        for (surfaceID, pending) in pendingBySurface {
+            if titleAdoptionHandler?(pending.change) == true,
+               registry.liveSession(surfaceID: surfaceID)?.transcriptPath != nil {
+                deliveredTitleKeys[surfaceID] = pending.titleKey
+            }
+        }
+    }
+
+    func clearTitleDetectionState(surfaceID: String) {
+        pendingTitleChanges.removeValue(forKey: surfaceID)
+        deliveredTitleKeys.removeValue(forKey: surfaceID)
+        transcriptResolutionTasks[surfaceID]?.cancel()
+        transcriptResolutionTasks[surfaceID] = nil
+        transcriptResolutionKeys.removeValue(forKey: surfaceID)
+        detectionScanAt.removeValue(forKey: surfaceID)
+    }
+
+    func scheduleClaudeTranscriptResolution(
+        workspaceID: String,
+        workingDirectory: String,
+        surfaceID: String,
+        excludingSessionID: String?,
+        titleHint: String?,
+        forceScan: Bool
+    ) {
+        let now = Date()
+        if !forceScan,
+           let lastScan = detectionScanAt[surfaceID],
+           now.timeIntervalSince(lastScan) < Self.detectionScanThrottle {
+            return
+        }
+
+        var claimed = registry.claimedSessionIDs().union(claimedDetectedTranscriptSessionIDs)
+        if let excludingSessionID {
+            claimed.remove(excludingSessionID)
+        }
+        let key: ClaudeTranscriptResolutionKey = (
+            workingDirectory: workingDirectory,
+            claimedSessionIDs: claimed,
+            titleKey: Self.specificClaudeTitleKey(titleHint),
+            forceScan: forceScan
+        )
+        guard transcriptResolutionKeys[surfaceID] != key else {
+            return
+        }
+
+        detectionScanAt[surfaceID] = now
+        transcriptResolutionKeys[surfaceID] = key
+        transcriptResolutionTasks[surfaceID]?.cancel()
+        let resolver = self.resolver
+        #if compiler(>=6.2)
+        let resolveOperation: @concurrent @Sendable () async -> (sessionID: String, path: String)? = {
+            [resolver, workingDirectory, claimed, titleHint] in
+            resolver.newestClaudeTranscript(
+                workingDirectory: workingDirectory,
+                excludingSessionIDs: claimed,
+                titleHint: titleHint
+            )
+        }
+        #else
+        let resolveOperation: @Sendable () async -> (sessionID: String, path: String)? = {
+            [resolver, workingDirectory, claimed, titleHint] in
+            resolver.newestClaudeTranscript(
+                workingDirectory: workingDirectory,
+                excludingSessionIDs: claimed,
+                titleHint: titleHint
+            )
+        }
+        #endif
+        let scanTask = Task.detached(priority: .utility, operation: resolveOperation)
+        transcriptResolutionTasks[surfaceID] = Task { @MainActor [
+            weak self,
+            scanTask,
+            key,
+            workspaceID,
+            workingDirectory,
+            surfaceID,
+            titleHint
+        ] in
+            let resolved = await withTaskCancellationHandler {
+                await scanTask.value
+            } onCancel: {
+                scanTask.cancel()
+            }
+            guard !Task.isCancelled else { return }
+            self?.applyClaudeTranscriptResolution(
+                resolved,
+                key: key,
+                workspaceID: workspaceID,
+                workingDirectory: workingDirectory,
+                surfaceID: surfaceID,
+                titleHint: titleHint
+            )
+        }
+    }
+
+    func applyClaudeTranscriptResolution(
+        _ resolved: (sessionID: String, path: String)?,
+        key: ClaudeTranscriptResolutionKey,
+        workspaceID: String,
+        workingDirectory: String,
+        surfaceID: String,
+        titleHint: String?
+    ) {
+        guard transcriptResolutionKeys[surfaceID] == key else {
+            return
+        }
+        transcriptResolutionTasks[surfaceID] = nil
+        transcriptResolutionKeys[surfaceID] = nil
+
+        guard let resolved else { return }
+        guard !claimedDetectedTranscriptSessionIDs.contains(resolved.sessionID) else {
+            scheduleClaudeTranscriptResolution(
+                workspaceID: workspaceID,
+                workingDirectory: workingDirectory,
+                surfaceID: surfaceID,
+                excludingSessionID: registry.liveSession(surfaceID: surfaceID)?.sessionID,
+                titleHint: titleHint,
+                forceScan: true
+            )
+            return
+        }
+        if let claimed = registry.record(sessionID: resolved.sessionID),
+           claimed.surfaceID != nil,
+           claimed.surfaceID != surfaceID {
+            scheduleClaudeTranscriptResolution(
+                workspaceID: workspaceID,
+                workingDirectory: workingDirectory,
+                surfaceID: surfaceID,
+                excludingSessionID: registry.liveSession(surfaceID: surfaceID)?.sessionID,
+                titleHint: titleHint,
+                forceScan: true
+            )
+            return
+        }
+
+        detectionScanAt.removeValue(forKey: surfaceID)
+        claimedDetectedTranscriptSessionIDs.insert(resolved.sessionID)
+        if let bound = registry.liveSession(surfaceID: surfaceID) {
+            guard bound.transcriptPath == nil else { return }
+            registry.update(sessionID: bound.sessionID) { record in
+                record.workspaceID = workspaceID
+                record.surfaceID = surfaceID
+                record.workingDirectory = workingDirectory
+                record.transcriptPath = resolved.path
+            }
+            return
+        }
+
+        registry.adoptDetectedSession(
+            sessionID: resolved.sessionID,
+            agentKind: .claude,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            workingDirectory: workingDirectory,
+            transcriptPath: resolved.path,
+            at: Date()
+        )
+    }
+}
