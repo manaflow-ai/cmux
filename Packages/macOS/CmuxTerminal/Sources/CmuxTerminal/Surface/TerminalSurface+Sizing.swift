@@ -79,28 +79,34 @@ extension TerminalSurface {
         let cellHeight = UInt64(currentCellHeightPx)
         let currentColumnCount = UInt64(currentColumns)
         let currentRowCount = UInt64(currentRows)
+        let rawCurrentColumns = max(UInt64(1), UInt64(currentWidthPx) / cellWidth)
+        let rawCurrentRows = max(UInt64(1), UInt64(currentHeightPx) / cellHeight)
         let rawTargetColumns = max(UInt64(1), UInt64(targetWidthPx) / cellWidth)
         let rawTargetRows = max(UInt64(1), UInt64(targetHeightPx) / cellHeight)
         let currentGridWidthPx = currentColumnCount * cellWidth
         let currentGridHeightPx = currentRowCount * cellHeight
-        let horizontalCurrentRemainder = UInt64(currentWidthPx) > currentGridWidthPx
+        let horizontalNonGridPadding = rawCurrentColumns > currentColumnCount
+            && UInt64(currentWidthPx) > currentGridWidthPx
             ? UInt64(currentWidthPx) - currentGridWidthPx
             : 0
-        let verticalCurrentRemainder = UInt64(currentHeightPx) > currentGridHeightPx
+        let verticalNonGridPadding = rawCurrentRows > currentRowCount
+            && UInt64(currentHeightPx) > currentGridHeightPx
             ? UInt64(currentHeightPx) - currentGridHeightPx
             : 0
-        let adjustedTargetGridWidthPx = UInt64(targetWidthPx) > horizontalCurrentRemainder
-            ? UInt64(targetWidthPx) - horizontalCurrentRemainder
+        let adjustedTargetGridWidthPx = UInt64(targetWidthPx) > horizontalNonGridPadding
+            ? UInt64(targetWidthPx) - horizontalNonGridPadding
             : 0
-        let adjustedTargetGridHeightPx = UInt64(targetHeightPx) > verticalCurrentRemainder
-            ? UInt64(targetHeightPx) - verticalCurrentRemainder
+        let adjustedTargetGridHeightPx = UInt64(targetHeightPx) > verticalNonGridPadding
+            ? UInt64(targetHeightPx) - verticalNonGridPadding
             : 0
-        let adjustedTargetColumns = max(UInt64(1), adjustedTargetGridWidthPx / cellWidth)
-        let adjustedTargetRows = max(UInt64(1), adjustedTargetGridHeightPx / cellHeight)
-        return rawTargetColumns != currentColumnCount
-            || rawTargetRows != currentRowCount
-            || adjustedTargetColumns != currentColumnCount
-            || adjustedTargetRows != currentRowCount
+        let targetColumns = horizontalNonGridPadding > 0
+            ? max(UInt64(1), adjustedTargetGridWidthPx / cellWidth)
+            : rawTargetColumns
+        let targetRows = verticalNonGridPadding > 0
+            ? max(UInt64(1), adjustedTargetGridHeightPx / cellHeight)
+            : rawTargetRows
+        return targetColumns != currentColumnCount
+            || targetRows != currentRowCount
     }
 
     /// Applies a new backing size/scale to the runtime surface.
