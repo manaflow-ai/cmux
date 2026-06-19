@@ -4,26 +4,41 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
-/// In-memory backup double: records uploaded ops and serves a canned fetch.
+/// In-memory backup double: records uploaded ops, counts fetches, and can be
+/// told to fail the first N fetches (to exercise the retry path).
 private actor FakeBackup: PairedMacBackingUp {
     private(set) var uploaded: [PairedMacBackupOp] = []
+    private(set) var fetchCount = 0
     private let records: [PairedMacBackupRecord]
+    private var failNextFetches: Int
 
-    init(records: [PairedMacBackupRecord] = []) {
+    init(records: [PairedMacBackupRecord] = [], failNextFetches: Int = 0) {
         self.records = records
+        self.failNextFetches = failNextFetches
     }
 
     func upload(ops: [PairedMacBackupOp]) async {
         uploaded.append(contentsOf: ops)
     }
 
-    func fetchAll() async -> [PairedMacBackupRecord] {
-        records
+    func fetchAll() async -> [PairedMacBackupRecord]? {
+        fetchCount += 1
+        if failNextFetches > 0 {
+            failNextFetches -= 1
+            return nil
+        }
+        return records
     }
 
-    func uploadedOps() -> [PairedMacBackupOp] {
-        uploaded
-    }
+    func uploadedOps() -> [PairedMacBackupOp] { uploaded }
+    func fetches() -> Int { fetchCount }
+}
+
+/// Mutable team holder so a test can simulate a team switch mid-session.
+private actor MutableTeam {
+    var value: String
+    init(_ value: String) { self.value = value }
+    func set(_ value: String) { self.value = value }
 }
 
 @Suite struct PairedMacBackupTests {
@@ -166,8 +181,8 @@ private actor FakeBackup: PairedMacBackingUp {
             try backupRecord("mac-remote", host: "10.0.0.3", lastSeenMs: 9_000_000_000, active: true),
         ])
 
-        let restored = await PairedMacRestore(store: inner, backup: backup).run(accountID: "user-1")
-        #expect(restored == 1) // only mac-remote written
+        let outcome = await PairedMacRestore(store: inner, backup: backup).run(accountID: "user-1")
+        #expect(outcome.restored == 1) // only mac-remote written
 
         // Local active selection preserved.
         #expect(try await inner.activeMac(stackUserID: "user-1")?.macDeviceID == "mac-local")
@@ -180,9 +195,72 @@ private actor FakeBackup: PairedMacBackingUp {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         try await inner.upsert(macDeviceID: "mac-x", displayName: nil, routes: [try route("10.0.0.1", 22)], markActive: true, stackUserID: "user-1", now: Date())
-        let restored = await PairedMacRestore(store: inner, backup: FakeBackup(records: [])).run(accountID: "user-1")
-        #expect(restored == 0)
+        let outcome = await PairedMacRestore(store: inner, backup: FakeBackup(records: [])).run(accountID: "user-1")
+        #expect(outcome.completed)
+        #expect(outcome.restored == 0)
         #expect(try await inner.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-x"])
+    }
+
+    @Test func failedFetchRetriesOnNextRead() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // First fetch fails (transient), second succeeds.
+        let backup = FakeBackup(records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)], failNextFetches: 1)
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        let firstRead = try await store.loadAll(stackUserID: "user-1")
+        #expect(firstRead.isEmpty) // fetch failed, nothing restored
+        let secondRead = try await store.loadAll(stackUserID: "user-1")
+        #expect(secondRead.map(\.macDeviceID) == ["mac-a"]) // retried and restored
+        #expect(await backup.fetches() == 2) // not memoized after the failure
+    }
+
+    @Test func signOutThenSameAccountSignInReRestores() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup(records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)])
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        #expect(try await store.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-a"])
+        // Sign-out wipe.
+        try await store.removeAll()
+        #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)
+        // Same-account sign-in in the same launch must restore again, not skip.
+        #expect(try await store.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-a"])
+        #expect(await backup.fetches() == 2)
+    }
+
+    @Test func teamSwitchReRestores() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup(records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)])
+        let team = MutableTeam("team-a")
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup, teamIDProvider: { await team.value })
+
+        _ = try await store.loadAll(stackUserID: "user-1")
+        _ = try await store.loadAll(stackUserID: "user-1") // same scope → memoized, no re-fetch
+        #expect(await backup.fetches() == 1)
+        await team.set("team-b")
+        _ = try await store.loadAll(stackUserID: "user-1") // new (account, team) scope → re-restore
+        #expect(await backup.fetches() == 2)
+    }
+
+    @Test func setActiveMirrorsScopeToBackup() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup()
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        try await store.upsert(macDeviceID: "mac-a", displayName: nil, routes: [try route("10.0.0.1", 22)], markActive: true, stackUserID: "user-1", now: Date())
+        try await store.upsert(macDeviceID: "mac-b", displayName: nil, routes: [try route("10.0.0.2", 22)], markActive: false, stackUserID: "user-1", now: Date())
+        try await store.setActive(macDeviceID: "mac-b")
+
+        // The last upload (from setActive's scope mirror) marks mac-b active and mac-a inactive.
+        let ops = await backup.uploadedOps()
+        let lastB = ops.last { if case .upsert(let r) = $0 { return r.macDeviceID == "mac-b" } else { return false } }
+        let lastA = ops.last { if case .upsert(let r) = $0 { return r.macDeviceID == "mac-a" } else { return false } }
+        if case .upsert(let b)? = lastB { #expect(b.isActive) } else { Issue.record("no mac-b upsert mirrored") }
+        if case .upsert(let a)? = lastA { #expect(!a.isActive) } else { Issue.record("no mac-a upsert mirrored") }
     }
 
     // MARK: - Flag

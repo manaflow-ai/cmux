@@ -182,5 +182,16 @@ import Testing
         let all = try await reopened.loadAll(stackUserID: "user-1")
         #expect(all.map(\.macDeviceID) == ["manual-192.168.1.50:22"])
         #expect(all.first?.routes.first?.endpoint == .hostPort(host: "192.168.1.50", port: 22))
+
+        // And it must NOT have written a destructive downgrade marker: the on-disk
+        // schema version is left exactly as the newer build set it.
+        var check: OpaquePointer?
+        #expect(sqlite3_open(url.path, &check) == SQLITE_OK)
+        var stmt: OpaquePointer?
+        #expect(sqlite3_prepare_v2(check, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK)
+        #expect(sqlite3_step(stmt) == SQLITE_ROW)
+        #expect(sqlite3_column_int(stmt, 0) == futureVersion)
+        sqlite3_finalize(stmt)
+        sqlite3_close(check)
     }
 }

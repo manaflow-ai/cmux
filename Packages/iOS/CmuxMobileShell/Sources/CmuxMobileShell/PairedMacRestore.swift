@@ -17,6 +17,15 @@ private let pairedMacRestoreLog = Logger(subsystem: "com.cmuxterm.app", category
 /// written. The active selection is only honored from the backup when the local
 /// store has NO active host (the fresh-install case), so restoring never hijacks
 /// a host the user is actively using on this device.
+/// The result of a restore attempt. `completed` is true when the backup fetch
+/// succeeded (even if it returned no hosts), so the caller can memoize success
+/// and retry only on a real fetch failure. `restored` is the number of records
+/// written locally.
+public struct RestoreOutcome: Sendable, Equatable {
+    public let completed: Bool
+    public let restored: Int
+}
+
 public struct PairedMacRestore: Sendable {
     private let store: any MobilePairedMacStoring
     private let backup: any PairedMacBackingUp
@@ -26,16 +35,19 @@ public struct PairedMacRestore: Sendable {
         self.backup = backup
     }
 
-    /// Merge the user's backup into the local store. Best-effort: a fetch failure
-    /// leaves the local store untouched (it returns 0). Returns the number of
-    /// records written, for logging/tests.
+    /// Merge the user's backup into the local store. A fetch failure leaves the
+    /// local store untouched and reports `completed: false` so the caller can
+    /// retry; a successful fetch (even of an empty list) reports `completed:
+    /// true`.
     @discardableResult
     public func run(
         accountID: String,
         now: Date = Date()
-    ) async -> Int {
-        let remote = await backup.fetchAll()
-        guard !remote.isEmpty else { return 0 }
+    ) async -> RestoreOutcome {
+        guard let remote = await backup.fetchAll() else {
+            return RestoreOutcome(completed: false, restored: 0)
+        }
+        guard !remote.isEmpty else { return RestoreOutcome(completed: true, restored: 0) }
 
         let local = (try? await store.loadAll(stackUserID: accountID)) ?? []
         var localByID: [String: MobilePairedMac] = [:]
@@ -71,6 +83,6 @@ public struct PairedMacRestore: Sendable {
         if restored > 0 {
             pairedMacRestoreLog.info("restored \(restored, privacy: .public) paired mac(s) from backup")
         }
-        return restored
+        return RestoreOutcome(completed: true, restored: restored)
     }
 }

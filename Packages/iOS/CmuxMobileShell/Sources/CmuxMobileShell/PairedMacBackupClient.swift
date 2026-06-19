@@ -47,9 +47,10 @@ public protocol PairedMacBackingUp: Sendable {
     /// upload is logged and dropped (the local store stays authoritative, and a
     /// later upsert or the next sign-in reconcile re-pushes).
     func upload(ops: [PairedMacBackupOp]) async
-    /// Fetch the caller's full backed-up list. Best-effort: returns `[]` on any
-    /// failure (so restore simply has nothing to merge).
-    func fetchAll() async -> [PairedMacBackupRecord]
+    /// Fetch the caller's full backed-up list. Returns `nil` on a transport/auth
+    /// failure (so the caller can retry later) and `[]` only when the fetch
+    /// succeeded and the user genuinely has no backed-up hosts.
+    func fetchAll() async -> [PairedMacBackupRecord]?
 }
 
 /// HTTP client for the per-user paired-Mac backup on the presence worker
@@ -96,17 +97,19 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         }
     }
 
-    public func fetchAll() async -> [PairedMacBackupRecord] {
-        guard let request = await makeRequest(method: "GET", body: nil) else { return [] }
+    public func fetchAll() async -> [PairedMacBackupRecord]? {
+        guard let request = await makeRequest(method: "GET", body: nil) else { return nil }
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                return []
+                pairedMacBackupLog.warning("paired-mac backup fetch failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+                return nil
             }
-            return (try? JSONDecoder().decode(ListResponse.self, from: data))?.records ?? []
+            // A 2xx with an undecodable body is a real failure, not "no hosts".
+            return (try? JSONDecoder().decode(ListResponse.self, from: data))?.records
         } catch {
             pairedMacBackupLog.warning("paired-mac backup fetch error: \(String(describing: error), privacy: .public)")
-            return []
+            return nil
         }
     }
 

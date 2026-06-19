@@ -195,7 +195,11 @@ public struct CMUXMobileRootScene: View {
             ),
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
-        return BackingUpPairedMacStore(inner: store, backup: client)
+        return BackingUpPairedMacStore(
+            inner: store,
+            backup: client,
+            teamIDProvider: { await coordinator.resolvedTeamID }
+        )
     }
 
     public var body: some View {
