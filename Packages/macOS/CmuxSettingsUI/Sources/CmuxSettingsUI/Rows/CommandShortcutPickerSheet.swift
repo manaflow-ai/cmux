@@ -52,18 +52,28 @@ struct CommandShortcutPickerSheet: View {
             .textFieldStyle(.roundedBorder)
             .padding(.horizontal, 12)
             .accessibilityIdentifier("CustomCommandPickerSearchField")
-            List(filtered) { descriptor in
-                Button { onSelect(descriptor) } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(descriptor.title)
-                        Text(descriptor.id).font(.caption).foregroundColor(.secondary)
+            ScrollViewReader { proxy in
+                List(filtered) { descriptor in
+                    Button { onSelect(descriptor) } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(descriptor.title)
+                            Text(descriptor.id).font(.caption).foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                .frame(minWidth: 360, minHeight: 320)
+                // Each keystroke shrinks `filtered`; without this the List keeps its
+                // previous scroll offset, so the few remaining matches can end up
+                // scrolled off the top and the list looks empty. Snap back to the
+                // first match whenever the query changes.
+                .onChange(of: query) { _, _ in
+                    guard let firstID = filtered.first?.id else { return }
+                    proxy.scrollTo(firstID, anchor: .top)
+                }
             }
-            .frame(minWidth: 360, minHeight: 320)
         }
         .frame(width: 420, height: 420)
     }
