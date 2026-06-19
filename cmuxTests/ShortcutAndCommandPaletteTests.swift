@@ -933,29 +933,25 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         let commandShortcut = StoredShortcut(key: "R", command: true, shift: false, option: false, control: false)
 
         XCTAssertTrue(
-            titlebarShortcutHintShouldShow(
-                shortcut: controlShortcut,
+            controlShortcut.titlebarHintShouldShow(
                 alwaysShowShortcutHints: true,
                 modifierPressed: false
             )
         )
         XCTAssertFalse(
-            titlebarShortcutHintShouldShow(
-                shortcut: controlShortcut,
+            controlShortcut.titlebarHintShouldShow(
                 alwaysShowShortcutHints: false,
                 modifierPressed: true
             )
         )
         XCTAssertTrue(
-            titlebarShortcutHintShouldShow(
-                shortcut: commandShortcut,
+            commandShortcut.titlebarHintShouldShow(
                 alwaysShowShortcutHints: false,
                 modifierPressed: true
             )
         )
         XCTAssertFalse(
-            titlebarShortcutHintShouldShow(
-                shortcut: .unbound,
+            StoredShortcut.unbound.titlebarHintShouldShow(
                 alwaysShowShortcutHints: true,
                 modifierPressed: true
             )
