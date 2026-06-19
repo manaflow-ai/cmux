@@ -3397,12 +3397,9 @@ class TabManager: ObservableObject {
             return false
         }
         let requestedPanelId = surfaceId.flatMap { panelId(forSurfaceOrPanelId: $0, in: tab) }
-        if let requestedSurfaceId = surfaceId, requestedPanelId == nil {
+        if let surfaceId, requestedPanelId == nil {
 #if DEBUG
-            cmuxDebugLog(
-                "notification.focus.fail tab=\(tabId.uuidString.prefix(5)) " +
-                "panel=\(requestedSurfaceId.uuidString.prefix(5)) reason=missingPanel"
-            )
+            cmuxDebugLog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) reason=missingPanel")
 #endif
             return false
         }
