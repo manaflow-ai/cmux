@@ -142,5 +142,72 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(hourlyEvent.properties["hour_utc"] as? String == "2026-02-21T14")
         #expect(hourlyEvent.properties["reason"] as? String == "didBecomeActive")
     }
+
+    @Test
+    func activeFlushDoesNotBlockMainThreadWhenSDKFlushBlocks() throws {
+        let suiteName = "cmux.posthog.analytics.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fixedDate = try #require(Calendar(identifier: .iso8601).date(from: DateComponents(
+            timeZone: TimeZone(secondsFromGMT: 0),
+            year: 2026,
+            month: 2,
+            day: 21,
+            hour: 14
+        )))
+        let flushStarted = DispatchSemaphore(value: 0)
+        let flushCanReturn = DispatchSemaphore(value: 0)
+        let flushReturned = DispatchSemaphore(value: 0)
+        let flushRanOnMainThread = DispatchSemaphore(value: 0)
+        let flushRanOffMainThread = DispatchSemaphore(value: 0)
+        let callerReturnedPromptly = DispatchSemaphore(value: 0)
+        let callerReturnedSlowly = DispatchSemaphore(value: 0)
+        let analytics = PostHogAnalytics.makeForTesting(
+            workQueue: DispatchQueue(label: "com.cmux.tests.posthog.analytics"),
+            didStart: true,
+            userDefaults: defaults,
+            now: { fixedDate },
+            capturePostHog: { _, _ in },
+            flushPostHog: {
+                if Thread.isMainThread {
+                    flushRanOnMainThread.signal()
+                } else {
+                    flushRanOffMainThread.signal()
+                }
+                flushStarted.signal()
+                _ = flushCanReturn.wait(timeout: .now() + .seconds(1))
+                flushReturned.signal()
+            }
+        )
+
+        let trackActiveOnMainThread = {
+            let start = DispatchTime.now().uptimeNanoseconds
+            analytics.trackActive(reason: "didBecomeActive")
+            let elapsedSeconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
+            if elapsedSeconds < 0.25 {
+                callerReturnedPromptly.signal()
+            } else {
+                callerReturnedSlowly.signal()
+            }
+        }
+
+        if Thread.isMainThread {
+            trackActiveOnMainThread()
+        } else {
+            DispatchQueue.main.async(execute: trackActiveOnMainThread)
+        }
+
+        #expect(callerReturnedPromptly.wait(timeout: .now() + .seconds(1)) == .success)
+        #expect(callerReturnedSlowly.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
+        #expect(flushStarted.wait(timeout: .now() + .seconds(1)) == .success)
+        #expect(flushRanOffMainThread.wait(timeout: .now() + .seconds(1)) == .success)
+        #expect(flushRanOnMainThread.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
+        #expect(flushReturned.wait(timeout: .now() + .milliseconds(50)) == .timedOut)
+        flushCanReturn.signal()
+        #expect(flushReturned.wait(timeout: .now() + .seconds(1)) == .success)
+    }
 }
 #endif
