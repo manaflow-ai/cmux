@@ -194,9 +194,25 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         return value
     }
 
-    /// The tmux control-mode command that opens a new window for a mirror tab.
+    /// The tmux control-mode command that opens a new window, optionally seeded
+    /// with a starting directory so the new tmux window inherits the active
+    /// tab's working directory — matching how a new tab inherits cwd in local
+    /// cmux. A nil/blank/unsafe directory yields a bare `new-window`, letting
+    /// tmux fall back to its default-path (typically `~`).
+    ///
+    /// The path is single-quoted so spaces and shell metacharacters survive
+    /// tmux's command parser (the same quoting the `rename-*` commands use on
+    /// this stream), and rejected outright when it carries CR/LF/control bytes
+    /// that could terminate the command line before tmux parses the quoted
+    /// argument (same line-safety contract as ``controlModeCommandName(_:)``).
     static func newWindowCommand(workingDirectory: String?) -> String {
-        "new-window"
+        guard let directory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !directory.isEmpty,
+              controlModeLineSafeName(directory) != nil
+        else {
+            return "new-window"
+        }
+        return "new-window -c \(shellSingleQuoted(directory))"
     }
 
     /// Builds the `ssh` argv (for direct `Process` execution, no shell) that

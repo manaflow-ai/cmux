@@ -394,13 +394,18 @@ final class RemoteTmuxController {
     /// returning `true` would let socket callers report an accepted mutation
     /// that never reached tmux.
     ///
+    /// - Parameter workingDirectory: the directory the new tmux window should
+    ///   start in (the focused tab's cwd, resolved by the caller), so a new tab
+    ///   inherits the active tab's directory the way local cmux does. A
+    ///   nil/blank/unsafe value sends a bare `new-window` and lets tmux pick its
+    ///   default-path (`~`).
     /// - Returns: `true` if routed to the remote; `false` if there is no live
     ///   mirror/connection (callers must still NOT create a local tab in a
     ///   mirror workspace — they report failure instead).
-    func handleMirrorNewTabRequested(workspaceId: UUID) -> Bool {
+    func handleMirrorNewTabRequested(workspaceId: UUID, workingDirectory: String? = nil) -> Bool {
         guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
               mirror.connection.connectionState == .connected else { return false }
-        return mirror.connection.send("new-window")
+        return mirror.connection.send(RemoteTmuxHost.newWindowCommand(workingDirectory: workingDirectory))
     }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
