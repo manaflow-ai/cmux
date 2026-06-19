@@ -36,10 +36,13 @@ green there. These stay on Warp or Depot on purpose:
   (Depot/Warp) because Cmd-Tab timing, virtual displays, and XCTest automation
   need a GUI-capable runner. A Depot identity guard validates these.
 
-`MACOS_RUNNER_IOS` defaults to Blacksmith but keeps a free GitHub-hosted
-`macos-26` fallback because iOS simulator XCUITests may hit the same
-testmanagerd limitation. If an iOS job wedges on Blacksmith, flip
-`MACOS_RUNNER_IOS` back to `macos-26`.
+`MACOS_RUNNER_IOS` defaults to Blacksmith and its baked-in fallback is also
+`blacksmith-6vcpu-macos-26`. It deliberately does NOT fall back to the bare
+GitHub-hosted `macos-26` label: our self-hosted fleet carries `macos-26`, and
+GitHub prefers a matching self-hosted runner, so `macos-26` would route iOS jobs
+to a mini. If an iOS job wedges on Blacksmith, break-glass to a GUI-capable
+cloud runner (`gh variable set MACOS_RUNNER_IOS -b depot-macos-latest`), not to
+`macos-26`.
 
 ## Break-glass: switch a runner type off Blacksmith
 
@@ -58,12 +61,18 @@ gh variable set MACOS_RUNNER_IOS      --repo manaflow-ai/cmux -b blacksmith-6vcp
 
 Break-glass a type to WarpBuild only when Blacksmith is down or queuing for
 minutes (as happened for macOS in https://github.com/manaflow-ai/cmux/pull/4926).
-Either delete the variable to use the baked-in fallback, or set it explicitly:
+**Set an explicit cloud label.** Do not rely on deleting the variable: the
+baked-in macOS-26 fallbacks are now `blacksmith-6vcpu-macos-26` (not Warp),
+because `warp-macos-26-arm64-6x` collides with the self-hosted fleet, so
+deleting `MACOS_RUNNER_26` just keeps the job on Blacksmith. Never set any
+runner variable to a fleet/self-hosted label.
 
 ```bash
 gh variable set LINUX_RUNNER    --repo manaflow-ai/cmux -b warp-ubuntu-latest-x64-4x
 gh variable set MACOS_RUNNER_15 --repo manaflow-ai/cmux -b warp-macos-15-arm64-6x
-gh variable delete MACOS_RUNNER_26 --repo manaflow-ai/cmux   # reverts to the Warp fallback
+# macOS 26 has no Warp cloud fallback (warp-macos-26 collides with the fleet);
+# break-glass to a GUI-capable cloud runner instead:
+gh variable set MACOS_RUNNER_26 --repo manaflow-ai/cmux -b depot-macos-latest
 ```
 
 Check current values:

@@ -695,27 +695,55 @@ check_no_bare_github_hosted_runners() {
 }
 
 check_no_self_hosted_fleet_runners() {
-  # We do NOT use our self-hosted mac-mini fleet (cmux-mac-mini, studio1,
-  # mac4-cmuxvnc*, cmux-austin-mini-*) for CI. Those minis carry labels that
-  # collide with cloud labels (notably `macos-26` and `warp-macos-26-arm64-6x`),
-  # and GitHub PREFERS a matching self-hosted runner, so any workflow that
-  # references such a label can silently land a required job on a mini that
-  # cannot foreground a GUI app. Forbid every fleet/self-hosted label and the
-  # bare self-hosted/macOS/ARM64 combos so CI only ever uses cloud runners
-  # (Blacksmith / WarpBuild cloud / Depot). Allowed macOS labels:
-  # blacksmith-6vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
-  # depot-macos-{latest,14} (none of which any mini carries).
+  # We do NOT use our self-hosted mac fleet for required CI. Those runners carry
+  # custom labels that collide with cloud labels, and GitHub PREFERS a matching
+  # self-hosted runner, so any required job that names such a label can land on
+  # a mini that cannot foreground a GUI app. Forbid every real fleet label (see
+  # the runner registry) and the bare self-hosted/macOS/ARM64 combos in
+  # runner-selection positions, so required jobs only ever use cloud runners.
+  # Allowed macOS labels (none carried by any fleet runner):
+  #   blacksmith-6vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
+  #   depot-macos-{latest,14}.
+  # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
+  # not required CI) and intentionally targets the fleet via a free-form input;
+  # this guard only inspects runner-selection lines, not its input description.
+  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
+  local allowed='blacksmith-6vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
+
+  # Self-test the matcher so a future edit cannot silently narrow it: every
+  # known fleet label must be caught, every allowed cloud label must pass.
+  local probe
+  for probe in 'runs-on: macfleet' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
+               "runs-on: \${{ vars.X || 'macos-26' }}" '- warp-macos-26-arm64-6x' \
+               '- cmux-aws-macos-15' '- cmux-macos-26'; do
+    if ! printf '%s\n' "$probe" | grep -Eq "($fleet)"; then
+      echo "FAIL: fleet-runner guard self-test missed a known fleet label: $probe"
+      exit 1
+    fi
+  done
+  for probe in "runs-on: \${{ vars.X || 'blacksmith-6vcpu-macos-26' }}" \
+               '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15'; do
+    if printf '%s\n' "$probe" | grep -E "($fleet)" | grep -Eqv "($allowed)"; then
+      echo "FAIL: fleet-runner guard self-test false-positived a cloud label: $probe"
+      exit 1
+    fi
+  done
+
   local hits=""
-  hits+="$(grep -rnE "('macos-26'|\"macos-26\"|: macos-26([[:space:]]|\$)|- macos-26([[:space:]]|\$)|warp-macos-26-arm64-6x|cmux-aws-macos-15|cmux-macos-26|cmux-local-macos-26|cmux-macos-display|cmux-mac-mini|mac4-cmuxvnc|[[:space:]]macfleet([[:space:],]|\$))" "$ROOT_DIR/.github/workflows" | grep -vE "^[^:]+:[0-9]+:[[:space:]]*#" || true)"
-  hits+="$(grep -rnE "runs-on:[[:space:]]*\[?[[:space:]]*(self-hosted|macOS|ARM64)([[:space:],]|\]|\$)" "$ROOT_DIR/.github/workflows" || true)"
+  # Only runner-selection lines: runs-on:, matrix `os:`, and scalar dispatch
+  # options (`  - <label>` with no colon). Free-text descriptions and step
+  # lists (`- name:` / `- uses:`) are excluded.
+  hits+="$(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[^:]+:[0-9]+:[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows" \
+            | grep -E "($fleet)" | grep -Ev "($allowed)" || true)"
+  hits+="$(grep -rnE "runs-on:[[:space:]]*\[?[[:space:]]*(self-hosted|macOS|ARM64)([[:space:],]|\]|$)" "$ROOT_DIR/.github/workflows" || true)"
   if [[ -n "$hits" ]]; then
-    echo "FAIL: workflow references a self-hosted mac-mini fleet label or bare self-hosted runner."
+    echo "FAIL: workflow references a self-hosted mac fleet label or bare self-hosted runner in a runner-selection position."
     echo "      Use a cloud label so required jobs never land on a mini that can't foreground a GUI app:"
     echo "      blacksmith-6vcpu-macos-{15,26,latest} / warp-macos-15-arm64-6x / depot-macos-{latest,14}."
     echo "$hits"
     exit 1
   fi
-  echo "PASS: no workflow can route to a self-hosted mac-mini (cloud runners only)"
+  echo "PASS: no workflow can route a required job to a self-hosted mac fleet runner (cloud only)"
 }
 
 # ci.yml jobs
