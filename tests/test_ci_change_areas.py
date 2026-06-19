@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -85,13 +86,101 @@ def test_workflow_changes_run_everything() -> None:
     assert_areas([".github/workflows/ci.yml"], macos=True, web=True, go=True)
 
 
-def test_workflow_has_trusted_self_change_guard() -> None:
-    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "CI router changed; running all CI areas." in workflow
-    assert "--files-from /tmp/cmux-ci-changed-files.txt" in workflow
-    assert r"\.github/workflows/ci\.yml" in workflow
-    assert r"scripts/ci/[^/]+\.py" in workflow
-    assert r"tests/test_ci_change_areas\.py" in workflow
+def detect_step_script() -> str:
+    lines = CI_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    for index, line in enumerate(lines):
+        if line == "      - name: Detect CI change areas":
+            for run_index in range(index + 1, len(lines)):
+                if lines[run_index] == "        run: |":
+                    body: list[str] = []
+                    for body_line in lines[run_index + 1 :]:
+                        if body_line.startswith("          "):
+                            body.append(body_line[10:])
+                            continue
+                        if not body_line.strip():
+                            body.append("")
+                            continue
+                        break
+                    return "\n".join(body)
+            break
+    raise AssertionError("Detect CI change areas run block not found")
+
+
+def run_detect_step_for_paths(paths: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    script = detect_step_script()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        repo = Path(temp_dir)
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
+        (repo / "base.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
+        base_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+
+        for path in paths:
+            target = repo / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("changed\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "head"], cwd=repo, check=True)
+        head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+
+        output_path = repo / "github-output.txt"
+        env = {
+            **os.environ,
+            "EVENT_NAME": "pull_request",
+            "BASE_SHA": base_sha,
+            "HEAD_SHA": head_sha,
+            "GITHUB_OUTPUT": str(output_path),
+        }
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=repo,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        return result, output_path.read_text(encoding="utf-8").splitlines()
+
+
+def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
+    result, outputs = run_detect_step_for_paths(["scripts/ci/subprocess.py"])
+
+    assert "CI router changed; running all CI areas." in result.stdout
+    assert outputs == ["macos=true", "web=true", "go=true"]
+
+
+def test_workflow_diff_failure_runs_all_areas() -> None:
+    script = detect_step_script()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        repo = Path(temp_dir)
+        output_path = repo / "github-output.txt"
+        env = {
+            **os.environ,
+            "EVENT_NAME": "pull_request",
+            "BASE_SHA": "missing-base",
+            "HEAD_SHA": "missing-head",
+            "GITHUB_OUTPUT": str(output_path),
+        }
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=repo,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+
+        assert "Could not compute PR diff; running all CI areas." in result.stderr
+        assert output_path.read_text(encoding="utf-8").splitlines() == [
+            "macos=true",
+            "web=true",
+            "go=true",
+        ]
 
 
 def test_router_changes_run_everything() -> None:

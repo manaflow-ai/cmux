@@ -37,18 +37,26 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          emit_all_areas() {
+            echo "macos=true" >> "$GITHUB_OUTPUT"
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          }
+
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
-            git diff --name-only "$MERGE_BASE" "$HEAD_SHA" > /tmp/cmux-ci-changed-files.txt
+            if ! MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" \
+              || ! git diff --name-only "$MERGE_BASE" "$HEAD_SHA" > /tmp/cmux-ci-changed-files.txt; then
+              echo "Could not compute PR diff; running all CI areas." >&2
+              emit_all_areas
+              exit 0
+            fi
 
             # This guard lives in workflow YAML, before the PR-editable detector
             # runs. Router/workflow edits must fail open even if a PR breaks the
             # detector's own self-change classification.
             if grep -Eq '^(\.github/workflows/ci\.yml|scripts/ci/[^/]+\.py|tests/test_ci_change_areas\.py)$' /tmp/cmux-ci-changed-files.txt; then
               echo "CI router changed; running all CI areas."
-              echo "macos=true" >> "$GITHUB_OUTPUT"
-              echo "web=true" >> "$GITHUB_OUTPUT"
-              echo "go=true" >> "$GITHUB_OUTPUT"
+              emit_all_areas
               exit 0
             fi
 
