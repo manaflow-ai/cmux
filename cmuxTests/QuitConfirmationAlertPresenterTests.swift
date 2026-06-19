@@ -73,6 +73,36 @@ struct QuitConfirmationAlertPresenterTests {
         #expect(completedResponse == .alertFirstButtonReturn)
         #expect(completedSuppressionState == .off)
     }
+
+    @Test
+    func presenterUsesStandaloneCompletionWithoutRunningNestedModalLoop() {
+        let alert = QuitConfirmationAlertSpy()
+
+        var completedResponse: NSApplication.ModalResponse?
+        var completedSuppressionState: NSControl.StateValue?
+        let presenter = QuitConfirmationAlertPresenter(
+            alert: alert,
+            presentingWindowProvider: { nil }
+        ) { response, suppressionState in
+            completedResponse = response
+            completedSuppressionState = suppressionState
+        }
+
+        presenter.present()
+        defer {
+            alert.window.orderOut(nil)
+            alert.window.close()
+        }
+
+        #expect(!alert.didBeginSheetModal)
+        #expect(!alert.didRunModal)
+        #expect(completedResponse == nil)
+
+        alert.buttons[0].performClick(nil)
+
+        #expect(completedResponse == .alertFirstButtonReturn)
+        #expect(completedSuppressionState == .off)
+    }
 }
 
 private final class QuitConfirmationAlertSpy: NSAlert {

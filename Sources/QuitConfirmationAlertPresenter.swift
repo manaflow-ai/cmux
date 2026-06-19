@@ -20,7 +20,7 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
         super.init()
     }
 
-    static func makeAlert() -> NSAlert {
+    private static func makeAlert() -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
