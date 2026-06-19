@@ -7,7 +7,7 @@
 14100	Sources/TerminalController.swift
 12695	Sources/Workspace.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11878	Sources/GhosttyTerminalView.swift
+11827	Sources/GhosttyTerminalView.swift
 11411	Sources/Panels/BrowserPanel.swift
 9339	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7988	Sources/Panels/BrowserPanelView.swift
@@ -49,7 +49,7 @@
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1954	Sources/RestorableAgentSession.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
-1947	Sources/KeyboardShortcutSettingsFileStore.swift
+1940	Sources/KeyboardShortcutSettingsFileStore.swift
 1869	cmuxTests/NotificationAndMenuBarTests.swift
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
@@ -162,7 +162,7 @@
 614	Sources/PortScanner.swift
 612	cmuxUITests/FeedSidebarUITests.swift
 608	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
-608	Sources/SettingsNavigation.swift
+606	Sources/SettingsNavigation.swift
 604	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
 599	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 596	cmuxTests/CmuxEventBusTests.swift

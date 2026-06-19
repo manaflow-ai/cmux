@@ -496,14 +496,7 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
-
-        if let value = jsonDouble(section["scrollSpeed"]) {
-            snapshot.managedUserDefaults[TerminalScrollSpeedSettings.multiplierKey] =
-                .double(TerminalScrollSpeedSettings.sanitizedMultiplier(value))
-        } else if section.keys.contains("scrollSpeed") {
-            logInvalid("terminal.scrollSpeed", sourcePath: sourcePath)
-        }
-
+        applyTerminalScrollSpeedSetting(from: section, assign: { snapshot.managedUserDefaults[$0] = .double($1) }, logInvalid: { logInvalid($0, sourcePath: sourcePath) })
         if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
             snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
         } else if section.keys.contains("showTextBoxOnNewTerminals") {

@@ -3562,8 +3562,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
-    private var pendingNonPreciseScrollX: CGFloat = 0
-    private var pendingNonPreciseScrollY: CGFloat = 0
+    private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
@@ -7005,31 +7004,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             x *= 2
             y *= 2
         }
-
-        let scrollSpeedMultiplier = CGFloat(TerminalScrollSpeedSettings.multiplier())
-        if scrollSpeedMultiplier != 1 {
-            if precision {
-                x *= scrollSpeedMultiplier
-                y *= scrollSpeedMultiplier
-            } else {
-                x = Self.scaledNonPreciseHorizontalScrollDelta(
-                    rawDelta: x,
-                    multiplier: scrollSpeedMultiplier,
-                    pending: &pendingNonPreciseScrollX
-                )
-                y = Self.scaledNonPreciseVerticalScrollDelta(
-                    rawDelta: y,
-                    multiplier: scrollSpeedMultiplier,
-                    pending: &pendingNonPreciseScrollY
-                )
-            }
-        }
-
+        scrollSpeedAccumulator.apply(x: &x, y: &y, precision: precision)
         var mods: Int32 = 0
         if precision {
             mods |= 0b0000_0001
         }
-
         let momentum: Int32
         switch event.momentumPhase {
         case .began:
@@ -7060,36 +7039,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             y,
             ghostty_input_scroll_mods_t(mods)
         )
-    }
-
-    private static func scaledNonPreciseHorizontalScrollDelta(
-        rawDelta: CGFloat,
-        multiplier: CGFloat,
-        pending: inout CGFloat
-    ) -> CGFloat {
-        guard rawDelta != 0 else { return 0 }
-        pending += rawDelta * multiplier
-        let rounded = pending.rounded()
-        guard rounded != 0 else { return 0 }
-        pending -= rounded
-        return rounded
-    }
-
-    private static func scaledNonPreciseVerticalScrollDelta(
-        rawDelta: CGFloat,
-        multiplier: CGFloat,
-        pending: inout CGFloat
-    ) -> CGFloat {
-        guard rawDelta != 0 else { return 0 }
-        // Ghostty clamps Darwin non-precise vertical ticks to at least 1
-        // before applying its discrete row multiplier. Accumulate in that
-        // pre-Ghostty tick unit so sub-1x values can slow ordinary wheels.
-        let effectiveTicks = rawDelta > 0 ? max(rawDelta, 1) : min(rawDelta, -1)
-        pending += effectiveTicks * multiplier
-        let wholeTicks = pending > 0 ? floor(pending) : ceil(pending)
-        guard wholeTicks != 0 else { return 0 }
-        pending -= wholeTicks
-        return wholeTicks
     }
 
     deinit {
