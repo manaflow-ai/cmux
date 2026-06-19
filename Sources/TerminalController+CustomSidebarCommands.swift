@@ -145,9 +145,11 @@ extension TerminalController {
 
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: workspace)
-            workspace.clearSplitZoom()
 
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+            if focus {
+                workspace.clearSplitZoom()
+            }
             let panel: CustomSidebarPanel?
             if focus, let focusedPanelId = workspace.focusedPanelId {
                 panel = workspace.openOrFocusCustomSidebarSplit(from: focusedPanelId, name: name)
