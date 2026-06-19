@@ -146,6 +146,8 @@ extension Workspace {
         )
         surfaceIdToPanelId[newTab.id] = customPanel.id
 
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(
             paneId,
             orientation: orientation,
