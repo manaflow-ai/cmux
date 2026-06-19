@@ -958,16 +958,41 @@ final class CmuxSettingsFileStore {
         }
 
         if let rawCommands = section["commands"] as? [String: Any] {
-            for (commandId, rawBinding) in rawCommands {
+            // Iterate in sorted command-id order so duplicate keystrokes resolve to
+            // a deterministic winner across launches (dictionary order is not
+            // stable). `claimedStrokes` maps a keystroke identity to its winning
+            // command id; a later command id with the same keystroke is dropped
+            // with a warning, so dispatch can never fire a hash-order-dependent
+            // command. Unbound (`null`) entries claim no keystroke.
+            var claimedStrokes: [String: String] = [:]
+            for commandId in rawCommands.keys.sorted() {
+                guard let rawBinding = rawCommands[commandId] else { continue }
                 guard let shortcut = parseCommandShortcutBindingValue(rawBinding) else {
                     cmuxSettingsFileStoreLogger.warning("ignoring invalid command shortcut binding for '\(commandId, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                     continue
+                }
+                if !shortcut.isUnbound {
+                    let strokeKey = Self.commandShortcutStrokeKey(shortcut)
+                    if let winner = claimedStrokes[strokeKey] {
+                        cmuxSettingsFileStoreLogger.warning("ignoring command shortcut for '\(commandId, privacy: .private(mask: .hash))' — its keystroke is already bound to '\(winner, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                        continue
+                    }
+                    claimedStrokes[strokeKey] = commandId
                 }
                 snapshot.commandShortcutsById[commandId] = shortcut
             }
         }
 
         parseShortcutWhenClauses(section["when"], sourcePath: sourcePath, snapshot: &snapshot)
+    }
+
+    /// A keyCode-agnostic identity for a command shortcut's (single) stroke — key
+    /// plus modifier flags — used to detect two command ids bound to the same
+    /// keystroke. Mirrors the modifier-only matching the dispatch path uses
+    /// (`keyCode` is ignored because recorded strokes carry a resolved code while
+    /// config-authored ones may not).
+    private static func commandShortcutStrokeKey(_ shortcut: StoredShortcut) -> String {
+        "\(shortcut.key.lowercased())|\(shortcut.command)|\(shortcut.control)|\(shortcut.shift)|\(shortcut.option)"
     }
 
     /// Parses the optional `shortcuts.when` map — `{ "<actionId>": "<predicate>" }`
@@ -1858,7 +1883,9 @@ private struct ResolvedSettingsSnapshot {
         for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {
             whenClauses[action] = clause
         }
-        if commandShortcutsById.isEmpty { commandShortcutsById = fallback.commandShortcutsById }
+        for (commandId, shortcut) in fallback.commandShortcutsById where commandShortcutsById[commandId] == nil {
+            commandShortcutsById[commandId] = shortcut
+        }
         for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
             managedUserDefaults[key] = value
             if fallback.legacyDerivedManagedUserDefaultKeys.contains(key) {

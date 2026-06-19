@@ -13,9 +13,20 @@ struct CommandShortcutPickerSheet: View {
 
     /// The same fuzzy ranking engine the Command Palette uses, so a query like
     /// "open X" matches "Open Workspace in X" (non-contiguous tokens), not just
-    /// exact substrings. Rebuilt per access — cheap for this short list.
-    private var searchEngine: CommandPaletteSearchEngine<BindableCommandDescriptor> {
-        CommandPaletteSearchEngine(
+    /// exact substrings. Built once when the sheet is created — the per-keystroke
+    /// `filtered` lookup reuses this corpus instead of re-normalizing every
+    /// command's searchable text on each keystroke.
+    private let searchEngine: CommandPaletteSearchEngine<BindableCommandDescriptor>
+
+    init(
+        commands: [BindableCommandDescriptor],
+        onSelect: @escaping (BindableCommandDescriptor) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.commands = commands
+        self.onSelect = onSelect
+        self.onCancel = onCancel
+        self.searchEngine = CommandPaletteSearchEngine(
             entries: commands.enumerated().map { index, descriptor in
                 CommandPaletteSearchCorpusEntry(
                     payload: descriptor,

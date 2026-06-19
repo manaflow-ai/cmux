@@ -28,6 +28,7 @@ final class CommandShortcutFileStoreTests: XCTestCase {
             "commands": {
               "palette.triggerFlash": "cmd+shift+1",
               "palette.openFolder": ["ctrl+b", "o"],
+              "palette.chordObject": {"first": {"key": "j", "command": true}, "second": {"key": "k"}},
               "palette.foo": {"first": {"key": "k", "command": true}},
               "palette.closeTab": null
             }
@@ -48,6 +49,8 @@ final class CommandShortcutFileStoreTests: XCTestCase {
         XCTAssertEqual(overrides["palette.triggerFlash"]?.command, true)
         // Chord array form is rejected (single-stroke only).
         XCTAssertNil(overrides["palette.openFolder"])
+        // Object form with a `second` stroke is a chord — also rejected.
+        XCTAssertNil(overrides["palette.chordObject"])
         // Nested-object form (the shape the UI writes) round-trips.
         XCTAssertEqual(overrides["palette.foo"]?.key, "k")
         XCTAssertEqual(overrides["palette.foo"]?.command, true)

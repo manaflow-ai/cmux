@@ -508,14 +508,7 @@ working-directory = ~/code`}</CodeBlock>
       <DocsHeading level={3} id="shortcuts-commands">
         <code>shortcuts.commands</code>
       </DocsHeading>
-      <p>
-        Bind a custom keyboard shortcut to any Command-Palette command that has no built-in
-        action shortcut. Keys are command ids (for example <code>palette.triggerFlash</code>);
-        values are a single-stroke shortcut string (such as <code>cmd+shift+0</code>) or{" "}
-        <code>null</code> to unbind. Unlike <code>shortcuts.bindings</code>, command shortcuts are
-        single-stroke only — tmux-style chords (the two-item array form) are not supported and are
-        ignored.
-      </p>
+      <p>{t("shortcutsCommandsIntro")}</p>
       <pre className="not-prose overflow-x-auto rounded-xl border border-border/70 bg-background/40 p-4 text-sm">
         <code>{`"shortcuts": {
   "commands": {
@@ -524,10 +517,12 @@ working-directory = ~/code`}</CodeBlock>
 }`}</code>
       </pre>
       <p>
-        These bindings can also be managed from{" "}
-        <strong>Settings → Keyboard Shortcuts → Custom Commands</strong>.
-        See the <Link href="/docs/keyboard-shortcuts#custom-command-shortcuts">keyboard shortcuts page</Link>{" "}
-        for more detail.
+        {t.rich("shortcutsCommandsManaged", {
+          settings: (chunks) => <strong>{chunks}</strong>,
+          link: (chunks) => (
+            <Link href="/docs/keyboard-shortcuts#custom-command-shortcuts">{chunks}</Link>
+          ),
+        })}
       </p>
     </>
   );

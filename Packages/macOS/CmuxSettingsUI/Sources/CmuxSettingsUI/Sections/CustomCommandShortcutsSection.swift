@@ -216,6 +216,7 @@ public struct CustomCommandShortcutsSection: View {
                 // for a now-clean binding should clear.
                 for (commandId, binding) in dictionary where !binding.isUnbound {
                     pendingCommandIds.remove(commandId)
+                    conflictRejections.removeValue(forKey: commandId)
                 }
             }
         }
@@ -248,25 +249,40 @@ public struct CustomCommandShortcutsSection: View {
             return
         }
         conflictRejections.removeValue(forKey: commandId)
-        pendingCommandIds.remove(commandId)
         var updated = bindings
         updated[commandId] = shortcut
-        await write(updated)
+        // Clear the pending row only once the write is confirmed; a failed write
+        // rolls back and leaves the row in place so the user can retry.
+        if await write(updated) {
+            pendingCommandIds.remove(commandId)
+        }
     }
 
     private func remove(_ commandId: String) async {
         conflictRejections.removeValue(forKey: commandId)
-        pendingCommandIds.remove(commandId)
         var updated = bindings
         updated.removeValue(forKey: commandId)
-        await write(updated)
+        if await write(updated) {
+            pendingCommandIds.remove(commandId)
+        }
     }
 
-    private func write(_ updated: [String: StoredShortcut]) async {
+    /// Single authoritative mutation path for `shortcuts.commands`. Applies the
+    /// new map to `bindings` optimistically before persisting so a rapid follow-up
+    /// edit builds on the latest state (no lost update from reading the not-yet-
+    /// streamed value), then rolls back to the prior snapshot if the write fails.
+    /// The binding stream later reconciles `bindings` with the persisted file.
+    @discardableResult
+    private func write(_ updated: [String: StoredShortcut]) async -> Bool {
+        let previous = bindings
+        bindings = updated
         do {
             try await jsonStore.set(updated, for: catalog.shortcuts.commands)
+            return true
         } catch {
+            bindings = previous
             errorLog.record(error, keyID: catalog.shortcuts.commands.id)
+            return false
         }
     }
 }
