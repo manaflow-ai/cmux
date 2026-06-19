@@ -2,7 +2,11 @@ internal import Foundation
 
 /// The v1 line-protocol debug/test command dispatch (`set_shortcut`,
 /// `simulate_shortcut`, `activate_app`, the counter reads/resets, the panel
-/// snapshot/screenshot family, and `debug_right_sidebar_focus`).
+/// snapshot/screenshot family, `debug_right_sidebar_focus`, and the v1-only
+/// synthetic-input / drag-overlay probes `simulate_type`,
+/// `simulate_file_drop`, the `seed_drag_pasteboard_*` family,
+/// `clear_drag_pasteboard`, `drop_hit_test`, `drag_hit_chain`, and the
+/// overlay/portal/sidebar gates).
 ///
 /// Every command here was compiled only into DEBUG builds (the legacy
 /// `processCommand` cases sat inside `#if DEBUG`), so the whole dispatch is
@@ -10,14 +14,17 @@ internal import Foundation
 /// app's legacy v1 dispatcher falls through to its own `default:` exactly as
 /// the compiled-out cases produced.
 ///
-/// All but `debug_right_sidebar_focus` forward to the ``ControlDebugContext``
-/// v1-shared witnesses, which run the still-app-resident v1 string bodies and
-/// return their raw response verbatim — byte-identical to the legacy dispatch.
-/// `debug_right_sidebar_focus` is reconstructed from the typed
-/// ``ControlDebugRightSidebarFocusResolution`` (the same resolution the v2
-/// `debug.right_sidebar.focus` consumes), reproducing the legacy flat-string
-/// response with `focus_first_item` and the explicit window both unset, as the
-/// legacy v1 body hardcoded.
+/// Most commands forward to the ``ControlDebugContext`` witnesses, which run
+/// the (still-app-resident, irreducibly AppKit/ghostty-coupled) v1 string
+/// bodies and return their raw response verbatim — byte-identical to the legacy
+/// dispatch. The `set_shortcut`/`simulate_shortcut`/`read_terminal_text`/… set
+/// forward to v1-shared bodies that the v1 dispatcher still calls elsewhere;
+/// the v1-only synthetic-input / drag-overlay probes have no v2 method, so
+/// their witnesses carry the whole body. `debug_right_sidebar_focus` is
+/// reconstructed from the typed ``ControlDebugRightSidebarFocusResolution`` (the
+/// same resolution the v2 `debug.right_sidebar.focus` consumes), reproducing
+/// the legacy flat-string response with `focus_first_item` and the explicit
+/// window both unset, as the legacy v1 body hardcoded.
 extension ControlCommandCoordinator {
     /// Dispatches the v1 debug/test commands this coordinator owns; returns
     /// `nil` for anything else (and unconditionally in release builds) so the
@@ -82,6 +89,48 @@ extension ControlCommandCoordinator {
                 ?? Self.debugContextUnavailableResponse
         case "screenshot":
             return debugContext?.controlDebugCaptureScreenshot(label: args)
+                ?? Self.debugContextUnavailableResponse
+        case "simulate_type":
+            return debugContext?.controlDebugSimulateType(arguments: args)
+                ?? Self.debugContextUnavailableResponse
+        case "simulate_file_drop":
+            return debugContext?.controlDebugSimulateFileDrop(arguments: args)
+                ?? Self.debugContextUnavailableResponse
+        case "seed_drag_pasteboard_fileurl":
+            return debugContext?.controlDebugSeedDragPasteboardTypes(arguments: "fileurl")
+                ?? Self.debugContextUnavailableResponse
+        case "seed_drag_pasteboard_tabtransfer":
+            return debugContext?.controlDebugSeedDragPasteboardTypes(arguments: "tabtransfer")
+                ?? Self.debugContextUnavailableResponse
+        case "seed_drag_pasteboard_sidebar_reorder":
+            return debugContext?.controlDebugSeedDragPasteboardTypes(arguments: "sidebarreorder")
+                ?? Self.debugContextUnavailableResponse
+        case "seed_drag_pasteboard_types":
+            return debugContext?.controlDebugSeedDragPasteboardTypes(arguments: args)
+                ?? Self.debugContextUnavailableResponse
+        case "clear_drag_pasteboard":
+            return debugContext?.controlDebugClearDragPasteboard()
+                ?? Self.debugContextUnavailableResponse
+        case "drop_hit_test":
+            return debugContext?.controlDebugDropHitTest(arguments: args)
+                ?? Self.debugContextUnavailableResponse
+        case "drag_hit_chain":
+            return debugContext?.controlDebugDragHitChain(arguments: args)
+                ?? Self.debugContextUnavailableResponse
+        case "overlay_hit_gate":
+            return debugContext?.controlDebugOverlayHitGate(arguments: args)
+                ?? Self.debugContextUnavailableResponse
+        case "overlay_drop_gate":
+            return debugContext?.controlDebugOverlayDropGate(arguments: args)
+                ?? Self.debugContextUnavailableResponse
+        case "portal_hit_gate":
+            return debugContext?.controlDebugPortalHitGate(arguments: args)
+                ?? Self.debugContextUnavailableResponse
+        case "sidebar_overlay_gate":
+            return debugContext?.controlDebugSidebarOverlayGate(arguments: args)
+                ?? Self.debugContextUnavailableResponse
+        case "terminal_drop_overlay_probe":
+            return debugContext?.controlDebugTerminalDropOverlayProbe(arguments: args)
                 ?? Self.debugContextUnavailableResponse
         default:
             return nil

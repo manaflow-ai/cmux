@@ -16,9 +16,17 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
     var rightSidebarFocusFirstItem: Bool?
     var rightSidebarResolution: ControlDebugRightSidebarFocusResolution = .windowNotFound
 
+    var seedDragArguments: String?
+    var seedDragResponse = "OK"
+
     func controlDebugSetShortcut(arguments: String) -> String {
         setShortcutArguments = arguments
         return setShortcutResponse
+    }
+
+    func controlDebugSeedDragPasteboardTypes(arguments: String) -> String {
+        seedDragArguments = arguments
+        return seedDragResponse
     }
 
     func controlDebugRightSidebarFocus(
@@ -58,7 +66,25 @@ struct ControlCommandCoordinatorDebugV1Tests {
     @Test func unknownCommandFallsThrough() {
         let (coordinator, _) = makeCoordinator()
         #expect(coordinator.handleDebugV1(command: "ping", args: "") == nil)
-        #expect(coordinator.handleDebugV1(command: "simulate_type", args: "hi") == nil)
+        #expect(coordinator.handleDebugV1(command: "list_windows", args: "") == nil)
+    }
+
+    @Test func seedDragPasteboardAliasesPassFixedTypeTokens() {
+        let (coordinator, context) = makeCoordinator()
+        #expect(coordinator.handleDebugV1(command: "seed_drag_pasteboard_fileurl", args: "") == "OK")
+        #expect(context.seedDragArguments == "fileurl")
+        #expect(coordinator.handleDebugV1(command: "seed_drag_pasteboard_tabtransfer", args: "") == "OK")
+        #expect(context.seedDragArguments == "tabtransfer")
+        #expect(coordinator.handleDebugV1(command: "seed_drag_pasteboard_sidebar_reorder", args: "") == "OK")
+        #expect(context.seedDragArguments == "sidebarreorder")
+    }
+
+    @Test func seedDragPasteboardTypesForwardsRawArguments() {
+        let (coordinator, context) = makeCoordinator()
+        context.seedDragResponse = "ERROR: Unknown drag type 'x'"
+        let reply = coordinator.handleDebugV1(command: "seed_drag_pasteboard_types", args: "x")
+        #expect(reply == "ERROR: Unknown drag type 'x'")
+        #expect(context.seedDragArguments == "x")
     }
 
     @Test func rightSidebarFocusInvalidModeReproducesLegacyString() {

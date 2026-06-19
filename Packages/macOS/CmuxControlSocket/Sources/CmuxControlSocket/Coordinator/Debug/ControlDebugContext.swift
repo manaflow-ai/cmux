@@ -295,5 +295,89 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The stats payload (`nil` only if the counter dictionary ever
     ///   failed to bridge to JSON, which its `String`/`Int` leaves preclude).
     func controlDebugPortalStats() -> JSONValue?
+
+    // MARK: - v1-only synthetic-input / drag-overlay probes (raw v1 responses)
+
+    /// Runs the v1-only `simulate_type` body: inserts the (backslash-unescaped)
+    /// text at the active window's first responder.
+    ///
+    /// These probes exist only on the v1 line protocol (no v2 method), so the
+    /// witness carries the full app-coupled body (`NSApp`/`NSWindow`/
+    /// `NSPasteboard`/`NSView` hit-testing/ghostty surfaces) and returns the raw
+    /// v1 response string the legacy dispatch produced.
+    ///
+    /// - Parameter arguments: The raw `simulate_type` argument line.
+    /// - Returns: The raw v1 response (`"OK"` or an `ERROR…` line).
+    func controlDebugSimulateType(arguments: String) -> String
+
+    /// Runs the v1-only `simulate_file_drop` body: synthesizes a file drop onto
+    /// the resolved terminal surface's hosted view.
+    ///
+    /// - Parameter arguments: The raw `simulate_file_drop` argument line
+    ///   (`"<id|idx> <path[|path…]>"`).
+    /// - Returns: The raw v1 response.
+    func controlDebugSimulateFileDrop(arguments: String) -> String
+
+    /// Runs the v1-only `seed_drag_pasteboard_types` body: declares the named
+    /// pasteboard types on the system drag pasteboard.
+    ///
+    /// - Parameter arguments: The raw type-token list (`"<type[,type…]>"`).
+    /// - Returns: The raw v1 response.
+    func controlDebugSeedDragPasteboardTypes(arguments: String) -> String
+
+    /// Clears the system drag pasteboard for v1-only `clear_drag_pasteboard`.
+    ///
+    /// - Returns: The raw v1 response (`"OK"`).
+    func controlDebugClearDragPasteboard() -> String
+
+    /// Runs the v1-only `overlay_hit_gate` body: evaluates the file-drop overlay
+    /// hit-capture policy against the live drag pasteboard types.
+    ///
+    /// - Parameter arguments: The raw event-type token.
+    /// - Returns: The raw v1 response (`"true"`/`"false"` or an `ERROR…` line).
+    func controlDebugOverlayHitGate(arguments: String) -> String
+
+    /// Runs the v1-only `overlay_drop_gate` body: evaluates the file-drop
+    /// destination policy against the live drag pasteboard types.
+    ///
+    /// - Parameter arguments: The raw `[external|local]` token.
+    /// - Returns: The raw v1 response.
+    func controlDebugOverlayDropGate(arguments: String) -> String
+
+    /// Runs the v1-only `portal_hit_gate` body: evaluates the terminal-portal
+    /// hit pass-through policy against the live drag pasteboard types.
+    ///
+    /// - Parameter arguments: The raw event-type token.
+    /// - Returns: The raw v1 response.
+    func controlDebugPortalHitGate(arguments: String) -> String
+
+    /// Runs the v1-only `sidebar_overlay_gate` body: evaluates the sidebar
+    /// external-overlay capture policy against the live drag pasteboard types.
+    ///
+    /// - Parameter arguments: The raw `[active|inactive]` token.
+    /// - Returns: The raw v1 response.
+    func controlDebugSidebarOverlayGate(arguments: String) -> String
+
+    /// Runs the v1-only `terminal_drop_overlay_probe` body: probes the terminal
+    /// drop-overlay animation on the selected workspace's terminal panel.
+    ///
+    /// - Parameter arguments: The raw `[deferred|direct]` token.
+    /// - Returns: The raw v1 response.
+    func controlDebugTerminalDropOverlayProbe(arguments: String) -> String
+
+    /// Runs the v1-only `drop_hit_test` body: maps normalized content-area
+    /// coordinates to the terminal surface under that point.
+    ///
+    /// - Parameter arguments: The raw `"<x 0-1> <y 0-1>"` argument line.
+    /// - Returns: The raw v1 response (a surface UUID, `"none"`, or an `ERROR…`).
+    func controlDebugDropHitTest(arguments: String) -> String
+
+    /// Runs the v1-only `drag_hit_chain` body: returns the AppKit hit-test view
+    /// chain at normalized content-area coordinates.
+    ///
+    /// - Parameter arguments: The raw `"<x 0-1> <y 0-1>"` argument line.
+    /// - Returns: The raw v1 response (the `->`-joined chain, `"none"`, or an
+    ///   `ERROR…`).
+    func controlDebugDragHitChain(arguments: String) -> String
 #endif
 }
