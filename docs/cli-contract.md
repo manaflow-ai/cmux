@@ -363,6 +363,15 @@ Right sidebar commands:
 | `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
 | `--no-focus` | Only valid with `set`; switches mode without moving focus. |
 
+Custom sidebar commands:
+
+| Command | Contract |
+| --- | --- |
+| `sidebar validate [name]` | Validate all custom sidebars, or one named sidebar, under `~/.config/cmux/sidebars`. |
+| `sidebar reload [name]` | Validate all custom sidebars, then request a reload for every valid one. |
+| `sidebar select <name>` | Validate and activate one custom sidebar in the sidebar picker. |
+| `sidebar open <name>` | Validate and open one custom sidebar as a normal Bonsplit pane tab, preferring the right-side split from the focused surface. |
+
 Docs topics:
 
 | Command | Contract |

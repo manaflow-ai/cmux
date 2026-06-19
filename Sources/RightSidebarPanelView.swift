@@ -129,6 +129,7 @@ struct RightSidebarPanelView: View {
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
+    let onOpenCustomSidebarAsPane: (String) -> Void
     let customSidebarDataContext: (Date) -> [String: SwiftValue]
     let customSidebarDispatch: SidebarActionDispatch
     let customSidebarRenderer: CustomSidebarRendererMode
@@ -294,6 +295,9 @@ struct RightSidebarPanelView: View {
                 Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane {
                     openAsPaneButton(mode: fileExplorerState.mode)
+                } else if fileExplorerState.mode == .customSidebar,
+                          let customSidebarName = fileExplorerState.customSidebarName {
+                    openCustomSidebarAsPaneButton(name: customSidebarName)
                 }
                 closeButton
             }
@@ -332,6 +336,33 @@ struct RightSidebarPanelView: View {
             String.localizedStringWithFormat(
                 String(localized: "rightSidebar.openAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
                 mode.label
+            )
+        )
+        .accessibilityIdentifier("RightSidebar.openAsPaneButton")
+        .titlebarInteractiveControl()
+    }
+
+    private func openCustomSidebarAsPaneButton(name: String) -> some View {
+        Button {
+            onOpenCustomSidebarAsPane(name)
+        } label: {
+            HeaderChromeIconStyle.symbol("rectangle.split.2x1")
+        }
+        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderOpenAsPaneIcon"))
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize
+        )
+        .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            keyPrefix: "rightSidebarHeaderOpenAsPane",
+            isVisible: true
+        )
+        .rightSidebarHeaderControlAlignment()
+        .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
+        .accessibilityLabel(
+            String.localizedStringWithFormat(
+                String(localized: "rightSidebar.openCustomSidebarAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
+                name
             )
         )
         .accessibilityIdentifier("RightSidebar.openAsPaneButton")

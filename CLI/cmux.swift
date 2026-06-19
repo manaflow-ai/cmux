@@ -15889,26 +15889,17 @@ struct CMUXCLI {
             Examples:
               cmux right-sidebar toggle
               cmux right-sidebar set find
-              cmux right-sidebar set vault --no-focus
               cmux right-sidebar mode
-              cmux right-sidebar set mine
             """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
-            Usage: cmux sidebar <validate|reload|select> [name|--all] [--json]
-
-            Validate, reload, or select custom left sidebars from ~/.config/cmux/sidebars.
-            Swift files win over JSON files with the same base name.
-
+            Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
+            Validate, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.
             Commands:
               validate [name]   Validate all custom sidebars, or one named sidebar
               reload [name]     Validate all sidebars, then reload every valid one
-              select <name>     Validate and activate one custom sidebar
-
-            Examples:
-              cmux sidebar validate
-              cmux sidebar reload --all
-              cmux sidebar select finder.tree
+              select <name>     Activate one custom sidebar
+              open <name>       Open one custom sidebar as a Bonsplit pane
             """)
         case "set-app-focus":
             return """
@@ -16360,8 +16351,8 @@ struct CMUXCLI {
         guard let action = args.first?.lowercased() else {
             throw CLIError(
                 message: String(
-                    localized: "cli.sidebar.error.missingCommand",
-                    defaultValue: "sidebar requires a subcommand: validate, reload, or select"
+            localized: "cli.sidebar.error.missingCommand",
+            defaultValue: "sidebar requires a subcommand: validate, reload, select, or open"
                 )
             )
         }
@@ -16397,25 +16388,28 @@ struct CMUXCLI {
             if let name = remaining.first { params["name"] = name }
             method = action == "validate" ? "sidebar.custom.validate" : "sidebar.custom.reload"
 
-        case "select":
+        case "select", "open":
             guard !explicitAll else {
                 throw CLIError(
                     message: String(
-                        localized: "cli.sidebar.error.selectAll",
-                        defaultValue: "sidebar select does not support --all"
+                        localized: "cli.sidebar.error.namedActionAll",
+                        defaultValue: "sidebar \(action) does not support --all"
                     )
                 )
             }
             guard remaining.count == 1 else {
                 throw CLIError(
                     message: String(
-                        localized: "cli.sidebar.error.selectRequiresName",
-                        defaultValue: "sidebar select requires one sidebar name"
+                        localized: "cli.sidebar.error.namedActionRequiresName",
+                        defaultValue: "sidebar \(action) requires one sidebar name"
                     )
                 )
             }
             params["name"] = remaining[0]
-            method = "sidebar.custom.select"
+            if action == "open" {
+                params["focus"] = true
+            }
+            method = action == "select" ? "sidebar.custom.select" : "sidebar.custom.open"
 
         default:
             throw CLIError(
@@ -16485,6 +16479,13 @@ struct CMUXCLI {
             print(String(
                 format: String(localized: "cli.sidebar.report.selected", defaultValue: "Selected %@."),
                 selectedName
+            ))
+        } else if action == "open", let openedName = payload["opened_name"] as? String {
+            let surface = (payload["surface_ref"] as? String) ?? (payload["surface_id"] as? String) ?? ""
+            print(String(
+                format: String(localized: "cli.sidebar.report.opened", defaultValue: "Opened %@ as pane %@."),
+                openedName,
+                surface
             ))
         } else {
             print(String(
@@ -34045,7 +34046,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|custom-sidebar-name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
-          sidebar <validate|reload|select> [name]
+          sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-status [--workspace <id|ref|index>] [--window <id|ref|index>]

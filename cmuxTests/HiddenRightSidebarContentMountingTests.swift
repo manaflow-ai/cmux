@@ -74,6 +74,7 @@ struct HiddenRightSidebarContentMountingTests {
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
+            onOpenCustomSidebarAsPane: { _ in },
             customSidebarDataContext: { _ in [:] },
             customSidebarDispatch: .noop,
             customSidebarRenderer: .inProcess,

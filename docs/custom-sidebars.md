@@ -88,11 +88,14 @@ Install one from a cmux checkout:
     cp Examples/CustomSidebars/status-board.swift ~/.config/cmux/sidebars/status-board.swift
     cp Examples/CustomSidebars/finder.swift ~/.config/cmux/sidebars/finder.swift
 
-Then validate and select it:
+Then validate and open it as a Bonsplit pane:
 
     cmux sidebar validate status-board
-    cmux sidebar select status-board
-    cmux right-sidebar set status-board
+    cmux sidebar open status-board
+
+`cmux sidebar select <name>` still previews a custom sidebar in the left
+sidebar picker. Use `cmux sidebar open <name>` when you want the sidebar as a
+normal pane tab that can live in a right-side split.
 
 ## Quick start
 

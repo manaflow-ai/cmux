@@ -93,6 +93,15 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .customSidebar:
+            if let customSidebarPanel = panel as? CustomSidebarPanel {
+                CustomSidebarPanelView(
+                    panel: customSidebarPanel,
+                    isFocused: isFocused,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .agentSession:
             if let agentSessionPanel = panel as? AgentSessionPanel {
                 AgentSessionPanelView(
@@ -137,7 +146,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .agentSession, .project, .extensionBrowser:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser:
             return true
         case .terminal, .browser:
             return false
