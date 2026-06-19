@@ -5713,6 +5713,40 @@
         }
       }
     },
+    "mobile.workspaces.filter.allMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのマシン"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.filter.empty.machines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspaces on the selected machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したマシンにワークスペースはありません"
+          }
+        }
+      }
+    },
     "mobile.workspaces.filter.empty.unread": {
       "extractionState": "manual",
       "localizations": {
@@ -5726,6 +5760,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "未読のワークスペースはありません"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.filter.empty.unreadOnMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No unread workspaces on the selected machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したマシンに未読のワークスペースはありません"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.filter.machines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.filter.readState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
           }
         }
       }
