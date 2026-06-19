@@ -8,8 +8,13 @@ import Testing
 
 struct MenuBarProfilingLauncherTests {
     @Test
-    func testMenuBarProfilingLaunchesCurrentProcessForFifteenSecondsAndOpensOutput() {
+    func testMenuBarProfilingLaunchesCurrentProcessForFifteenSecondsWithoutOpeningOutput() {
         let arguments = MenuBarProfilingLauncher.arguments(pid: 1234)
-        #expect(arguments == ["--pid", "1234", "--duration", "15", "--open-output"])
+        #expect(arguments == ["--pid", "1234", "--duration", "15"])
+    }
+
+    @Test
+    func testMenuBarProfilingEstimatesDefaultCaptureSeconds() {
+        #expect(MenuBarProfilingLauncher.estimatedCaptureSeconds() == 60)
     }
 }
