@@ -22,7 +22,7 @@ final class PaneMemoryGuardrail {
     private static let enabledSetting = SettingCatalog().terminal.runawayMemoryGuardrailEnabled
     private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
     private static let pollInterval: TimeInterval = 4
-    private static let scopedScanInterval: TimeInterval = 60
+    private static let scopedScanInterval: TimeInterval = 15
     private static let defaultThresholdGB: Double = 8
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
     private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0

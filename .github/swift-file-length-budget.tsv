@@ -144,8 +144,8 @@
 680	Sources/FileExplorerSearchController.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 668	cmuxTests/FeedCoordinatorTests.swift
+664	Sources/CmuxTopSnapshot.swift
 663	cmuxTests/SessionIndexViewTests.swift
-660	Sources/CmuxTopSnapshot.swift
 655	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator.swift
 655	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 654	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
