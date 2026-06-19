@@ -116,14 +116,14 @@ enum TerminalScrollSpeedSettings {
     static let minimumMultiplier = TerminalCatalogSection.scrollSpeedMinimum
     static let maximumMultiplier = TerminalCatalogSection.scrollSpeedMaximum
 
-    static func multiplier(defaults: UserDefaults = .standard) -> Double {
+    nonisolated static func multiplier(defaults: UserDefaults = .standard) -> Double {
         if defaults.object(forKey: multiplierKey) == nil {
             return defaultMultiplier
         }
         return sanitizedMultiplier(defaults.double(forKey: multiplierKey))
     }
 
-    static func sanitizedMultiplier(_ value: Double) -> Double {
+    nonisolated static func sanitizedMultiplier(_ value: Double) -> Double {
         guard value.isFinite else { return defaultMultiplier }
         return min(max(value, minimumMultiplier), maximumMultiplier)
     }
