@@ -1,14 +1,17 @@
 import Darwin
-import Foundation
+public import Foundation
 
-struct PaneMemoryProcessKiller {
+/// Escalating terminator for a pane's runaway process group(s).
+public struct PaneMemoryProcessKiller {
+    public init() {}
+
     /// SIGTERM the pane's high-memory process group(s) now, then SIGKILL after a
     /// short grace. Negative pid targets the whole process group, so the runaway
     /// job and its descendants die without signaling unrelated groups in the
     /// same pane. The delayed escalation revalidates against a fresh process
     /// snapshot so stale or reused process-group IDs are not force-killed.
     /// ESRCH on an already-dead group is harmless.
-    func terminate(
+    public func terminate(
         processGroupIDs: [Int],
         graceSeconds: TimeInterval = 3,
         validateBeforeSIGKILL: @escaping @Sendable () -> Set<Int>

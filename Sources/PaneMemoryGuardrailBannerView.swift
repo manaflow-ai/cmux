@@ -1,12 +1,13 @@
+import CmuxPanes
 import SwiftUI
 
 /// Top-of-content dismissible banner shown when a pane's process tree crosses
-/// the runaway-memory threshold. Reads the guardrail singleton; mounted once
-/// as an overlay on the workspace content area (outside the sidebar list, so
-/// the observed state stays outside the snapshot-boundary rule). Stays silent
-/// while `activeBanner` is nil.
+/// the runaway-memory threshold. Reads the guardrail service held by the
+/// composition root; mounted once as an overlay on the workspace content area
+/// (outside the sidebar list, so the observed state stays outside the
+/// snapshot-boundary rule). Stays silent while `activeBanner` is nil.
 struct PaneMemoryGuardrailBanner: View {
-    let guardrail: PaneMemoryGuardrail
+    let guardrail: PaneMemoryGuardrailService
     let tabManager: TabManager
     @State private var isConfirmingKill = false
     @State private var killConfirmationWarning: PaneMemoryWarning?

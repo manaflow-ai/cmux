@@ -15,12 +15,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../../vendor/bonsplit"),
+        .package(path: "../CMUXDebugLog"),
     ],
     targets: [
         .target(
             name: "CmuxPanes",
             dependencies: [
                 .product(name: "Bonsplit", package: "bonsplit"),
+                .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

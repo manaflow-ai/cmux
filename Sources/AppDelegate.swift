@@ -798,6 +798,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
+    /// Per-pane runaway-memory guardrail, constructed and wired at startup
+    /// (replaces the former `PaneMemoryGuardrail.shared` singleton). Held by the
+    /// composition root and read by `ContentView` for the warning banner.
+    let paneMemoryGuardrail = PaneMemoryGuardrailService(
+        sampleProvider: PaneMemorySampleProvider(),
+        settings: PaneMemoryGuardrailSettings()
+    )
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
@@ -2087,7 +2094,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// (sidebar badge + dismissible banner with a kill action) before a single
     /// leaking pane can OOM-suspend the whole app (issue #6313).
     private func startPaneMemoryGuardrailIfNeeded(notificationStore: TerminalNotificationStore) {
-        let guardrail = PaneMemoryGuardrail.shared
+        let guardrail = paneMemoryGuardrail
         guardrail.paneProvider = { [weak self] in
             self?.paneMemoryGuardrailDescriptors() ?? []
         }
