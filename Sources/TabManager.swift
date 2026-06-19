@@ -3747,6 +3747,72 @@ class TabManager: ObservableObject {
 #endif
     }
 
+    // WorkspaceHandoffHosting witness that touches `private` DEBUG members
+    // (`debugCurrentWorkspaceSwitchSnapshot`, `debugShortWorkspaceId`,
+    // `debugMsText`); the rest of the conformance lives in
+    // TabManager+WorkspaceHandoffHosting.swift. Formats the byte-identical
+    // legacy `ws.mount.reconcile` / `ws.handoff.*` trace lines that
+    // `ContentView` used to emit inline; release builds make this a no-op
+    // exactly as the original `#if DEBUG`-guarded `cmuxDebugLog` calls were.
+    func logWorkspaceHandoffEvent(_ event: WorkspaceHandoffEvent) {
+#if DEBUG
+        switch event {
+        case let .mountReconciled(isCycleHot, selectedWorkspaceId, mountedWorkspaceIds, addedWorkspaceIds, removedWorkspaceIds):
+            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                cmuxDebugLog(
+                    "ws.mount.reconcile id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) " +
+                    "selected=\(Self.debugShortWorkspaceId(selectedWorkspaceId)) " +
+                    "mounted=\(Self.debugShortWorkspaceIds(mountedWorkspaceIds)) " +
+                    "added=\(Self.debugShortWorkspaceIds(addedWorkspaceIds)) removed=\(Self.debugShortWorkspaceIds(removedWorkspaceIds))"
+                )
+            } else {
+                cmuxDebugLog(
+                    "ws.mount.reconcile id=none hot=\(isCycleHot ? 1 : 0) selected=\(Self.debugShortWorkspaceId(selectedWorkspaceId)) " +
+                    "mounted=\(Self.debugShortWorkspaceIds(mountedWorkspaceIds))"
+                )
+            }
+        case let .handoffStarted(oldSelectedWorkspaceId, newSelectedWorkspaceId):
+            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                cmuxDebugLog(
+                    "ws.handoff.start id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) old=\(Self.debugShortWorkspaceId(oldSelectedWorkspaceId)) " +
+                    "new=\(Self.debugShortWorkspaceId(newSelectedWorkspaceId))"
+                )
+            } else {
+                cmuxDebugLog(
+                    "ws.handoff.start id=none old=\(Self.debugShortWorkspaceId(oldSelectedWorkspaceId)) new=\(Self.debugShortWorkspaceId(newSelectedWorkspaceId))"
+                )
+            }
+        case let .handoffFastReady(selectedWorkspaceId):
+            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                cmuxDebugLog(
+                    "ws.handoff.fastReady id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) selected=\(Self.debugShortWorkspaceId(selectedWorkspaceId))"
+                )
+            } else {
+                cmuxDebugLog("ws.handoff.fastReady id=none selected=\(Self.debugShortWorkspaceId(selectedWorkspaceId))")
+            }
+        case let .handoffCompleted(reason, retiringWorkspaceId):
+            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                cmuxDebugLog(
+                    "ws.handoff.complete id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) reason=\(reason) retiring=\(Self.debugShortWorkspaceId(retiringWorkspaceId))"
+                )
+            } else {
+                cmuxDebugLog("ws.handoff.complete id=none reason=\(reason) retiring=\(Self.debugShortWorkspaceId(retiringWorkspaceId))")
+            }
+        }
+#endif
+    }
+
+#if DEBUG
+    private static func debugShortWorkspaceIds(_ ids: [UUID]) -> String {
+        if ids.isEmpty { return "[]" }
+        return "[" + ids.map { String($0.uuidString.prefix(5)) }.joined(separator: ",") + "]"
+    }
+#endif
+
     // MARK: - Split Operations (Backwards Compatibility)
 
     /// Create a new split in the specified direction

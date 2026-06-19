@@ -284,7 +284,6 @@ struct ContentView: View {
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
     @State private var selectedTabIds: Set<UUID> = []
-    @State private var mountedWorkspaceIds: [UUID] = []
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
@@ -299,10 +298,14 @@ struct ContentView: View {
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
-    @State private var previousSelectedWorkspaceId: UUID?
-    @State private var retiringWorkspaceId: UUID?
-    @State private var workspaceHandoffGeneration: UInt64 = 0
-    @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
+    // Owns the per-window mounted-workspace set + the workspace-handoff state
+    // machine (legacy mountedWorkspaceIds / retiringWorkspaceId /
+    // previousSelectedWorkspaceId / workspaceHandoffGeneration /
+    // workspaceHandoffFallbackTask plus reconcileMountedWorkspaceIds and the
+    // startWorkspaceHandoffIfNeeded/complete* methods). Wired to TabManager via
+    // WorkspaceHandoffHosting in `.onAppear`; the view observes its
+    // mountedWorkspaceIds/retiringWorkspaceId through Observation.
+    @State private var workspaceHandoffCoordinator = WorkspaceHandoffCoordinator()
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
@@ -1077,10 +1080,10 @@ struct ContentView: View {
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
-        let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
+        let mountedWorkspaceIdSet = Set(workspaceHandoffCoordinator.mountedWorkspaceIds)
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId
-        let retiringWorkspaceId = self.retiringWorkspaceId
+        let retiringWorkspaceId = workspaceHandoffCoordinator.retiringWorkspaceId
 
         return ZStack {
             ZStack {
@@ -1809,9 +1812,10 @@ struct ContentView: View {
         view = AnyView(view.onAppear {
             selectedWorkspaceDirectoryReading.wire(tabManager: tabManager)
             selectedWorkspaceDirectoryModel.wire(reading: selectedWorkspaceDirectoryReading)
+            workspaceHandoffCoordinator.attach(host: tabManager)
             tabManager.applyWindowBackgroundForSelectedTab()
-            reconcileMountedWorkspaceIds()
-            previousSelectedWorkspaceId = tabManager.selectedTabId
+            workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
+            workspaceHandoffCoordinator.seedPreviousSelection()
             installSidebarResizerPointerMonitorIfNeeded()
             let restoredWidth = normalizedSidebarWidth(sidebarState.persistedWidth)
             if abs(sidebarWidth - restoredWidth) > 0.5 {
@@ -1849,8 +1853,9 @@ struct ContentView: View {
                 }
 
                 // Ensure mountedWorkspaceIds is populated.
+                let mountedWorkspaceIds = workspaceHandoffCoordinator.mountedWorkspaceIds
                 if mountedWorkspaceIds.isEmpty || !mountedWorkspaceIds.contains(where: { id in tabManager.tabs.contains { $0.id == id } }) {
-                    reconcileMountedWorkspaceIds()
+                    workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
                     didRecover = true
                 }
 
@@ -1866,12 +1871,12 @@ struct ContentView: View {
 
                 if didRecover {
 #if DEBUG
-                    cmuxDebugLog("startup.recovery tabCount=\(tabManager.tabs.count) selected=\(tabManager.selectedTabId?.uuidString.prefix(8) ?? "nil") mounted=\(mountedWorkspaceIds.count)")
+                    cmuxDebugLog("startup.recovery tabCount=\(tabManager.tabs.count) selected=\(tabManager.selectedTabId?.uuidString.prefix(8) ?? "nil") mounted=\(workspaceHandoffCoordinator.mountedWorkspaceIds.count)")
 #endif
                     sentryBreadcrumb("startup.recovery", data: [
                         "tabCount": tabManager.tabs.count,
                         "selectedTabId": tabManager.selectedTabId?.uuidString ?? "nil",
-                        "mountedCount": mountedWorkspaceIds.count
+                        "mountedCount": workspaceHandoffCoordinator.mountedWorkspaceIds.count
                     ])
                 }
             }
@@ -1889,8 +1894,8 @@ struct ContentView: View {
             }
 #endif
             tabManager.applyWindowBackgroundForSelectedTab()
-            startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
-            reconcileMountedWorkspaceIds(selectedId: newValue)
+            workspaceHandoffCoordinator.startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
+            workspaceHandoffCoordinator.reconcileMountedWorkspaceIds(selectedId: newValue)
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
@@ -1924,11 +1929,11 @@ struct ContentView: View {
                 cmuxDebugLog("ws.view.hotChange id=none hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)")
             }
 #endif
-            reconcileMountedWorkspaceIds()
+            workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onChange(of: retiringWorkspaceId) { _ in
-            reconcileMountedWorkspaceIds()
+        view = AnyView(view.onChange(of: workspaceHandoffCoordinator.retiringWorkspaceId) { _ in
+            workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
         })
 
         // Prime background workspaces off-screen. Rendering them just to run a task
@@ -1938,11 +1943,11 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(tabManager.$debugPinnedWorkspaceLoadIds) { _ in
-            reconcileMountedWorkspaceIds()
+            workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
         })
 
         view = AnyView(view.onReceive(tabManager.$mountedBackgroundWorkspaceLoadIds) { _ in
-            reconcileMountedWorkspaceIds()
+            workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
@@ -1978,7 +1983,7 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
-            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
+            workspaceHandoffCoordinator.completeWorkspaceHandoffIfNeeded(focusedWorkspaceId: tabId, reason: "focus")
             attemptCommandPaletteFocusRestoreIfNeeded()
             scheduleTitlebarTextRefresh()
         })
@@ -1993,7 +1998,7 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
-            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
+            workspaceHandoffCoordinator.completeWorkspaceHandoffIfNeeded(focusedWorkspaceId: tabId, reason: "first_responder")
             attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
@@ -2009,7 +2014,7 @@ struct ContentView: View {
                 panelId: focusedPanelId,
                 in: observedWindow ?? webView.window
             )
-            completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_first_responder")
+            workspaceHandoffCoordinator.completeWorkspaceHandoffIfNeeded(focusedWorkspaceId: selectedTabId, reason: "browser_first_responder")
             attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
@@ -2037,7 +2042,7 @@ struct ContentView: View {
                 panelId: panelId,
                 in: observedWindow ?? focusedBrowser.webView.window
             )
-            completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_address_bar")
+            workspaceHandoffCoordinator.completeWorkspaceHandoffIfNeeded(focusedWorkspaceId: selectedTabId, reason: "browser_address_bar")
             attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
@@ -2072,16 +2077,9 @@ struct ContentView: View {
 
         view = AnyView(view.onReceive(tabManager.tabsPublisher) { tabs in
             let existingIds = Set(tabs.map { $0.id })
-            if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
-                self.retiringWorkspaceId = nil
-                workspaceHandoffFallbackTask?.cancel()
-                workspaceHandoffFallbackTask = nil
-            }
-            if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
-                self.previousSelectedWorkspaceId = tabManager.selectedTabId
-            }
+            workspaceHandoffCoordinator.pruneRemovedWorkspaces(existingWorkspaceIds: existingIds)
             tabManager.pruneBackgroundWorkspaceLoads(existingIds: existingIds)
-            reconcileMountedWorkspaceIds(tabs: tabs)
+            workspaceHandoffCoordinator.reconcileMountedWorkspaceIds(orderedWorkspaceIds: tabs.map { $0.id })
             selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
@@ -2522,59 +2520,6 @@ struct ContentView: View {
         installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
     }
 
-    private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
-        let currentTabs = tabs ?? tabManager.tabs
-        let orderedTabIds = currentTabs.map { $0.id }
-        let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
-        let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
-        let pinnedIds = handoffPinnedIds
-            .union(tabManager.mountedBackgroundWorkspaceLoadIds)
-            .union(tabManager.debugPinnedWorkspaceLoadIds)
-        let isCycleHot = tabManager.isWorkspaceCycleHot
-        let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
-        let baseMaxMounted = shouldKeepHandoffPair
-            ? WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
-            : WorkspaceMountPlan.maxMountedWorkspaces
-        let selectedCount = effectiveSelectedId == nil ? 0 : 1
-        let maxMounted = max(baseMaxMounted, selectedCount + pinnedIds.count)
-        let previousMountedIds = mountedWorkspaceIds
-        mountedWorkspaceIds = WorkspaceMountPlan(
-            current: mountedWorkspaceIds,
-            selected: effectiveSelectedId,
-            pinnedIds: pinnedIds,
-            orderedTabIds: orderedTabIds,
-            isCycleHot: isCycleHot,
-            maxMounted: maxMounted
-        ).mountedWorkspaceIds
-        let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
-        let mountedIdSet = Set(mountedWorkspaceIds)
-        for workspace in currentTabs {
-            workspace.setPortalRenderingEnabled(
-                mountedIdSet.contains(workspace.id),
-                reason: "workspaceMount"
-            )
-        }
-#if DEBUG
-        if mountedWorkspaceIds != previousMountedIds {
-            let added = mountedWorkspaceIds.filter { !previousMountedIds.contains($0) }
-            if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
-                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                cmuxDebugLog(
-                    "ws.mount.reconcile id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) " +
-                    "selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
-                    "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds)) " +
-                    "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removedIds))"
-                )
-            } else {
-                cmuxDebugLog(
-                    "ws.mount.reconcile id=none hot=\(isCycleHot ? 1 : 0) selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
-                    "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds))"
-                )
-            }
-        }
-#endif
-    }
-
     private func addTab() {
         tabManager.addTab()
         sidebarSelectionState.selection = .tabs
@@ -2585,108 +2530,6 @@ struct ContentView: View {
         guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
         windowChrome.backdropController.updateGlassTint(to: window, color: tintColor)
-    }
-
-    private func startWorkspaceHandoffIfNeeded(newSelectedId: UUID?) {
-        let oldSelectedId = previousSelectedWorkspaceId
-        previousSelectedWorkspaceId = newSelectedId
-
-        guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
-            tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
-            retiringWorkspaceId = nil
-            workspaceHandoffFallbackTask?.cancel()
-            workspaceHandoffFallbackTask = nil
-            return
-        }
-
-        workspaceHandoffGeneration &+= 1
-        let generation = workspaceHandoffGeneration
-        retiringWorkspaceId = oldSelectedId
-        workspaceHandoffFallbackTask?.cancel()
-
-#if DEBUG
-        if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
-            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            cmuxDebugLog(
-                "ws.handoff.start id=\(snapshot.id) dt=\(debugMsText(dtMs)) old=\(debugShortWorkspaceId(oldSelectedId)) " +
-                "new=\(debugShortWorkspaceId(newSelectedId))"
-            )
-        } else {
-            cmuxDebugLog(
-                "ws.handoff.start id=none old=\(debugShortWorkspaceId(oldSelectedId)) new=\(debugShortWorkspaceId(newSelectedId))"
-            )
-        }
-#endif
-
-        if canCompleteWorkspaceHandoffImmediately(for: newSelectedId) {
-#if DEBUG
-            if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
-                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                cmuxDebugLog(
-                    "ws.handoff.fastReady id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newSelectedId))"
-                )
-            } else {
-                cmuxDebugLog("ws.handoff.fastReady id=none selected=\(debugShortWorkspaceId(newSelectedId))")
-            }
-#endif
-            completeWorkspaceHandoff(reason: "ready")
-            return
-        }
-
-        workspaceHandoffFallbackTask = Task { [generation] in
-            do {
-                try await Task.sleep(nanoseconds: 150_000_000)
-            } catch {
-                return
-            }
-            await MainActor.run {
-                guard workspaceHandoffGeneration == generation else { return }
-                completeWorkspaceHandoff(reason: "timeout")
-            }
-        }
-    }
-
-    private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
-        guard focusedTabId == tabManager.selectedTabId else { return }
-        guard retiringWorkspaceId != nil else { return }
-        completeWorkspaceHandoff(reason: reason)
-    }
-
-    private func canCompleteWorkspaceHandoffImmediately(for workspaceId: UUID) -> Bool {
-        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return true }
-        if let focusedPanelId = workspace.focusedPanelId,
-           workspace.browserPanel(for: focusedPanelId) != nil {
-            return true
-        }
-        return workspace.hasLoadedTerminalSurface()
-    }
-
-    private func completeWorkspaceHandoff(reason: String) {
-        workspaceHandoffFallbackTask?.cancel()
-        workspaceHandoffFallbackTask = nil
-        let retiring = retiringWorkspaceId
-
-        // Disable portal rendering for the retiring workspace BEFORE clearing
-        // retiringWorkspaceId. Once cleared, reconcileMountedWorkspaceIds unmounts
-        // the workspace — but dismantleNSView intentionally doesn't hide portal views
-        // during transient rebuilds. Disabling here also cancels stale layout follow-up
-        // loops that could re-show an old terminal above the newly selected workspace.
-        if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
-            workspace.setPortalRenderingEnabled(false, reason: "workspaceHandoff")
-        }
-
-        retiringWorkspaceId = nil
-        tabManager.completePendingWorkspaceUnfocus(reason: reason)
-#if DEBUG
-        if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
-            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            cmuxDebugLog(
-                "ws.handoff.complete id=\(snapshot.id) dt=\(debugMsText(dtMs)) reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))"
-            )
-        } else {
-            cmuxDebugLog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))")
-        }
-#endif
     }
 
     private var commandPaletteOverlay: some View {
