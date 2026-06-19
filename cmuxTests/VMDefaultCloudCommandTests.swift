@@ -318,7 +318,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
                 XCTAssertEqual(params["surface_id"] as? String, surfaceID)
-                XCTAssertEqual(params["command"] as? String, "/bin/sh")
+                XCTAssertEqual(params["command"] as? String, "/bin/zsh -l")
                 XCTAssertNil(params["tmux_start_command"])
                 return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceID])
             case "surface.send_text":
@@ -326,6 +326,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
                 XCTAssertEqual(params["surface_id"] as? String, surfaceID)
                 let text = params["text"] as? String ?? ""
+                XCTAssertTrue(text.hasSuffix("\n"))
                 let decodedText = self.decodedReusableShellStartupCommand(text)
                 XCTAssertTrue(decodedText.contains("vm ssh-attach"), decodedText)
                 XCTAssertFalse(decodedText.contains(":lease-token@"), decodedText)
@@ -373,7 +374,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "surface.send_key",
                 "surface.respawn",
                 "surface.send_text",
-                "surface.send_key",
             ]
         )
     }
