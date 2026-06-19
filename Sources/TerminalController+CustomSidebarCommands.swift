@@ -169,7 +169,8 @@ extension TerminalController {
             payload["workspace_id"] = workspace.id.uuidString
             payload["workspace_ref"] = v2Ref(kind: .workspace, uuid: workspace.id)
             payload["surface_id"] = panel.id.uuidString
-            payload["surface_ref"] = v2TabRef(uuid: panel.id)
+            payload["surface_ref"] = v2Ref(kind: .surface, uuid: panel.id)
+            payload["tab_ref"] = v2TabRef(uuid: panel.id)
             payload["type"] = PanelType.customSidebar.rawValue
             return .ok(payload)
         }

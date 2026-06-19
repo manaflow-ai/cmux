@@ -63,11 +63,11 @@ extension TerminalControllerSocketSecurityTests {
 
     @Test func v1CommandsRejectCustomSidebarNames() throws {
         let name = "__cmux_test_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let tempDirectory = try installTemporaryCustomSidebarsDirectory()
+        defer { cleanupTemporaryCustomSidebarsDirectory(tempDirectory) }
+        let directory = tempDirectory.directory
         let fileURL = directory.appendingPathComponent("\(name).swift")
         try #"Text("Custom")"#.write(to: fileURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
 
         let customSidebarsDefaultsKey = "customSidebars.beta.enabled"
         let previousCustomSidebars = UserDefaults.standard.object(forKey: customSidebarsDefaultsKey)
@@ -307,5 +307,21 @@ extension TerminalControllerSocketSecurityTests {
         case .ok, .state:
             Issue.record("Expected missing workspace target to fail")
         }
+    }
+
+    private func installTemporaryCustomSidebarsDirectory() throws -> (directory: URL, previous: URL?) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebars-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let previous = CmuxExtensionSidebarSelection.customSidebarsDirectoryOverrideForTesting
+        CmuxExtensionSidebarSelection.customSidebarsDirectoryOverrideForTesting = directory
+        return (directory, previous)
+    }
+
+    private func cleanupTemporaryCustomSidebarsDirectory(_ tempDirectory: (directory: URL, previous: URL?)) {
+        CmuxExtensionSidebarSelection.customSidebarsDirectoryOverrideForTesting = tempDirectory.previous
+        try? FileManager.default.removeItem(at: tempDirectory.directory)
     }
 }
