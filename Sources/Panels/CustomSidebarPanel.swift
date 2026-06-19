@@ -124,6 +124,11 @@ struct CustomSidebarPanelView: View {
                 shutdownRenderWorkerClient()
             }
         }
+        .onChange(of: customSidebarRenderer) { _, renderer in
+            if renderer == .inProcess {
+                shutdownRenderWorkerClient()
+            }
+        }
         .onDisappear {
             shutdownRenderWorkerClient()
         }
