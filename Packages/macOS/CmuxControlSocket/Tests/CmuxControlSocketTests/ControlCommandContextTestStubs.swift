@@ -148,6 +148,16 @@ extension ControlNotificationContext {
     func controlNotificationJumpToUnread() -> ControlNotificationSnapshot? { nil }
     func controlNotificationClear() {}
 
+    func controlNotificationCreateForCaller(
+        preferredWorkspaceID: UUID?,
+        preferredSurfaceID: UUID?,
+        callerTTY: String?,
+        preferTTY: Bool,
+        title: String,
+        subtitle: String,
+        body: String
+    ) -> ControlNotificationCallerDeliveryResolution { .tabManagerUnavailable }
+
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
             dismissSelectorRequired: "",
@@ -308,6 +318,35 @@ extension ControlWorkspaceContext {
         routing: ControlRoutingSelectors,
         orientationFilter: String?
     ) -> ControlWorkspaceEqualizeResolution { .tabManagerUnavailable }
+
+    func controlWorkspaceAutoNamingEnabled() -> Bool { false }
+
+    func controlWorkspaceAutoTitleProbe(
+        routing: ControlRoutingSelectors,
+        hasWorkspaceID: Bool,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceAutoTitleProbe {
+        ControlWorkspaceAutoTitleProbe(
+            enabled: false,
+            summarizerAgentSlug: nil,
+            includeUserOwned: false,
+            userOwned: nil
+        )
+    }
+
+    func controlRecordAutoNamingFailure(rawCategory: String, agent: String) {}
+
+    func controlApplyWorkspaceAutoTitle(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        title: String,
+        panelID: UUID?,
+        panelOnlyIfMultiple: Bool
+    ) -> ControlWorkspaceSetAutoTitleResolution { .tabManagerUnavailable }
+
+    func controlWorkspaceEnv(routing: ControlRoutingSelectors) -> ControlWorkspaceEnvResolution {
+        .tabManagerUnavailable
+    }
 
     func controlConfigureWorkspaceRemote(
         params: [String: JSONValue],

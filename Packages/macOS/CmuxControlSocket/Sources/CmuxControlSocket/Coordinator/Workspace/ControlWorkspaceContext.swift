@@ -283,6 +283,73 @@ public protocol ControlWorkspaceContext: AnyObject {
         relayPort: Int
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution
 
+    // MARK: - Set auto title
+
+    /// Whether workspace auto-naming is enabled in Settings, for the
+    /// `workspace.set_auto_title` non-probe gate (the legacy `disabled` error
+    /// reads this first).
+    ///
+    /// - Returns: The auto-naming enabled flag.
+    func controlWorkspaceAutoNamingEnabled() -> Bool
+
+    /// Builds the `workspace.set_auto_title` probe snapshot: the enabled flag,
+    /// the summarizer agent slug to report, and (only when `hasWorkspaceID` and a
+    /// TabManager resolves) whether the user owns the workspace's title.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - hasWorkspaceID: Whether the request carried a `workspace_id` param
+    ///     (a valid one, already parsed by the coordinator).
+    ///   - workspaceID: The parsed `workspace_id`, if present.
+    /// - Returns: The probe snapshot.
+    func controlWorkspaceAutoTitleProbe(
+        routing: ControlRoutingSelectors,
+        hasWorkspaceID: Bool,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceAutoTitleProbe
+
+    /// Records an auto-naming failure on the Settings status line for the
+    /// `workspace.set_auto_title` `failure` branch (it never reaches a workspace
+    /// or tab title).
+    ///
+    /// - Parameters:
+    ///   - rawCategory: The raw `failure` category string.
+    ///   - agent: The reporting `agent` string (empty when absent).
+    func controlRecordAutoNamingFailure(rawCategory: String, agent: String)
+
+    /// Applies an auto-generated title for `workspace.set_auto_title`: resolves
+    /// the workspace, sets its title with the `.auto` source, optionally sets a
+    /// panel title, and clears any stale auto-naming failure when the workspace
+    /// title applied.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - workspaceID: The target workspace.
+    ///   - title: The trimmed, non-empty title.
+    ///   - panelID: The optional panel id (or surface id) to also title.
+    ///   - panelOnlyIfMultiple: Whether to skip the panel title when the
+    ///     workspace has fewer than two panels.
+    /// - Returns: The apply resolution.
+    func controlApplyWorkspaceAutoTitle(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        title: String,
+        panelID: UUID?,
+        panelOnlyIfMultiple: Bool
+    ) -> ControlWorkspaceSetAutoTitleResolution
+
+    // MARK: - Env
+
+    /// Reads a workspace's user-defined environment for `workspace.env`
+    /// (issue #5995). Resolves strictly for explicit targets (the coordinator
+    /// already validated each explicit-target key), falling back to the selected
+    /// workspace only when no explicit target was supplied.
+    ///
+    /// - Parameter routing: The routing selectors used for TabManager +
+    ///   workspace resolution.
+    /// - Returns: The env resolution.
+    func controlWorkspaceEnv(routing: ControlRoutingSelectors) -> ControlWorkspaceEnvResolution
+
     // MARK: - v1 line-protocol witnesses
 
     /// The v1 `list_workspaces` body: lists the active controller's workspaces.

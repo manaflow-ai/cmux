@@ -1,6 +1,8 @@
+import Bonsplit
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
+import CmuxSettings
 import CmuxWorkspaces
 import Foundation
 
@@ -411,6 +413,107 @@ extension TerminalController: ControlWorkspaceContext {
         }
         guard let workspaceId = tabManager.selectedTabId else { return nil }
         return tabManager.tabs.first(where: { $0.id == workspaceId })
+    }
+
+    // MARK: - Set auto title
+
+    func controlWorkspaceAutoNamingEnabled() -> Bool {
+        AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
+    }
+
+    func controlWorkspaceAutoTitleProbe(
+        routing: ControlRoutingSelectors,
+        hasWorkspaceID: Bool,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceAutoTitleProbe {
+        let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
+        let agentSlug = AutomationCatalogSection().autoNamingAgent.value(in: .standard)
+        let summarizer = agentSlug == AutoNamingAgentCatalog.autoSlug ? nil : agentSlug
+
+        // The user-owned key is only present when the request carried a
+        // `workspace_id` AND a TabManager resolved; its value is nil (JSON null)
+        // when the workspace is missing or its title is not user-owned.
+        guard hasWorkspaceID,
+              let workspaceID,
+              let tabManager = resolveTabManager(routing: routing) else {
+            return ControlWorkspaceAutoTitleProbe(
+                enabled: enabled,
+                summarizerAgentSlug: summarizer,
+                includeUserOwned: false,
+                userOwned: nil
+            )
+        }
+        var userOwned: Bool?
+        if let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) {
+            userOwned = workspace.effectiveCustomTitleSource == .user
+        }
+        return ControlWorkspaceAutoTitleProbe(
+            enabled: enabled,
+            summarizerAgentSlug: summarizer,
+            includeUserOwned: true,
+            userOwned: userOwned
+        )
+    }
+
+    func controlRecordAutoNamingFailure(rawCategory: String, agent: String) {
+        AutoNamingStatusStore.record(
+            rawCategory: rawCategory,
+            agent: agent,
+            at: Date().timeIntervalSince1970
+        )
+    }
+
+    func controlApplyWorkspaceAutoTitle(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        title: String,
+        panelID: UUID?,
+        panelOnlyIfMultiple: Bool
+    ) -> ControlWorkspaceSetAutoTitleResolution {
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            return .tabManagerUnavailable
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+            return .notFound
+        }
+        let workspaceApplied = tabManager.setCustomTitle(tabId: workspaceID, title: title, source: .auto)
+        var panelApplied: Bool?
+        if let panelID {
+            // Hook payloads carry surface ids; accept either a panel id
+            // or a surface id for the tab target.
+            let resolvedPanelId = workspace.panels[panelID] != nil
+                ? panelID
+                : workspace.panelIdFromSurfaceId(TabID(uuid: panelID))
+            if let resolvedPanelId,
+               !(panelOnlyIfMultiple && workspace.panels.count < 2) {
+                panelApplied = workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
+            }
+        }
+
+        // A title landed, so the naming agent is working again: clear any stale
+        // failure the Settings status line may be showing.
+        if workspaceApplied {
+            AutoNamingStatusStore.clear()
+        }
+        return .applied(workspaceApplied: workspaceApplied, panelApplied: panelApplied)
+    }
+
+    // MARK: - Env
+
+    func controlWorkspaceEnv(routing: ControlRoutingSelectors) -> ControlWorkspaceEnvResolution {
+        v2RefreshKnownRefs()
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            return .tabManagerUnavailable
+        }
+        guard let workspace = resolveWorkspace(routing: routing, tabManager: tabManager) else {
+            return .notFound
+        }
+        let windowId = AppDelegate.shared?.windowId(for: tabManager)
+        return .resolved(
+            windowID: windowId,
+            workspaceID: workspace.id,
+            env: workspace.workspaceEnvironment
+        )
     }
 
     // MARK: - Remote

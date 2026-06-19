@@ -7,9 +7,11 @@ import Foundation
 /// socket-command policy scope, so each hop would re-apply the identical
 /// thread-local focus-allowance stack — a no-op.
 ///
-/// `notification.create_for_caller` is intentionally NOT moved here: it has its
-/// own self-contained resolver (`TerminalNotificationCallerResolver.swift`) and
-/// stays on the legacy app-side dispatcher.
+/// `notification.create_for_caller`'s witness
+/// (``controlNotificationCreateForCaller(preferredWorkspaceID:preferredSurfaceID:callerTTY:preferTTY:title:subtitle:body:)``)
+/// lives in its self-contained resolver (`TerminalNotificationCallerResolver.swift`),
+/// since its multi-window target pick reuses the resolver's helpers; it conforms
+/// the same ``ControlNotificationContext`` seam this extension declares.
 extension TerminalController: ControlNotificationContext {
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
