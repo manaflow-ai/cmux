@@ -143,9 +143,7 @@ extension TerminalController {
     private nonisolated static func socketWorkerAttachInfoPayload(_ endpoint: VMAttachEndpoint) -> [String: Any] {
         switch endpoint {
         case .ssh(let ssh):
-            var payload = socketWorkerSSHInfoPayload(ssh)
-            payload["transport"] = "ssh"
-            return payload
+            return socketWorkerSSHInfoPayload(ssh)
         case .websocket(let websocket):
             var payload: [String: Any] = [
                 "transport": "websocket",
