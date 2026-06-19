@@ -194,6 +194,11 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         return value
     }
 
+    /// The tmux control-mode command that opens a new window for a mirror tab.
+    static func newWindowCommand(workingDirectory: String?) -> String {
+        "new-window"
+    }
+
     /// Builds the `ssh` argv (for direct `Process` execution, no shell) that
     /// runs `tmux -CC` control mode for `sessionName` on this host.
     ///

@@ -6528,6 +6528,12 @@ final class Workspace: Identifiable, ObservableObject {
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
     }
 
+    /// The directory a new tab (`new-window`) should inherit in a remote-tmux
+    /// mirror, based on the source tab.
+    func remoteTmuxNewWindowWorkingDirectory(forSourcePanelId sourcePanelId: UUID?) -> String? {
+        resolvedTerminalStartupWorkingDirectory(requestedWorkingDirectory: nil, sourcePanelId: sourcePanelId)
+    }
+
     /// Candidate terminal panels used as the source when creating inherited Ghostty config.
     /// Preference order:
     /// 1) explicitly preferred terminal panel (when the caller has one),
