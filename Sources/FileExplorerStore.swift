@@ -1331,8 +1331,14 @@ final class FileExplorerStore: ObservableObject {
             return
         }
 
-        let requestedRootPath = Self.normalizedRootPath(requestedRootPath)
-        if let requestedRootPath {
+        // `requestedRootPath` comes from the workspace's `currentDirectory`, which
+        // for a remote workspace is a *local* path (the launch dir, e.g.
+        // `/Users/<me>`). Listing a local path on the remote host fails with a
+        // hidden "No such file or directory" (the probe runs `ls … 2>/dev/null`),
+        // which surfaces only as a generic "SSH command failed". Ignore a hint
+        // that resolves to an existing local directory and fall through to
+        // resolving the remote `$HOME` instead.
+        if let requestedRootPath = Self.remoteRootPathHint(requestedRootPath) {
             cancelRemoteHomeResolution()
             setRootStatusMessage(nil)
             setRootPath(requestedRootPath)
@@ -1431,6 +1437,27 @@ final class FileExplorerStore: ObservableObject {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return trimmed
+    }
+
+    /// Returns a usable *remote* root-path hint, or `nil` when the caller should
+    /// resolve the remote `$HOME` instead.
+    ///
+    /// A remote workspace's `currentDirectory` is a path on the *local* machine
+    /// (e.g. the launch directory `/Users/<me>`), which cannot exist on the
+    /// remote host — listing it makes the SSH probe fail. We therefore drop any
+    /// hint that resolves to an existing local directory; a genuinely remote path
+    /// (absent locally) is passed through so remote-cwd tracking still works.
+    private static func remoteRootPathHint(_ path: String?) -> String? {
+        guard let normalized = normalizedRootPath(path) else { return nil }
+        var isDirectory: ObjCBool = false
+        let existsLocally = FileManager.default.fileExists(
+            atPath: normalized,
+            isDirectory: &isDirectory
+        )
+        if existsLocally && isDirectory.boolValue {
+            return nil
+        }
+        return normalized
     }
 
     private static func remotePreviewCacheURL(displayTarget: String, remotePath: String) -> URL {
