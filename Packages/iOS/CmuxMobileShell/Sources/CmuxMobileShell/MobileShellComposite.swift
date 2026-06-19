@@ -1273,42 +1273,56 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        let saved: MobilePairedMac?
+        // Pull the authoritative per-user backup first so saved-Mac routes are
+        // current before we dial: a Mac that relaunched on a new port republishes
+        // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
+        // this a stale port makes the auto-connect fail and the app falls back to
+        // the Mac picker, the screen we want to avoid showing.
+        if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
+            await refresher.refreshFromBackup(stackUserID: stackUserID)
+        }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        func reachableRoute(_ mac: MobilePairedMac) -> (String, Int)? {
+            Self.firstReconnectHostPortRoute(
+                mac.routes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            )
+        }
+        let activeMac: MobilePairedMac?
+        let allMacs: [MobilePairedMac]
         do {
-            saved = try await pairedMacStore.activeMac(stackUserID: stackUserID)
+            activeMac = try await pairedMacStore.activeMac(stackUserID: stackUserID)
+            allMacs = try await pairedMacStore.loadAll(stackUserID: stackUserID)
         } catch {
-            mobileShellLog.error("paired mac store activeMac failed: \(String(describing: error), privacy: .public)")
+            mobileShellLog.error("paired mac store read failed: \(String(describing: error), privacy: .public)")
             // A read failure means "couldn't determine," not "no mac": keep the
             // hint so a transient SQLite error doesn't erase a returning user's
             // paired state.
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        guard let mac = saved else {
-            // Definitively no active Mac: clear the hint so future launches show
-            // the add-device sheet immediately with no restoring flash.
-            setHasKnownPairedMac(false, generation: generation)
+        // Auto-connect target: the explicitly active Mac when it is reachable,
+        // otherwise the FIRST saved Mac with a usable route. Picking the first
+        // reachable Mac instead of bailing when nothing is marked active is what
+        // lets the home come up connected without the user choosing a Mac; the
+        // other Macs are then aggregated read-only into one integrated list.
+        let target: MobilePairedMac? = {
+            if let activeMac, reachableRoute(activeMac) != nil { return activeMac }
+            return allMacs.first { reachableRoute($0) != nil }
+        }()
+        guard let mac = target, let (host, port) = reachableRoute(mac) else {
+            // No saved Mac has a usable route right now (none paired, or all
+            // offline). Clear the hint only when there are truly no saved Macs, so
+            // the add-device sheet comes up cleanly; otherwise keep it so a Retry
+            // or network change can reconnect once a Mac comes back.
+            setHasKnownPairedMac(!allMacs.isEmpty, generation: generation)
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        // Kick off a best-effort registry refresh for this Mac in the background.
-        // It does NOT block the connect below: the common case (fresh local
-        // routes) reconnects immediately with no network round-trip. If the Mac
-        // moved networks / changed port, the refreshed routes land in the store
-        // and the next reconnect trigger (network change or Retry) uses them.
+        // Best-effort registry refresh for this Mac in the background (non-
+        // blocking; the connect below uses the freshly-restored backup routes).
         refreshRoutesFromRegistry(for: mac, stackUserID: stackUserID)
-        let supportedKinds = runtime?.supportedRouteKinds ?? []
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
-            mac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ) else {
-            // Found a Mac but no usable route to reach it: treat as no reconnect
-            // target and fall through to add-device.
-            setHasKnownPairedMac(false, generation: generation)
-            finishStoredMacReconnectAttempt(generation: generation)
-            return false
-        }
         // A newer attempt may have started while we awaited the store read; if so,
         // let it own the flags rather than marking ourselves the active reconnect.
         guard generation == storedMacReconnectGeneration else { return false }
