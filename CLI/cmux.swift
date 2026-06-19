@@ -11630,71 +11630,6 @@ struct CMUXCLI {
         throw CLIError(message: "ssh-pty-attach: bridge status exceeded \(maxStatusBytes) bytes")
     }
 
-    private func startSSHPTYResizeSource(
-        client: SocketClient,
-        workspaceId: String,
-        surfaceID: String?,
-        sessionID: String,
-        attachmentID: String,
-        attachmentToken: String,
-        socketLock: NSLock
-    ) -> DispatchSourceSignal {
-        signal(SIGWINCH, SIG_IGN)
-        let source = DispatchSource.makeSignalSource(
-            signal: SIGWINCH,
-            queue: DispatchQueue(label: "com.cmux.ssh-pty.resize")
-        )
-        source.setEventHandler {
-            self.sendSSHPTYResize(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceID: surfaceID,
-                sessionID: sessionID,
-                attachmentID: attachmentID,
-                attachmentToken: attachmentToken,
-                socketLock: socketLock
-            )
-        }
-        source.resume()
-        return source
-    }
-
-    /// Send the current terminal size to the remote PTY over the control
-    /// socket. Shared by the SIGWINCH handler and the post-attach reconcile so
-    /// both paths read the freshest size and serialize on `socketLock`.
-    private func sendSSHPTYResize(
-        client: SocketClient,
-        workspaceId: String,
-        surfaceID: String?,
-        sessionID: String,
-        attachmentID: String,
-        attachmentToken: String,
-        socketLock: NSLock
-    ) {
-        // Sample the size *inside* the lock so the lock serializes the read as
-        // well as the send. The SIGWINCH handler and the post-attach reconcile
-        // both call this helper; if the ioctl ran outside the lock, two calls
-        // could sample different sizes and then serialize only the sends,
-        // letting a stale sample win the lock last and overwrite a fresher size
-        // on the daemon — re-creating the frozen-PTY symptom this fix targets.
-        socketLock.lock()
-        defer { socketLock.unlock() }
-        let size = currentCLITerminalSize()
-        var params: [String: Any] = [
-            "workspace_id": workspaceId,
-            "session_id": sessionID,
-            "attachment_id": attachmentID,
-            "attachment_token": attachmentToken,
-            "cols": size.cols,
-            "rows": size.rows,
-        ]
-        if let surfaceID {
-            params["surface_id"] = surfaceID
-            params["allow_moved_surface"] = true
-        }
-        _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
-    }
-
     private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
         guard host == "127.0.0.1" || host == "localhost" else {
             throw CLIError(message: "ssh-pty-attach: bridge host must be loopback")
@@ -32465,7 +32400,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
     }
 
-    private func currentCLITerminalSize() -> (cols: Int, rows: Int) {
+    func currentCLITerminalSize() -> (cols: Int, rows: Int) {
         var size = winsize()
         if ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0,
            size.ws_col > 0,
