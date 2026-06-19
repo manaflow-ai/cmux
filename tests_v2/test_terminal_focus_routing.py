@@ -114,7 +114,11 @@ def _assert_routed_to_surface(c: cmux, expected_surface_id: str, panel_id: str, 
 
 
 def main() -> int:
-    focus_file = Path(tempfile.mktemp(prefix="cmux_focus_routing_", suffix=".txt"))
+    # mkstemp atomically creates the file (no TOCTOU window vs the deprecated
+    # mktemp); we only need the unique path, so close the fd immediately.
+    _focus_fd, _focus_path = tempfile.mkstemp(prefix="cmux_focus_routing_", suffix=".txt")
+    os.close(_focus_fd)
+    focus_file = Path(_focus_path)
     with cmux(SOCKET_PATH) as c:
         # Isolate from any user workspace state.
         c.new_workspace()

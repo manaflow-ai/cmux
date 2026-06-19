@@ -65,12 +65,14 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, len) }
         }
         guard bound == 0 else {
+            let bindErrno = errno  // capture before close() can overwrite errno
             Darwin.close(fd)
-            throw NSError(domain: "FakeUnixSocketServer", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "bind() failed errno=\(errno)"])
+            throw NSError(domain: "FakeUnixSocketServer", code: Int(bindErrno), userInfo: [NSLocalizedDescriptionKey: "bind() failed errno=\(bindErrno)"])
         }
         guard listen(fd, 4) == 0 else {
+            let listenErrno = errno  // capture before close() can overwrite errno
             Darwin.close(fd)
-            throw NSError(domain: "FakeUnixSocketServer", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "listen() failed errno=\(errno)"])
+            throw NSError(domain: "FakeUnixSocketServer", code: Int(listenErrno), userInfo: [NSLocalizedDescriptionKey: "listen() failed errno=\(listenErrno)"])
         }
         self.listenFD = fd
         Thread.detachNewThread { [weak self] in

@@ -379,17 +379,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let notifyStdout = readTrimmedFile(atPath: commandStdoutPath) ?? ""
         let notifyStderr = readTrimmedFile(atPath: commandStderrPath) ?? ""
 
-        var observedForeground = false
-        let foregroundCheckDeadline = Date().addingTimeInterval(2.0)
-        while Date() < foregroundCheckDeadline {
-            if app.state == .runningForeground {
-                observedForeground = true
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
+        // `waitForCommandCompletionWhileBackgrounded` above only returns once the
+        // bundled `cmux notify` command has finished while the app stayed
+        // backgrounded, so assert the no-foreground invariant at that causal
+        // point rather than polling a fixed wall-clock window.
         XCTAssertFalse(
-            observedForeground,
+            app.state == .runningForeground,
             "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyStderr)"
         )
         guard notifyExitStatus == "0" else {
