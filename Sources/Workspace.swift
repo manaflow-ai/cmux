@@ -2048,19 +2048,11 @@ final class SharedLiveAgentIndex: ObservableObject {
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
 final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting {
-    enum BrowserPanelCreationPolicy {
-        case userInitiated
-        case automationPreload
-        case restoration
-
-        var permitsCreationWhenBrowserDisabled: Bool {
-            self == .restoration
-        }
-
-        var preloadsInitialNavigationInBackground: Bool {
-            self == .automationPreload
-        }
-    }
+    /// The browser-panel creation policy now lives in `CmuxBrowser` as a
+    /// top-level `Sendable` value. This nested typealias keeps the existing
+    /// unqualified `BrowserPanelCreationPolicy` and `Workspace.BrowserPanelCreationPolicy`
+    /// spellings byte-identical at every call site.
+    typealias BrowserPanelCreationPolicy = CmuxBrowser.BrowserPanelCreationPolicy
 
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
