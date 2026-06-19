@@ -1,5 +1,4 @@
-import CmuxSession
-import CmuxWorkspaceNavigation
+import CmuxWorkspaces
 import Darwin
 import CmuxCore
 import XCTest
