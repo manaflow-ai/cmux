@@ -420,6 +420,15 @@ class TabManager: ObservableObject {
     let notificationDismissal: any NotificationDismissing = NotificationDismissalModel()
     /// Recently-closed browser panel history (CmuxBrowser).
     let browserModel = BrowserModel<ClosedBrowserPanelRestoreSnapshot>()
+    /// Focused-browser/markdown command surface: zoom, focus mode, developer
+    /// tools, and the omnibar toggle, routed to the focused panel (CmuxBrowser).
+    /// `lazy` so the resolver closures can read this window's focus state
+    /// (`focusedBrowserPanel`/`focusedMarkdownPanel`); both close over `self`
+    /// weakly and run on the MainActor where TabManager lives.
+    private(set) lazy var focusedBrowserController = FocusedBrowserController(
+        resolveFocusedBrowser: { [weak self] in self?.focusedBrowserPanel },
+        resolveFocusedMarkdown: { [weak self] in self?.focusedMarkdownPanel }
+    )
     /// Sidebar multi-selection state + sync events (CmuxSidebar).
     let sidebarMultiSelection = SidebarMultiSelectionModel()
     /// Typed synchronous settings access (CmuxSettings).
@@ -2926,67 +2935,68 @@ class TabManager: ObservableObject {
         return panel
     }
 
+    // The focused-browser/markdown zoom, focus-mode, developer-tools, and
+    // omnibar commands forward to `focusedBrowserController` (CmuxBrowser),
+    // which resolves the focused panel through this window's
+    // `focusedBrowserPanel`/`focusedMarkdownPanel` and acts through the
+    // `FocusedBrowserActing`/`FocusedMarkdownZooming` seams.
     @discardableResult
     func zoomInFocusedBrowser() -> Bool {
-        focusedBrowserPanel?.zoomIn() ?? false
+        focusedBrowserController.zoomInFocusedBrowser()
     }
 
     @discardableResult
     func zoomOutFocusedBrowser() -> Bool {
-        focusedBrowserPanel?.zoomOut() ?? false
+        focusedBrowserController.zoomOutFocusedBrowser()
     }
 
     @discardableResult
     func resetZoomFocusedBrowser() -> Bool {
-        focusedBrowserPanel?.resetZoom() ?? false
+        focusedBrowserController.resetZoomFocusedBrowser()
     }
 
     var canToggleBrowserFocusModeForFocusedBrowser: Bool {
-        focusedBrowserPanel?.canToggleBrowserFocusMode == true
+        focusedBrowserController.canToggleBrowserFocusModeForFocusedBrowser
     }
 
     @discardableResult
     func toggleBrowserFocusModeForFocusedBrowser(reason: String) -> Bool {
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        return browserPanel.toggleBrowserFocusMode(reason: reason, focusWebView: true)
+        focusedBrowserController.toggleBrowserFocusModeForFocusedBrowser(reason: reason)
     }
 
     @discardableResult
     func setFocusedBrowserFocusModeActive(_ active: Bool, reason: String) -> Bool {
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        return browserPanel.setBrowserFocusModeActive(active, reason: reason, focusWebView: active)
+        focusedBrowserController.setFocusedBrowserFocusModeActive(active, reason: reason)
     }
 
     @discardableResult
     func zoomInFocusedMarkdown() -> Bool {
-        focusedMarkdownPanel?.zoomIn() ?? false
+        focusedBrowserController.zoomInFocusedMarkdown()
     }
 
     @discardableResult
     func zoomOutFocusedMarkdown() -> Bool {
-        focusedMarkdownPanel?.zoomOut() ?? false
+        focusedBrowserController.zoomOutFocusedMarkdown()
     }
 
     @discardableResult
     func resetZoomFocusedMarkdown() -> Bool {
-        focusedMarkdownPanel?.resetZoom() ?? false
+        focusedBrowserController.resetZoomFocusedMarkdown()
     }
 
     @discardableResult
     func toggleDeveloperToolsFocusedBrowser() -> Bool {
-        focusedBrowserPanel?.toggleDeveloperTools() ?? false
+        focusedBrowserController.toggleDeveloperToolsFocusedBrowser()
     }
 
     @discardableResult
     func showJavaScriptConsoleFocusedBrowser() -> Bool {
-        focusedBrowserPanel?.showDeveloperToolsConsole() ?? false
+        focusedBrowserController.showJavaScriptConsoleFocusedBrowser()
     }
 
     @discardableResult
     func toggleOmnibarFocusedBrowser() -> Bool {
-        guard let panel = focusedBrowserPanel else { return false }
-        panel.toggleOmnibarVisibility()
-        return true
+        focusedBrowserController.toggleOmnibarFocusedBrowser()
     }
 
     @discardableResult
