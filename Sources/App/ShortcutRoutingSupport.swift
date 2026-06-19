@@ -524,40 +524,6 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
-// Main-actor isolated: TerminalSurface.searchState carries the legacy
-// main-thread-only contract as compiler-enforced isolation after the
-// CmuxTerminal lift; both callers (TabManager, overlay tests) are @MainActor.
-@MainActor
-@discardableResult
-func startOrFocusTerminalSearch(
-    _ terminalSurface: TerminalSurface,
-    initialNeedle: String = "",
-    searchFocusNotifier: @escaping (TerminalSurface) -> Void = {
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: $0)
-    }
-) -> Bool {
-    if terminalSurface.searchState != nil {
-        if !initialNeedle.isEmpty { terminalSurface.searchState?.needle = initialNeedle }
-        searchFocusNotifier(terminalSurface)
-        return true
-    }
-    if terminalSurface.performBindingAction("start_search") {
-        DispatchQueue.main.async { [weak terminalSurface] in
-            guard let terminalSurface else { return }
-            if let searchState = terminalSurface.searchState {
-                if !initialNeedle.isEmpty { searchState.needle = initialNeedle }
-            } else {
-                terminalSurface.searchState = TerminalSurface.SearchState(needle: initialNeedle)
-            }
-            searchFocusNotifier(terminalSurface)
-        }
-        return true
-    }
-    terminalSurface.searchState = TerminalSurface.SearchState(needle: initialNeedle)
-    searchFocusNotifier(terminalSurface)
-    return true
-}
-
 /// Let AppKit own native Cmd+` window cycling so key-window changes do not
 /// re-enter our direct-to-menu shortcut path.
 func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {

@@ -805,7 +805,7 @@ class TabManager: ObservableObject {
             let hadExistingSearch = panel.searchState != nil
             panel.hostedView.preparePanelFocusIntentForActivation(.findField)
             let recoveredNeedle = hadExistingSearch ? "" : panel.surface.lastSearchNeedle
-            let handled = startOrFocusTerminalSearch(panel.surface, initialNeedle: recoveredNeedle) { surface in
+            let handled = panel.surface.startOrFocusSearch(initialNeedle: recoveredNeedle) { surface in
                 NotificationCenter.default.post(
                     name: .ghosttySearchFocus,
                     object: surface,
