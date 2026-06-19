@@ -1758,32 +1758,13 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserAddScript(params: params))
         case "browser.addstyle":
             return v2Result(id: id, self.v2BrowserAddStyle(params: params))
-        case "browser.viewport.set":
-            return v2Result(id: id, self.v2BrowserViewportSet(params: params))
-        case "browser.geolocation.set":
-            return v2Result(id: id, self.v2BrowserGeolocationSet(params: params))
-        case "browser.offline.set":
-            return v2Result(id: id, self.v2BrowserOfflineSet(params: params))
-        case "browser.trace.start":
-            return v2Result(id: id, self.v2BrowserTraceStart(params: params))
-        case "browser.trace.stop":
-            return v2Result(id: id, self.v2BrowserTraceStop(params: params))
-        case "browser.network.route":
-            return v2Result(id: id, self.v2BrowserNetworkRoute(params: params))
-        case "browser.network.unroute":
-            return v2Result(id: id, self.v2BrowserNetworkUnroute(params: params))
-        case "browser.network.requests":
-            return v2Result(id: id, self.v2BrowserNetworkRequests(params: params))
-        case "browser.screencast.start":
-            return v2Result(id: id, self.v2BrowserScreencastStart(params: params))
-        case "browser.screencast.stop":
-            return v2Result(id: id, self.v2BrowserScreencastStop(params: params))
-        case "browser.input_mouse":
-            return v2Result(id: id, self.v2BrowserInputMouse(params: params))
-        case "browser.input_keyboard":
-            return v2Result(id: id, self.v2BrowserInputKeyboard(params: params))
-        case "browser.input_touch":
-            return v2Result(id: id, self.v2BrowserInputTouch(params: params))
+        // browser.viewport.set / browser.geolocation.set / browser.offline.set /
+        // browser.trace.start / browser.trace.stop / browser.screencast.start /
+        // browser.screencast.stop / browser.input_mouse / browser.input_keyboard
+        // / browser.input_touch (the deliberately-unsupported stubs) and
+        // browser.network.route / browser.network.unroute / browser.network.requests
+        // (the unsupported-attempt log) are handled above by
+        // ControlCommandCoordinator (handleBrowserUnsupported).
 
         // Markdown/files/projects: markdown.open, file.open (forwards to the
         // still-shared v2FileOpen), and project.* handled by ControlCommandCoordinator.
@@ -5300,10 +5281,6 @@ class TerminalController {
             ?? v2String(params, "ref")
     }
 
-    private func v2BrowserNotSupported(_ method: String, details: String) -> V2CallResult {
-        .err(code: "not_supported", message: "\(method) is not supported on WKWebView", data: ["details": details])
-    }
-
     private nonisolated func v2BrowserAllocateElementRef(surfaceId: UUID, selector: String) -> String {
         v2MainSync {
             let ref = "@e\(v2BrowserNextElementOrdinal)"
@@ -5524,7 +5501,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2BrowserRecordUnsupportedRequest(surfaceId: UUID, request: [String: Any]) {
+    nonisolated func v2BrowserRecordUnsupportedRequest(surfaceId: UUID, request: [String: Any]) {
         v2MainSync {
             var logs = v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []
             logs.append(request)
@@ -5533,6 +5510,14 @@ class TerminalController {
             }
             v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] = logs
         }
+    }
+
+    /// The recorded not-supported network-request log for `surfaceId` (empty
+    /// when nothing recorded). Read accessor co-located with the private state so
+    /// the `ControlBrowserContext` conformance (a separate file) can serve
+    /// `browser.network.requests` without widening the storage's visibility.
+    func v2BrowserUnsupportedNetworkRequests(surfaceId: UUID) -> [[String: Any]] {
+        v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []
     }
 
     private nonisolated func v2BrowserPendingDialogs(surfaceId: UUID) -> [[String: Any]] {
@@ -8537,70 +8522,16 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserViewportSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.viewport.set", details: "WKWebView does not provide a per-tab programmable viewport emulation API equivalent to CDP")
-    }
-
-    private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.geolocation.set", details: "WKWebView does not expose per-tab geolocation spoofing hooks equivalent to Playwright/CDP")
-    }
-
-    private func v2BrowserOfflineSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.offline.set", details: "WKWebView does not expose reliable per-tab offline emulation")
-    }
-
-    private func v2BrowserTraceStart(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.trace.start", details: "Playwright trace artifacts are not available on WKWebView")
-    }
-
-    private func v2BrowserTraceStop(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.trace.stop", details: "Playwright trace artifacts are not available on WKWebView")
-    }
-
-    private func v2BrowserNetworkRoute(params: [String: Any]) -> V2CallResult {
-        if let surfaceId = v2UUID(params, "surface_id") {
-            v2BrowserRecordUnsupportedRequest(surfaceId: surfaceId, request: ["action": "route", "params": params])
-        }
-        return v2BrowserNotSupported("browser.network.route", details: "WKWebView does not provide CDP-style request interception/mocking")
-    }
-
-    private func v2BrowserNetworkUnroute(params: [String: Any]) -> V2CallResult {
-        if let surfaceId = v2UUID(params, "surface_id") {
-            v2BrowserRecordUnsupportedRequest(surfaceId: surfaceId, request: ["action": "unroute", "params": params])
-        }
-        return v2BrowserNotSupported("browser.network.unroute", details: "WKWebView does not provide CDP-style request interception/mocking")
-    }
-
-    private func v2BrowserNetworkRequests(params: [String: Any]) -> V2CallResult {
-        if let surfaceId = v2UUID(params, "surface_id") {
-            let items = v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []
-            return .err(code: "not_supported", message: "browser.network.requests is not supported on WKWebView", data: [
-                "details": "Request interception logs are unavailable without CDP network hooks",
-                "recorded_requests": items
-            ])
-        }
-        return v2BrowserNotSupported("browser.network.requests", details: "Request interception logs are unavailable without CDP network hooks")
-    }
-
-    private func v2BrowserScreencastStart(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.screencast.start", details: "WKWebView does not expose CDP screencast streaming")
-    }
-
-    private func v2BrowserScreencastStop(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.screencast.stop", details: "WKWebView does not expose CDP screencast streaming")
-    }
-
-    private func v2BrowserInputMouse(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.input_mouse", details: "Raw CDP mouse injection is unavailable; use browser.click/hover/scroll")
-    }
-
-    private func v2BrowserInputKeyboard(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.input_keyboard", details: "Raw CDP keyboard injection is unavailable; use browser.press/keydown/keyup")
-    }
-
-    private func v2BrowserInputTouch(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.input_touch", details: "Raw CDP touch injection is unavailable on WKWebView")
-    }
+    // browser.viewport.set / browser.geolocation.set / browser.offline.set /
+    // browser.trace.start / browser.trace.stop / browser.network.route /
+    // browser.network.unroute / browser.network.requests /
+    // browser.screencast.start / browser.screencast.stop / browser.input_mouse /
+    // browser.input_keyboard / browser.input_touch moved to
+    // ControlCommandCoordinator.handleBrowserUnsupported (CmuxControlSocket).
+    // The per-surface unsupported-network-request log stays here
+    // (v2BrowserUnsupportedNetworkRequestsBySurface, cleared on surface
+    // teardown); the coordinator records into / reads it via
+    // ControlBrowserContext.
 
 #if DEBUG
     // MARK: - V2 Debug / Test-only Methods

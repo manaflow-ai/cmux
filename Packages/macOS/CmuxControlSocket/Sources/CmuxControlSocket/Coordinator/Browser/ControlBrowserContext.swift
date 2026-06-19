@@ -172,4 +172,22 @@ public protocol ControlBrowserContext: AnyObject {
     func controlBrowserStorageClear(
         params: [String: JSONValue]
     ) -> ControlBrowserStorageClearResolution
+
+    /// `browser.network.route` / `browser.network.unroute` — append one
+    /// not-supported network-interception attempt to the per-surface ring log
+    /// the app keeps (capped at 256 entries, cleared on surface teardown). The
+    /// witness stores `["action": action, "params": <params>]`, byte-faithful to
+    /// the legacy `v2BrowserRecordUnsupportedRequest`. `params` is the original
+    /// request param object.
+    func controlBrowserRecordUnsupportedNetworkRequest(
+        surfaceID: UUID,
+        action: String,
+        params: [String: JSONValue]
+    )
+
+    /// `browser.network.requests` — the recorded not-supported network-request
+    /// log for `surfaceID` (the legacy
+    /// `v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []`), as wire
+    /// values. Empty when nothing has been recorded for the surface.
+    func controlBrowserUnsupportedNetworkRequests(surfaceID: UUID) -> [JSONValue]
 }

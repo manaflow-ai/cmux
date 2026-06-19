@@ -81,8 +81,10 @@ public final class ControlCommandCoordinator {
         if let result = handleProject(request) { return result }
         if let result = handleDebug(request) { return result }
         if let result = handleBrowser(request) { return result }
+        if let result = handleBrowserUnsupported(request) { return result }
         // Only the non-JS-evaluating, main-actor browser.* methods are owned
-        // here (handleBrowser). The JS-evaluating browser.* methods stay
+        // here (handleBrowser / handleBrowserUnsupported). The JS-evaluating
+        // browser.* methods stay
         // app-side: PR 5778 moved them onto the socket-worker lane (nonisolated
         // bodies + v2MainSync), which the @MainActor coordinator seam cannot
         // host; re-lift them against that architecture in a follow-up.
