@@ -882,6 +882,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
         resyncTerminalOutput(reason: "foreground", restartEventStream: true)
+        // The foreground Mac's workspace list updates live over the sync stream,
+        // but the other Macs are a read-only snapshot. Re-aggregate them on
+        // foreground so workspaces created on another Mac while backgrounded
+        // appear without a manual pull-to-refresh.
+        if Self.multiMacAggregationEnabled, connectionState == .connected {
+            Task { [weak self] in await self?.refreshSecondaryMacWorkspaces() }
+        }
     }
 
     /// Forward a tap to the Mac's real surface as a left click at the given grid
@@ -5530,6 +5537,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let task = Task { @MainActor [weak self] in
             defer { self?.pullToRefreshTask = nil }
             await self?.reloadWorkspaceListFromMac()
+            // Re-aggregate the other Macs too, so pull-to-refresh surfaces
+            // workspaces created on a secondary Mac since the last fetch (the
+            // read-only secondary list is a snapshot, not a live subscription).
+            if Self.multiMacAggregationEnabled {
+                await self?.refreshSecondaryMacWorkspaces()
+            }
         }
         pullToRefreshTask = task
         await task.value
