@@ -3742,14 +3742,14 @@ class TabManager: ObservableObject {
 
     // MARK: - Focus History Navigation (CmuxWorkspaceNavigation)
 
-    // The back/forward stack, suppression depth, and navigation logic live
-    // in FocusHistoryModel; these forwarders keep every existing entrypoint
-    // (menus, shortcuts, titlebar buttons, socket commands) unchanged.
-
-    @discardableResult
-    func withFocusHistoryRecordingSuppressed<Result>(_ body: () throws -> Result) rethrows -> Result {
-        try focusHistoryNavigation.withFocusHistoryRecordingSuppressed(body)
-    }
+    // The back/forward stack, suppression depth, navigation logic, recording
+    // suppression, and the current-entry resolution all live in
+    // FocusHistoryModel; these forwarders keep every existing app/test
+    // entrypoint (menus, shortcuts, titlebar buttons, socket commands)
+    // unchanged. `withFocusHistoryRecordingSuppressed` and
+    // `currentFocusHistoryEntry` had no callers outside TabManager, so their
+    // few internal uses now call `focusHistoryNavigation` directly and the
+    // pass-through forwarders are gone.
 
     func invalidateFocusHistoryTarget(workspaceId: UUID, panelId: UUID?) {
         focusHistoryNavigation.invalidateFocusHistoryTarget(workspaceId: workspaceId, panelId: panelId)
@@ -3757,10 +3757,6 @@ class TabManager: ObservableObject {
 
     private func panelIdForFocusHistorySurface(_ surfaceId: UUID, workspaceId: UUID) -> UUID {
         tabs.first(where: { $0.id == workspaceId })?.panelIdFromSurfaceId(TabID(uuid: surfaceId)) ?? surfaceId
-    }
-
-    var currentFocusHistoryEntry: FocusHistoryEntry? {
-        focusHistoryNavigation.currentFocusHistoryEntry
     }
 
     func focusHistoryMenuSnapshot(
@@ -4129,14 +4125,14 @@ class TabManager: ObservableObject {
             return false
         }
 
-        let preRestoreFocus = currentFocusHistoryEntry
-        let panelId = withFocusHistoryRecordingSuppressed {
+        let preRestoreFocus = focusHistoryNavigation.currentFocusHistoryEntry
+        let panelId = focusHistoryNavigation.withFocusHistoryRecordingSuppressed {
             workspace.restoreClosedPanel(entry)
         }
 
         guard let panelId else { return false }
         ClosedItemHistoryStore.shared.remapPanelAnchorIds(from: entry.snapshot.id, to: panelId)
-        withFocusHistoryRecordingSuppressed {
+        focusHistoryNavigation.withFocusHistoryRecordingSuppressed {
             if selectedTabId != workspace.id {
                 selectedTabId = workspace.id
             }
@@ -4149,7 +4145,7 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func restoreClosedWorkspace(_ entry: ClosedWorkspaceHistoryEntry) -> Bool {
-        let preRestoreFocus = currentFocusHistoryEntry
+        let preRestoreFocus = focusHistoryNavigation.currentFocusHistoryEntry
         let workspace = addWorkspace(
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
@@ -4193,7 +4189,7 @@ class TabManager: ObservableObject {
             workspaces.normalizeWorkspaceGroupContiguity()
         }
 
-        withFocusHistoryRecordingSuppressed {
+        focusHistoryNavigation.withFocusHistoryRecordingSuppressed {
             selectedTabId = workspace.id
         }
         focusHistoryNavigation.recordFocusInHistory(preRestoreFocus, preservingForwardBranch: true)
