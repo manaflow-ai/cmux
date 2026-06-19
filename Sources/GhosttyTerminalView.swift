@@ -380,11 +380,6 @@ class GhosttyApp {
     private static let appRegistryLock = NSLock()
     private static var appRegistry: [UInt: GhosttyApp] = [:]
     private static var initializingRuntimeApp: GhosttyApp?
-    private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
@@ -414,26 +409,6 @@ class GhosttyApp {
         // hazard (no caller releases twice on purpose).
         let retention = tickNotificationDemand.retain()
         return { retention.release() }
-    }
-
-    private static func resolveBackgroundLogURL(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> URL {
-        if let explicitPath = environment["CMUX_DEBUG_BG_LOG"],
-           !explicitPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return URL(fileURLWithPath: explicitPath)
-        }
-
-        if let debugLogPath = environment["CMUX_DEBUG_LOG"],
-           !debugLogPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let baseURL = URL(fileURLWithPath: debugLogPath)
-            let extensionSeparatorIndex = baseURL.lastPathComponent.lastIndex(of: ".")
-            let stem = extensionSeparatorIndex.map { String(baseURL.lastPathComponent[..<$0]) } ?? baseURL.lastPathComponent
-            let bgName = "\(stem)-bg.log"
-            return baseURL.deletingLastPathComponent().appendingPathComponent(bgName)
-        }
-
-        return URL(fileURLWithPath: "/tmp/cmux-bg.log")
     }
 
 #if DEBUG
@@ -584,21 +559,21 @@ class GhosttyApp {
         return true
     }
 
-    let backgroundLogEnabled = {
-        if ProcessInfo.processInfo.environment["CMUX_DEBUG_BG"] == "1" {
-            return true
-        }
-        if ProcessInfo.processInfo.environment["CMUX_DEBUG_LOG"] != nil {
-            return true
-        }
-        return UserDefaults.standard.bool(forKey: "cmuxDebugBG")
-    }()
-    private let backgroundLogURL = GhosttyApp.resolveBackgroundLogURL()
-    private let backgroundLogStartUptime = ProcessInfo.processInfo.systemUptime
-    private let backgroundLogLock = NSLock()
-    private var backgroundLogSequence: UInt64 = 0
+    /// Background/theme/OSC debug log (was the `backgroundLog*` state + the
+    /// `logBackground`/`resolveBackgroundLogURL` helpers). Folded into the
+    /// engine as `BackgroundDebugLog`; this instance is the process-wide log.
+    let backgroundDebugLog = BackgroundDebugLog(
+        environment: ProcessInfo.processInfo.environment,
+        defaults: .standard,
+        startUptime: ProcessInfo.processInfo.systemUptime
+    )
+    /// Whether background logging is enabled. Forwards to `backgroundDebugLog`
+    /// so the many direct `backgroundLogEnabled` gate call sites stay unchanged.
+    var backgroundLogEnabled: Bool { backgroundDebugLog.isEnabled }
+    /// Terminal bell side effects (was the `ringBell` body + `bellAudioSound`
+    /// slot). Folded into the engine as `TerminalBellService`.
+    let terminalBell = TerminalBellService()
     private var appObservers: [NSObjectProtocol] = []
-    private var bellAudioSound: NSSound?
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
@@ -611,80 +586,31 @@ class GhosttyApp {
             self.logBackground(message)
         })
 
-    // Scroll lag tracking
-    private(set) var isScrolling = false
-    private var scrollLagSampleCount = 0
-    private var scrollLagTotalMs: Double = 0
-    private var scrollLagMaxMs: Double = 0
-    private let scrollLagThresholdMs: Double = 40
-    private let scrollLagMinimumSamples = 8
-    private let scrollLagMinimumAverageMs: Double = 12
-    private let scrollLagReportCooldownSeconds: TimeInterval = 300
-    private var lastScrollLagReportUptime: TimeInterval?
-    private var scrollEndTimer: DispatchWorkItem?
-
-    func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
-        // Cancel any pending scroll-end timer
-        scrollEndTimer?.cancel()
-        scrollEndTimer = nil
-
-        if momentumEnded {
-            // Trackpad momentum ended - scrolling is done
-            endScrollSession()
-        } else if hasMomentum {
-            // Trackpad scrolling with momentum - wait for momentum to end
-            isScrolling = true
-        } else {
-            // Mouse wheel or non-momentum scroll - use timeout
-            isScrolling = true
-            let timer = DispatchWorkItem { [weak self] in
-                self?.endScrollSession()
+    /// Scroll-lag telemetry probe (was the `scrollLag*` accumulator state +
+    /// `markScrollActivity`/`endScrollSession`/`shouldCaptureScrollLagEvent`).
+    /// Folded into the engine as `ScrollLagProbe`; telemetry submission stays
+    /// here in the report sink, which performs the per-launch opt-in check and
+    /// the Sentry capture exactly as the legacy `endScrollSession` did.
+    let scrollLagProbe = ScrollLagProbe { report in
+        if telemetrySettings.enabledForCurrentLaunch {
+            SentrySDK.capture(message: "Scroll lag detected") { scope in
+                scope.setLevel(.warning)
+                scope.setContext(value: [
+                    "samples": report.samples,
+                    "avg_ms": String(format: "%.2f", report.averageMs),
+                    "max_ms": String(format: "%.2f", report.maxMs),
+                    "threshold_ms": report.thresholdMs
+                ], key: "scroll_lag")
             }
-            scrollEndTimer = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: timer)
         }
     }
 
-    private func endScrollSession() {
-        guard isScrolling else { return }
-        isScrolling = false
+    /// Whether a scroll session is in flight. Forwards to `scrollLagProbe` so
+    /// the `scrollWheel`/`tick` readers stay unchanged.
+    var isScrolling: Bool { scrollLagProbe.isScrolling }
 
-        // Report accumulated lag stats if any exceeded threshold
-        if scrollLagSampleCount > 0 {
-            let avgLag = scrollLagTotalMs / Double(scrollLagSampleCount)
-            let maxLag = scrollLagMaxMs
-            let samples = scrollLagSampleCount
-            let threshold = scrollLagThresholdMs
-            let nowUptime = ProcessInfo.processInfo.systemUptime
-            if Self.shouldCaptureScrollLagEvent(
-                samples: samples,
-                averageMs: avgLag,
-                maxMs: maxLag,
-                thresholdMs: threshold,
-                minimumSamples: scrollLagMinimumSamples,
-                minimumAverageMs: scrollLagMinimumAverageMs,
-                nowUptime: nowUptime,
-                lastReportedUptime: lastScrollLagReportUptime,
-                cooldown: scrollLagReportCooldownSeconds
-            ) {
-                if telemetrySettings.enabledForCurrentLaunch {
-                    SentrySDK.capture(message: "Scroll lag detected") { scope in
-                        scope.setLevel(.warning)
-                        scope.setContext(value: [
-                            "samples": samples,
-                            "avg_ms": String(format: "%.2f", avgLag),
-                            "max_ms": String(format: "%.2f", maxLag),
-                            "threshold_ms": threshold
-                        ], key: "scroll_lag")
-                    }
-                }
-                lastScrollLagReportUptime = nowUptime
-            }
-            // Reset stats
-            scrollLagSampleCount = 0
-            scrollLagTotalMs = 0
-            scrollLagMaxMs = 0
-        }
+    func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
+        scrollLagProbe.markScrollActivity(hasMomentum: hasMomentum, momentumEnded: momentumEnded)
     }
 
     private init() {
@@ -1323,29 +1249,6 @@ class GhosttyApp {
         return effectiveTerminalColorScheme
     }
 
-    static func shouldCaptureScrollLagEvent(
-        samples: Int,
-        averageMs: Double,
-        maxMs: Double,
-        thresholdMs: Double,
-        minimumSamples: Int = 8,
-        minimumAverageMs: Double = 12,
-        nowUptime: TimeInterval,
-        lastReportedUptime: TimeInterval?,
-        cooldown: TimeInterval = 300
-    ) -> Bool {
-        guard samples >= minimumSamples else { return false }
-        guard averageMs.isFinite, maxMs.isFinite, thresholdMs.isFinite, nowUptime.isFinite, cooldown.isFinite else {
-            return false
-        }
-        guard averageMs >= minimumAverageMs else { return false }
-        guard maxMs > thresholdMs else { return false }
-        if let lastReportedUptime, nowUptime - lastReportedUptime < cooldown {
-            return false
-        }
-        return true
-    }
-
     private func loadCmuxAppSupportGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
         #if os(macOS)
         let fm = FileManager.default
@@ -1457,11 +1360,7 @@ class GhosttyApp {
         }
 
         // Track lag during scrolling
-        if isScrolling {
-            scrollLagSampleCount += 1
-            scrollLagTotalMs += elapsedMs
-            scrollLagMaxMs = max(scrollLagMaxMs, elapsedMs)
-        }
+        scrollLagProbe.recordTickSample(elapsedMs: elapsedMs)
     }
 
     func reloadConfiguration(
@@ -1883,25 +1782,14 @@ class GhosttyApp {
     }
 
     private func ringBell() {
-        let features = bellFeatures()
-
-        if (features & (1 << 0)) != 0 {
-            NSSound.beep()
-        }
-
-        if (features & (1 << 1)) != 0,
-           let path = bellAudioPath(),
-           let sound = NSSound(contentsOfFile: path, byReference: false) {
-            sound.volume = bellAudioVolume()
-            bellAudioSound = sound
-            if !sound.play() {
-                bellAudioSound = nil
-            }
-        }
-
-        if (features & (1 << 2)) != 0 {
-            NSApp.requestUserAttention(.informationalRequest)
-        }
+        // The `bell-features` flags, audio path, and volume are decoded from the
+        // live `ghostty_config_t` handle here; the AppKit side effects live in
+        // `TerminalBellService`.
+        terminalBell.ring(
+            features: bellFeatures(),
+            audioPath: bellAudioPath(),
+            audioVolume: bellAudioVolume()
+        )
     }
 
     private func applyDefaultBackground(
@@ -2896,31 +2784,7 @@ class GhosttyApp {
     }
 
     func logBackground(_ message: String) {
-        // Skip all work (string formatting and disk I/O) unless background logging is
-        // explicitly enabled via env/defaults. Without this guard, direct callers wrote
-        // to /tmp/cmux-bg.log on every theme/OSC color event even in normal runs.
-        guard backgroundLogEnabled else { return }
-        let timestamp = Self.backgroundLogTimestampFormatter.string(from: Date())
-        let uptimeMs = (ProcessInfo.processInfo.systemUptime - backgroundLogStartUptime) * 1000
-        let frame60 = Int((CACurrentMediaTime() * 60.0).rounded(.down))
-        let frame120 = Int((CACurrentMediaTime() * 120.0).rounded(.down))
-        let threadLabel = Thread.isMainThread ? "main" : "background"
-        backgroundLogLock.lock()
-        defer { backgroundLogLock.unlock() }
-        backgroundLogSequence &+= 1
-        let sequence = backgroundLogSequence
-        let line =
-            "\(timestamp) seq=\(sequence) t+\(String(format: "%.3f", uptimeMs))ms thread=\(threadLabel) frame60=\(frame60) frame120=\(frame120) cmux bg: \(message)\n"
-        if let data = line.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: backgroundLogURL.path) == false {
-                FileManager.default.createFile(atPath: backgroundLogURL.path, contents: nil)
-            }
-            if let handle = try? FileHandle(forWritingTo: backgroundLogURL) {
-                defer { try? handle.close() }
-                guard (try? handle.seekToEnd()) != nil else { return }
-                try? handle.write(contentsOf: data)
-            }
-        }
+        backgroundDebugLog.log(message)
     }
 }
 
