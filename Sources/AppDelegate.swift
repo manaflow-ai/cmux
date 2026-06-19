@@ -547,7 +547,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
-        var closeObserver: WindowCloseObserver?
+        // The per-window close observation was drained out of this aggregate
+        // into `AppDelegate.windowCoordinator` (a `WindowManaging` owning window
+        // identity + the window-closed AsyncStream). `registerMainWindow`
+        // registers the window there; `observeWindowCoordinatorClosures()`
+        // routes the close back to `unregisterMainWindow`.
         weak var window: NSWindow?
 
         init(
@@ -1038,6 +1042,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
 
+    /// Owns window identity and lifecycle: the live `WindowID` set, the
+    /// `NSWindow` handle per window, and the single window-closed broadcast.
+    /// This is the de-aggregation keystone — the close-observer responsibility
+    /// that used to live on `MainWindowContext.closeObserver` is drained here
+    /// (owner ruling 2026-06-18: per-window state is domain-owned and
+    /// `WindowID`-keyed, never bundled into one per-window aggregate). The
+    /// concrete is constructed once here at the composition root and held as
+    /// `any WindowManaging`; `windowClosed` is consumed by
+    /// ``observeWindowCoordinatorClosures()`` to drive `unregisterMainWindow`.
+    let windowCoordinator: any WindowManaging = WindowCoordinator()
+    private var windowCoordinatorClosureTask: Task<Void, Never>?
+
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
@@ -1276,6 +1292,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
+
+        // Drive `unregisterMainWindow` off the window-identity coordinator's
+        // close broadcast (the close-observer responsibility drained out of
+        // `MainWindowContext`). Started here at the composition root, before any
+        // window registers.
+        observeWindowCoordinatorClosures()
 
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
@@ -4536,7 +4558,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let cmuxConfigStore {
                 existing.cmuxConfigStore = cmuxConfigStore
             }
-            existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+            windowCoordinator.register(window, id: WindowID(existing.windowId))
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             if let existingWindow = existing.window,
                existingWindow !== window,
@@ -4574,7 +4596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 existing.cmuxConfigStore = cmuxConfigStore
             }
             reindexMainWindowContextIfNeeded(existing, for: window)
-            existing.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+            windowCoordinator.register(window, id: WindowID(windowId))
         } else {
             tabManager.window = window
             tabManager.windowId = windowId
@@ -4588,7 +4610,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 window: window
             )
             mainWindowContexts[key] = context
-            context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
+            windowCoordinator.register(window, id: WindowID(windowId))
         }
         commandPaletteWindowStore.registerWindow(windowId)
 
@@ -5896,6 +5918,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        // Keep the window-identity registry in sync. On the AppKit close path the
+        // coordinator already dropped this id (it fired `windowClosed`), so this
+        // is a no-op there; on explicit-teardown callers it actively removes the
+        // identity + its close observation.
+        windowCoordinator.unregister(WindowID(removed.windowId))
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
@@ -5909,6 +5936,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
+        // Drop the window-identity slice for the orphaned context (it was never
+        // a live AppKit close, so the coordinator still holds it).
+        windowCoordinator.unregister(WindowID(context.windowId))
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
@@ -15690,6 +15720,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
         _ = handleQuitShortcutWarning()
         return false
+    }
+
+    /// Subscribes once to the window coordinator's close broadcast and drives
+    /// `unregisterMainWindow` for each closing window. This replaces the
+    /// per-`MainWindowContext` `WindowCloseObserver` that called
+    /// `unregisterMainWindow` directly from `NSWindow.willCloseNotification`.
+    ///
+    /// Behavior delta (faithful-lift discipline): the legacy observer ran
+    /// `unregisterMainWindow` synchronously inside `willClose`; the coordinator's
+    /// `AsyncStream` defers it by one main-actor turn. The closing window is
+    /// resolved through `windowCoordinator.window(for:)`, which pins it strongly
+    /// from `willClose` until this consumer calls `unregister` (see
+    /// `WindowCoordinator.handleClose(of:)`). The pin is load-bearing: a
+    /// `CmuxMainWindow` uses the stock `isReleasedWhenClosed = true` and its sole
+    /// strong owner (`mainWindowControllers`) drops synchronously in `willClose`,
+    /// so without it the autorelease pool could drain the window before this turn
+    /// and the whole teardown (geometry persist, history, active repoint,
+    /// snapshot save, palette removal, notification clearing) would be silently
+    /// dropped. Resolving through the coordinator (not the context's weak
+    /// `window`) is therefore guaranteed non-nil; the only observable difference
+    /// is that those effects land one turn later, unread synchronously then.
+    private func observeWindowCoordinatorClosures() {
+        guard windowCoordinatorClosureTask == nil else { return }
+        let closedEvents = windowCoordinator.windowClosed
+        windowCoordinatorClosureTask = Task { @MainActor [weak self] in
+            for await closedId in closedEvents {
+                guard let self else { return }
+                // Resolve the closing window from the coordinator's strong pin
+                // (held across the one-turn defer), not the context's weak
+                // `window`, so teardown cannot be dropped by autorelease timing.
+                guard let window = self.windowCoordinator.window(for: closedId) else { continue }
+                self.unregisterMainWindow(window)
+            }
+        }
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
