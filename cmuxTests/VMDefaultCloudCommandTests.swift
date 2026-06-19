@@ -59,6 +59,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "workspace.list":
                 return self.v2Response(id: id, ok: true, result: ["workspaces": []])
             case "workspace.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let initialCommand = params["initial_command"] as? String ?? ""
+                let decodedInitialCommand = self.decodedReusableShellStartupCommand(initialCommand)
+                XCTAssertTrue(decodedInitialCommand.contains("vm ssh-attach"), decodedInitialCommand)
+                XCTAssertFalse(decodedInitialCommand.contains(":lease-token@"), decodedInitialCommand)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -286,6 +291,33 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "surface_id": surfaceID,
                     ]
                 )
+            case "surface.read_text":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+                XCTAssertEqual(params["scrollback"] as? Bool, true)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "text": "\(vmID)+cmux@vm-ssh.freestyle.sh's password:\ninput_userauth_error: bad message during authentication: type 80",
+                    ]
+                )
+            case "surface.send_key":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+                XCTAssertTrue((params["key"] as? String) == "ctrl+c" || (params["key"] as? String) == "enter")
+                return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceID])
+            case "surface.send_text":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceID)
+                let text = params["text"] as? String ?? ""
+                let decodedText = self.decodedReusableShellStartupCommand(text)
+                XCTAssertTrue(decodedText.contains("vm ssh-attach"), decodedText)
+                XCTAssertFalse(decodedText.contains(":lease-token@"), decodedText)
+                return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceID])
             default:
                 return self.v2Response(
                     id: id,
@@ -324,6 +356,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "workspace.select",
                 "surface.list",
                 "workspace.remote.reconnect",
+                "surface.read_text",
+                "surface.send_key",
+                "surface.send_text",
+                "surface.send_key",
             ]
         )
     }
