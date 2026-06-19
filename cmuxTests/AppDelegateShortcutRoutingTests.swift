@@ -108,106 +108,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     // and tearDown() still runs after a skip, so it must tolerate a nil here.
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore?
 
-    // TEMPORARY (2026-06-18): These tests drive real NSWindow key/focus state and
-    // assert that a shortcut routes to the *focused* window. On headless CI
-    // runners the window server does not deterministically honor
-    // makeKeyAndOrderFront within the test's drain window, so AppDelegate's
-    // NSApp.keyWindow-based routing resolves a different window and the tests flake
-    // (a varying subset fails each run). Skip exactly these in CI until the durable
-    // fix lands: a DEBUG key-window override seam in AppDelegate routing so tests can
-    // pin the focused window deterministically instead of relying on the OS window
-    // server. They still run on real dev machines. Tracked via the CI-flakiness handoff.
-    private static let focusRoutingTestsFlakyOnHeadlessCI: Set<String> = [
-        "testApplicationSendEventRoutesCmdDMenuEquivalentToActiveShortcutRecorder",
-        "testApplicationSendEventRoutesReassignedCmdWBeforeStaleCloseTabMenuEquivalent",
-        "testApplicationSendEventSuppressesRemappedCmdDStaleMenuShortcut",
-        "testArrowNavigationRoutesWhileCommandPaletteOverlayIsInteractiveBeforeVisibilitySync",
-        "testBrowserFocusModeCommandEquivalentSkipsAppMenuFallback",
-        "testChordedNewWorkspaceShortcutConsumesPrefixAndTriggersOnSecondKey",
-        "testChordedShortcutMismatchDoesNotConsumeSecondKey",
-        "testCmdCtrlWClosesWindowAfterConfirmation",
-        "testCmdDigitDoesNotFallbackToOtherWindowWhenEventWindowContextIsMissing",
-        "testCmdNDoesNotFallbackToOtherWindowWhenEventWindowContextIsMissing",
-        "testCmdNResolvesEventWindowWhenObjectKeyLookupIsMismatched",
-        "testCmdShiftWTargetsFocusedWindowWhenEventWindowMetadataIsStale",
-        "testCmdUnshiftedSymbolDoesNotMatchDigitShortcut",
-        "testCmdWClosesAuxiliaryWindowInsteadOfMainTerminalPanel",
-        "testCmdWClosesMobilePairingWindowInsteadOfTerminalTab",
-        "testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace",
-        "testCmdWTargetsFocusedWindowWhenEventWindowMetadataIsStale",
-        "testConfiguredChordDoesNotCrossWindowBoundary",
-        "testConfiguredChordPrefixBeatsConflictingSingleStrokeShortcut",
-        "testConfiguredChordPrefixBlocksUnrelatedSingleStrokeShortcutOnSecondKey",
-        "testConfiguredChordPrefixIsClearedWhenAppResignsActive",
-        "testFindShortcutFromOtherRightSidebarModeDoesNotStealFocus",
-        "testFindShortcutFromTerminalOpensTerminalFind",
-        "testFocusTextBoxShortcutMovesFocusBackToTerminalWhenTextBoxIsFirstResponder",
-        "testFocusedTextBoxFirstEscapeBypassesTerminalFindShortcutHandling",
-        "testNewBrowserWorkspaceShortcutIsBlockedWhileBrowserDisabled",
-        "testOmnibarArrowSelectionSurvivesTransientWindowFirstResponder",
-        "testOptionCommandNDefaultShortcutCreatesBrowserWorkspace",
-        "testPerformSplitShortcutSplitsFocusedTerminalSurfaceWhenSelectedWorkspaceIsStale",
-        "testRemappedCloseTabDoesNotLetCmdWReachGhosttyCloseSurfaceFallback",
-        "testSettingsFileChordDispatchesNewWorkspaceShortcut",
-        "testShortcutChangeClearsPendingConfiguredChord",
-        "testTerminalFirstResponderGuardBlocksMoveFocusWhenRightSidebarOwnsKeyboardFocus",
-        "testTextBoxFilePanelFocusRestorerRefocusesAfterSheetEnds",
-        "testTextBoxFocusInNonFocusedSplitUpdatesFocusedPanel",
-        "testTextBoxFocusIntentRestoresAfterYieldToAnotherPanel",
-        "testTextBoxPendingFocusIsCanceledOnUnfocusBeforeViewRegisters",
-        "testTextBoxPendingFocusRunsWhenTextViewMovesToWindow",
-        "testTextBoxSecondEscapeAfterFocusMovesToAnotherSplitClearsArmWithoutHiding",
-        "testTextBoxSecondEscapeDoesNotHideWhenAnotherResponderOwnsFocus",
-        "testTextBoxSecondEscapeHidesWhenTerminalSurfaceOwnsFocus",
-        "testTextBoxShortcutReturnsToTextBoxAfterTerminalRegainsFocus",
-        "testToggleSidebarInActiveMainWindowIgnoresStaleTabManagerPointer",
-        "testWelcomeWindowSidebarShortcutsUseSharedToggleCommands",
-        "testWindowPerformKeyEquivalentDefersTerminalPasteMenuMissToGhosttyBindingResolution",
-        "testWindowPerformKeyEquivalentForwardsClearedCmdDPastStaleMenuShortcut",
-        "testWindowPerformKeyEquivalentSuppressesRemappedCmdDStaleMenuShortcut",
-        "testWindowSendEventRepairsFocusedTerminalSearchTypingAfterResponderDrift",
-        "testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping",
-        "testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping",
-    ]
-
-    /// Whether this environment's window server actually honors
-    /// `makeKeyAndOrderFront`. Probed once. Detected at runtime (not via a CI
-    /// env var) because the xcodebuild test-host process does NOT inherit the
-    /// job's environment, so `GITHUB_ACTIONS`/`CI` are invisible inside tests.
-    /// On headless CI runners no test window ever becomes key, so the
-    /// focus-dependent routing tests cannot be deterministic there.
-    private static let keyWindowFocusIsReliable: Bool = {
-        let probe = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 60, height: 60),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        probe.isReleasedWhenClosed = false
-        probe.makeKeyAndOrderFront(nil)
-        let deadline = Date(timeIntervalSinceNow: 0.75)
-        while Date() < deadline, NSApp.keyWindow !== probe {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
-        }
-        let reliable = NSApp.keyWindow === probe
-        probe.orderOut(nil)
-        probe.close()
-        return reliable
-    }()
-
-    private static func skipFocusRoutingTestInCI(testName: String) throws {
-        guard !keyWindowFocusIsReliable else { return }
-        // testName is like "-[AppDelegateShortcutRoutingTests testFoo]".
-        guard let method = testName.split(separator: " ").last.map({ String($0.dropLast()) }) else { return }
-        if focusRoutingTestsFlakyOnHeadlessCI.contains(method) {
-            throw XCTSkip(
-                "Window server does not honor makeKeyAndOrderFront in this environment "
-                + "(headless CI runner); focus/key-window routing is nondeterministic here. "
-                + "Skipped here, runs on real machines. Tracked: DEBUG key-window routing seam."
-            )
-        }
-    }
-
     private func makeKeyEvent(
         modifierFlags: NSEvent.ModifierFlags,
         characters: String,
@@ -262,12 +162,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        try Self.skipFocusRoutingTestInCI(testName: name)
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
+        AppDelegate.installWindowResponderSwizzlesForTesting()
         #if DEBUG
         KeyboardShortcutRecorderActivity.resetForTesting()
-        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        AppDelegate.shared?.debugBeginShortcutRoutingFocusedWindowCaptureForTesting()
         #endif
         actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
@@ -289,7 +189,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     override func tearDown() {
         #if DEBUG
         KeyboardShortcutRecorderActivity.resetForTesting()
-        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        AppDelegate.shared?.debugEndShortcutRoutingFocusedWindowCaptureForTesting()
         KeyboardShortcutSettings.shortcutLookupObserver = nil
         TextBoxSubmit.debugResetForTesting()
         #endif
@@ -574,8 +474,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
         XCTAssertNil(workspace.focusedTerminalPanel)
-        XCTAssertNotNil(
-            browserPanel.pendingAddressBarFocusRequestId,
+        XCTAssertEqual(
+            browserPanel.preferredFocusIntentForActivation(),
+            .browser(.addressBar),
             "Browser workspace should land first focus in the address bar"
         )
 #else
@@ -854,7 +755,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace else {
             XCTFail("Expected test window and workspace")
@@ -2128,7 +2028,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
@@ -4093,7 +3992,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let browserPanelId = manager.openBrowser(inWorkspace: workspace.id) else {
@@ -4105,7 +4003,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.identifier = browserOmnibarTextFieldIdentifier
         field.panelId = browserPanelId
         field.stringValue = "example"
-        contentView.addSubview(field)
+        attachTestResponder(field, to: window)
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
         defer {
             BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
@@ -4164,7 +4062,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let browserPanelId = manager.openBrowser(inWorkspace: workspace.id) else {
@@ -4176,7 +4073,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.identifier = browserOmnibarTextFieldIdentifier
         field.panelId = browserPanelId
         field.stringValue = "ㄉㄚˋ"
-        contentView.addSubview(field)
+        attachTestResponder(field, to: window)
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
 
         defer {
@@ -4240,7 +4137,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let browserPanelId = manager.openBrowser(inWorkspace: workspace.id),
@@ -4255,7 +4151,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.identifier = browserOmnibarTextFieldIdentifier
         field.panelId = browserPanelId
         field.stringValue = "example"
-        contentView.addSubview(field)
+        attachTestResponder(field, to: window)
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
         defer {
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: browserPanelId)
@@ -4408,29 +4304,33 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             action: .showNotifications,
             shortcut: StoredShortcut(key: "8", command: true, shift: false, option: false, control: false)
         ) {
-            // Some non-US layouts can produce "*" without Shift.
-            // This must not be coerced into "8" for a Cmd+8 shortcut match.
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
-                modifierFlags: [.command],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
-                characters: "*",
-                charactersIgnoringModifiers: "*",
-                isARepeat: false,
-                keyCode: 30 // kVK_ANSI_RightBracket
-            ) else {
-                XCTFail("Failed to construct Cmd+* event")
-                return
-            }
+            withTemporaryShortcut(action: .focusHistoryForward, shortcut: .unbound) {
+                withTemporaryShortcut(action: .browserForward, shortcut: .unbound) {
+                    // Some non-US layouts can produce "*" without Shift.
+                    // This must not be coerced into "8" for a Cmd+8 shortcut match.
+                    guard let event = NSEvent.keyEvent(
+                        with: .keyDown,
+                        location: .zero,
+                        modifierFlags: [.command],
+                        timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: window.windowNumber,
+                        context: nil,
+                        characters: "*",
+                        charactersIgnoringModifiers: "*",
+                        isARepeat: false,
+                        keyCode: 30 // kVK_ANSI_RightBracket
+                    ) else {
+                        XCTFail("Failed to construct Cmd+* event")
+                        return
+                    }
 
 #if DEBUG
-            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+                    XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                    XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+                }
+            }
         }
     }
 
@@ -6396,7 +6296,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() {
+    func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -6415,38 +6315,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
 
-        XCTAssertTrue(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to own first responder before repair test"
-        )
-
-        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertFalse(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to lose first responder before repaired typing"
-        )
-        XCTAssertTrue(window.firstResponder == nil || window.firstResponder is NSWindow, "Expected a broken key-routing responder")
+        let orphanResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        installStrandedResponderDriftForTesting(orphanResponder, in: window, hostedView: terminalPanel.hostedView)
 
 #if DEBUG
-        var forwardedKeyDownCount = 0
-        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            previousKeyEventObserver?(keyEvent)
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 0 else { return }
-            forwardedKeyDownCount += 1
-        }
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-        }
+        appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(orphanResponder)
+        defer { appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(nil) }
+
+        let repairProbe = installFocusedTerminalRepairProbeForTesting(appDelegate: appDelegate, keyCode: 0)
+        defer { repairProbe.restore() }
+
+#else
+        throw XCTSkip("DEBUG-only simulated responder override is required for deterministic key-repair coverage")
 #endif
 
         guard let keyDown = makeKeyDownEvent(
@@ -6460,7 +6342,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         window.sendEvent(keyDown)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
+        }
 
         XCTAssertTrue(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
@@ -6468,10 +6352,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertTrue(window.firstResponder === terminalView, "Typing repair should restore the Ghostty surface view as first responder")
 #if DEBUG
-        // forwardedKeyDownCount is only observable through the DEBUG-only
-        // GhosttyNSView.debugGhosttySurfaceKeyEventObserver seam; the first-
-        // responder assertions above act as the Release-build proxy.
-        XCTAssertGreaterThan(forwardedKeyDownCount, 0, "Typing repair should forward the keyDown into Ghostty")
+        XCTAssertEqual(repairProbe.repairCount(), 1, "window.sendEvent should run the focused terminal repair path")
+        XCTAssertTrue(repairProbe.repairResponder() === orphanResponder, "Repair should evaluate the simulated stranded responder")
+        XCTAssertGreaterThan(
+            repairProbe.forwardedKeyDownCount(),
+            0,
+            "Typing repair should forward the keyDown into Ghostty"
+        )
 #endif
     }
 
@@ -6934,7 +6821,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping() {
+    func testWindowSendEventRepairsVisibleSameWindowResponderDriftForFocusedTerminalTyping() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -6944,7 +6831,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
@@ -6955,41 +6841,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(strayView)
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
+        installVisibleResponderDriftForTesting(
+            strayView,
+            in: window,
+            hostedView: terminalPanel.hostedView,
+            mismatchMessage: "Expected the simulated responder to disagree with the focused terminal"
+        )
         defer { strayView.removeFromSuperview() }
 
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertTrue(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to own first responder before repair test"
-        )
-
-        XCTAssertTrue(window.makeFirstResponder(strayView), "Expected test to install a visible wrong first responder")
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertFalse(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to lose first responder before repaired typing"
-        )
-        XCTAssertTrue(window.firstResponder === strayView, "Expected a visible same-window responder drift")
-
 #if DEBUG
-        var forwardedKeyDownCount = 0
-        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            previousKeyEventObserver?(keyEvent)
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 0 else { return }
-            forwardedKeyDownCount += 1
-        }
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-        }
+        appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(strayView)
+        defer { appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(nil) }
+
+        let repairProbe = installFocusedTerminalRepairProbeForTesting(appDelegate: appDelegate, keyCode: 0)
+        defer { repairProbe.restore() }
+
+#else
+        throw XCTSkip("DEBUG-only simulated responder override is required for deterministic key-repair coverage")
 #endif
 
         guard let keyDown = makeKeyDownEvent(
@@ -7003,7 +6872,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         window.sendEvent(keyDown)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
+        }
 
         XCTAssertTrue(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
@@ -7011,7 +6882,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertTrue(window.firstResponder === terminalView, "Typing repair should restore the Ghostty surface view as first responder")
 #if DEBUG
-        XCTAssertGreaterThan(forwardedKeyDownCount, 0, "Typing repair should forward the keyDown into Ghostty")
+        XCTAssertEqual(repairProbe.repairCount(), 1, "window.sendEvent should run the focused terminal repair path")
+        XCTAssertTrue(repairProbe.repairResponder() === strayView, "Repair should evaluate the simulated wrong same-window responder")
+        XCTAssertGreaterThan(
+            repairProbe.forwardedKeyDownCount(),
+            0,
+            "Typing repair should forward the keyDown into Ghostty"
+        )
 #endif
     }
 
@@ -7025,7 +6902,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
@@ -7040,7 +6916,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textBoxView.onToggleFocus = { _ = terminalPanel.focusTextBoxInputOrTerminal() }
         let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
         textBoxScrollView.documentView = textBoxView
-        contentView.addSubview(textBoxScrollView)
+        attachTestResponder(textBoxScrollView, to: window)
         defer { textBoxScrollView.removeFromSuperview() }
 
         window.makeKeyAndOrderFront(nil)
@@ -7865,19 +7741,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
 
-        textView.string = "@z"
-        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.string = "@al"
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
         textView.refreshMentionCompletions()
         XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
         XCTAssertFalse(textView.debugMentionSuggestionsAreCurrent())
         XCTAssertFalse(textView.debugAcceptMentionCompletion())
         XCTAssertFalse(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
-        XCTAssertEqual(textView.string, "@z")
+        XCTAssertEqual(textView.string, "@al")
         var submitCount = 0
         textView.onSubmit = { submitCount += 1 }
         textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
         XCTAssertEqual(submitCount, 1)
-        XCTAssertEqual(textView.string, "@z")
+        XCTAssertEqual(textView.string, "@al")
 
         textView.string = "/z"
         textView.setSelectedRange(NSRange(location: 2, length: 0))
@@ -9823,6 +9699,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(submitCount, 0, "Return should let the input method commit marked text")
 
         textView.unmarkText()
+        textView.string = "かな"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
         textView.keyDown(with: returnEvent)
         XCTAssertEqual(submitCount, 1, "Return should submit after marked text is committed")
     }
@@ -10736,7 +10614,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.insertPendingAttachmentUploadPlaceholder(id: uploadID)
 
         XCTAssertTrue(textView.replacePendingAttachmentUploadPlaceholder(id: uploadID, with: [attachment]))
-        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
+        TextBoxInputTextView.flushPendingSessionDraftAttachmentCopies()
 
         let draft = try XCTUnwrap(textView.sessionDraftSnapshot(isActive: true))
         let snapshot = try XCTUnwrap(draft.parts.first?.attachment)
@@ -10745,6 +10623,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         addTeardownBlock {
             try? FileManager.default.removeItem(at: durableURL)
         }
+        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([temporaryURL])
 
         XCTAssertNotEqual(durableURL.path, temporaryURL.path)
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporaryURL.path))
@@ -10903,7 +10782,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(sidebarResponder)
+        attachTestResponder(sidebarResponder, to: window)
         defer { sidebarResponder.removeFromSuperview() }
 
         XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
@@ -11005,7 +10884,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let sidebarResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        contentView.addSubview(sidebarResponder)
+        attachTestResponder(sidebarResponder, to: window)
         defer { sidebarResponder.removeFromSuperview() }
 
         window.makeKeyAndOrderFront(nil)
@@ -11015,9 +10894,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         terminalPanel.hostedView.moveFocus()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
+        let nonFileMode = RightSidebarMode.sessions
         XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected right sidebar responder to take focus")
-        appDelegate.fileExplorerState?.mode = .feed
-        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .feed, in: window)
+#if DEBUG
+        let revealResult = appDelegate.debugRevealRightSidebarInActiveMainWindow(
+            mode: nonFileMode,
+            focusFirstItem: false,
+            preferredWindow: window
+        )
+        XCTAssertTrue(revealResult.stateFound, "Expected registered right sidebar state")
+        XCTAssertEqual(revealResult.activeMode, nonFileMode.rawValue)
+        XCTAssertTrue(window.makeFirstResponder(sidebarResponder), "Expected sidebar responder to retake focus")
+#else
+        appDelegate.fileExplorerState?.mode = nonFileMode
+#endif
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: nonFileMode, in: window)
         XCTAssertFalse(
             appDelegate.allowsTerminalKeyboardFocus(
                 workspaceId: workspace.id,
@@ -11038,7 +10929,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+        withTemporaryShortcut(action: .switchRightSidebarToFiles, shortcut: .unbound) {
+            withTemporaryShortcut(action: .switchRightSidebarToFind, shortcut: .unbound) {
+                XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+            }
+        }
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -11052,14 +10947,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Cmd+F should keep keyboard ownership in the existing right sidebar section"
         )
         XCTAssertNil(terminalPanel.searchState, "Cmd+F should not create terminal search state")
-        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .feed)
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, nonFileMode)
         XCTAssertFalse(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),
             "Cmd+F from a non-file right sidebar mode should not refocus the terminal responder"
         )
     }
 
-    func testWindowSendEventRepairsFocusedTerminalSearchTypingAfterResponderDrift() {
+    func testWindowSendEventRepairsFocusedTerminalSearchTypingAfterResponderDrift() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -11077,12 +10972,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
 
         let searchState = TerminalSurface.SearchState(needle: "")
         terminalPanel.surface.searchState = searchState
@@ -11094,18 +10984,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        searchField.selectText(nil)
+        _ = window.makeFirstResponder(searchField)
+        waitUntil(timeout: 1.0) {
+            firstResponderOwnsTextField(window.firstResponder, textField: searchField)
+        }
         XCTAssertTrue(
             firstResponderOwnsTextField(window.firstResponder, textField: searchField),
             "Expected terminal search field to own first responder before drift"
         )
 
-        XCTAssertTrue(window.makeFirstResponder(nil), "Expected test to clear the window first responder")
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertFalse(
-            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
-            "Expected terminal search field to lose first responder before repaired typing"
+        let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        installSearchResponderDriftForTesting(
+            strayView,
+            in: window,
+            hostedView: terminalPanel.hostedView,
+            searchField: searchField
         )
+        defer { strayView.removeFromSuperview() }
 
         guard let keyDown = makeKeyDownEvent(
             key: "a",
@@ -11117,14 +11013,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+#if DEBUG
+        appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(strayView)
+        defer { appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(nil) }
+
+        var repairCount = 0
+        var repairResponder: NSResponder?
+        let previousRepairObserver = appDelegate.debugFocusedTerminalKeyRepairObserverForTesting
+        appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = { window, event, responder in
+            previousRepairObserver?(window, event, responder)
+            guard event.keyCode == 0 else { return }
+            repairCount += 1
+            repairResponder = responder
+        }
+        defer { appDelegate.debugFocusedTerminalKeyRepairObserverForTesting = previousRepairObserver }
+#else
+        throw XCTSkip("DEBUG-only simulated responder override is required for deterministic key-repair coverage")
+#endif
+
         window.sendEvent(keyDown)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            firstResponderOwnsTextField(window.firstResponder, textField: searchField)
+                && searchField.stringValue == "a"
+        }
 
         XCTAssertTrue(
             firstResponderOwnsTextField(window.firstResponder, textField: searchField),
             "Typing should repair focus back to the terminal search field"
         )
         XCTAssertEqual(searchField.stringValue, "a", "Typing repair should preserve the first key in the search field")
+#if DEBUG
+        XCTAssertEqual(repairCount, 1, "window.sendEvent should run the focused terminal search repair path")
+        XCTAssertTrue(repairResponder === strayView, "Repair should evaluate the simulated wrong same-window responder")
+#endif
     }
 
     private func makeRegisteredShortcutRoutingWindow(id: UUID) -> NSWindow {
@@ -11776,12 +11697,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
             #if DEBUG
-            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
             #endif
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
         #if DEBUG
-        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
         #endif
         body()
     }
@@ -12199,6 +12120,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         while !condition(), Date() < deadline {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
         }
+    }
+
+    private func attachTestResponder(_ responder: NSView, to window: NSWindow) {
+        (window.contentView?.superview ?? window.contentView)?.addSubview(responder)
     }
 
     private func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {
