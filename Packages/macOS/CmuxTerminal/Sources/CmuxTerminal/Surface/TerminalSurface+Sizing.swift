@@ -79,35 +79,35 @@ extension TerminalSurface {
         let cellHeight = UInt64(currentCellHeightPx)
         let currentColumnCount = UInt64(currentColumns)
         let currentRowCount = UInt64(currentRows)
-        let rawTargetColumns = max(UInt64(1), UInt64(targetWidthPx) / cellWidth)
-        let rawTargetRows = max(UInt64(1), UInt64(targetHeightPx) / cellHeight)
-        let currentGridWidthPx = currentColumnCount * cellWidth
-        let currentGridHeightPx = currentRowCount * cellHeight
-        let horizontalCurrentRemainder = UInt64(currentWidthPx) - min(UInt64(currentWidthPx), currentGridWidthPx)
-        let verticalCurrentRemainder = UInt64(currentHeightPx) - min(UInt64(currentHeightPx), currentGridHeightPx)
-        let adjustedTargetGridWidthPx = UInt64(targetWidthPx) - min(UInt64(targetWidthPx), horizontalCurrentRemainder)
-        let adjustedTargetGridHeightPx = UInt64(targetHeightPx) - min(UInt64(targetHeightPx), verticalCurrentRemainder)
-        let adjustedTargetColumns = max(UInt64(1), adjustedTargetGridWidthPx / cellWidth)
-        let adjustedTargetRows = max(UInt64(1), adjustedTargetGridHeightPx / cellHeight)
-        let rawColumnChange = rawTargetColumns != currentColumnCount
-        let rawRowChange = rawTargetRows != currentRowCount
-        let adjustedColumnChange = adjustedTargetColumns != currentColumnCount
-        let adjustedRowChange = adjustedTargetRows != currentRowCount
-        let columnChange = if horizontalCurrentRemainder == 0 {
-            rawColumnChange
-        } else if horizontalCurrentRemainder >= cellWidth {
-            adjustedColumnChange
-        } else {
-            rawColumnChange || adjustedColumnChange
+        func mayChangeGrid(
+            currentCount: UInt64,
+            currentPixels: UInt64,
+            cellPixels: UInt64,
+            targetPixels: UInt64
+        ) -> Bool {
+            let currentGridPixels = currentCount * cellPixels
+            guard targetPixels >= currentGridPixels else { return true }
+
+            let nextGridPixels = currentGridPixels + cellPixels
+            let paddingLower = currentPixels >= nextGridPixels ? currentPixels - nextGridPixels + 1 : 0
+            let paddingUpper = currentPixels > currentGridPixels ? currentPixels - currentGridPixels : 0
+            let unchangedLower = targetPixels >= nextGridPixels ? targetPixels - nextGridPixels + 1 : 0
+            let unchangedUpper = targetPixels - currentGridPixels
+            // Coalesce only when every padding value compatible with the current grid stays same-grid.
+            return unchangedLower > paddingLower || unchangedUpper < paddingUpper
         }
-        let rowChange = if verticalCurrentRemainder == 0 {
-            rawRowChange
-        } else if verticalCurrentRemainder >= cellHeight {
-            adjustedRowChange
-        } else {
-            rawRowChange || adjustedRowChange
-        }
-        return columnChange || rowChange
+
+        return mayChangeGrid(
+            currentCount: currentColumnCount,
+            currentPixels: UInt64(currentWidthPx),
+            cellPixels: cellWidth,
+            targetPixels: UInt64(targetWidthPx)
+        ) || mayChangeGrid(
+            currentCount: currentRowCount,
+            currentPixels: UInt64(currentHeightPx),
+            cellPixels: cellHeight,
+            targetPixels: UInt64(targetHeightPx)
+        )
     }
 
     /// Applies a new backing size/scale to the runtime surface.

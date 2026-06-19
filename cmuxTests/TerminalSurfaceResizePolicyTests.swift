@@ -100,9 +100,9 @@ struct TerminalSurfaceResizePolicyTests {
     }
 
     @Test
-    func nonGridPaddingUsesAdjustedTargetGrid() {
+    func fullCellRemainderKeepsGridChangeDetectionConservative() {
         #expect(
-            !TerminalSurface.shouldApplySurfacePixelSizeChange(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
                 currentRows: 24,
                 currentWidthPx: 810,
@@ -110,6 +110,21 @@ struct TerminalSurfaceResizePolicyTests {
                 currentCellWidthPx: 10,
                 currentCellHeightPx: 20,
                 targetWidthPx: 819,
+                targetHeightPx: 519,
+                coalescePixelOnlyResize: true,
+                hasAppliedPixelSize: true
+            )
+        )
+
+        #expect(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
+                currentColumns: 80,
+                currentRows: 24,
+                currentWidthPx: 818,
+                currentHeightPx: 500,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 820,
                 targetHeightPx: 519,
                 coalescePixelOnlyResize: true,
                 hasAppliedPixelSize: true
