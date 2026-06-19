@@ -406,6 +406,52 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
     }
 
+    func testCommandPaletteNativeTextFieldPerformsCommandShiftHorizontalSelection() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        withVisibleCommandPaletteOverlay(appDelegate: appDelegate) { window, overlayContainer in
+            let field = ContentView.CommandPaletteNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+            field.stringValue = "abcdef"
+            field.isEditable = true
+            field.isSelectable = true
+            overlayContainer.addSubview(field)
+            defer { field.removeFromSuperview() }
+
+            XCTAssertTrue(window.makeFirstResponder(field))
+            guard let editor = field.currentEditor() as? NSTextView else {
+                XCTFail("Expected command palette field editor")
+                return
+            }
+
+            guard let leftArrowEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                modifiers: [.command, .shift],
+                keyCode: 123,
+                windowNumber: window.windowNumber
+            ),
+            let rightArrowEvent = makeKeyDownEvent(
+                key: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+                modifiers: [.command, .shift],
+                keyCode: 124,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct command-shift horizontal arrow events")
+                return
+            }
+
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+            XCTAssertTrue(field.performKeyEquivalent(with: leftArrowEvent))
+            XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: editor.string.utf16.count))
+
+            editor.setSelectedRange(NSRange(location: 0, length: 0))
+            XCTAssertTrue(field.performKeyEquivalent(with: rightArrowEvent))
+            XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: editor.string.utf16.count))
+        }
+    }
+
     func testWindowPerformKeyEquivalentDoesNotRouteHorizontalArrowsWhenPaletteOverlayIsTransparent() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

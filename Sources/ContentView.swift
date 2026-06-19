@@ -3739,7 +3739,7 @@ struct ContentView: View {
         }
     }
 
-    private final class CommandPaletteNativeTextField: NSTextField {
+    final class CommandPaletteNativeTextField: NSTextField {
         var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
 
         override init(frame frameRect: NSRect) {
