@@ -466,6 +466,12 @@ class TabManager: ObservableObject {
     // (CmuxWorkspaces); creation/teardown/selection invert through
     // WorkspaceGroupHosting.
     let workspaceGrouping: WorkspaceGroupCoordinator<Workspace>
+    // Pure close-planning over the workspaces model (CmuxWorkspaces): ordered
+    // closable/sidebar-selected workspaces and the WorkspaceClosePlan
+    // (title/message/acceptCmdD). The NSAlert presentation + Workspace/window
+    // teardown stay here, inverted through the CloseConfirming conformance
+    // (localized strings + confirmClose, in this file's class body).
+    let workspaceClosing: WorkspaceCloseCoordinator<Workspace>
     private var shouldRecordFocusHistory: Bool {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
@@ -523,6 +529,7 @@ class TabManager: ObservableObject {
         self.settings = settings
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
+        workspaceClosing = WorkspaceCloseCoordinator(model: workspaces)
 #if DEBUG
         let sidebarGitDebugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
 #else
@@ -562,6 +569,7 @@ class TabManager: ObservableObject {
         workspaces.attach(host: self)
         workspaceReordering.attach(host: self)
         workspaceGrouping.attach(host: self)
+        workspaceClosing.attach(confirming: self)
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
@@ -2207,7 +2215,9 @@ class TabManager: ObservableObject {
         UITestRecorder.incrementInt("closeTabInvocations")
 #endif
         guard !closeConfirmationInFlight else { return }
-        let sidebarSelectionIds = orderedSidebarSelectedWorkspaceIds()
+        let sidebarSelectionIds = workspaceClosing.orderedSidebarSelectedWorkspaceIds(
+            sidebarSelectedWorkspaceIds: sidebarSelectedWorkspaceIds
+        )
         if sidebarSelectionIds.count > 1 {
             closeWorkspacesWithConfirmation(sidebarSelectionIds, allowPinned: true)
             return
@@ -2280,14 +2290,14 @@ class TabManager: ObservableObject {
     }
 
     func closeWorkspacesWithConfirmation(_ workspaceIds: [UUID], allowPinned: Bool) {
-        let workspaces = orderedClosableWorkspaces(workspaceIds, allowPinned: allowPinned)
+        let workspaces = workspaceClosing.orderedClosableWorkspaces(workspaceIds, allowPinned: allowPinned)
         guard !workspaces.isEmpty else { return }
         guard workspaces.count > 1 else {
             closeWorkspaceFromCloseTabGesture(workspaces[0])
             return
         }
 
-        let plan = closeWorkspacesPlan(for: workspaces)
+        guard let plan = workspaceClosing.closeWorkspacesPlan(for: workspaces) else { return }
         if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
             guard confirmClose(
                 title: plan.title,
@@ -2296,11 +2306,11 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
-        if plan.workspaces.count == tabs.count,
-           let firstWorkspace = plan.workspaces.first {
+        if workspaces.count == tabs.count,
+           let firstWorkspace = workspaces.first {
             // Closing every tab is still an explicit tab/session close: kill the
             // remote-tmux session(s) on commit, not detach.
-            markRemoteTmuxKillOnWindowCloseIfNeeded(for: plan.workspaces)
+            markRemoteTmuxKillOnWindowCloseIfNeeded(for: workspaces)
             if let window {
                 window.performClose(nil)
                 return
@@ -2311,7 +2321,7 @@ class TabManager: ObservableObject {
             }
         }
 
-        for workspace in plan.workspaces {
+        for workspace in workspaces {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
             // Anchor-close confirms inside closeWorkspaceIfRunningProcess.
             // If the user cancels that dialog during a batch, abort the
@@ -2406,6 +2416,42 @@ class TabManager: ObservableObject {
         return runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
     }
 
+    // MARK: - CloseConfirming (WorkspaceCloseCoordinator's app-side seam)
+    //
+    // The localized confirmation strings stay in the app bundle: a
+    // `String(localized:)` resolved inside CmuxWorkspaces would bind to the
+    // package bundle (which lacks these keys) and silently drop non-English
+    // translations. The coordinator computes the plan shape; these witnesses
+    // supply the catalog strings, lifted verbatim from the legacy
+    // `closeWorkspacesPlan(for:)` / `closeWorkspaceDisplayTitle(_:)` bodies.
+
+    func closeWorkspacesTitle(willCloseWindow: Bool) -> String {
+        willCloseWindow
+            ? String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
+            : String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
+    }
+
+    func closeWorkspacesMessage(
+        willCloseWindow: Bool,
+        workspaceCount: Int,
+        bulletedTitles: String
+    ) -> String {
+        let format = willCloseWindow
+            ? String(
+                localized: "dialog.closeWorkspacesWindow.message",
+                defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
+            )
+            : String(
+                localized: "dialog.closeWorkspaces.message",
+                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
+            )
+        return String(format: format, locale: .current, Int64(workspaceCount), bulletedTitles)
+    }
+
+    var workspaceDisplayTitleFallback: String {
+        String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
+    }
+
     private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
         // Presentation (activate + sheet-on-main-window, else app-modal) is
         // shared with every other cmux dialog via `runCmuxModalAlert`. This
@@ -2447,13 +2493,6 @@ class TabManager: ObservableObject {
         let titles: [String]
     }
 
-    private struct CloseWorkspacesPlan {
-        let workspaces: [Workspace]
-        let title: String
-        let message: String
-        let acceptCmdD: Bool
-    }
-
     private enum CloseConfirmationSource {
         case workspace
         case tabClose
@@ -2489,58 +2528,6 @@ class TabManager: ObservableObject {
             panelIds: targetPanelIds,
             titles: targetTitles
         )
-    }
-
-    private func orderedClosableWorkspaces(_ workspaceIds: [UUID], allowPinned: Bool) -> [Workspace] {
-        let targetIds = Set(workspaceIds)
-        return tabs.compactMap { workspace in
-            guard targetIds.contains(workspace.id) else { return nil }
-            guard allowPinned || !workspace.isPinned else { return nil }
-            return workspace
-        }
-    }
-
-    private func orderedSidebarSelectedWorkspaceIds() -> [UUID] {
-        tabs.compactMap { workspace in
-            sidebarSelectedWorkspaceIds.contains(workspace.id) ? workspace.id : nil
-        }
-    }
-
-    private func closeWorkspacesPlan(for workspaces: [Workspace]) -> CloseWorkspacesPlan {
-        let willCloseWindow = workspaces.count == tabs.count
-        let title = willCloseWindow
-            ? String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
-            : String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
-        let titleLines = workspaces
-            .map { "• \(closeWorkspaceDisplayTitle($0.title))" }
-            .joined(separator: "\n")
-        let format = willCloseWindow
-            ? String(
-                localized: "dialog.closeWorkspacesWindow.message",
-                defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
-            )
-            : String(
-                localized: "dialog.closeWorkspaces.message",
-                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
-            )
-        let message = String(format: format, locale: .current, Int64(workspaces.count), titleLines)
-        return CloseWorkspacesPlan(
-            workspaces: workspaces,
-            title: title,
-            message: message,
-            acceptCmdD: willCloseWindow
-        )
-    }
-
-    private func closeWorkspaceDisplayTitle(_ title: String?) -> String {
-        let collapsed = title?
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let collapsed, !collapsed.isEmpty {
-            return collapsed
-        }
-        return String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
     }
 
     private func closeWorkspaceIfRunningProcess(
@@ -6083,6 +6070,7 @@ extension TabManager {
 // DEBUG state); these extensions only bind the conformances.
 extension TabManager: WorkspacesHosting {}
 extension TabManager: WorkspaceGroupHosting {}
+extension TabManager: CloseConfirming {}
 
 // Workspace satisfies the CmuxWorkspaces tab seam with its existing
 // id/groupId/isPinned storage.
