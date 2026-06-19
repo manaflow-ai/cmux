@@ -9113,7 +9113,7 @@ struct CMUXCLI {
         guard staleAuth || (!alreadyOnVM && initialCommand.isEmpty) else { return }
         do {
             _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "ctrl+c"]) { _, new in new }); _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command]) { _, new in new }); _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "enter"]) { _, new in new })
-        } catch let error as CLIError where error.message.contains("process_exited") { _ = try client.sendV2(method: "surface.respawn", params: target.merging(["command": command, "tmux_start_command": command]) { _, new in new }) }
+        } catch let error as CLIError where error.message.contains("process_exited") { _ = try client.sendV2(method: "surface.respawn", params: target.merging(["command": "/bin/sh"]) { _, new in new }); usleep(300000); _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command]) { _, new in new }); _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "enter"]) { _, new in new }) }
     }
 
     private func parseSSHCommandOptions(

@@ -309,20 +309,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
                 XCTAssertEqual(params["surface_id"] as? String, surfaceID)
-                XCTAssertEqual(params["key"] as? String, "ctrl+c")
-                return self.v2Response(
-                    id: id,
-                    ok: false,
-                    error: ["code": "process_exited", "message": "The terminal session has ended; reopen it or create a new terminal session."]
-                )
+                if params["key"] as? String == "ctrl+c" {
+                    return self.v2Response(id: id, ok: false, error: ["code": "process_exited", "message": "The terminal session has ended; reopen it or create a new terminal session."])
+                }
+                XCTAssertEqual(params["key"] as? String, "enter")
+                return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceID])
             case "surface.respawn":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
                 XCTAssertEqual(params["surface_id"] as? String, surfaceID)
-                let command = params["command"] as? String ?? ""
-                let decodedCommand = self.decodedReusableShellStartupCommand(command)
-                XCTAssertTrue(decodedCommand.contains("vm ssh-attach"), decodedCommand)
-                XCTAssertEqual(params["tmux_start_command"] as? String, command)
+                XCTAssertEqual(params["command"] as? String, "/bin/sh")
+                XCTAssertNil(params["tmux_start_command"])
                 return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceID])
             case "surface.send_text":
                 let params = payload["params"] as? [String: Any] ?? [:]
@@ -375,6 +372,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "surface.read_text",
                 "surface.send_key",
                 "surface.respawn",
+                "surface.send_text",
+                "surface.send_key",
             ]
         )
     }
