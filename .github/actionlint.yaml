@@ -8,7 +8,9 @@ self-hosted-runner:
     - blacksmith-6vcpu-macos-26
     - blacksmith-6vcpu-macos-latest
     - warp-macos-15-arm64-6x
-    - warp-macos-26-arm64-6x
+    # macOS 26 needs route to Blacksmith cloud, not warp-macos-26-arm64-6x: our
+    # self-hosted minis carry that label, and GitHub prefers a matching
+    # self-hosted runner. See check_no_self_hosted_fleet_runners.
     - depot-macos-latest
     - depot-macos-14
     # Linux: Blacksmith primary (LINUX_RUNNER), WarpBuild overflow fallback.

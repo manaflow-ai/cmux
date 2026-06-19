@@ -31,8 +31,9 @@ on:
           - ios
       runner:
         description: >-
-          macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
-          our self-hosted fleet (cmux-macos-26 / cmux-aws-macos-15), warp, or depot.
+          macOS runner label to build on. Cloud runners only: Blacksmith
+          (blacksmith-6vcpu-macos-26), WarpBuild cloud (warp-macos-15-arm64-6x),
+          or Depot (depot-macos-latest). Do not target the self-hosted mini fleet.
         required: false
         default: blacksmith-6vcpu-macos-26
         type: string

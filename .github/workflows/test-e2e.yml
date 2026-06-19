@@ -35,7 +35,6 @@ on:
           - blacksmith-6vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
           - warp-macos-15-arm64-6x
-          - warp-macos-26-arm64-6x
           - depot-macos-latest
           - depot-macos-14
 

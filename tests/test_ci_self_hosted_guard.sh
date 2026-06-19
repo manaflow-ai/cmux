@@ -54,10 +54,10 @@ check_release_build_runner_disk_capacity() {
   if ! awk '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /runs-on:/ && /vars\.MACOS_RUNNER_26_RELEASE/ && /warp-macos-26-arm64-6x/ { saw_release_runner=1 }
+    in_job && /runs-on:/ && /vars\.MACOS_RUNNER_26_RELEASE/ && /blacksmith-6vcpu-macos-26/ { saw_release_runner=1 }
     END { exit !saw_release_runner }
   ' "$CI_FILE"; then
-    echo "FAIL: release-build must use the release-specific macOS 26 runner var with clean Warp fallback for disk-heavy universal builds"
+    echo "FAIL: release-build must use the release-specific macOS 26 runner var with a cloud (Blacksmith) fallback for disk-heavy universal builds"
     exit 1
   fi
 
@@ -694,8 +694,33 @@ check_no_bare_github_hosted_runners() {
   echo "PASS: no workflow pins a bare GitHub-hosted runner; all route through runner repo variables"
 }
 
+check_no_self_hosted_fleet_runners() {
+  # We do NOT use our self-hosted mac-mini fleet (cmux-mac-mini, studio1,
+  # mac4-cmuxvnc*, cmux-austin-mini-*) for CI. Those minis carry labels that
+  # collide with cloud labels (notably `macos-26` and `warp-macos-26-arm64-6x`),
+  # and GitHub PREFERS a matching self-hosted runner, so any workflow that
+  # references such a label can silently land a required job on a mini that
+  # cannot foreground a GUI app. Forbid every fleet/self-hosted label and the
+  # bare self-hosted/macOS/ARM64 combos so CI only ever uses cloud runners
+  # (Blacksmith / WarpBuild cloud / Depot). Allowed macOS labels:
+  # blacksmith-6vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
+  # depot-macos-{latest,14} (none of which any mini carries).
+  local hits=""
+  hits+="$(grep -rnE "('macos-26'|\"macos-26\"|: macos-26([[:space:]]|\$)|- macos-26([[:space:]]|\$)|warp-macos-26-arm64-6x|cmux-aws-macos-15|cmux-macos-26|cmux-local-macos-26|cmux-macos-display|cmux-mac-mini|mac4-cmuxvnc|[[:space:]]macfleet([[:space:],]|\$))" "$ROOT_DIR/.github/workflows" | grep -vE "^[^:]+:[0-9]+:[[:space:]]*#" || true)"
+  hits+="$(grep -rnE "runs-on:[[:space:]]*\[?[[:space:]]*(self-hosted|macOS|ARM64)([[:space:],]|\]|\$)" "$ROOT_DIR/.github/workflows" || true)"
+  if [[ -n "$hits" ]]; then
+    echo "FAIL: workflow references a self-hosted mac-mini fleet label or bare self-hosted runner."
+    echo "      Use a cloud label so required jobs never land on a mini that can't foreground a GUI app:"
+    echo "      blacksmith-6vcpu-macos-{15,26,latest} / warp-macos-15-arm64-6x / depot-macos-{latest,14}."
+    echo "$hits"
+    exit 1
+  fi
+  echo "PASS: no workflow can route to a self-hosted mac-mini (cloud runners only)"
+}
+
 # ci.yml jobs
 check_no_bare_github_hosted_runners
+check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"

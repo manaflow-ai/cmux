@@ -13,9 +13,9 @@ workflow run, with no PR or commit.
 | ------------------- | ---------------------------------------------------------- | --------------------------- | -------------------------------- |
 | `LINUX_RUNNER`      | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `warp-ubuntu-latest-x64-4x`   |
 | `MACOS_RUNNER_15`   | universal Release app builds: nightly, stable release, `release-ghostty-cli-helper`, most macOS defaults | `blacksmith-6vcpu-macos-15` | `warp-macos-15-arm64-6x`         |
-| `MACOS_RUNNER_26`   | macOS 26 compat + jobs that do not need Zig                 | `blacksmith-6vcpu-macos-26` | `warp-macos-26-arm64-6x`         |
-| `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app             | `blacksmith-6vcpu-macos-26` | `warp-macos-26-arm64-6x`         |
-| `MACOS_RUNNER_IOS`  | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `macos-26` (free GitHub-hosted)  |
+| `MACOS_RUNNER_26`   | macOS 26 compat + jobs that do not need Zig                 | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
+| `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app             | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
+| `MACOS_RUNNER_IOS`  | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`  |
 
 Workflows reference them as `runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}`.
 If a variable is unset the job uses the fallback, so CI is never broken by a
@@ -91,3 +91,20 @@ a single variable flip. It also asserts every paid macOS job references
 fall back to a free runner. Bare paid-provider labels (`blacksmith-*`, `warp-*`,
 `depot-*`) stay allowed for deliberate single-runner pins. Keep new labels in
 `.github/actionlint.yaml`.
+
+## No self-hosted mac-mini fleet in CI
+
+We do not use the self-hosted mac-mini fleet (`cmux-mac-mini`, `studio1`,
+`mac4-cmuxvnc*`, `cmux-austin-mini-*`) for any CI job. Those minis carry labels
+that collide with cloud labels (notably `macos-26` and `warp-macos-26-arm64-6x`),
+and GitHub prefers a matching self-hosted runner, so a required job could
+silently land on a mini that cannot foreground a GUI app (it stays
+`Running Background`, breaking key-window / pasteboard / IME / XCUITest). Every
+macOS fallback therefore routes to Blacksmith cloud, and
+`check_no_self_hosted_fleet_runners` in `tests/test_ci_self_hosted_guard.sh`
+fails CI if any workflow references a fleet/self-hosted label.
+
+Residual: this guard checks workflow literals, not repo-variable values. Do not
+set `MACOS_RUNNER_*` / `LINUX_RUNNER` to a self-hosted label; keep them on
+Blacksmith. Fully closing the variable-value path requires removing the
+colliding labels from the minis (runner-side, needs org/runner admin).
