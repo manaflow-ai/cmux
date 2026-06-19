@@ -140,6 +140,72 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
+    @Test func claudeSessionStartOverridesLeakedEnvWithClaudePIDBindingWhenTTYMissing() throws {
+        let context = try makeClaudeHookContext(name: "claude-pid-surface")
+        defer { context.cleanup() }
+
+        let leakedWorkspaceId = context.workspaceId
+        let leakedSurfaceId = context.surfaceId
+        let pidWorkspaceId = "77777777-7777-7777-7777-777777777777"
+        let pidSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let claudePID = 42_424
+        let sessionId = "claude-pid-surface-session"
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(leakedSurfaceId, "surface:1", true)],
+            ttyName: "ttys-unused-claude-pid-surface",
+            ttySurfaceId: leakedSurfaceId,
+            surfacesByWorkspace: [
+                leakedWorkspaceId: [(leakedSurfaceId, "surface:1", true)],
+                pidWorkspaceId: [(pidSurfaceId, "surface:2", false)],
+            ],
+            agentPID: claudePID,
+            agentPIDWorkspaceId: pidWorkspaceId,
+            agentPIDSurfaceId: pidSurfaceId
+        )
+
+        let environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": leakedWorkspaceId,
+            "CMUX_SURFACE_ID": leakedSurfaceId,
+            "CMUX_CLAUDE_PID": "\(claudePID)",
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
+        ]
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let request = try #require(
+            resumeBindingRequests(in: context).last,
+            "Expected Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+        )
+        #expect(
+            request["workspace_id"] as? String == pidWorkspaceId,
+            "Claude PID binding must beat leaked ambient CMUX_WORKSPACE_ID when no TTY marker exists; params=\(request)"
+        )
+        #expect(
+            request["surface_id"] as? String == pidSurfaceId,
+            "Claude PID binding must beat leaked ambient CMUX_SURFACE_ID when no TTY marker exists; params=\(request)"
+        )
+    }
+
     @Test func claudeSessionStartIgnoresStaleTTYWorkspaceWhenBoundSurfaceIsGone() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-tty-workspace")
         defer { context.cleanup() }
@@ -364,39 +430,46 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
     private func startMockServer(listenerFD: Int32, state: MockSocketServerState, handler: @escaping @Sendable (String) -> String) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
-            defer { handled.signal() }
-
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                }
-            }
-            guard clientFD >= 0 else {
-                return
-            }
-            defer { Darwin.close(clientFD) }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
             while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                guard clientFD >= 0 else {
                     if errno == EINTR { continue }
                     return
                 }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
 
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer {
+                        Darwin.close(clientFD)
+                        handled.signal()
+                    }
+
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            state.append(line)
+                            let response = handler(line) + "\n"
+                            _ = response.withCString { ptr in
+                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            }
+                        }
                     }
                 }
             }
@@ -410,7 +483,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         ttyName: String,
         ttySurfaceId: String,
         ttyWorkspaceId: String? = nil,
-        surfacesByWorkspace: [String: [SurfaceFixture]]? = nil
+        surfacesByWorkspace: [String: [SurfaceFixture]]? = nil,
+        agentPID: Int? = nil,
+        agentPIDWorkspaceId: String? = nil,
+        agentPIDSurfaceId: String? = nil
     ) -> DispatchSemaphore {
         let resolvedTTYWorkspaceId = ttyWorkspaceId ?? context.workspaceId
         return startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
@@ -434,6 +510,27 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
                         "tty": ttyName,
                         "workspace_id": resolvedTTYWorkspaceId,
                         "surface_id": ttySurfaceId,
+                    ]]]
+                )
+            case "system.top":
+                guard let agentPID else {
+                    return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+                }
+                let workspaceId = agentPIDWorkspaceId ?? context.workspaceId
+                let surfaceId = agentPIDSurfaceId ?? context.surfaceId
+                return v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["windows": [[
+                        "workspaces": [[
+                            "id": workspaceId,
+                            "panes": [[
+                                "surfaces": [[
+                                    "id": surfaceId,
+                                    "top_level_pids": [agentPID],
+                                ]],
+                            ]],
+                        ]],
                     ]]]
                 )
             case "feed.push":

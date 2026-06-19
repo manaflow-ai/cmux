@@ -24338,6 +24338,7 @@ struct CMUXCLI {
         guard pid != nil else { return nil }
         let client = SocketClient(path: socketPath)
         defer { client.close() }
+        guard (try? client.connect()) != nil else { return nil }
         return resolveAgentProcessTerminalBinding(pid: pid, client: client)
     }
 
