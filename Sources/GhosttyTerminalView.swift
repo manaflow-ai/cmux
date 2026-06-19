@@ -363,7 +363,12 @@ class GhosttyApp {
     /// scans them for font/appearance directives, and decides legacy/CJK/theme
     /// overrides. The C-API config-load methods below call it to decide *what*
     /// to load; it performs no `ghostty_config_t` mutation itself.
-    private static let configDiscovery = GhosttyConfigDiscovery()
+    ///
+    /// Call sites invoke its methods directly (`GhosttyApp.configDiscovery.xxx`)
+    /// rather than through per-method static forwarders on `GhosttyApp`: the
+    /// forwarders were a stateless static-namespace layer over the single held
+    /// instance and added no behavior.
+    static let configDiscovery = GhosttyConfigDiscovery()
     private static let fallbackAppearanceConfig = GhosttyConfig()
     private static let initializationLogger = Logger(
         subsystem: releaseBundleIdentifier,
@@ -1098,7 +1103,7 @@ class GhosttyApp {
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
-        guard let contents = Self.conditionalThemeOverrideConfigContents(
+        guard let contents = Self.configDiscovery.conditionalThemeOverrideConfigContents(
             preferredColorScheme: preferredColorScheme
         ) else { return }
 
@@ -1130,7 +1135,7 @@ class GhosttyApp {
                 config,
                 preferredColorScheme: themeColorScheme
             )
-            if Self.shouldApplyManagedDefaultAppearance() {
+            if Self.configDiscovery.shouldApplyManagedDefaultAppearance() {
                 loadCmuxDefaultAppearanceConfig(
                     config,
                     preferredColorScheme: preferredColorScheme
@@ -1152,7 +1157,7 @@ class GhosttyApp {
             config,
             preferredColorScheme: themeColorScheme
         )
-        if Self.shouldApplyManagedDefaultAppearance() {
+        if Self.configDiscovery.shouldApplyManagedDefaultAppearance() {
             loadCmuxDefaultAppearanceConfig(
                 config,
                 preferredColorScheme: preferredColorScheme
@@ -1262,12 +1267,12 @@ class GhosttyApp {
     ///
     /// See: https://github.com/manaflow-ai/cmux/pull/1017
     private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
-        guard let mappings = Self.autoInjectedCJKFontMappings() else { return }
+        guard let mappings = Self.configDiscovery.autoInjectedCJKFontMappings() else { return }
 
         var resolvedFonts: [String: String] = [:]
         let lines = mappings.map { range, font in
             let resolvedFont = resolvedFonts[font] ?? {
-                let resolved = Self.resolvedInjectedCJKFontName(named: font)
+                let resolved = Self.configDiscovery.resolvedInjectedCJKFontName(named: font)
                 resolvedFonts[font] = resolved
                 return resolved
             }()
@@ -1278,160 +1283,6 @@ class GhosttyApp {
             into: config,
             prefix: "cmux-cjk-font-fallback",
             logLabel: "CJK font fallback"
-        )
-    }
-
-    /// Returns (range, font) pairs for CJK font fallback based on the system's
-    /// preferred languages. Forwards to ``GhosttyConfigDiscovery``.
-    static func cjkFontMappings(
-        preferredLanguages: [String] = Locale.preferredLanguages
-    ) -> [(String, String)]? {
-        configDiscovery.cjkFontMappings(preferredLanguages: preferredLanguages)
-    }
-
-    /// Returns only the CJK mappings cmux should auto-inject. Forwards to
-    /// ``GhosttyConfigDiscovery``.
-    static func autoInjectedCJKFontMappings(
-        preferredLanguages: [String] = Locale.preferredLanguages,
-        configPaths: [String]? = nil,
-        rangeCoverageProbe: ((String, String) -> Bool)? = nil
-    ) -> [(String, String)]? {
-        configDiscovery.autoInjectedCJKFontMappings(
-            preferredLanguages: preferredLanguages,
-            configPaths: configPaths,
-            rangeCoverageProbe: rangeCoverageProbe
-        )
-    }
-
-    /// Whether the user's Ghostty config files already contain a CJK
-    /// `font-codepoint-map` entry. Forwards to ``GhosttyConfigDiscovery``.
-    static func userConfigContainsCJKCodepointMap(
-        configPaths: [String]? = nil
-    ) -> Bool {
-        configDiscovery.userConfigContainsCJKCodepointMap(configPaths: configPaths)
-    }
-
-    static func userConfigHasExplicitFontFamilyFallbackChain(
-        configPaths: [String]? = nil
-    ) -> Bool {
-        configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(configPaths: configPaths)
-    }
-
-    static func shouldInjectCJKFontFallback(
-        preferredLanguages: [String] = Locale.preferredLanguages,
-        configPaths: [String]? = nil,
-        rangeCoverageProbe: ((String, String) -> Bool)? = nil
-    ) -> Bool {
-        configDiscovery.shouldInjectCJKFontFallback(
-            preferredLanguages: preferredLanguages,
-            configPaths: configPaths,
-            rangeCoverageProbe: rangeCoverageProbe
-        )
-    }
-
-    static func shouldApplyManagedDefaultAppearance(
-        configPaths: [String]? = nil
-    ) -> Bool {
-        configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
-    }
-
-    static func conditionalThemeOverrideConfigContents(
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference,
-        configPaths: [String]? = nil
-    ) -> String? {
-        configDiscovery.conditionalThemeOverrideConfigContents(
-            preferredColorScheme: preferredColorScheme,
-            configPaths: configPaths
-        )
-    }
-
-    /// Resolves auto-injected CJK families through the regular-weight descriptor
-    /// path. Forwards to ``GhosttyConfigDiscovery``.
-    static func resolvedInjectedCJKFontName(
-        named name: String,
-        size: CGFloat = 12
-    ) -> String {
-        configDiscovery.resolvedInjectedCJKFontName(named: name, size: size)
-    }
-
-    /// Mirror Ghostty's family-name CoreText discovery path. Forwards to
-    /// ``GhosttyConfigDiscovery``.
-    static func discoveredCTFont(
-        named name: String,
-        size: CGFloat = 12,
-        weightTrait: CGFloat? = nil
-    ) -> CTFont? {
-        configDiscovery.discoveredFont(named: name, size: size, weightTrait: weightTrait)
-    }
-
-    /// Returns the top-level Ghostty config paths cmux may load before recursive
-    /// `config-file` processing. Forwards to ``GhosttyConfigDiscovery``.
-    static func loadedGhosttyConfigScanPaths(
-        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
-    ) -> [String] {
-        configDiscovery.loadedGhosttyConfigScanPaths(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    static func loadedCJKScanPaths(
-        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
-    ) -> [String] {
-        configDiscovery.loadedCJKScanPaths(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    static func shouldLoadLegacyGhosttyConfig(
-        newConfigFileSize: Int?,
-        legacyConfigFileSize: Int?
-    ) -> Bool {
-        configDiscovery.shouldLoadLegacyGhosttyConfig(
-            newConfigFileSize: newConfigFileSize,
-            legacyConfigFileSize: legacyConfigFileSize
-        )
-    }
-
-    static func shouldIncludeLegacyGhosttyConfigInScanPaths(
-        newConfigFileSize: Int?,
-        legacyConfigFileSize: Int?
-    ) -> Bool {
-        configDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: newConfigFileSize,
-            legacyConfigFileSize: legacyConfigFileSize
-        )
-    }
-
-    static func shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
-        appSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
-    ) -> Bool {
-        configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    static func cmuxAppSupportConfigURLs(
-        currentBundleIdentifier: String?,
-        appSupportDirectory: URL,
-        fileManager: FileManager = .default
-    ) -> [URL] {
-        configDiscovery.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupportDirectory,
-            fileManager: fileManager
         )
     }
 
@@ -1501,7 +1352,7 @@ class GhosttyApp {
         guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
         guard let currentBundleIdentifier = Bundle.main.bundleIdentifier,
               !currentBundleIdentifier.isEmpty else { return }
-        let urls = Self.cmuxAppSupportConfigURLs(
+        let urls = Self.configDiscovery.cmuxAppSupportConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupport,
             fileManager: fm
@@ -1528,7 +1379,7 @@ class GhosttyApp {
         guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
-        let urls = Self.cmuxAppSupportConfigURLs(
+        let urls = Self.configDiscovery.cmuxAppSupportConfigURLs(
             currentBundleIdentifier: Bundle.main.bundleIdentifier,
             appSupportDirectory: appSupport,
             fileManager: fm
@@ -1565,7 +1416,7 @@ class GhosttyApp {
             return size.intValue
         }
 
-        guard Self.shouldLoadLegacyGhosttyConfig(
+        guard Self.configDiscovery.shouldLoadLegacyGhosttyConfig(
             newConfigFileSize: fileSize(configNew),
             legacyConfigFileSize: fileSize(configLegacy)
         ) else { return }
@@ -1937,7 +1788,7 @@ class GhosttyApp {
             return
         }
         let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
-        let fallbackForUnspecified = Self.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
+        let fallbackForUnspecified = Self.configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
             ? defaultBackgroundValues(from: nil)
             : baseline
         applyDefaultBackground(

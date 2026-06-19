@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import CmuxFoundation
+import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -19,7 +20,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
+                GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.cmuxterm.app.debug",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -44,7 +45,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
+                GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3478",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -69,7 +70,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
+                GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -99,7 +100,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
+                GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3518",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -239,7 +240,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
+                GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.cmuxterm.app.nightly",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -258,7 +259,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
+                GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.cmuxterm.app.nightly",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -283,7 +284,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
+                GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.cmuxterm.app.staging",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -302,7 +303,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                GhosttyApp.cmuxAppSupportConfigURLs(
+                GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.cmuxterm.app.staging",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -326,7 +327,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
                 contents: "theme = light:3024 Day,dark:3024 Night\n"
             )
 
-            let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
+            let paths = GhosttyApp.configDiscovery.loadedGhosttyConfigScanPaths(
                 currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3478",
                 appSupportDirectory: appSupportDirectory
             )
@@ -346,7 +347,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertTrue(
-                GhosttyApp.cmuxAppSupportConfigURLs(
+                GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.example.other-app",
                     appSupportDirectory: appSupportDirectory
                 ).isEmpty
@@ -405,7 +406,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertTrue(
-                GhosttyApp.cmuxAppSupportConfigURLs(
+                GhosttyApp.configDiscovery.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.cmuxterm.app.debug",
                     appSupportDirectory: appSupportDirectory
                 ).isEmpty
