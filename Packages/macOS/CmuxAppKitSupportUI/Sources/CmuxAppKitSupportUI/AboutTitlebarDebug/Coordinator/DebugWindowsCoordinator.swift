@@ -25,6 +25,11 @@ public final class DebugWindowsCoordinator {
     @ObservationIgnored
     private var aboutTitlebarController: AboutTitlebarDebugWindowController?
 
+    #if DEBUG
+    @ObservationIgnored
+    private var splitButtonLayoutController: SplitButtonLayoutDebugWindowController?
+    #endif
+
     /// Creates the coordinator.
     ///
     /// - Parameter decorator: The window-decoration seam. Held weakly because the
@@ -44,6 +49,17 @@ public final class DebugWindowsCoordinator {
         aboutTitlebarController = controller
         controller.show()
     }
+
+    #if DEBUG
+    /// Presents the Split Button Layout debug editor, creating its window on
+    /// first use.
+    public func showSplitButtonLayoutDebugWindow() {
+        let controller = splitButtonLayoutController
+            ?? SplitButtonLayoutDebugWindowController(decorator: decorator)
+        splitButtonLayoutController = controller
+        controller.show()
+    }
+    #endif
 }
 
 #endif
