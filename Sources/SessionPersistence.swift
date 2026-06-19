@@ -362,6 +362,29 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
     }
 
+    func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
+        guard isAgentHookBinding else { return self }
+        let normalizedCwd = Self.normalized(workingDirectory)
+        let retargetedCommand = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+            in: command,
+            previousWorkingDirectory: cwd,
+            workingDirectory: normalizedCwd
+        )
+        return SurfaceResumeBindingSnapshot(
+            name: name,
+            kind: kind,
+            command: retargetedCommand,
+            cwd: normalizedCwd,
+            checkpointId: checkpointId,
+            source: source,
+            environment: environment,
+            autoResume: autoResume,
+            approvalPolicy: approvalPolicy,
+            approvalRecordId: approvalRecordId,
+            updatedAt: updatedAt
+        )
+    }
+
     static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
 
     var startupInput: String? {

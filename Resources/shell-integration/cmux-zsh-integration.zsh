@@ -1790,7 +1790,8 @@ _cmux_precmd() {
 # Ensure Resources/bin is at the front of PATH, and remove the app's
 # Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
 # Shell init (.zprofile/.zshrc) may prepend other dirs after launch.
-# We fix this once on first prompt (after all init files have run).
+# We fix this once on first prompt (after all init files have run), and
+# reinstall cmux-owned wrapper functions in case user startup replaced them.
 _cmux_fix_path() {
     if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
         local gui_dir="${GHOSTTY_BIN_DIR%/}"
@@ -1799,6 +1800,8 @@ _cmux_fix_path() {
             PATH="$(_cmux_path_prepend_unique_directory "$bin_dir" "${PATH-}" "$gui_dir")"
         fi
     fi
+    _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+    _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
     add-zsh-hook -d precmd _cmux_fix_path
 }
 

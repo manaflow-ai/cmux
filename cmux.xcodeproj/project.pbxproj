@@ -25,6 +25,7 @@
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00020000000000000002 /* AgentHibernationTests.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
+		D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */; };
 		A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000008 /* AgentSessionBridge.swift */; };
 		A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000000B /* AgentSessionBridgeError.swift */; };
 		A9F20000000000000000000C /* AgentSessionBridgeRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000000C /* AgentSessionBridgeRequest.swift */; };
@@ -148,6 +149,7 @@
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
 		C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */; };
+		A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */; };
 		A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */; };
 		A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */; };
 		C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */; };
@@ -857,6 +859,7 @@
 		C0DE53350000000000000001 /* TerminalSearchOverlayHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE53350000000000000002 /* TerminalSearchOverlayHostingView.swift */; };
 		C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
+		D3052001000000000000001 /* TerminalSurfaceResizePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */; };
 		C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */; };
 		5154BEAB50364B86A9E36E4B /* TerminalViewportUITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */; };
 		A5001532 /* TerminalWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001531 /* TerminalWindowPortal.swift */; };
@@ -1066,6 +1069,7 @@
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		D36A00020000000000000002 /* AgentHibernationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTests.swift; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
+		D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSwiftTests.swift; sourceTree = "<group>"; };
 		A9E010000000000000000008 /* AgentSessionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionBridge.swift; sourceTree = "<group>"; };
 		A9F10000000000000000000B /* AgentSessionBridgeError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionBridgeError.swift; sourceTree = "<group>"; };
 		A9F10000000000000000000C /* AgentSessionBridgeRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionBridgeRequest.swift; sourceTree = "<group>"; };
@@ -1188,6 +1192,7 @@
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeConfigDirectoryPathTests.swift; sourceTree = "<group>"; };
+		A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSurfaceResolutionSwiftTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ClaudeStreamJSONAccumulator.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAuthAliasTests.swift; sourceTree = "<group>"; };
 		C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexHookTimeoutRegressionTests.swift; sourceTree = "<group>"; };
@@ -1835,6 +1840,7 @@
 		C0DE53350000000000000002 /* TerminalSearchOverlayHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/TerminalSearchOverlayHostingView.swift; sourceTree = "<group>"; };
 		C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSearchOverlayMouseReleaseTests.swift; sourceTree = "<group>"; };
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
+		D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceResizePolicyTests.swift; sourceTree = "<group>"; };
 		C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceRuntimeWiring.swift; sourceTree = "<group>"; };
 		31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminalViewportUITestRecorder.swift; sourceTree = "<group>"; };
 		A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
@@ -2831,6 +2837,7 @@
 				F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
 				B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */,
 				D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
+				D3610B020000000000000002 /* AgentSessionAutoResumeSwiftTests.swift */,
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
 				A9E010000000000000000010 /* AgentChatTranscriptResolverTests.swift */,
 				A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */,
@@ -2895,6 +2902,7 @@
 				48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */,
 				D0B1000DA1B2C3D4E5F60001 /* CmuxWebViewDragRoutingTests.swift */,
 				D0B1000FA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift */,
+				D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */,
 				02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
 				606600010000000000000002 /* WindowTerminalHostViewTitlebarHitTests.swift */,
 				C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */,
@@ -3023,6 +3031,7 @@
 				A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */,
 				A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */,
 				A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */,
+				A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */,
 				A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */,
 				6379A0026379A0026379A002 /* CLISSHPTYResizeInputTests.swift */,
 				C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */,
@@ -4155,6 +4164,7 @@
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
 				D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */,
 				D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
+				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,
@@ -4187,6 +4197,7 @@
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
 				C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */,
+				A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */,
 				C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */,
 				C46790000000000000000001 /* CLIForwardingLaunchArgumentTests.swift in Sources */,
@@ -4366,6 +4377,7 @@
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,
+				D3052001000000000000001 /* TerminalSurfaceResizePolicyTests.swift in Sources */,
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,
 				F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */,
 				D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */,

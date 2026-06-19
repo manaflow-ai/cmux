@@ -1,15 +1,15 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34147	CLI/cmux.swift
+34323	CLI/cmux.swift
 17606	Sources/AppDelegate.swift
 16021	Sources/ContentView.swift
 14100	Sources/TerminalController.swift
-12609	Sources/Workspace.swift
+12695	Sources/Workspace.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11827	Sources/GhosttyTerminalView.swift
+11841	Sources/GhosttyTerminalView.swift
 11411	Sources/Panels/BrowserPanel.swift
-9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
+9339	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7988	Sources/Panels/BrowserPanelView.swift
 7355	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
@@ -45,12 +45,12 @@
 2257	Sources/TerminalNotificationStore.swift
 2257	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
+2105	Sources/SessionPersistence.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
-2082	Sources/SessionPersistence.swift
+1954	Sources/RestorableAgentSession.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1940	Sources/KeyboardShortcutSettingsFileStore.swift
 1869	cmuxTests/NotificationAndMenuBarTests.swift
-1822	Sources/RestorableAgentSession.swift
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
@@ -111,6 +111,7 @@
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 802	Sources/WorkspaceContentView.swift
 797	Sources/ClosedItemHistory.swift
+787	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
 772	Sources/MainWindowFocusController.swift
@@ -202,13 +203,13 @@
 526	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
 524	Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/HostBrowserSignInFlowTests.swift
-524	Sources/PaneMemoryGuardrail.swift
 522	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
 519	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
 519	Sources/CmuxConfigExecutor.swift
 518	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
+517	Sources/PaneMemoryGuardrail.swift
 516	Sources/TerminalImageTransfer.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
