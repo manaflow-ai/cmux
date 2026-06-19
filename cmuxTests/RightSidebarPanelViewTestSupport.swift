@@ -1,7 +1,5 @@
 import Foundation
 import SwiftUI
-import CmuxSidebarInterpreterClient
-import CmuxSwiftRender
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -22,7 +20,6 @@ extension RightSidebarPanelView {
         onOpenAsPane: @escaping (RightSidebarMode) -> Void,
         onClose: @escaping () -> Void
     ) {
-        var customSidebarRenderWorkerClient: RenderWorkerClient?
         self.init(
             tabManager: tabManager,
             fileExplorerStore: fileExplorerStore,
@@ -33,13 +30,6 @@ extension RightSidebarPanelView {
             onResumeSession: onResumeSession,
             onOpenFilePreview: onOpenFilePreview,
             onOpenAsPane: onOpenAsPane,
-            customSidebarDataContext: { _ in [:] },
-            customSidebarDispatch: .noop,
-            customSidebarRenderer: .inProcess,
-            customSidebarRenderWorkerClient: Binding(
-                get: { customSidebarRenderWorkerClient },
-                set: { customSidebarRenderWorkerClient = $0 }
-            ),
             onClose: onClose
         )
     }

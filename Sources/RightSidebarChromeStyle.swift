@@ -272,7 +272,6 @@ extension View {
 nonisolated struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case mode(RightSidebarMode)
-        case customSidebar(name: String, providerId: String)
     }
 
     let kind: Kind
@@ -281,8 +280,6 @@ nonisolated struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
         switch kind {
         case .mode(let mode):
             return mode.rawValue
-        case .customSidebar(_, let providerId):
-            return providerId
         }
     }
 
@@ -290,8 +287,6 @@ nonisolated struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
         switch kind {
         case .mode(let mode):
             return mode.label
-        case .customSidebar(let name, _):
-            return name
         }
     }
 
@@ -299,8 +294,6 @@ nonisolated struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
         switch kind {
         case .mode(let mode):
             return mode.symbolName
-        case .customSidebar:
-            return "wand.and.stars"
         }
     }
 
@@ -308,27 +301,20 @@ nonisolated struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
         switch kind {
         case .mode(let mode):
             return mode.shortcutAction
-        case .customSidebar:
-            return nil
         }
     }
 
-    var mode: RightSidebarMode? {
-        if case .mode(let mode) = kind { return mode }
-        return nil
+    var mode: RightSidebarMode {
+        switch kind {
+        case .mode(let mode):
+            return mode
+        }
     }
 
-    var customSidebarName: String? {
-        if case .customSidebar(let name, _) = kind { return name }
-        return nil
-    }
-
-    func isSelected(mode: RightSidebarMode, customSidebarName: String?) -> Bool {
+    func isSelected(mode: RightSidebarMode) -> Bool {
         switch kind {
         case .mode(let itemMode):
             return mode == itemMode
-        case .customSidebar(let name, _):
-            return mode == .customSidebar && customSidebarName == name
         }
     }
 }

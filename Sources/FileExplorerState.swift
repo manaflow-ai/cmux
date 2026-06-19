@@ -50,7 +50,7 @@ final class FileExplorerState: ObservableObject {
         let customSidebarName = defaults.string(forKey: Self.customSidebarNameKey)?.nilIfEmpty
         self.storedCustomSidebarName = customSidebarName
         let storedMode = RightSidebarMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
-        self.storedMode = Self.availableMode(storedMode, customSidebarName: customSidebarName, defaults: defaults)
+        self.storedMode = Self.availableMode(storedMode, defaults: defaults)
         defaults.set(self.storedMode.rawValue, forKey: Self.modeKey)
     }
 
@@ -63,7 +63,6 @@ final class FileExplorerState: ObservableObject {
         guard !name.isEmpty else { return }
         storedCustomSidebarName = name
         defaults.set(name, forKey: Self.customSidebarNameKey)
-        setMode(.customSidebar, defaults: defaults)
     }
 
     func toggle() {
@@ -93,7 +92,7 @@ final class FileExplorerState: ObservableObject {
     }
 
     private func setMode(_ mode: RightSidebarMode, defaults: UserDefaults = .standard) {
-        let nextMode = Self.availableMode(mode, customSidebarName: storedCustomSidebarName, defaults: defaults)
+        let nextMode = Self.availableMode(mode, defaults: defaults)
         guard storedMode != nextMode else {
             if defaults.string(forKey: Self.modeKey) != nextMode.rawValue {
                 defaults.set(nextMode.rawValue, forKey: Self.modeKey)
@@ -106,18 +105,10 @@ final class FileExplorerState: ObservableObject {
 
     private static func availableMode(
         _ mode: RightSidebarMode,
-        customSidebarName: String?,
         defaults: UserDefaults
     ) -> RightSidebarMode {
         if mode == .customSidebar {
-            guard let customSidebarName,
-                  CmuxExtensionSidebarSelection.customSidebarsEnabled,
-                  CmuxExtensionSidebarSelection.customSidebarFileURL(
-                      forProviderId: CmuxExtensionSidebarSelection.customSidebarProviderPrefix + customSidebarName
-                  ) != nil else {
-                return .files
-            }
-            return .customSidebar
+            return .files
         }
         return mode.isAvailable(defaults: defaults) ? mode : .files
     }

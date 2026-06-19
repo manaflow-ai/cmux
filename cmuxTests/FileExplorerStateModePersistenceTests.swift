@@ -62,6 +62,19 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         }
     }
 
+    func testStoredCustomSidebarModeFallsBackToFiles() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.customSidebar.rawValue, forKey: modeKey)
+            defaults.set("status-board", forKey: customSidebarNameKey)
+
+            let state = FileExplorerState()
+
+            XCTAssertEqual(state.mode, .files)
+            XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
+        }
+    }
+
     func testCLIArgumentNormalizerMapsVaultAndSessionsToSessions() {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "files"), .files)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)
@@ -70,6 +83,8 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)
+        XCTAssertNil(RightSidebarMode.from(cliArgument: "custom-sidebar"))
+        XCTAssertNil(RightSidebarMode.from(cliArgument: "custom"))
         XCTAssertNil(RightSidebarMode.from(cliArgument: "unknown"))
     }
 

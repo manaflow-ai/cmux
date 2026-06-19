@@ -29,9 +29,9 @@ SwiftUI, files, or syntax. Concretely:
 - Keep it native and uncluttered: a title, a divider, then the content. Use the
   status dot / pill / highlight patterns below so it is scannable at a glance.
 - Lazy-load / cap large lists (see Performance). Do not render hundreds of rows.
-- Iterate by saving the file and opening it in the right sidebar with
-  `cmux right-sidebar set <name>`; it hot-reloads there while you edit. Verify
-  it shows real data and that taps do the right thing before declaring it done.
+- Iterate by saving the file and opening it as a pane with
+  `cmux sidebar open <name>`; it hot-reloads there while you edit. Verify it
+  shows real data and that taps do the right thing before declaring it done.
 - Stay inside the supported subset below. If something is not supported, choose
   the closest supported approach rather than failing.
 
@@ -43,8 +43,8 @@ Write a named file (the name becomes the menu label; use short kebab-case):
     ~/.config/cmux/sidebars/<name>.json      # declarative JSON (simpler, static)
 
 Each file shows up as an option in the **sidebar toggle button's right-click
-menu** and as its own tab in the right sidebar. Pick it from the menu for the
-left sidebar, or run `cmux right-sidebar set <name>` to show it on the right;
+menu** and can also open as a normal Bonsplit pane tab. Pick it from the menu
+for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
 edit the file and save and it hot-reloads. If both `<name>.swift` and
 `<name>.json` exist, `.swift` wins.
 
@@ -116,10 +116,10 @@ normal pane tab that can live in a right-side split.
     }
     SWIFT
 
-Then right-click the sidebar button and choose **mine**, or show it on the
-right with:
+Then right-click the sidebar button and choose **mine**, or open it as a pane
+with:
 
-    cmux right-sidebar set mine
+    cmux sidebar open mine
 
 ## Live data you can bind to (read-only, refreshes ~1s)
 

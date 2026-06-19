@@ -1929,13 +1929,6 @@ struct ContentView: View {
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
             },
-            onOpenCustomSidebarAsPane: { openCustomSidebarPane($0) },
-            customSidebarDataContext: { date in
-                rightSidebarCustomSidebarDataContext(now: date)
-            },
-            customSidebarDispatch: makeCmuxSidebarActionDispatch(),
-            customSidebarRenderer: customSidebarRenderer,
-            customSidebarRenderWorkerClient: $sidebarRenderWorkerClient,
             onClose: {
                 #if DEBUG
                 cmuxDebugLog("rightSidebar.closeButton")

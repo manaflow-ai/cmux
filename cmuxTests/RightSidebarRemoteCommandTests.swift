@@ -16,6 +16,8 @@ extension TerminalControllerSocketSecurityTests {
         let windowId = UUID()
         let tabManager = TabManager()
         let fileExplorerState = FileExplorerState()
+        fileExplorerState.setVisible(false)
+        fileExplorerState.mode = .files
 
         appDelegate.fileExplorerState = fileExplorerState
         appDelegate.registerMainWindowContextForTesting(
@@ -59,7 +61,7 @@ extension TerminalControllerSocketSecurityTests {
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set unknown").hasPrefix("ERROR:"))
     }
 
-    @Test func v1CommandsOpenCustomSidebarTabs() throws {
+    @Test func v1CommandsRejectCustomSidebarNames() throws {
         let name = "__cmux_test_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -94,16 +96,16 @@ extension TerminalControllerSocketSecurityTests {
         )
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-        #expect(TerminalController.shared.handleSocketLine("right_sidebar set \(name) --no-focus") == "OK")
-        #expect(fileExplorerState.isVisible)
-        #expect(fileExplorerState.mode == .customSidebar)
-        #expect(fileExplorerState.customSidebarName == name)
+        #expect(TerminalController.shared.handleSocketLine("right_sidebar set \(name) --no-focus").hasPrefix("ERROR:"))
+        #expect(!fileExplorerState.isVisible)
+        #expect(fileExplorerState.mode == .files)
+        #expect(fileExplorerState.customSidebarName != name)
 
         let modeResponse = TerminalController.shared.handleSocketLine("right_sidebar mode")
         let modeData = try #require(modeResponse.data(using: .utf8))
         let modePayload = try #require(JSONSerialization.jsonObject(with: modeData) as? [String: Any])
-        #expect(modePayload["visible"] as? Bool == true)
-        #expect(modePayload["mode"] as? String == name)
+        #expect(modePayload["visible"] as? Bool == false)
+        #expect(modePayload["mode"] as? String == "files")
     }
 
     @Test func v1ParserProducesRemoteCommands() throws {

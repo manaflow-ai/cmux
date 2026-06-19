@@ -14,8 +14,6 @@ extension RightSidebarMode {
             return .feed
         case "dock":
             return .dock
-        case "custom-sidebar", "custom":
-            return .customSidebar
         default:
             return nil
         }
@@ -48,7 +46,7 @@ extension RightSidebarMode {
         case .dock:
             return dockEnabled
         case .customSidebar:
-            return CmuxExtensionSidebarSelection.customSidebarsEnabled
+            return false
         }
     }
 }

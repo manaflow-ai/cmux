@@ -435,24 +435,8 @@ extension CMUXCLI {
         case "files", "find", "vault", "sessions", "feed", "dock":
             return true
         default:
-            let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { return false }
-            return rightSidebarCustomSidebarFileURL(name: name) != nil
+            return false
         }
-    }
-
-    func rightSidebarCustomSidebarFileURL(name: String) -> URL? {
-        guard !name.isEmpty, name != ".", name != "..",
-              name == (name as NSString).lastPathComponent else {
-            return nil
-        }
-        let directory = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
-        let swiftURL = directory.appendingPathComponent("\(name).swift", isDirectory: false)
-        if FileManager.default.fileExists(atPath: swiftURL.path) { return swiftURL }
-        let jsonURL = directory.appendingPathComponent("\(name).json", isDirectory: false)
-        if FileManager.default.fileExists(atPath: jsonURL.path) { return jsonURL }
-        return nil
     }
 
     func normalizedRightSidebarCLIArgument(_ value: String) -> String {

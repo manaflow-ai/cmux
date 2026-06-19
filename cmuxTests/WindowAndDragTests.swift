@@ -1839,7 +1839,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
-            onOpenAsPane: { _ in }, onOpenCustomSidebarAsPane: { _ in },
+            onOpenAsPane: { _ in },
             onClose: {}
         )
         let hostingView = NSHostingView(rootView: rootView)

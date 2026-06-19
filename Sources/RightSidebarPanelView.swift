@@ -2,12 +2,8 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxFoundation
-import CmuxSidebarInterpreterClient
-import CmuxSidebarRemoteRender
 import CmuxSettings
 import CmuxSettingsUI
-import CmuxSwiftRender
-import CmuxSwiftRenderUI
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
@@ -129,11 +125,6 @@ struct RightSidebarPanelView: View {
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
-    let onOpenCustomSidebarAsPane: (String) -> Void
-    let customSidebarDataContext: (Date) -> [String: SwiftValue]
-    let customSidebarDispatch: SidebarActionDispatch
-    let customSidebarRenderer: CustomSidebarRendererMode
-    @Binding var customSidebarRenderWorkerClient: RenderWorkerClient?
     let onClose: () -> Void
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
@@ -168,14 +159,7 @@ struct RightSidebarPanelView: View {
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
-        var items = availableModes.map { RightSidebarModeBarItem(kind: .mode($0)) }
-        if CmuxExtensionSidebarSelection.customSidebarsEnabled {
-            items += CmuxExtensionSidebarSelection.customSidebarDescriptors.map { descriptor in
-                let name = String(descriptor.id.dropFirst(CmuxExtensionSidebarSelection.customSidebarProviderPrefix.count))
-                return RightSidebarModeBarItem(kind: .customSidebar(name: name, providerId: descriptor.id))
-            }
-        }
-        return items
+        availableModes.map { RightSidebarModeBarItem(kind: .mode($0)) }
     }
 
     private var focusShortcutHintAnimationValue: Bool {
@@ -262,8 +246,7 @@ struct RightSidebarPanelView: View {
                     ModeBarButton(
                         item: item,
                         isSelected: item.isSelected(
-                            mode: fileExplorerState.mode,
-                            customSidebarName: fileExplorerState.customSidebarName
+                            mode: fileExplorerState.mode
                         ),
                         badgeCount: item.mode == .feed ? feedPendingCount : 0,
                         shortcutHint: shortcut,
@@ -274,30 +257,19 @@ struct RightSidebarPanelView: View {
                             modifierHoldHintsEnabled: showModifierHoldHints
                         )
                     ) {
-                        if let mode = item.mode {
-                            if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                                mode: mode,
-                                focusFirstItem: true,
-                                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                            ) != true {
-                                selectMode(mode)
-                            }
-                        } else if let name = item.customSidebarName {
-                            selectCustomSidebar(name)
-                            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                                mode: .customSidebar,
-                                focusFirstItem: true,
-                                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                            )
+                        let mode = item.mode
+                        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                            mode: mode,
+                            focusFirstItem: true,
+                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                        ) != true {
+                            selectMode(mode)
                         }
                     }
                 }
                 Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane {
                     openAsPaneButton(mode: fileExplorerState.mode)
-                } else if fileExplorerState.mode == .customSidebar,
-                          let customSidebarName = fileExplorerState.customSidebarName {
-                    openCustomSidebarAsPaneButton(name: customSidebarName)
                 }
                 closeButton
             }
@@ -336,33 +308,6 @@ struct RightSidebarPanelView: View {
             String.localizedStringWithFormat(
                 String(localized: "rightSidebar.openAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
                 mode.label
-            )
-        )
-        .accessibilityIdentifier("RightSidebar.openAsPaneButton")
-        .titlebarInteractiveControl()
-    }
-
-    private func openCustomSidebarAsPaneButton(name: String) -> some View {
-        Button {
-            onOpenCustomSidebarAsPane(name)
-        } label: {
-            HeaderChromeIconStyle.symbol("rectangle.split.2x1")
-        }
-        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderOpenAsPaneIcon"))
-        .frame(
-            width: RightSidebarChromeMetrics.headerControlSize,
-            height: RightSidebarChromeMetrics.headerControlSize
-        )
-        .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
-            keyPrefix: "rightSidebarHeaderOpenAsPane",
-            isVisible: true
-        )
-        .rightSidebarHeaderControlAlignment()
-        .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
-        .accessibilityLabel(
-            String.localizedStringWithFormat(
-                String(localized: "rightSidebar.openCustomSidebarAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
-                name
             )
         )
         .accessibilityIdentifier("RightSidebar.openAsPaneButton")
@@ -479,33 +424,10 @@ struct RightSidebarPanelView: View {
             case .dock:
                 DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: dockStore)
             case .customSidebar:
-                customSidebarContent
+                EmptyView()
             }
         } else {
             Color.clear
-        }
-    }
-
-    @ViewBuilder
-    private var customSidebarContent: some View {
-        if let name = fileExplorerState.customSidebarName,
-           let url = CmuxExtensionSidebarSelection.customSidebarFileURL(
-               forProviderId: CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
-           ) {
-            TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                CustomSidebarSurface(
-                    fileURL: url,
-                    dataContext: customSidebarDataContext(timeline.date),
-                    dispatch: customSidebarDispatch,
-                    contentInsets: CustomSidebarContentInsets.zero,
-                    rendersInProcess: customSidebarRenderer == .inProcess,
-                    client: $customSidebarRenderWorkerClient
-                )
-            }
-        } else {
-            Text(String(localized: "rightSidebar.customSidebar.missing", defaultValue: "Custom sidebar not found"))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -542,10 +464,6 @@ struct RightSidebarPanelView: View {
                 sessionIndexStore.reload()
             }
         }
-    }
-
-    private func selectCustomSidebar(_ name: String) {
-        fileExplorerState.selectCustomSidebar(name: name)
     }
 
     private func refreshModeAvailabilityAndFocusIfNeeded() {

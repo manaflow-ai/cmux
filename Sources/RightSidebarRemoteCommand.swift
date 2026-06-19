@@ -12,34 +12,7 @@ nonisolated struct RightSidebarRemoteTarget: Equatable, Sendable {
 
 extension FileExplorerState {
     var rightSidebarRemoteModeRawValue: String {
-        mode == .customSidebar ? (customSidebarName ?? mode.rawValue) : mode.rawValue
-    }
-}
-
-extension AppDelegate {
-    @MainActor
-    func applySetCustomRightSidebarRemoteCommand(
-        name: String,
-        focus: Bool,
-        state: FileExplorerState,
-        context: MainWindowContext?,
-        preferredWindow: NSWindow?
-    ) -> RightSidebarRemoteApplyResult {
-        guard CmuxExtensionSidebarSelection.customSidebarFileURL(
-            forProviderId: CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
-        ) != nil else {
-            return .failure(String(localized: "rightSidebar.remote.error.modeUnavailable", defaultValue: "ERROR: Right sidebar mode '\(name)' is not available"))
-        }
-        state.selectCustomSidebar(name: name)
-        if focus {
-            guard focusRightSidebarInActiveMainWindow(mode: .customSidebar, focusFirstItem: true, preferredWindow: preferredWindow) else {
-                return .failure(String(localized: "rightSidebar.remote.error.focusFailed", defaultValue: "ERROR: Failed to focus right sidebar"))
-            }
-        } else {
-            state.setVisible(true)
-            context?.keyboardFocusCoordinator.rememberRightSidebarMode(.customSidebar)
-        }
-        return .ok
+        mode.rawValue
     }
 }
 
@@ -49,7 +22,6 @@ nonisolated enum RightSidebarRemoteCommand: Equatable, Sendable {
     case hide
     case focus
     case setMode(RightSidebarMode, focus: Bool)
-    case setCustomSidebar(String, focus: Bool)
     case getState
 }
 
@@ -167,9 +139,6 @@ extension RightSidebarRemoteRequest {
             if let mode = RightSidebarMode.from(cliArgument: rawMode), mode != .customSidebar {
                 return .success(.init(command: .setMode(mode, focus: !noFocus), target: target))
             }
-            if isValidCustomSidebarName(rawMode) {
-                return .success(.init(command: .setCustomSidebar(rawMode, focus: !noFocus), target: target))
-            }
             return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownMode", defaultValue: "ERROR: Unknown right sidebar mode '\(positional[1])'")))
         default:
             guard !noFocus else {
@@ -181,20 +150,8 @@ extension RightSidebarRemoteRequest {
             if let mode = RightSidebarMode.from(cliArgument: action), mode != .customSidebar {
                 return .success(.init(command: .setMode(mode, focus: true), target: target))
             }
-            if isValidCustomSidebarName(action) {
-                return .success(.init(command: .setCustomSidebar(action, focus: true), target: target))
-            }
             return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownCommand", defaultValue: "ERROR: Unknown right sidebar command '\(action)'")))
         }
-    }
-
-    private static func isValidCustomSidebarName(_ rawName: String) -> Bool {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return false }
-        return CmuxExtensionSidebarSelection.customSidebarsEnabled
-            && CmuxExtensionSidebarSelection.customSidebarFileURL(
-                forProviderId: CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
-            ) != nil
     }
 
     private static func parseTargetOption(
