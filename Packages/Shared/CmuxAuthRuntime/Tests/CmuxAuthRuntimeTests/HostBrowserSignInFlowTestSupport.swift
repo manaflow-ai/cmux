@@ -69,17 +69,36 @@ func hostBrowserCallbackState(_ session: FakeBrowserAuthSession) -> String {
 }
 
 @MainActor
-func waitForHostBrowserSession(_ factory: FakeBrowserAuthSessionFactory, count: Int = 1) async {
+func waitForHostBrowserSession(
+    _ factory: FakeBrowserAuthSessionFactory,
+    count: Int = 1,
+    timeout: Duration = .seconds(2)
+) async {
     // The attempt task runs on the same main actor; yielding lets it reach the
     // browser-session continuation deterministically.
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
     while factory.sessions.count < count {
+        if clock.now >= deadline {
+            preconditionFailure(
+                "Timed out waiting for \(count) host-browser session(s); got \(factory.sessions.count)"
+            )
+        }
         await Task.yield()
     }
 }
 
 @MainActor
-func waitForHostBrowserCondition(until condition: @MainActor () -> Bool) async {
+func waitForHostBrowserCondition(
+    timeout: Duration = .seconds(2),
+    until condition: @MainActor () -> Bool
+) async {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
     while !condition() {
+        if clock.now >= deadline {
+            preconditionFailure("Timed out waiting for host-browser condition")
+        }
         await Task.yield()
     }
 }
