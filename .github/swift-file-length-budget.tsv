@@ -4,7 +4,7 @@
 34179	CLI/cmux.swift
 17606	Sources/AppDelegate.swift
 16025	Sources/ContentView.swift
-14100	Sources/TerminalController.swift
+13584	Sources/TerminalController.swift
 12654	Sources/Workspace.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11846	Sources/GhosttyTerminalView.swift
@@ -109,8 +109,8 @@
 830	Sources/TaskManagerTypes.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
-802	Sources/WorkspaceContentView.swift
 797	Sources/ClosedItemHistory.swift
+795	Sources/WorkspaceContentView.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
 772	Sources/MainWindowFocusController.swift
@@ -209,6 +209,7 @@
 518	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
 516	Sources/TerminalImageTransfer.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
+514	Sources/TerminalController+ControlBrowserContext.swift
 514	cmuxUITests/UpdatePillUITests.swift
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
