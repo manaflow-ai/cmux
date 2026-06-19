@@ -122,10 +122,9 @@ final class PaneMemoryGuardrail {
         thresholdBytes: Int64,
         includeCMUXScope: Bool = false
     ) -> PaneMemoryGuardrailSampleBatch {
-        let snapshot = CmuxTopProcessSnapshot.captureCached(
-            includeCMUXScope: includeCMUXScope,
-            maximumAge: 2
-        )
+        let snapshot = includeCMUXScope
+            ? CmuxTopProcessSnapshot.capture(includeCMUXScope: true)
+            : CmuxTopProcessSnapshot.captureCached(includeCMUXScope: false, maximumAge: 2)
         let samples = computeSamples(
             descriptors: descriptors,
             thresholdBytes: thresholdBytes,
