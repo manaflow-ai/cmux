@@ -22,7 +22,7 @@
 5566	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5526	cmuxTests/BrowserConfigTests.swift
 4467	Sources/Panels/FilePreviewPanel.swift
-4423	Sources/cmuxApp.swift
+4417	Sources/cmuxApp.swift
 4401	cmuxTests/BrowserPanelTests.swift
 4225	Sources/BrowserWindowPortal.swift
 3937	Sources/Feed/FeedPanelView.swift
@@ -35,7 +35,7 @@
 3055	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
-2624	Sources/KeyboardShortcutSettings.swift
+2638	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2486	cmuxTests/CommandPaletteSearchEngineTests.swift

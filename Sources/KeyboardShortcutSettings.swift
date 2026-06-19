@@ -3,6 +3,7 @@ import Bonsplit
 import Carbon
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxWorkspaces
 import SwiftUI
 
 /// Stores customizable keyboard shortcuts (definitions + persistence).
@@ -25,6 +26,19 @@ enum KeyboardShortcutSettings {
         orderedSettingsVisibleActions(
             from: publicShortcutActions.filter { $0 != .showHideAllWindows }
         )
+    }
+
+    /// Opens the cmux settings file (`~/.config/cmux/cmux.json`) in the user's
+    /// preferred editor, materializing the template through ``settingsFileStore``
+    /// first when the file is absent, then routing the resolved URL through
+    /// `PreferredEditorService` (honoring `preferredEditorCommand`, with an
+    /// OS-default fallback). Scoped onto this type because it owns the settings
+    /// file store and its on-disk location; replaces the retired top-level
+    /// `openCmuxSettingsFileInEditor()` free function.
+    @MainActor
+    static func openSettingsFileInEditor() {
+        let url = settingsFileStore.settingsFileURLForEditing()
+        PreferredEditorService(defaults: .standard).open(url)
     }
 
     private static func orderedSettingsVisibleActions(from actions: [Action]) -> [Action] {
