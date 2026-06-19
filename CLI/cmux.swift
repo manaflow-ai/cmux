@@ -8807,7 +8807,7 @@ struct CMUXCLI {
             initialSSHStartupCommand = ptyStartupCommand
             remoteTerminalSSHStartupCommand = ptyStartupCommand
         }
-        let reusableTerminalStartupCommand: String
+        let reusableTerminalStartupCommand: String; let reusableTerminalRecoveryCommand: String
         if let vmIDForSplitAttach,
            sshOptions.skipDaemonBootstrap {
             let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
@@ -8826,12 +8826,12 @@ struct CMUXCLI {
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: 0,
                 reconnectLimitDefault: 86400
-            )
+            ); reusableTerminalRecoveryCommand = splitAttachCommand
             if usesPersistentFreestyleCloud {
                 initialSSHStartupCommand = reusableTerminalStartupCommand; remoteTerminalSSHStartupCommand = reusableTerminalStartupCommand
             }
         } else {
-            reusableTerminalStartupCommand = remoteTerminalSSHStartupCommand
+            reusableTerminalStartupCommand = remoteTerminalSSHStartupCommand; reusableTerminalRecoveryCommand = remoteTerminalSSHStartupCommand
         }
         cliDebugLog(
             "cli.ssh.start target=\(sshOptions.displayDestination) port=\(sshOptions.port.map(String.init) ?? "nil") " +
@@ -8990,7 +8990,7 @@ struct CMUXCLI {
                     "stage=workspace.remote.reconnect elapsedMs=\(Int(Date().timeIntervalSince(reconnectStartedAt) * 1000))"
                 )
                 if usesPersistentFreestyleCloud {
-                    try recoverStaleFreestyleSSHPromptIfNeeded(workspaceId: workspaceId, surfaceId: surfaceId, vmID: vmIDForSplitAttach ?? "", command: reusableTerminalStartupCommand, client: client)
+                    try recoverStaleFreestyleSSHPromptIfNeeded(workspaceId: workspaceId, surfaceId: surfaceId, vmID: vmIDForSplitAttach ?? "", command: reusableTerminalRecoveryCommand, client: client)
                 }
             }
             let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"
