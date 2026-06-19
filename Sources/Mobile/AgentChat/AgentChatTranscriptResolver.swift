@@ -217,19 +217,3 @@ struct AgentChatTranscriptResolver: Sendable {
         return nil
     }
 }
-
-actor AgentChatTranscriptScanQueue {
-    func newestClaudeTranscript(
-        resolver: AgentChatTranscriptResolver,
-        workingDirectory: String,
-        excludingSessionIDs: Set<String>,
-        titleHint: String?
-    ) -> (sessionID: String, path: String)? {
-        guard !Task.isCancelled else { return nil }
-        return resolver.newestClaudeTranscript(
-            workingDirectory: workingDirectory,
-            excludingSessionIDs: excludingSessionIDs,
-            titleHint: titleHint
-        )
-    }
-}

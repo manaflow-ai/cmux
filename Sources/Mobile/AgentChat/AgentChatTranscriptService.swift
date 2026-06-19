@@ -12,7 +12,6 @@ final class AgentChatTranscriptService {
 
     private let registry: AgentChatSessionRegistry
     private let resolver: AgentChatTranscriptResolver
-    private let scanQueue: AgentChatTranscriptScanQueue
     private let coding = ChatWireCoding()
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
     /// Sessions whose transcript could not be resolved; skipped until an
@@ -50,12 +49,10 @@ final class AgentChatTranscriptService {
     ///   - resolver: Transcript path resolver.
     init(
         registry: AgentChatSessionRegistry,
-        resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver(),
-        scanQueue: AgentChatTranscriptScanQueue = AgentChatTranscriptScanQueue()
+        resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver()
     ) {
         self.registry = registry
         self.resolver = resolver
-        self.scanQueue = scanQueue
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
         }
@@ -273,17 +270,13 @@ final class AgentChatTranscriptService {
 
     // MARK: - Internals
 
-    private struct PendingTitleChange {
-        let change: GhosttyTitleChange
-        let titleKey: String
-    }
-
-    private struct ClaudeTranscriptResolutionKey: Equatable, Sendable {
-        let workingDirectory: String
-        let claimedSessionIDs: Set<String>
-        let titleKey: String?
-        let forceScan: Bool
-    }
+    private typealias PendingTitleChange = (change: GhosttyTitleChange, titleKey: String)
+    private typealias ClaudeTranscriptResolutionKey = (
+        workingDirectory: String,
+        claimedSessionIDs: Set<String>,
+        titleKey: String?,
+        forceScan: Bool
+    )
 
     private func scheduleTitleDetectedAdoption(_ change: GhosttyTitleChange) {
         let surfaceID = change.surfaceId.uuidString
@@ -300,7 +293,7 @@ final class AgentChatTranscriptService {
             return
         }
 
-        pendingTitleChanges[surfaceID] = PendingTitleChange(change: change, titleKey: titleKey)
+        pendingTitleChanges[surfaceID] = (change: change, titleKey: titleKey)
         titleChangeCoalescer.signal { [weak self] in
             self?.flushTitleDetectedAdoptions()
         }
@@ -348,7 +341,7 @@ final class AgentChatTranscriptService {
         if let excludingSessionID {
             claimed.remove(excludingSessionID)
         }
-        let key = ClaudeTranscriptResolutionKey(
+        let key: ClaudeTranscriptResolutionKey = (
             workingDirectory: workingDirectory,
             claimedSessionIDs: claimed,
             titleKey: Self.specificClaudeTitleKey(titleHint),
@@ -362,24 +355,40 @@ final class AgentChatTranscriptService {
         transcriptResolutionKeys[surfaceID] = key
         transcriptResolutionTasks[surfaceID]?.cancel()
         let resolver = self.resolver
-        let scanQueue = self.scanQueue
-        transcriptResolutionTasks[surfaceID] = Task { @MainActor [
-            weak self,
-            resolver,
-            scanQueue,
-            key,
-            workspaceID,
-            workingDirectory,
-            surfaceID,
-            titleHint,
-            claimed
-        ] in
-            let resolved = await scanQueue.newestClaudeTranscript(
-                resolver: resolver,
+        #if compiler(>=6.2)
+        let resolveOperation: @concurrent @Sendable () async -> (sessionID: String, path: String)? = {
+            [resolver, workingDirectory, claimed, titleHint] in
+            resolver.newestClaudeTranscript(
                 workingDirectory: workingDirectory,
                 excludingSessionIDs: claimed,
                 titleHint: titleHint
             )
+        }
+        #else
+        let resolveOperation: @Sendable () async -> (sessionID: String, path: String)? = {
+            [resolver, workingDirectory, claimed, titleHint] in
+            resolver.newestClaudeTranscript(
+                workingDirectory: workingDirectory,
+                excludingSessionIDs: claimed,
+                titleHint: titleHint
+            )
+        }
+        #endif
+        let scanTask = Task.detached(priority: .utility, operation: resolveOperation)
+        transcriptResolutionTasks[surfaceID] = Task { @MainActor [
+            weak self,
+            scanTask,
+            key,
+            workspaceID,
+            workingDirectory,
+            surfaceID,
+            titleHint
+        ] in
+            let resolved = await withTaskCancellationHandler {
+                await scanTask.value
+            } onCancel: {
+                scanTask.cancel()
+            }
             guard !Task.isCancelled else { return }
             self?.applyClaudeTranscriptResolution(
                 resolved,
