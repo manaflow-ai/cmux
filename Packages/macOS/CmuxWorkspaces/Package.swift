@@ -14,6 +14,9 @@ let package = Package(
         ),
     ],
     dependencies: [
+        // CmuxFoundation owns WorkspaceMountPlan, the pure mount-priority value
+        // the Handoff/ coordinator computes its mounted set from.
+        .package(path: "../CmuxFoundation"),
         // CmuxCore owns the WorkspaceRemote* value types carried by
         // SelectedWorkspaceDirectorySnapshot.
         .package(path: "../CmuxCore"),
@@ -34,6 +37,7 @@ let package = Package(
         .target(
             name: "CmuxWorkspaces",
             dependencies: [
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "Bonsplit", package: "bonsplit"),

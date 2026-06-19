@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34179	CLI/cmux.swift
 17135	Sources/AppDelegate.swift
-14535	Sources/ContentView.swift
+14378	Sources/ContentView.swift
 12331	Sources/Workspace.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11584	Sources/GhosttyTerminalView.swift
@@ -16,7 +16,7 @@
 6317	cmuxTests/SessionPersistenceTests.swift
 6218	cmuxTests/GhosttyConfigTests.swift
 6151	CLI/cmux_open.swift
-6077	Sources/TabManager.swift
+6143	Sources/TabManager.swift
 6072	Sources/TextBoxInput.swift
 5922	cmuxTests/TerminalAndGhosttyTests.swift
 5566	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
@@ -194,6 +194,7 @@
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 534	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
+534	Sources/TerminalController+ControlBrowserContext.swift
 531	Sources/App/WorkspaceRuntimeSettings.swift
 530	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
 530	Packages/macOS/CmuxCommandPaletteUI/Sources/CmuxCommandPaletteUI/Overlay/WindowCommandPaletteOverlayController.swift
@@ -213,7 +214,6 @@
 518	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
 516	Sources/TerminalImageTransfer.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
-534	Sources/TerminalController+ControlBrowserContext.swift
 514	cmuxUITests/UpdatePillUITests.swift
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
