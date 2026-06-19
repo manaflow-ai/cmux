@@ -59,6 +59,15 @@ final class AgentChatSessionRegistry {
         records[sessionID]
     }
 
+    /// The current live session bound to a terminal surface, if any.
+    ///
+    /// - Parameter surfaceID: Terminal surface UUID string.
+    /// - Returns: A non-ended record bound to the surface, or `nil`.
+    func liveSession(surfaceID: String) -> AgentChatSessionRecord? {
+        sweepDeadProcesses()
+        return records.values.first { $0.surfaceID == surfaceID && $0.state != .ended }
+    }
+
     /// Every session id the registry already tracks. Title-detected adoption
     /// passes this to the transcript resolver so a second hook-bypassed claude
     /// in the same directory resolves to a *different* (unclaimed) transcript

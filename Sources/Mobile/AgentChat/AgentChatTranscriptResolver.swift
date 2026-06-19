@@ -6,16 +6,14 @@ import Foundation
 /// Preference order: the hook store's recorded `transcriptPath`, then the
 /// agent-specific conventional location (claude: encoded-cwd project dir;
 /// codex: rollout filename containing the session id).
-struct AgentChatTranscriptResolver {
+struct AgentChatTranscriptResolver: Sendable {
     private let homeDirectory: URL
-    private let fileManager: FileManager
 
     /// Creates a resolver.
     ///
     /// - Parameter homeDirectory: Injectable home directory for tests.
     init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.homeDirectory = homeDirectory
-        self.fileManager = FileManager.default
     }
 
     /// Resolves the transcript path for a session.
@@ -24,6 +22,7 @@ struct AgentChatTranscriptResolver {
     ///   - record: The session's registry record.
     /// - Returns: An existing transcript path, or `nil` when none is found.
     func transcriptPath(for record: AgentChatSessionRecord) -> String? {
+        let fileManager = FileManager.default
         if let recorded = record.transcriptPath {
             let expanded = (recorded as NSString).expandingTildeInPath
             if fileManager.fileExists(atPath: expanded) {
@@ -61,6 +60,7 @@ struct AgentChatTranscriptResolver {
         excludingSessionIDs: Set<String> = [],
         titleHint: String? = nil
     ) -> (sessionID: String, path: String)? {
+        let fileManager = FileManager.default
         // The home project dir is a junk drawer of every home-rooted claude
         // conversation, so newest-by-mtime there is almost never *this*
         // terminal's session. Refuse title-detected adoption from $HOME; a
@@ -148,6 +148,7 @@ struct AgentChatTranscriptResolver {
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
+        let fileManager = FileManager.default
         guard let cwd = record.workingDirectory else { return nil }
         let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
         let path = homeDirectory
@@ -163,6 +164,7 @@ struct AgentChatTranscriptResolver {
     /// under `~/.codex/sessions/YYYY/MM/DD/`; scan recent day directories for
     /// the session id.
     private func codexFallbackPath(sessionID: String) -> String? {
+        let fileManager = FileManager.default
         let root = homeDirectory
             .appendingPathComponent(".codex", isDirectory: true)
             .appendingPathComponent("sessions", isDirectory: true)

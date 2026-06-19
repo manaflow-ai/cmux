@@ -19,13 +19,20 @@ final class AgentChatTranscriptService {
     /// failures don't rescan the filesystem during tool storms.
     private var failedResolutions: Set<String> = []
     /// Last time `adoptDetectedClaudeSession` ran a filesystem scan for a
-    /// surface that had no session yet, keyed by surface id. Bounds the
-    /// main-actor directory walk to once per `detectionScanThrottle` while a
+    /// surface that had no session yet, keyed by surface id. Bounds transcript
+    /// resolution scheduling to once per `detectionScanThrottle` while a
     /// title-detected claude has not yet written its transcript; a successful
     /// adoption removes the entry.
     private var detectionScanAt: [String: Date] = [:]
     private var ghosttyTitleSubscription: GhosttyTitleChangeSubscription?
+    private var pendingTitleChanges: [String: PendingTitleChange] = [:]
+    private var titleChangeTasks: [String: Task<Void, Never>] = [:]
+    private var deliveredTitleKeys: [String: String] = [:]
+    private var transcriptResolutionTasks: [String: Task<Void, Never>] = [:]
+    private var transcriptResolutionKeys: [String: ClaudeTranscriptResolutionKey] = [:]
+    private var titleAdoptionHandler: (@MainActor (GhosttyTitleChange) -> Bool)?
     private static let detectionScanThrottle: TimeInterval = 4
+    private static let titleChangeDebounceNanoseconds: UInt64 = 250_000_000
     private static let provisionalClaudeSessionIDPrefix = "detected-claude-surface-"
 
     /// Creates the service with a hook-store-backed registry.
@@ -54,12 +61,14 @@ final class AgentChatTranscriptService {
     /// Seeds the session registry from the on-disk hook stores. Call once
     /// at app startup.
     ///
-    /// - Parameter adoptDetectedAgentSessions: Composition-root callback that
-    ///   adopts a title-detected agent for the workspace whose title changed.
-    func start(adoptDetectedAgentSessions: @escaping @MainActor (String) -> Void) {
+    /// - Parameter adoptDetectedAgentSession: Composition-root callback that
+    ///   adopts a title-detected agent for the surface whose title changed,
+    ///   returning whether the surface was resolved and adoption was queued.
+    func start(adoptDetectedAgentSession: @escaping @MainActor (GhosttyTitleChange) -> Bool) {
         guard ghosttyTitleSubscription == nil else { return }
+        titleAdoptionHandler = adoptDetectedAgentSession
         registry.seedFromHookStores()
-        observeAgentTitleChanges(adoptDetectedAgentSessions: adoptDetectedAgentSessions)
+        observeAgentTitleChanges()
     }
 
     /// Watches terminal title changes so a coding agent launched without a
@@ -67,12 +76,9 @@ final class AgentChatTranscriptService {
     /// adopted the instant its terminal title becomes the agent's (e.g.
     /// "✳ Claude Code"), not only when the workspace is next opened. Adoption
     /// emits a descriptor change, which pushes the toggle to listening phones.
-    private func observeAgentTitleChanges(adoptDetectedAgentSessions: @escaping @MainActor (String) -> Void) {
-        ghosttyTitleSubscription = GhosttyTitleChangeSubscription { change in
-            guard change.title.lowercased().contains("claude") else {
-                return
-            }
-            adoptDetectedAgentSessions(change.tabId.uuidString)
+    private func observeAgentTitleChanges() {
+        ghosttyTitleSubscription = GhosttyTitleChangeSubscription { [weak self] change in
+            self?.scheduleTitleDetectedAdoption(change)
         }
     }
 
@@ -134,55 +140,35 @@ final class AgentChatTranscriptService {
         workingDirectory: String,
         titleHint: String? = nil
     ) -> Bool {
-        if let bound = registry.sessions(workspaceID: nil)
-            .first(where: { $0.surfaceID == surfaceID && $0.state != .ended }) {
-            registry.update(sessionID: bound.sessionID) { record in
-                record.workspaceID = workspaceID
-                record.surfaceID = surfaceID
-                record.workingDirectory = workingDirectory
+        if let bound = registry.liveSession(surfaceID: surfaceID) {
+            if bound.workspaceID != workspaceID
+                || bound.surfaceID != surfaceID
+                || bound.workingDirectory != workingDirectory {
+                registry.update(sessionID: bound.sessionID) { record in
+                    record.workspaceID = workspaceID
+                    record.surfaceID = surfaceID
+                    record.workingDirectory = workingDirectory
+                }
             }
             guard bound.transcriptPath == nil else { return true }
-            if let resolved = newestClaudeTranscript(
+            scheduleClaudeTranscriptResolution(
+                workspaceID: workspaceID,
                 workingDirectory: workingDirectory,
                 surfaceID: surfaceID,
                 excludingSessionID: bound.sessionID,
                 titleHint: titleHint,
                 forceScan: Self.isSpecificClaudeTitle(titleHint)
-            ) {
-                detectionScanAt.removeValue(forKey: surfaceID)
-                registry.update(sessionID: bound.sessionID) { record in
-                    record.transcriptPath = resolved.path
-                    record.workingDirectory = workingDirectory
-                }
-            }
+            )
             return true
         }
         // A claude detected by title before it has written its transcript jsonl
         // (the launch race) resolves to nothing. List-level adoption runs this
         // on every workspace-list RPC and every "claude" title change across
-        // ALL workspaces, so without a throttle an un-resolvable surface drives
-        // a fresh main-actor directory walk on each call during a title burst.
-        // Bound the filesystem scan to once per surface per window; a success
-        // clears the entry (and `alreadyBound` short-circuits forever after).
-        if let resolved = newestClaudeTranscript(
-            workingDirectory: workingDirectory,
-            surfaceID: surfaceID,
-            excludingSessionID: nil,
-            titleHint: titleHint,
-            forceScan: false
-        ) {
-            detectionScanAt.removeValue(forKey: surfaceID)
-            registry.adoptDetectedSession(
-                sessionID: resolved.sessionID,
-                agentKind: .claude,
-                workspaceID: workspaceID,
-                surfaceID: surfaceID,
-                workingDirectory: workingDirectory,
-                transcriptPath: resolved.path,
-                at: Date()
-            )
-            return true
-        }
+        // ALL workspaces, so without a throttle an un-resolvable surface would
+        // schedule fresh transcript resolution on each call during a title
+        // burst. Bound the off-main resolution to once per surface per window;
+        // a success clears the entry (and `liveSession` short-circuits forever
+        // after once the transcript is bound).
         registry.adoptDetectedSession(
             sessionID: Self.provisionalClaudeSessionID(surfaceID: surfaceID),
             agentKind: .claude,
@@ -191,6 +177,14 @@ final class AgentChatTranscriptService {
             workingDirectory: workingDirectory,
             transcriptPath: nil,
             at: Date()
+        )
+        scheduleClaudeTranscriptResolution(
+            workspaceID: workspaceID,
+            workingDirectory: workingDirectory,
+            surfaceID: surfaceID,
+            excludingSessionID: nil,
+            titleHint: titleHint,
+            forceScan: false
         )
         return true
     }
@@ -275,6 +269,156 @@ final class AgentChatTranscriptService {
     }
 
     // MARK: - Internals
+
+    private struct PendingTitleChange {
+        let change: GhosttyTitleChange
+        let titleKey: String
+    }
+
+    private struct ClaudeTranscriptResolutionKey: Equatable, Sendable {
+        let workingDirectory: String
+        let claimedSessionIDs: Set<String>
+        let titleKey: String?
+        let forceScan: Bool
+    }
+
+    private func scheduleTitleDetectedAdoption(_ change: GhosttyTitleChange) {
+        guard let titleKey = Self.claudeTitleDetectionKey(change.title) else { return }
+        let surfaceID = change.surfaceId.uuidString
+        if pendingTitleChanges[surfaceID]?.titleKey == titleKey {
+            return
+        }
+        if pendingTitleChanges[surfaceID] == nil,
+           deliveredTitleKeys[surfaceID] == titleKey {
+            return
+        }
+
+        pendingTitleChanges[surfaceID] = PendingTitleChange(change: change, titleKey: titleKey)
+        titleChangeTasks[surfaceID]?.cancel()
+        titleChangeTasks[surfaceID] = Task { @MainActor [weak self] in
+            do {
+                // Bounded debounce for terminal title bursts; replaced by newer titles for this surface.
+                try await Task.sleep(nanoseconds: Self.titleChangeDebounceNanoseconds)
+            } catch {
+                return
+            }
+            self?.flushTitleDetectedAdoption(surfaceID: surfaceID)
+        }
+    }
+
+    private func flushTitleDetectedAdoption(surfaceID: String) {
+        titleChangeTasks[surfaceID] = nil
+        guard let pending = pendingTitleChanges.removeValue(forKey: surfaceID) else {
+            return
+        }
+        if titleAdoptionHandler?(pending.change) == true {
+            deliveredTitleKeys[surfaceID] = pending.titleKey
+        }
+    }
+
+    private func scheduleClaudeTranscriptResolution(
+        workspaceID: String,
+        workingDirectory: String,
+        surfaceID: String,
+        excludingSessionID: String?,
+        titleHint: String?,
+        forceScan: Bool
+    ) {
+        let now = Date()
+        if !forceScan,
+           let lastScan = detectionScanAt[surfaceID],
+           now.timeIntervalSince(lastScan) < Self.detectionScanThrottle {
+            return
+        }
+
+        var claimed = registry.claimedSessionIDs()
+        if let excludingSessionID {
+            claimed.remove(excludingSessionID)
+        }
+        let key = ClaudeTranscriptResolutionKey(
+            workingDirectory: workingDirectory,
+            claimedSessionIDs: claimed,
+            titleKey: Self.specificClaudeTitleKey(titleHint),
+            forceScan: forceScan
+        )
+        guard transcriptResolutionKeys[surfaceID] != key else {
+            return
+        }
+
+        detectionScanAt[surfaceID] = now
+        transcriptResolutionKeys[surfaceID] = key
+        transcriptResolutionTasks[surfaceID]?.cancel()
+        let resolver = self.resolver
+        transcriptResolutionTasks[surfaceID] = Task { @MainActor [
+            weak self,
+            resolver,
+            key,
+            workspaceID,
+            workingDirectory,
+            surfaceID,
+            titleHint,
+            claimed
+        ] in
+            let resolved = await Task.detached(priority: .utility) {
+                resolver.newestClaudeTranscript(
+                    workingDirectory: workingDirectory,
+                    excludingSessionIDs: claimed,
+                    titleHint: titleHint
+                )
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.applyClaudeTranscriptResolution(
+                resolved,
+                key: key,
+                workspaceID: workspaceID,
+                workingDirectory: workingDirectory,
+                surfaceID: surfaceID
+            )
+        }
+    }
+
+    private func applyClaudeTranscriptResolution(
+        _ resolved: (sessionID: String, path: String)?,
+        key: ClaudeTranscriptResolutionKey,
+        workspaceID: String,
+        workingDirectory: String,
+        surfaceID: String
+    ) {
+        guard transcriptResolutionKeys[surfaceID] == key else {
+            return
+        }
+        transcriptResolutionTasks[surfaceID] = nil
+        transcriptResolutionKeys[surfaceID] = nil
+
+        guard let resolved else { return }
+        if let claimed = registry.record(sessionID: resolved.sessionID),
+           claimed.surfaceID != nil,
+           claimed.surfaceID != surfaceID {
+            return
+        }
+
+        detectionScanAt.removeValue(forKey: surfaceID)
+        if let bound = registry.liveSession(surfaceID: surfaceID) {
+            guard bound.transcriptPath == nil else { return }
+            registry.update(sessionID: bound.sessionID) { record in
+                record.workspaceID = workspaceID
+                record.surfaceID = surfaceID
+                record.workingDirectory = workingDirectory
+                record.transcriptPath = resolved.path
+            }
+            return
+        }
+
+        registry.adoptDetectedSession(
+            sessionID: resolved.sessionID,
+            agentKind: .claude,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            workingDirectory: workingDirectory,
+            transcriptPath: resolved.path,
+            at: Date()
+        )
+    }
 
     @discardableResult
     private func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
@@ -415,19 +559,34 @@ final class AgentChatTranscriptService {
         sessionID.hasPrefix(provisionalClaudeSessionIDPrefix)
     }
 
-    private static func isSpecificClaudeTitle(_ title: String?) -> Bool {
+    private static func claudeTitleDetectionKey(_ title: String?) -> String? {
+        guard let title,
+              title.lowercased().contains("claude") else {
+            return nil
+        }
+        return specificClaudeTitleKey(title) ?? "generic:claude"
+    }
+
+    private static func specificClaudeTitleKey(_ title: String?) -> String? {
         guard var title = title?.trimmingCharacters(in: .whitespacesAndNewlines),
               !title.isEmpty else {
-            return false
+            return nil
         }
         while let first = title.first, !first.isLetter && !first.isNumber {
             title.removeFirst()
             title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         let normalized = title.lowercased()
-        return !normalized.isEmpty
-            && normalized != "claude code"
-            && !normalized.hasPrefix("claude ·")
+        guard !normalized.isEmpty,
+              normalized != "claude code",
+              !normalized.hasPrefix("claude ·") else {
+            return nil
+        }
+        return "specific:\(normalized)"
+    }
+
+    private static func isSpecificClaudeTitle(_ title: String?) -> Bool {
+        specificClaudeTitleKey(title) != nil
     }
 
     /// Encodes a wire value into the `[String: Any]` payload shape the
