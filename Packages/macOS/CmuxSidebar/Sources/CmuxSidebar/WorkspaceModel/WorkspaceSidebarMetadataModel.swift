@@ -210,4 +210,24 @@ public final class WorkspaceSidebarMetadataModel {
             return lhs.key < rhs.key
         }
     }
+
+    /// Sorts the supplied status entries for sidebar display: descending
+    /// priority, then descending timestamp, then ascending key (legacy sort
+    /// inside `Workspace.sidebarStatusEntriesInDisplayOrder()`).
+    ///
+    /// The agent-visibility filtering that selects which structured-hook status
+    /// entries are shown reads live `Workspace` agent-PID / panel state the
+    /// package cannot import, so it stays in the `Workspace` shim and hands the
+    /// already-filtered entries here for the pure ordering step.
+    /// - Parameter entries: The status entries already filtered for visibility.
+    /// - Returns: The entries in stable display order.
+    public func statusEntriesInDisplayOrder(
+        _ entries: [SidebarStatusEntry]
+    ) -> [SidebarStatusEntry] {
+        entries.sorted { lhs, rhs in
+            if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+            return lhs.key < rhs.key
+        }
+    }
 }

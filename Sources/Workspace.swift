@@ -5013,12 +5013,12 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting {
         sidebarPullRequestsInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
+    /// Resolves the visible status entries from live `Workspace` agent state,
+    /// then forwards to
+    /// ``WorkspaceSidebarMetadataModel/statusEntriesInDisplayOrder(_:)`` for the
+    /// stable display sort.
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
-            if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
-            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
-            return lhs.key < rhs.key
-        }
+        sidebarMetadata.statusEntriesInDisplayOrder(sidebarStatusEntriesVisibleForDisplay())
     }
 
     func sidebarMetadataBlocksInDisplayOrder() -> [SidebarMetadataBlock] {
