@@ -1435,13 +1435,6 @@ class GhosttyApp {
         )
     }
 
-    static func shouldApplyDefaultBackgroundUpdate(
-        currentScope: GhosttyDefaultBackgroundUpdateScope,
-        incomingScope: GhosttyDefaultBackgroundUpdateScope
-    ) -> Bool {
-        incomingScope.rawValue >= currentScope.rawValue
-    }
-
     static func shouldReloadConfigurationForAppearanceChange(
         previousColorScheme: GhosttyConfig.ColorSchemePreference?,
         currentColorScheme: GhosttyConfig.ColorSchemePreference
@@ -2075,7 +2068,7 @@ class GhosttyApp {
     ) {
         let previousScope = defaultBackgroundUpdateScope
         let previousScopeSource = defaultBackgroundScopeSource
-        guard Self.shouldApplyDefaultBackgroundUpdate(currentScope: previousScope, incomingScope: scope) else {
+        guard scope.shouldApply(over: previousScope) else {
             if backgroundLogEnabled {
                 logBackground(
                     "default background skipped source=\(source) incomingScope=\(scope.logLabel) currentScope=\(previousScope.logLabel) currentSource=\(previousScopeSource) color=\(color.hexString()) opacity=\(String(format: "%.3f", opacity))"
