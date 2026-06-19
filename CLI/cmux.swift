@@ -24014,10 +24014,16 @@ struct CMUXCLI {
         } else if isHandleRef(raw) || Int(raw) != nil {
             candidate = try resolveSurfaceId(raw, workspaceId: workspaceId, client: client)
         } else {
-            throw CLIError(message: "Invalid surface handle: \(raw)")
+            throw CLIError(message: String(
+                localized: "cli.claude-hook.error.invalidSurface",
+                defaultValue: "Invalid surface handle: \(raw)"
+            ))
         }
         guard claudeHookSurfaceIsListed(candidate, workspaceId: workspaceId, client: client) else {
-            throw CLIError(message: "Surface not found: \(raw)")
+            throw CLIError(message: String(
+                localized: "cli.claude-hook.error.surfaceNotFound",
+                defaultValue: "Surface not found: \(raw)"
+            ))
         }
         return ClaudeHookResolvedSurface(surfaceId: candidate, isAuthoritative: true)
     }
