@@ -6,6 +6,74 @@ import Foundation
 // actually exercises (the per-domain companion to the shared
 // `ControlCommandContextTestStubs.swift`).
 
+extension ControlBrowserContext {
+    func controlBrowserRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
+
+    func controlBrowserOpenSplit(
+        routing: ControlRoutingSelectors,
+        rawURLString: String?,
+        respectExternalOpenRules: Bool,
+        diffViewerToken: String?,
+        diffViewerFiles: [JSONValue]?,
+        explicitSourceSurfaceID: UUID?,
+        requestedFocus: Bool,
+        showOmnibar: Bool,
+        transparentBackground: Bool,
+        bypassRemoteProxyParam: Bool?
+    ) -> ControlBrowserOpenSplitResolution { .tabManagerUnavailable }
+
+    func controlBrowserReactGrabToggle(
+        routing: ControlRoutingSelectors,
+        browserSurfaceID: UUID?,
+        returnSurfaceID: UUID?
+    ) -> ControlBrowserActionResolution { .noBrowserSurface }
+
+    func controlBrowserDevToolsToggle(
+        routing: ControlRoutingSelectors,
+        explicitSurfaceID: UUID?,
+        surfaceWasSupplied: Bool
+    ) -> ControlBrowserActionResolution { .noBrowserSurface }
+
+    func controlBrowserConsoleShow(
+        routing: ControlRoutingSelectors,
+        explicitSurfaceID: UUID?,
+        surfaceWasSupplied: Bool
+    ) -> ControlBrowserActionResolution { .noBrowserSurface }
+
+    func controlBrowserFocusModeSet(
+        routing: ControlRoutingSelectors,
+        explicitSurfaceID: UUID?,
+        surfaceWasSupplied: Bool,
+        intent: ControlBrowserFocusModeIntent
+    ) -> ControlBrowserActionResolution { .noBrowserSurface }
+
+    func controlBrowserZoomSet(
+        routing: ControlRoutingSelectors,
+        explicitSurfaceID: UUID?,
+        surfaceWasSupplied: Bool,
+        direction: ControlBrowserZoomDirection
+    ) -> ControlBrowserActionResolution { .noBrowserSurface }
+
+    func controlBrowserClearDefaultHistory() {}
+
+    func controlBrowserCurrentURL(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlBrowserURLResolution { .notFound }
+
+    func controlBrowserFocusWebView(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlBrowserFocusWebViewResolution { .notFound }
+
+    func controlBrowserIsWebViewFocused(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlBrowserIsWebViewFocusedResolution {
+        ControlBrowserIsWebViewFocusedResolution(focused: false)
+    }
+}
+
 extension ControlBrowserPanelContext {
     func controlBrowserPanelTabManagerAvailable() -> Bool { false }
     func controlBrowserPanelAvailabilityEnabled() -> Bool { false }
