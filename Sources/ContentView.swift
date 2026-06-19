@@ -3768,21 +3768,9 @@ struct ContentView: View {
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             let editor = currentEditor() as? NSTextView
-            if editor?.hasMarkedText() == true {
-                return super.performKeyEquivalent(with: event)
-            }
-            if onHandleKeyEvent?(event, editor) == true {
-                return true
-            }
-            if let editor,
-               shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
-                keyCode: event.keyCode,
-                firstResponderIsCommandPaletteFieldEditor: true,
-                flags: event.modifierFlags
-               ) {
-                editor.keyDown(with: event)
-                return true
-            }
+            if editor?.hasMarkedText() == true { return super.performKeyEquivalent(with: event) }
+            if onHandleKeyEvent?(event, editor) == true { return true }
+            if let editor, shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(keyCode: event.keyCode, firstResponderIsCommandPaletteFieldEditor: true, flags: event.modifierFlags) { editor.keyDown(with: event); return true }
             return super.performKeyEquivalent(with: event)
         }
     }
