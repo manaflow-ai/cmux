@@ -1227,6 +1227,50 @@ def test_live_socket_resume_after_unlisted_value_option_does_not_inject_session_
     )
 
 
+def test_live_socket_resume_after_prompt_text_does_not_inject_session_id(failures: list[str]) -> None:
+    session_id = "828449c9-b276-4f79-9f62-c20b52a8d5bb"
+    expected: dict[str, str] = {}
+
+    def setup_env(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        default_root = home / ".claude"
+        (default_root / "projects" / "-work").mkdir(parents=True)
+        (default_root / "projects" / "-work" / f"{session_id}.jsonl").write_text(
+            "{}\n", encoding="utf-8"
+        )
+        foreign_root = home / ".codex-accounts" / "claude" / "_pforeign"
+        (foreign_root / "projects").mkdir(parents=True)
+        expected["path"] = str(default_root)
+        return {
+            "HOME": str(home),
+            "CLAUDE_CONFIG_DIR": str(foreign_root),
+        }
+
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["follow up", "--resume", session_id],
+        inherited_env={},
+        setup_env=setup_env,
+    )
+    expect(code == 0, f"prompt-before-resume self-heal: wrapper exited {code}: {stderr}", failures)
+    expect(
+        auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"],
+        "prompt-before-resume self-heal: expected CLAUDE_CONFIG_DIR reset to the transcript's config root "
+        f"{expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}",
+        failures,
+    )
+    expect("--settings" in real_argv, f"prompt-before-resume: expected hook settings injection, got {real_argv}", failures)
+    expect("--session-id" not in real_argv, f"prompt-before-resume: expected no generated session id, got {real_argv}", failures)
+    passthrough_argv = list(real_argv)
+    if "--settings" in passthrough_argv:
+        settings_index = passthrough_argv.index("--settings")
+        del passthrough_argv[settings_index:settings_index + 2]
+    expect(
+        passthrough_argv == ["follow up", "--resume", session_id],
+        f"prompt-before-resume: expected original argv preserved around injected settings, got {real_argv}",
+        failures,
+    )
+
+
 def test_live_socket_resume_self_heals_nested_claude_transcript_config_dir(failures: list[str]) -> None:
     # Claude can store transcripts below nested project subdirectories. The
     # self-heal must still detect the holding config root, or `claude --resume`
@@ -1754,6 +1798,7 @@ def main() -> int:
     test_stale_socket_resume_self_heals_after_value_option(failures)
     test_plain_terminal_resume_does_not_self_heal_mismatched_claude_config_dir(failures)
     test_live_socket_resume_after_unlisted_value_option_does_not_inject_session_id(failures)
+    test_live_socket_resume_after_prompt_text_does_not_inject_session_id(failures)
     test_live_socket_resume_self_heals_nested_claude_transcript_config_dir(failures)
     test_live_socket_resume_keeps_correct_claude_config_dir(failures)
     test_live_socket_resume_self_heal_ignores_prompt_text_after_double_dash(failures)
