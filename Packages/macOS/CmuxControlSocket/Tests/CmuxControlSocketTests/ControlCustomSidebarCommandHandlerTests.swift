@@ -26,7 +26,7 @@ struct ControlCustomSidebarCommandHandlerTests {
         ))
     }
 
-    @Test func reloadReportsAllNamesAndReloadedValidNames() throws {
+    @Test func reloadReportsAllNamesAndReloadsOnlyValidNames() throws {
         let directory = try temporaryDirectory()
         try writeValidJSONSidebar(named: "ok", in: directory)
         try #"{"root":{"type":"text","text":"Missing version"}}"#
@@ -45,7 +45,7 @@ struct ControlCustomSidebarCommandHandlerTests {
             Issue.record("Expected ok object payload")
             return
         }
-        #expect(reloadedNames == ["broken", "ok"])
+        #expect(reloadedNames == ["ok"])
         #expect(payload["directory"] == .string(directory.path))
         #expect(payload["valid_count"] == .int(1))
         #expect(payload["error_count"] == .int(1))

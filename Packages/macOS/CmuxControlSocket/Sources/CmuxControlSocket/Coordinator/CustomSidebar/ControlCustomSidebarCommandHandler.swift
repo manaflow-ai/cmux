@@ -52,9 +52,8 @@ public struct ControlCustomSidebarCommandHandler: Sendable {
         }
         let report = validationReport(directory: directory, name: name)
         let validNames = report.validNames
-        let reloadNames = report.names
-        if !reloadNames.isEmpty {
-            reload(reloadNames)
+        if !validNames.isEmpty {
+            reload(validNames)
         }
         var payload = reportPayloadObject(report, directory: directory)
         payload["reloaded_count"] = .int(Int64(validNames.count))
