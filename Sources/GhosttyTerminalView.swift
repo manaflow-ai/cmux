@@ -362,10 +362,6 @@ extension TerminalSurfaceRegistry {
 // MARK: - Ghostty App Singleton
 
 class GhosttyApp {
-    /// The `scrollbar` directive value, owned by ``GhosttyConfig`` in
-    /// CmuxTerminalCore; the nested name keeps call-site spelling stable.
-    typealias ScrollbarVisibility = GhosttyConfig.ScrollbarVisibility
-
     static let shared = GhosttyApp()
 
     // MARK: Transitional terminal engine/services composition
@@ -1538,36 +1534,6 @@ class GhosttyApp {
         )
     }
 
-    /// The appearance-synchronization plan, owned by ``GhosttyConfig`` in
-    /// CmuxTerminalCore; the nested name keeps call-site spelling stable.
-    typealias AppearanceSynchronizationPlan = GhosttyConfig.AppearanceSynchronizationPlan
-
-    /// The runtime color-scheme sync decision, owned by ``GhosttyConfig`` in
-    /// CmuxTerminalCore; the nested name keeps call-site spelling stable.
-    typealias RuntimeColorSchemeSynchronizationDecision = GhosttyConfig.RuntimeColorSchemeSynchronizationDecision
-
-    static func runtimeColorSchemeSynchronizationDecision(
-        applied: ghostty_color_scheme_e?,
-        requested: ghostty_color_scheme_e,
-        isSynchronizing: Bool
-    ) -> RuntimeColorSchemeSynchronizationDecision {
-        GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
-            applied: applied,
-            requested: requested,
-            isSynchronizing: isSynchronizing
-        )
-    }
-
-    static func appearanceSynchronizationPlan(
-        previousColorScheme: GhosttyConfig.ColorSchemePreference?,
-        currentColorScheme: GhosttyConfig.ColorSchemePreference
-    ) -> AppearanceSynchronizationPlan {
-        GhosttyConfig.appearanceSynchronizationPlan(
-            previousColorScheme: previousColorScheme,
-            currentColorScheme: currentColorScheme
-        )
-    }
-
     static func ghosttyRuntimeColorScheme(
         for colorScheme: GhosttyConfig.ColorSchemePreference
     ) -> ghostty_color_scheme_e {
@@ -1848,7 +1814,7 @@ class GhosttyApp {
 
     func synchronizeThemeWithAppearance(_: NSAppearance?, source: String) {
         let currentColorScheme = GhosttyConfig.currentColorSchemePreference()
-        let plan = Self.appearanceSynchronizationPlan(
+        let plan = GhosttyConfig.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme
         )
@@ -1898,7 +1864,7 @@ class GhosttyApp {
         source: String
     ) {
         guard let app else { return }
-        let decision = Self.runtimeColorSchemeSynchronizationDecision(
+        let decision = GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
             applied: appliedGhosttyRuntimeColorScheme,
             requested: runtimeColorScheme,
             isSynchronizing: runtimeColorSchemeSynchronizationDepth > 0
@@ -2014,11 +1980,7 @@ class GhosttyApp {
         )
     }
 
-    /// The resolved default-appearance color bundle, owned by ``GhosttyConfig``
-    /// in CmuxTerminalCore; the nested name keeps call-site spelling stable.
-    private typealias DefaultBackgroundValues = GhosttyConfig.DefaultBackgroundValues
-
-    private func defaultBackgroundValues(from config: ghostty_config_t?) -> DefaultBackgroundValues {
+    private func defaultBackgroundValues(from config: ghostty_config_t?) -> GhosttyConfig.DefaultBackgroundValues {
         GhosttyConfig.defaultBackgroundValues(from: config, baseline: Self.fallbackAppearanceConfig)
     }
 
@@ -2138,7 +2100,7 @@ class GhosttyApp {
         GhosttyConfig.focusFollowsMouseEnabled(in: config)
     }
 
-    func scrollbarVisibility() -> ScrollbarVisibility {
+    func scrollbarVisibility() -> GhosttyConfig.ScrollbarVisibility {
         GhosttyConfig.scrollbarVisibility(in: config)
     }
 

@@ -1018,7 +1018,7 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     func testAppearanceSynchronizationPlanSkipsRuntimeUpdateWhenColorSchemeIsUnchanged() {
-        let plan = GhosttyApp.appearanceSynchronizationPlan(
+        let plan = GhosttyConfig.appearanceSynchronizationPlan(
             previousColorScheme: .light,
             currentColorScheme: .light
         )
@@ -1045,7 +1045,7 @@ final class GhosttyConfigTests: XCTestCase {
         ]
 
         for testCase in cases {
-            let plan = GhosttyApp.appearanceSynchronizationPlan(
+            let plan = GhosttyConfig.appearanceSynchronizationPlan(
                 previousColorScheme: testCase.previous,
                 currentColorScheme: testCase.current
             )
@@ -1078,7 +1078,7 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testRuntimeColorSchemeSynchronizationDecisionOnlySkipsReentrantCalls() {
         XCTAssertEqual(
-            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+            GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
                 applied: nil,
                 requested: GHOSTTY_COLOR_SCHEME_DARK,
                 isSynchronizing: false
@@ -1086,7 +1086,7 @@ final class GhosttyConfigTests: XCTestCase {
             .apply
         )
         XCTAssertEqual(
-            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+            GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
                 applied: GHOSTTY_COLOR_SCHEME_DARK,
                 requested: GHOSTTY_COLOR_SCHEME_DARK,
                 isSynchronizing: false
@@ -1094,7 +1094,7 @@ final class GhosttyConfigTests: XCTestCase {
             .apply
         )
         XCTAssertEqual(
-            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+            GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
                 applied: GHOSTTY_COLOR_SCHEME_LIGHT,
                 requested: GHOSTTY_COLOR_SCHEME_DARK,
                 isSynchronizing: true
