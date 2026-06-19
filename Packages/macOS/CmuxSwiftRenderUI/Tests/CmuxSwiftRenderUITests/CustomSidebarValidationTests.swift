@@ -65,7 +65,7 @@ struct CustomSidebarValidationTests {
 
     @Test("downloadable custom sidebar examples validate")
     func downloadableCustomSidebarExamplesValidate() throws {
-        let directory = examplesDirectory()
+        let directory = try examplesDirectory()
         let report = validator.validate(directory: directory, dataContext: Self.richSidebarContext)
 
         #expect(report.names.sorted() == ["finder", "status-board"])
@@ -118,14 +118,16 @@ struct CustomSidebarValidationTests {
         return url
     }
 
-    private func examplesDirectory() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Examples/CustomSidebars", isDirectory: true)
+    private func examplesDirectory() throws -> URL {
+        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        for _ in 0..<8 {
+            let candidate = directory.appendingPathComponent("Examples/CustomSidebars", isDirectory: true)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            directory.deleteLastPathComponent()
+        }
+        return try #require(nil as URL?)
     }
 
     private static let richSidebarContext: [String: SwiftValue] = [
