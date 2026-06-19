@@ -11336,6 +11336,13 @@ struct CMUXCLI {
         )
         defer { resizeMonitor.cancel() }
 
+        // Reconcile the remote PTY size once now that the SIGWINCH source is
+        // armed. The handshake captured the terminal size before the source
+        // existed; any SIGWINCH that arrived in that window was delivered with
+        // SIGWINCH's default disposition (ignore) and lost, with no later
+        // correction.
+        resizeMonitor.requestCurrentResize()
+
         Task.detached(priority: .userInitiated) { [resizeMonitor, fd] in
             var buffer = [UInt8](repeating: 0, count: 8192)
             while true {
