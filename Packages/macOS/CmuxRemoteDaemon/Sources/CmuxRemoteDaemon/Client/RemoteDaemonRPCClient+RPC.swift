@@ -194,9 +194,9 @@ extension RemoteDaemonRPCClient {
         }
     }
 
-    /// Resizes an attachment's PTY (`pty.resize`); cols/rows clamp to >= 1.
+    /// Sends a best-effort resize notification (`pty.resize`); cols/rows clamp to >= 1.
     public func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
-        _ = try call(
+        try notify(
             method: "pty.resize",
             params: [
                 "session_id": sessionID,

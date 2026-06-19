@@ -11,6 +11,7 @@ actor SSHPTYResizeMonitor {
     private let sessionID: String
     private let attachmentID: String
     private let attachmentToken: String
+    private let cancellation = SSHPTYResizeCancellation()
     // DispatchSourceSignal supports cross-thread cancel/resume; all mutable
     // resize state stays actor-isolated.
     private nonisolated(unsafe) let source: DispatchSourceSignal
@@ -47,7 +48,8 @@ actor SSHPTYResizeMonitor {
             queue: DispatchQueue(label: "com.cmux.ssh-pty.resize.signal")
         )
         signal(SIGWINCH, SIG_IGN)
-        source.setEventHandler { [eventContinuation] in
+        source.setEventHandler { [eventContinuation, cancellation] in
+            guard !cancellation.isCancelled else { return }
             let size = CMUXCLI.currentCLITerminalSize()
             eventContinuation.yield((size: size, force: true))
         }
@@ -58,17 +60,20 @@ actor SSHPTYResizeMonitor {
     }
 
     nonisolated func enqueueResizeIfNeeded() {
+        guard !cancellation.isCancelled else { return }
         let size = CMUXCLI.currentCLITerminalSize()
         eventContinuation.yield((size: size, force: false))
     }
 
     nonisolated func cancel() {
+        cancellation.cancel()
         source.cancel()
         eventContinuation.finish()
     }
 
     private func processResizeEvents(_ events: AsyncStream<ResizeEvent>) async {
         for await event in events {
+            guard !cancellation.isCancelled else { break }
             await enqueue(size: event.size, force: event.force)
         }
         isCancelled = true
@@ -77,7 +82,7 @@ actor SSHPTYResizeMonitor {
     }
 
     private func enqueue(size: (cols: Int, rows: Int), force: Bool) async {
-        guard !isCancelled else { return }
+        guard !isCancelled, !cancellation.isCancelled else { return }
         if force || !Self.sameSize(size, lastSentSize) {
             pendingSize = size
         } else {
@@ -88,7 +93,9 @@ actor SSHPTYResizeMonitor {
 
     private func drainPendingResizes() async {
         while true {
-            if isCancelled {
+            if isCancelled || cancellation.isCancelled {
+                isCancelled = true
+                pendingSize = nil
                 return
             }
             guard let size = pendingSize else {
@@ -96,7 +103,13 @@ actor SSHPTYResizeMonitor {
             }
             pendingSize = nil
 
-            if await sendResize(size: size) {
+            let sent = await sendResize(size: size)
+            if cancellation.isCancelled {
+                isCancelled = true
+                pendingSize = nil
+                return
+            }
+            if sent {
                 lastSentSize = size
                 let currentSize = CMUXCLI.currentCLITerminalSize()
                 pendingSize = Self.sameSize(currentSize, lastSentSize) ? nil : currentSize
@@ -121,9 +134,15 @@ actor SSHPTYResizeMonitor {
         let sessionID = self.sessionID
         let attachmentID = self.attachmentID
         let attachmentToken = self.attachmentToken
+        let cancellation = self.cancellation
+        guard !cancellation.isCancelled else { return false }
         // SocketClient is synchronous; run the bounded RPC off the actor executor.
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
+                guard !cancellation.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
                 continuation.resume(returning: Self.sendResizeBlocking(
                     socketPath: socketPath,
                     explicitPassword: explicitPassword,

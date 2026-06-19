@@ -770,6 +770,7 @@
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */; };
+		6379A0066379A0066379A006 /* SSHPTYResizeCancellation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6379A0056379A0056379A005 /* SSHPTYResizeCancellation.swift */; };
 		6379A0046379A0046379A004 /* SSHPTYResizeMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */; };
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		F20F85FC5900550685FA33AD /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A8BD195031FC4B82B4354297 /* StackAuth */; };
@@ -1740,6 +1741,7 @@
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachStartupCommandBuilder.swift; sourceTree = "<group>"; };
+		6379A0056379A0056379A005 /* SSHPTYResizeCancellation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYResizeCancellation.swift; sourceTree = "<group>"; };
 		6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYResizeMonitor.swift; sourceTree = "<group>"; };
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
@@ -2746,6 +2748,7 @@
 				FEEDC1A50000000000000002 /* FeedEventClassifier.swift */,
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
+				6379A0056379A0056379A005 /* SSHPTYResizeCancellation.swift */,
 				6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */,
 				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
 				B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */,
@@ -4062,6 +4065,7 @@
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 				5E2701020000000000000003 /* SentryEventScrubber.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
+				6379A0066379A0066379A006 /* SSHPTYResizeCancellation.swift in Sources */,
 				6379A0046379A0046379A004 /* SSHPTYResizeMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
