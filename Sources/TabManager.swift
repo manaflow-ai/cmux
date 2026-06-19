@@ -253,10 +253,26 @@ class TabManager: ObservableObject {
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false
-    @Published private(set) var isWorkspaceCycleHot: Bool = false
-    @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
-    @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
-    @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    /// Background-workspace-load + cycle-hot bookkeeping (CmuxWorkspaces). The
+    /// `@Observable` sub-model is the single observation source of truth: app
+    /// observers (ContentView, the background-prime coordinator) track these via
+    /// Observation instead of the retired `@Published` Combine bridges. The
+    /// `private(set)` external contract is preserved because TabManager exposes
+    /// read-only forwarders and is the only writer.
+    let backgroundWorkspaceLoad = BackgroundWorkspaceLoadModel()
+    var isWorkspaceCycleHot: Bool {
+        get { backgroundWorkspaceLoad.isWorkspaceCycleHot }
+        set { backgroundWorkspaceLoad.isWorkspaceCycleHot = newValue }
+    }
+    var pendingBackgroundWorkspaceLoadIds: Set<UUID> {
+        backgroundWorkspaceLoad.pendingBackgroundWorkspaceLoadIds
+    }
+    var mountedBackgroundWorkspaceLoadIds: Set<UUID> {
+        backgroundWorkspaceLoad.mountedBackgroundWorkspaceLoadIds
+    }
+    var debugPinnedWorkspaceLoadIds: Set<UUID> {
+        backgroundWorkspaceLoad.debugPinnedWorkspaceLoadIds
+    }
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -431,7 +447,12 @@ class TabManager: ObservableObject {
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
 
-    @Published private(set) var focusHistoryRevision: UInt64 = 0 {
+    /// Monotonic focus-history revision counter. Its only observation channel is
+    /// the `.tabManagerFocusHistoryRevisionDidChange` notification posted from
+    /// `didSet` (no SwiftUI body or `$`-subscriber ever read it), so it carries
+    /// no `@Published`/Combine machinery; the NotificationCenter post is the
+    /// faithful, unchanged observation seam.
+    private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
             guard focusHistoryRevision != oldValue else { return }
             NotificationCenter.default.post(name: .tabManagerFocusHistoryRevisionDidChange, object: self)
@@ -1278,14 +1299,14 @@ class TabManager: ObservableObject {
         guard !pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.insert(workspaceId)
-        pendingBackgroundWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.pendingBackgroundWorkspaceLoadIds = updated
     }
 
     func completeBackgroundWorkspaceLoad(for workspaceId: UUID) {
         guard pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.remove(workspaceId)
-        pendingBackgroundWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.pendingBackgroundWorkspaceLoadIds = updated
         releaseBackgroundWorkspaceMount(for: workspaceId)
     }
 
@@ -1293,14 +1314,14 @@ class TabManager: ObservableObject {
         guard !mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
         var updated = mountedBackgroundWorkspaceLoadIds
         updated.insert(workspaceId)
-        mountedBackgroundWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.mountedBackgroundWorkspaceLoadIds = updated
     }
 
     func releaseBackgroundWorkspaceMount(for workspaceId: UUID) {
         guard mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
         var updated = mountedBackgroundWorkspaceLoadIds
         updated.remove(workspaceId)
-        mountedBackgroundWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.mountedBackgroundWorkspaceLoadIds = updated
     }
 
     func retainDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
@@ -1308,7 +1329,7 @@ class TabManager: ObservableObject {
         var updated = debugPinnedWorkspaceLoadIds
         updated.formUnion(workspaceIds)
         guard updated != debugPinnedWorkspaceLoadIds else { return }
-        debugPinnedWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.debugPinnedWorkspaceLoadIds = updated
     }
 
     func releaseDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
@@ -1316,21 +1337,21 @@ class TabManager: ObservableObject {
         var updated = debugPinnedWorkspaceLoadIds
         updated.subtract(workspaceIds)
         guard updated != debugPinnedWorkspaceLoadIds else { return }
-        debugPinnedWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.debugPinnedWorkspaceLoadIds = updated
     }
 
     func pruneBackgroundWorkspaceLoads(existingIds: Set<UUID>) {
         let pruned = pendingBackgroundWorkspaceLoadIds.intersection(existingIds)
         if pruned != pendingBackgroundWorkspaceLoadIds {
-            pendingBackgroundWorkspaceLoadIds = pruned
+            backgroundWorkspaceLoad.pendingBackgroundWorkspaceLoadIds = pruned
         }
         let mounted = mountedBackgroundWorkspaceLoadIds.intersection(existingIds)
         if mounted != mountedBackgroundWorkspaceLoadIds {
-            mountedBackgroundWorkspaceLoadIds = mounted
+            backgroundWorkspaceLoad.mountedBackgroundWorkspaceLoadIds = mounted
         }
         let retained = debugPinnedWorkspaceLoadIds.intersection(existingIds)
         if retained != debugPinnedWorkspaceLoadIds {
-            debugPinnedWorkspaceLoadIds = retained
+            backgroundWorkspaceLoad.debugPinnedWorkspaceLoadIds = retained
         }
     }
 

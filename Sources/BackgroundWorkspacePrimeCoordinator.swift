@@ -285,18 +285,17 @@ final class BackgroundWorkspacePrimeCoordinator {
         }
         waiter.addObserver(hostedViewObserver)
 
-        let pendingObserver = tabManager.$pendingBackgroundWorkspaceLoadIds
-            .dropFirst()
-            .sink { [weak self, weak waiter, weak tabManager] pendingIds in
-                guard !pendingIds.contains(workspaceId),
-                      let self,
-                      let waiter,
-                      let tabManager else { return }
-                Task { @MainActor in
-                    self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
-                }
-            }
-        waiter.addCancellable(pendingObserver)
+        // Observation replaces the retired `$pendingBackgroundWorkspaceLoadIds`
+        // Combine bridge. `withObservationTracking` fires only on a genuine
+        // change (never an initial emit), matching the previous `.dropFirst()`,
+        // and re-arms itself until the waiter resolves so subsequent drains are
+        // still observed. The change handler reads the post-change set on the
+        // MainActor, mirroring the sink body.
+        observePendingBackgroundWorkspaceLoadDrain(
+            waiter: waiter,
+            workspaceId: workspaceId,
+            tabManager: tabManager
+        )
 
         let tabsObserver = tabManager.tabsPublisher
             .dropFirst()
@@ -310,6 +309,40 @@ final class BackgroundWorkspacePrimeCoordinator {
                 }
             }
         waiter.addCancellable(tabsObserver)
+    }
+
+    /// Re-arming Observation watch on the `@Observable`
+    /// ``BackgroundWorkspaceLoadModel`` pending-load set, replacing the retired
+    /// `$pendingBackgroundWorkspaceLoadIds` Combine bridge. `onChange` fires
+    /// once per genuine change (before the change commits), so the handler hops
+    /// to the MainActor to read the post-change set, fires `evaluate` when this
+    /// workspace has drained out of the pending set, then re-arms unless the
+    /// waiter has resolved. The re-arm task is registered with the waiter so it
+    /// is cancelled on completion/teardown, mirroring the old cancellable's
+    /// lifetime.
+    private func observePendingBackgroundWorkspaceLoadDrain(
+        waiter: Waiter,
+        workspaceId: UUID,
+        tabManager: TabManager
+    ) {
+        guard !waiter.isResolved else { return }
+        let model = tabManager.backgroundWorkspaceLoad
+        withObservationTracking {
+            _ = model.pendingBackgroundWorkspaceLoadIds
+        } onChange: { [weak self, weak waiter, weak tabManager] in
+            let rearm = Task { @MainActor [weak self, weak waiter, weak tabManager] in
+                guard let self, let waiter, let tabManager, !waiter.isResolved else { return }
+                if !tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) {
+                    self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
+                }
+                self.observePendingBackgroundWorkspaceLoadDrain(
+                    waiter: waiter,
+                    workspaceId: workspaceId,
+                    tabManager: tabManager
+                )
+            }
+            waiter?.addTask(rearm)
+        }
     }
 
     private func evaluate(waiter: Waiter, workspaceId: UUID, tabManager: TabManager) {
