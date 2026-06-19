@@ -1943,11 +1943,17 @@ struct ContentView: View {
             await backgroundWorkspacePrimeCoordinator.primePendingBackgroundWorkspaces(tabManager: tabManager)
         })
 
-        view = AnyView(view.onReceive(tabManager.$debugPinnedWorkspaceLoadIds) { _ in
+        // Observation-driven (the background-load sets moved to the
+        // `@Observable BackgroundWorkspaceLoadModel`): reading the forwarders in
+        // `body` registers a dependency, so `.onChange` fires on each genuine
+        // change. The legacy `@Published` mutators already short-circuited
+        // equal-set assignments, so `.onChange` matches the prior `.onReceive`
+        // emission set exactly.
+        view = AnyView(view.onChange(of: tabManager.debugPinnedWorkspaceLoadIds) { _ in
             workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onReceive(tabManager.$mountedBackgroundWorkspaceLoadIds) { _ in
+        view = AnyView(view.onChange(of: tabManager.mountedBackgroundWorkspaceLoadIds) { _ in
             workspaceHandoffCoordinator.reconcileMountedWorkspaceIds()
         })
 
