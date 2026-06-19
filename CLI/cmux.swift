@@ -4843,7 +4843,8 @@ struct CMUXCLI {
             try runSidebarCommand(
                 commandArgs: commandArgs,
                 client: client,
-                jsonOutput: jsonOutput
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
             )
 
         case "claude-hook":
@@ -16331,7 +16332,8 @@ struct CMUXCLI {
     private func runSidebarCommand(
         commandArgs: [String],
         client: SocketClient,
-        jsonOutput inheritedJSONOutput: Bool
+        jsonOutput inheritedJSONOutput: Bool,
+        windowOverride: String?
     ) throws {
         var args = commandArgs
         var jsonOutput = inheritedJSONOutput
@@ -16350,10 +16352,7 @@ struct CMUXCLI {
 
         guard let action = args.first?.lowercased() else {
             throw CLIError(
-                message: String(
-            localized: "cli.sidebar.error.missingCommand",
-            defaultValue: "sidebar requires a subcommand: validate, reload, select, or open"
-                )
+                message: String(localized: "cli.sidebar.error.missingCommand", defaultValue: "sidebar requires a subcommand: validate, reload, select, or open")
             )
         }
 
@@ -16394,14 +16393,19 @@ struct CMUXCLI {
                     message: String(format: String(localized: "cli.sidebar.error.namedActionAll", defaultValue: "sidebar %@ does not support --all"), action)
                 )
             }
-            guard remaining.count == 1 else {
+            let nameArgs = action == "open" ? parseOption(parseOption(remaining, name: "--workspace").1, name: "--window").1 : remaining
+            guard nameArgs.count == 1 else {
                 throw CLIError(
                     message: String(format: String(localized: "cli.sidebar.error.namedActionRequiresName", defaultValue: "sidebar %@ requires one sidebar name"), action)
                 )
             }
-            params["name"] = remaining[0]
+            params["name"] = nameArgs[0]
             if action == "open" {
                 params["focus"] = true
+                let winId = try normalizeWindowHandle(windowFromArgsOrOverride(remaining, windowOverride: windowOverride), client: client)
+                if let winId { params["window_id"] = winId }
+                let wsId = try normalizeWorkspaceHandle(workspaceFromArgsOrEnv(remaining, windowOverride: windowOverride), client: client, windowHandle: winId)
+                if let wsId { params["workspace_id"] = wsId }
             }
             method = action == "select" ? "sidebar.custom.select" : "sidebar.custom.open"
 
