@@ -2162,11 +2162,32 @@ final class Workspace: Identifiable, ObservableObject {
     let surfaceList = WorkspaceSurfaceListModel()
 
     /// The surface-registry sub-model (CmuxWorkspaceCore): owns the
-    /// per-surface registry annotations (tty names, shell-activity states)
-    /// and the transient tab-selection/focus-reassert request state. The
-    /// legacy accessors below forward here. None of the moved properties
-    /// were `@Published`, so no observer hooks are required.
+    /// per-surface registry annotations (tty names, shell-activity states,
+    /// directories, titles, custom titles, listening ports) and the transient
+    /// tab-selection/focus-reassert request state. The legacy accessors below
+    /// forward here. The tty/shell/transient properties were not `@Published`;
+    /// `panelDirectories`/`panelTitles`/`panelCustomTitles` were, so the model
+    /// exposes per-field publishers surfaced through the internal
+    /// `panel{Directories,Titles,CustomTitles}Publisher` forwarders below (the
+    /// model itself stays `private` because its generic parameter
+    /// `PendingTabSelectionRequest` is app-private).
     private let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
+
+    /// Internal forwarders to the surface-registry directory/title publishers,
+    /// read by the sidebar/mobile observation extensions in sibling files in
+    /// place of the former `$panelDirectories`/`$panelTitles`/
+    /// `$panelCustomTitles` projections. `surfaceRegistry` cannot itself be
+    /// `internal` (its generic param is `private`), so the publishers are
+    /// re-exposed here.
+    var panelDirectoriesPublisher: AnyPublisher<[UUID: String], Never> {
+        surfaceRegistry.panelDirectoriesPublisher
+    }
+    var panelTitlesPublisher: AnyPublisher<[UUID: String], Never> {
+        surfaceRegistry.panelTitlesPublisher
+    }
+    var panelCustomTitlesPublisher: AnyPublisher<[UUID: String], Never> {
+        surfaceRegistry.panelCustomTitlesPublisher
+    }
 
     /// The split-layout sub-model (CmuxPanes): owns the split/detach
     /// choreography bookkeeping (programmatic-split flag, detaching surface
@@ -2271,10 +2292,27 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceList.effectiveSelectedPanelId(inPaneId: paneId.id)
     }
 
-    /// Published directory for each panel
-    @Published var panelDirectories: [UUID: String] = [:]
-    @Published var panelTitles: [UUID: String] = [:]
-    @Published var panelCustomTitles: [UUID: String] = [:]
+    /// Working directory for each panel; stored in the surface-registry
+    /// sub-model. The former `$panelDirectories` Combine subscribers read
+    /// `surfaceRegistry.panelDirectoriesPublisher` instead.
+    var panelDirectories: [UUID: String] {
+        get { surfaceRegistry.panelDirectories }
+        set { surfaceRegistry.panelDirectories = newValue }
+    }
+    /// Auto-derived (non-custom) title for each panel; stored in the
+    /// surface-registry sub-model. The former `$panelTitles` Combine
+    /// subscribers read `surfaceRegistry.panelTitlesPublisher` instead.
+    var panelTitles: [UUID: String] {
+        get { surfaceRegistry.panelTitles }
+        set { surfaceRegistry.panelTitles = newValue }
+    }
+    /// User/system custom title override for each panel; stored in the
+    /// surface-registry sub-model. The former `$panelCustomTitles` Combine
+    /// subscribers read `surfaceRegistry.panelCustomTitlesPublisher` instead.
+    var panelCustomTitles: [UUID: String] {
+        get { surfaceRegistry.panelCustomTitles }
+        set { surfaceRegistry.panelCustomTitles = newValue }
+    }
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
@@ -2346,7 +2384,13 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.panelPullRequests }
         set { sidebarMetadata.panelPullRequests = newValue }
     }
-    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    /// Discovered listening ports per surface; stored in the surface-registry
+    /// sub-model. This map had no Combine `$` subscriber, so the move carries
+    /// no observer-parity bridge.
+    var surfaceListeningPorts: [UUID: [Int]] {
+        get { surfaceRegistry.surfaceListeningPorts }
+        set { surfaceRegistry.surfaceListeningPorts = newValue }
+    }
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
