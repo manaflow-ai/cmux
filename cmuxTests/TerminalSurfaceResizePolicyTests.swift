@@ -22,7 +22,7 @@ struct TerminalSurfaceResizePolicyTests {
     }
 
     @Test
-    func ordinaryRemainderShrinkInsideSameGridIsCoalesced() {
+    func ambiguousRemainderShrinkKeepsGridChangeDetectionConservative() {
         #expect(
             !TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
@@ -54,7 +54,7 @@ struct TerminalSurfaceResizePolicyTests {
         )
 
         #expect(
-            !TerminalSurface.shouldApplySurfacePixelSizeChange(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
                 currentRows: 24,
                 currentWidthPx: 805,
@@ -63,6 +63,21 @@ struct TerminalSurfaceResizePolicyTests {
                 currentCellHeightPx: 20,
                 targetWidthPx: 804,
                 targetHeightPx: 485,
+                coalescePixelOnlyResize: true,
+                hasAppliedPixelSize: true
+            )
+        )
+
+        #expect(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
+                currentColumns: 80,
+                currentRows: 24,
+                currentWidthPx: 808,
+                currentHeightPx: 488,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 807,
+                targetHeightPx: 487,
                 coalescePixelOnlyResize: true,
                 hasAppliedPixelSize: true
             )
