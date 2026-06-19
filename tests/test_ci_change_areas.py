@@ -64,6 +64,8 @@ def test_root_agent_web_dependencies_run_web_and_macos() -> None:
 
 def test_agent_session_resources_run_web_and_macos() -> None:
     assert_areas(["Resources/agent-session-react/index.js"], macos=True, web=True, go=False)
+    assert_areas(["Resources/agent-session-solid/index.js"], macos=True, web=True, go=False)
+    assert_areas(["Resources/agent-session-backup/index.js"], macos=True, web=False, go=False)
 
 
 def test_ios_only_skips_main_macos_ci() -> None:
@@ -106,6 +108,20 @@ def detect_step_script() -> str:
     raise AssertionError("Detect CI change areas run block not found")
 
 
+def workflow_job_block(job_name: str) -> str:
+    lines = CI_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    marker = f"  {job_name}:"
+    for index, line in enumerate(lines):
+        if line == marker:
+            body = [line]
+            for body_line in lines[index + 1 :]:
+                if body_line.startswith("  ") and not body_line.startswith("    ") and body_line.strip():
+                    break
+                body.append(body_line)
+            return "\n".join(body)
+    raise AssertionError(f"{job_name} job not found")
+
+
 def run_detect_step_for_paths(paths: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -118,13 +134,16 @@ def run_detect_step_for_paths(paths: list[str]) -> tuple[subprocess.CompletedPro
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
         base_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
 
-        for path in paths:
-            target = repo / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text("changed\n", encoding="utf-8")
-        subprocess.run(["git", "add", "."], cwd=repo, check=True)
-        subprocess.run(["git", "commit", "-q", "-m", "head"], cwd=repo, check=True)
-        head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+        if paths:
+            for path in paths:
+                target = repo / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("changed\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "head"], cwd=repo, check=True)
+            head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+        else:
+            head_sha = base_sha
 
         output_path = repo / "github-output.txt"
         env = {
@@ -183,6 +202,13 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
         ]
 
 
+def test_workflow_empty_diff_runs_all_areas() -> None:
+    result, outputs = run_detect_step_for_paths([])
+
+    assert "PR diff is empty; running all CI areas." in result.stdout
+    assert outputs == ["macos=true", "web=true", "go=true"]
+
+
 def test_router_changes_run_everything() -> None:
     assert_areas(["scripts/ci/detect_ci_change_areas.py"], macos=True, web=True, go=True)
     assert_areas(["scripts/ci/subprocess.py"], macos=True, web=True, go=True)
@@ -232,6 +258,38 @@ def test_cli_writes_github_outputs() -> None:
         ]
 
 
+def test_cli_empty_diff_runs_all_areas() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        files_path = Path(temp_dir) / "files.txt"
+        output_path = Path(temp_dir) / "github-output.txt"
+        files_path.write_text("", encoding="utf-8")
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HELPER),
+                "--event-name",
+                "pull_request",
+                "--files-from",
+                str(files_path),
+                "--github-output",
+                str(output_path),
+            ],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        assert "PR diff is empty; running all CI areas." in result.stdout
+        assert "Resolved areas: macos=true web=true go=true" in result.stdout
+        assert output_path.read_text(encoding="utf-8").splitlines() == [
+            "macos=true",
+            "web=true",
+            "go=true",
+        ]
+
+
 def test_non_pr_events_run_all_areas() -> None:
     result = subprocess.run(
         [sys.executable, str(HELPER), "--event-name", "workflow_dispatch"],
@@ -242,6 +300,28 @@ def test_non_pr_events_run_all_areas() -> None:
     )
 
     assert "Resolved areas: macos=true web=true go=true" in result.stdout
+
+
+def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
+    block = workflow_job_block("ci-status")
+
+    for job_name in [
+        "changes",
+        "workflow-guard-tests",
+        "remote-daemon-tests",
+        "web-typecheck",
+        "react-apps-check",
+        "web-db-migrations",
+        "tests",
+        "tests-build-and-lag",
+        "release-ghostty-cli-helper",
+        "release-build",
+        "ui-regressions",
+    ]:
+        assert f"      - {job_name}" in block
+
+    assert "if: ${{ always() }}" in block
+    assert 'allowed = {"success", "skipped"}' in block
 
 
 if __name__ == "__main__":

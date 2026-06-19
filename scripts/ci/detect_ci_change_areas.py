@@ -54,7 +54,15 @@ def forces_all_areas(path: str) -> bool:
 
 
 def is_web_change(path: str) -> bool:
-    if path.startswith(("web/", "webviews/", "Resources/agent-session", "Resources/markdown-viewer/")):
+    if path.startswith(
+        (
+            "web/",
+            "webviews/",
+            "Resources/agent-session-react/",
+            "Resources/agent-session-solid/",
+            "Resources/markdown-viewer/",
+        )
+    ):
         return True
     if path == "CHANGELOG.md":
         return True
@@ -82,15 +90,13 @@ def is_macos_neutral(path: str) -> bool:
 
 
 def is_macos_change(path: str) -> bool:
-    if forces_all_areas(path):
-        return True
     if path.startswith("webviews/src/agent-session/"):
         return True
     if path == "docs/cli-contract.md":
         return True
     if path in {"package.json", "bun.lock", "biome.json"}:
         return True
-    if path.startswith("Resources/agent-session"):
+    if path.startswith(("Resources/agent-session-react/", "Resources/agent-session-solid/")):
         return True
     return not is_macos_neutral(path)
 
@@ -173,7 +179,11 @@ def main(argv: list[str]) -> int:
             if not args.base_sha or not args.head_sha:
                 raise RuntimeError("pull_request event is missing base/head SHA")
             files = changed_files(args.base_sha, args.head_sha)
-        areas = classify_files(files)
+        if files:
+            areas = classify_files(files)
+        else:
+            areas = ChangeAreas.all()
+            print("PR diff is empty; running all CI areas.")
     except Exception as error:
         areas = ChangeAreas.all()
         print(f"Could not classify diff, running all CI areas: {error}", file=sys.stderr)
