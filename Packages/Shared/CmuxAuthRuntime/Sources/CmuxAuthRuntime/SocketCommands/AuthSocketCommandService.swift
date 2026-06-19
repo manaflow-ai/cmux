@@ -24,6 +24,14 @@ public final class AuthSocketCommandService {
         return statusSnapshot(timedOut: timedOut)
     }
 
+    private func statusSnapshot(timedOut: Bool) -> AuthSocketStatusPayload {
+        AuthSocketStatusPayload(
+            coordinator: coordinator,
+            isSigningIn: browserSignIn?.isSigningIn ?? false,
+            timedOut: timedOut
+        )
+    }
+
     /// Returns the hosted sign-in URL payload.
     public func signInURL() -> AuthSocketSignInURLPayload {
         AuthSocketSignInURLPayload(url: browserSignIn?.manualSignInURL.absoluteString)
@@ -43,13 +51,5 @@ public final class AuthSocketCommandService {
     public func signOut(timeoutSeconds: TimeInterval) async -> AuthSocketStatusPayload {
         await browserSignIn?.signOut(timeout: timeoutSeconds)
         return statusSnapshot(timedOut: false)
-    }
-
-    private func statusSnapshot(timedOut: Bool) -> AuthSocketStatusPayload {
-        AuthSocketStatusPayload(
-            coordinator: coordinator,
-            isSigningIn: browserSignIn?.isSigningIn ?? false,
-            timedOut: timedOut
-        )
     }
 }

@@ -317,7 +317,7 @@ class TerminalController {
         // Single consumer of the accepted-connection stream, detached so
         // accepts never funnel through the main actor. Each connection still
         // gets a dedicated thread: command bodies block (main-thread sync
-        // hops, semaphore waits), so never the cooperative pool.
+        // hops, bounded socket replies), so never the cooperative pool.
         self.socketConnectionsTask = Task.detached {
             for await connection in socketServer.connections {
                 guard let controller = serverEventTarget.controller else {
@@ -995,7 +995,7 @@ class TerminalController {
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
         case "auth.status":
-            return v2AuthSocketResponse(id: request.id) { service in
+            return v2AsyncAuthSocketResponse(id: request.id) { service in
                 await service.status(timedOut: false).controlSocketPayload
             }
         case "auth.sign_in_url":
@@ -1004,11 +1004,11 @@ class TerminalController {
             }
         case "auth.begin_sign_in":
             let timeoutSeconds = (request.params["timeout_seconds"] as? Double) ?? 300
-            return v2AuthSocketResponse(id: request.id) { service in
+            return v2AsyncAuthSocketResponse(id: request.id) { service in
                 await service.beginSignIn(timeoutSeconds: timeoutSeconds).controlSocketPayload
             }
         case "auth.sign_out":
-            return v2AuthSocketResponse(id: request.id) { service in
+            return v2AsyncAuthSocketResponse(id: request.id) { service in
                 await service.signOut(timeoutSeconds: 5).controlSocketPayload
             }
         case "feedback.submit":
@@ -2941,20 +2941,30 @@ class TerminalController {
 
     private nonisolated func v2AuthSocketResponse(
         id: Any?,
-        _ operation: @escaping @MainActor (AuthSocketCommandService) async -> JSONValue
+        _ operation: @MainActor (AuthSocketCommandService) -> JSONValue
     ) -> String {
-        guard let waiter = SocketAsyncResponseWaiter() else {
-            return v2Error(id: id, code: "internal_error", message: "Failed to create auth response waiter")
+        v2MainSync {
+            v2Ok(id: id, result: operation(authSocketCommands))
         }
+    }
+
+    private nonisolated func v2AsyncAuthSocketResponse(
+        id: Any?,
+        _ operation: @escaping @MainActor @Sendable (AuthSocketCommandService) async -> JSONValue
+    ) -> String {
+        guard let responsePipe = SocketAsyncResponsePipe() else {
+            return v2Error(id: id, code: "internal_error", message: "Failed to create auth response")
+        }
+
         Task { @MainActor [weak self] in
             guard let self else {
-                waiter.complete(ControlResponseEncoder.encodeFailureResponse)
+                responsePipe.complete(ControlResponseEncoder.encodeFailureResponse)
                 return
             }
             let payload = await operation(authSocketCommands)
-            waiter.complete(v2Ok(id: id, result: payload))
+            responsePipe.complete(v2Ok(id: id, result: payload))
         }
-        return waiter.wait() ?? ControlResponseEncoder.encodeFailureResponse
+        return responsePipe.wait() ?? ControlResponseEncoder.encodeFailureResponse
     }
 
     /// Bridges a legacy `Any?` request id to the wire value: missing ids
