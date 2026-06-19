@@ -253,15 +253,12 @@ jobs:
         run: bun run test:db:behavior
 
   tests:
-    # TEMPORARY (2026-06-18): pinned to hosted runners. The self-hosted austin
-    # mac-minis in the MACOS_RUNNER_15 pool cannot broker the XCTest control
-    # session with testmanagerd ("Timed out 120s initiating control session
-    # with daemon" -> Executed 0 tests -> idle-timeout), so this required check
-    # can never go green there. Revert to
-    # `${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}` once the austin
-    # runners are repaired (GUI login session + automation mode + unwedged
-    # testmanagerd). Tracked by the CI-flakiness handoff.
-    runs-on: warp-macos-15-arm64-6x
+    # EXPERIMENT (2026-06-19): try the unit tests on Blacksmith managed macOS.
+    # A live test-e2e run on blacksmith-6vcpu-macos-15 showed testmanagerd DOES
+    # broker the XCTest control session there (the XCUITest ran 61s); it only
+    # failed on app foreground activation, which the unit suite's key-window
+    # tests already self-skip. Validating whether the full unit job goes green.
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 75
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
