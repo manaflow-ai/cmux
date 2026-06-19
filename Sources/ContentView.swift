@@ -4615,33 +4615,250 @@ struct ContentView: View {
     ]
 
     private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
-        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
-            { _ in value }
-        }
+        let strings = commandPaletteContributionStrings()
 
         func workspaceSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
-            let name = context.string(CommandPaletteContextKeys.workspaceName) ?? String(localized: "commandPalette.subtitle.workspaceFallback", defaultValue: "Workspace")
-            return String(localized: "commandPalette.subtitle.workspaceWithName", defaultValue: "Workspace • \(name)")
+            if let name = context.string(CommandPaletteContextKeys.workspaceName) {
+                return strings.subtitle.workspaceNamed(name)
+            }
+            return strings.subtitle.workspaceFallback
         }
 
         func panelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
-            let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
-            return String(localized: "commandPalette.subtitle.tabWithName", defaultValue: "Tab • \(name)")
+            if let name = context.string(CommandPaletteContextKeys.panelName) {
+                return strings.subtitle.panelNamed(name)
+            }
+            return strings.subtitle.panelFallback
         }
 
-        func browserPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
-            let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
-            return String(localized: "commandPalette.subtitle.browserWithName", defaultValue: "Browser • \(name)")
-        }
+        let hostBlocks = commandPaletteContributionHostBlocks(
+            workspaceSubtitle: workspaceSubtitle,
+            panelSubtitle: panelSubtitle
+        )
 
-        func terminalPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
-            let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
-            return String(localized: "commandPalette.subtitle.terminalWithName", defaultValue: "Terminal • \(name)")
-        }
+        return CommandPaletteContributionProvider().build(
+            strings: strings,
+            hostBlocks: hostBlocks
+        )
+    }
 
-        func markdownPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
-            let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
-            return String(localized: "commandPalette.subtitle.markdownWithName", defaultValue: "Markdown • \(name)")
+    /// Resolves the static catalog's localized titles and subtitles against the
+    /// app bundle (so Japanese and every other translation survives) and hands
+    /// them to ``CommandPaletteContributionProvider``. The `String(localized:)`
+    /// keys and default values are unchanged from the legacy inline builder.
+    private func commandPaletteContributionStrings() -> CommandPaletteContributionStrings {
+        CommandPaletteContributionStrings(
+            subtitle: CommandPaletteContributionStrings.Subtitle(
+                workspaceNamed: { name in
+                    String(localized: "commandPalette.subtitle.workspaceWithName", defaultValue: "Workspace • \(name)")
+                },
+                workspaceFallback: String(localized: "commandPalette.subtitle.workspaceWithName", defaultValue: "Workspace • \(String(localized: "commandPalette.subtitle.workspaceFallback", defaultValue: "Workspace"))"),
+                panelNamed: { name in
+                    String(localized: "commandPalette.subtitle.tabWithName", defaultValue: "Tab • \(name)")
+                },
+                panelFallback: String(localized: "commandPalette.subtitle.tabWithName", defaultValue: "Tab • \(String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab"))"),
+                browserNamed: { name in
+                    String(localized: "commandPalette.subtitle.browserWithName", defaultValue: "Browser • \(name)")
+                },
+                browserFallback: String(localized: "commandPalette.subtitle.browserWithName", defaultValue: "Browser • \(String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab"))"),
+                terminalNamed: { name in
+                    String(localized: "commandPalette.subtitle.terminalWithName", defaultValue: "Terminal • \(name)")
+                },
+                terminalFallback: String(localized: "commandPalette.subtitle.terminalWithName", defaultValue: "Terminal • \(String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab"))"),
+                markdownNamed: { name in
+                    String(localized: "commandPalette.subtitle.markdownWithName", defaultValue: "Markdown • \(name)")
+                },
+                markdownFallback: String(localized: "commandPalette.subtitle.markdownWithName", defaultValue: "Markdown • \(String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab"))")
+            ),
+            global: CommandPaletteContributionStrings.Global(
+                newWorkspaceTitle: String(localized: "command.newWorkspace.title", defaultValue: "New Workspace"),
+                newWorkspaceSubtitle: String(localized: "command.newWorkspace.subtitle", defaultValue: "Workspace"),
+                newBrowserWorkspaceTitle: String(localized: "command.newBrowserWorkspace.title", defaultValue: "New Browser Workspace"),
+                newBrowserWorkspaceSubtitle: String(localized: "command.newBrowserWorkspace.subtitle", defaultValue: "Workspace"),
+                newWindowTitle: String(localized: "command.newWindow.title", defaultValue: "New Window"),
+                newWindowSubtitle: String(localized: "command.newWindow.subtitle", defaultValue: "Window"),
+                installCLITitle: String(localized: "command.installCLI.title", defaultValue: "Shell Command: Install 'cmux' in PATH"),
+                installCLISubtitle: String(localized: "command.installCLI.subtitle", defaultValue: "CLI"),
+                uninstallCLITitle: String(localized: "command.uninstallCLI.title", defaultValue: "Shell Command: Uninstall 'cmux' from PATH"),
+                uninstallCLISubtitle: String(localized: "command.uninstallCLI.subtitle", defaultValue: "CLI"),
+                openFolderTitle: String(localized: "command.openFolder.title", defaultValue: "Open Folder…"),
+                openFolderSubtitle: String(localized: "command.openFolder.subtitle", defaultValue: "Workspace"),
+                openFolderInVSCodeInlineTitle: String(localized: "command.openFolderInVSCodeInline.title", defaultValue: "Open Folder in VS Code (Inline)…"),
+                openFolderInVSCodeInlineSubtitle: String(localized: "command.openFolderInVSCodeInline.subtitle", defaultValue: "VS Code Inline"),
+                reopenPreviousSessionTitle: String(localized: "command.reopenPreviousSession.title", defaultValue: "Restore Previous App Launch"),
+                reopenPreviousSessionSubtitle: String(localized: "command.reopenPreviousSession.subtitle", defaultValue: "History"),
+                reopenClosedBrowserTabTitle: String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed"),
+                reopenClosedBrowserTabSubtitle: String(localized: "menu.history.title", defaultValue: "History"),
+                openSettingsTitle: String(localized: "command.openSettings.title", defaultValue: "Open Settings"),
+                openSettingsSubtitle: String(localized: "command.openSettings.subtitle", defaultValue: "Global"),
+                openCmuxSettingsFileTitle: String(localized: "settings.settingsJSON.openFile", defaultValue: "Open cmux.json"),
+                openCmuxSettingsFileSubtitle: String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"),
+                openGhosttySettingsTitle: String(localized: "command.openGhosttySettings.title", defaultValue: "Open Ghostty Settings in TextEdit"),
+                openGhosttySettingsSubtitle: String(localized: "command.openGhosttySettings.subtitle", defaultValue: "Ghostty Config Files"),
+                mobileConnectTitle: String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad"),
+                mobileConnectSubtitle: String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile"),
+                makeDefaultTerminalTitle: String(localized: "command.makeDefaultTerminal.title", defaultValue: "Make cmux the Default Terminal"),
+                makeDefaultTerminalSubtitle: String(localized: "command.makeDefaultTerminal.subtitle", defaultValue: "Global"),
+                restartSocketListenerTitle: String(localized: "command.restartSocketListener.title", defaultValue: "Restart CLI Listener"),
+                restartSocketListenerSubtitle: String(localized: "command.restartSocketListener.subtitle", defaultValue: "Global"),
+                disableBrowserTitle: String(localized: "command.disableBrowser.title", defaultValue: "Disable cmux Browser"),
+                disableBrowserSubtitle: String(localized: "command.browserAvailability.subtitle", defaultValue: "Browser"),
+                enableBrowserTitle: String(localized: "command.enableBrowser.title", defaultValue: "Enable cmux Browser"),
+                enableBrowserSubtitle: String(localized: "command.browserAvailability.subtitle", defaultValue: "Browser")
+            ),
+            layout: CommandPaletteContributionStrings.Layout(
+                newTerminalTabTitle: String(localized: "command.newTerminalTab.title", defaultValue: "New Tab (Terminal)"),
+                newTerminalTabSubtitle: String(localized: "command.newTerminalTab.subtitle", defaultValue: "Tab"),
+                newBrowserTabTitle: String(localized: "command.newBrowserTab.title", defaultValue: "New Tab (Browser)"),
+                newBrowserTabSubtitle: String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab"),
+                closeTabTitle: String(localized: "command.closeTab.title", defaultValue: "Close Tab"),
+                closeTabSubtitle: String(localized: "command.closeTab.subtitle", defaultValue: "Tab"),
+                closeWorkspaceTitle: String(localized: "command.closeWorkspace.title", defaultValue: "Close Workspace"),
+                closeWorkspaceSubtitle: String(localized: "command.closeWorkspace.subtitle", defaultValue: "Workspace"),
+                closeWindowTitle: String(localized: "command.closeWindow.title", defaultValue: "Close Window"),
+                closeWindowSubtitle: String(localized: "command.closeWindow.subtitle", defaultValue: "Window"),
+                toggleFullScreenTitle: String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen"),
+                toggleFullScreenSubtitle: String(localized: "command.toggleFullScreen.subtitle", defaultValue: "Window"),
+                toggleSidebarTitle: String(localized: "command.toggleLeftSidebar.title", defaultValue: "Toggle Left Sidebar"),
+                toggleSidebarSubtitle: String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout"),
+                disableMatchTerminalBackgroundTitle: String(localized: "command.disableMatchTerminalBackground.title", defaultValue: "Disable Match Terminal Background"),
+                enableMatchTerminalBackgroundTitle: String(localized: "command.enableMatchTerminalBackground.title", defaultValue: "Enable Match Terminal Background"),
+                matchTerminalBackgroundSubtitle: String(localized: "command.matchTerminalBackground.subtitle", defaultValue: "Sidebar"),
+                enableMinimalModeTitle: String(localized: "command.enableMinimalMode.title", defaultValue: "Enable Minimal Mode"),
+                disableMinimalModeTitle: String(localized: "command.disableMinimalMode.title", defaultValue: "Disable Minimal Mode")
+            ),
+            notifications: CommandPaletteContributionStrings.Notifications(
+                showNotificationsTitle: String(localized: "command.showNotifications.title", defaultValue: "Show Notifications"),
+                showNotificationsSubtitle: String(localized: "command.showNotifications.subtitle", defaultValue: "Notifications"),
+                jumpUnreadTitle: String(localized: "command.jumpUnread.title", defaultValue: "Jump to Latest Unread"),
+                jumpUnreadSubtitle: String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications"),
+                toggleUnreadTitle: String(localized: "command.toggleUnread.title", defaultValue: "Toggle Unread"),
+                markOldestUnreadAndJumpNextTitle: String(localized: "command.markOldestUnreadAndJumpNext.title", defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread")
+            ),
+            updates: CommandPaletteContributionStrings.Updates(
+                checkForUpdatesTitle: String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates"),
+                checkForUpdatesSubtitle: String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global"),
+                applyUpdateIfAvailableTitle: String(localized: "command.applyUpdateIfAvailable.title", defaultValue: "Apply Update (If Available)"),
+                applyUpdateIfAvailableSubtitle: String(localized: "command.applyUpdateIfAvailable.subtitle", defaultValue: "Global"),
+                attemptUpdateTitle: String(localized: "command.attemptUpdate.title", defaultValue: "Attempt Update"),
+                attemptUpdateSubtitle: String(localized: "command.attemptUpdate.subtitle", defaultValue: "Global")
+            ),
+            workspace: CommandPaletteContributionStrings.Workspace(
+                renameTitle: String(localized: "command.renameWorkspace.title", defaultValue: "Rename Workspace…"),
+                editDescriptionTitle: String(localized: "command.editWorkspaceDescription.title", defaultValue: "Edit Workspace Description…"),
+                clearNameTitle: String(localized: "command.clearWorkspaceName.title", defaultValue: "Clear Workspace Name"),
+                clearDescriptionTitle: String(localized: "command.clearWorkspaceDescription.title", defaultValue: "Clear Workspace Description"),
+                pinTitle: String(localized: "command.pinWorkspace.title", defaultValue: "Pin Workspace"),
+                unpinTitle: String(localized: "command.unpinWorkspace.title", defaultValue: "Unpin Workspace"),
+                resetColorTitle: String(localized: "shortcut.resetWorkspaceColor.label", defaultValue: "Reset Workspace Color"),
+                nextTitle: String(localized: "command.nextWorkspace.title", defaultValue: "Next Workspace"),
+                nextSubtitle: String(localized: "command.nextWorkspace.subtitle", defaultValue: "Workspace Navigation"),
+                previousTitle: String(localized: "command.previousWorkspace.title", defaultValue: "Previous Workspace"),
+                previousSubtitle: String(localized: "command.previousWorkspace.subtitle", defaultValue: "Workspace Navigation"),
+                moveUpTitle: String(localized: "contextMenu.moveUp", defaultValue: "Move Up"),
+                moveDownTitle: String(localized: "contextMenu.moveDown", defaultValue: "Move Down"),
+                moveToTopTitle: String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top"),
+                closeOtherTitle: String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces"),
+                closeBelowTitle: String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below"),
+                closeAboveTitle: String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above"),
+                markReadTitle: String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read"),
+                markUnreadTitle: String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread"),
+                openPullRequestsTitle: String(localized: "command.openWorkspacePRLinks.title", defaultValue: "Open All Workspace PR Links"),
+                openDiffViewerTitle: String(localized: "command.openDiffViewer.title", defaultValue: "Open Diff Viewer"),
+                equalizeSplitsTitle: String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")
+            ),
+            tab: CommandPaletteContributionStrings.Tab(
+                renameTitle: String(localized: "command.renameTab.title", defaultValue: "Rename Tab…"),
+                clearNameTitle: String(localized: "command.clearTabName.title", defaultValue: "Clear Tab Name"),
+                pinTitle: String(localized: "command.pinTab.title", defaultValue: "Pin Tab"),
+                unpinTitle: String(localized: "command.unpinTab.title", defaultValue: "Unpin Tab"),
+                markReadTitle: String(localized: "command.markTabRead.title", defaultValue: "Mark Tab as Read"),
+                markUnreadTitle: String(localized: "command.markTabUnread.title", defaultValue: "Mark Tab as Unread"),
+                nextInPaneTitle: String(localized: "command.nextTabInPane.title", defaultValue: "Next Tab in Pane"),
+                nextInPaneSubtitle: String(localized: "command.nextTabInPane.subtitle", defaultValue: "Tab Navigation"),
+                previousInPaneTitle: String(localized: "command.previousTabInPane.title", defaultValue: "Previous Tab in Pane"),
+                previousInPaneSubtitle: String(localized: "command.previousTabInPane.subtitle", defaultValue: "Tab Navigation")
+            ),
+            browser: CommandPaletteContributionStrings.Browser(
+                backTitle: String(localized: "command.browserBack.title", defaultValue: "Back"),
+                forwardTitle: String(localized: "command.browserForward.title", defaultValue: "Forward"),
+                reloadTitle: String(localized: "command.browserReload.title", defaultValue: "Reload Page"),
+                openDefaultTitle: String(localized: "command.browserOpenDefault.title", defaultValue: "Open Current Page in Default Browser"),
+                focusAddressBarTitle: String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar"),
+                enterFocusModeTitle: String(localized: "command.browserFocusMode.enter.title", defaultValue: "Enter Browser Focus Mode"),
+                exitFocusModeTitle: String(localized: "command.browserFocusMode.exit.title", defaultValue: "Exit Browser Focus Mode"),
+                showOmnibarTitle: String(localized: "command.browserShowOmnibar.title", defaultValue: "Show Browser Omnibar"),
+                hideOmnibarTitle: String(localized: "command.browserHideOmnibar.title", defaultValue: "Hide Browser Omnibar"),
+                toggleDevToolsTitle: String(localized: "command.browserToggleDevTools.title", defaultValue: "Toggle Developer Tools"),
+                consoleTitle: String(localized: "command.browserConsole.title", defaultValue: "Show JavaScript Console"),
+                reactGrabTitle: String(localized: "command.browserReactGrab.title", defaultValue: "Toggle React Grab"),
+                zoomInTitle: String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In"),
+                zoomOutTitle: String(localized: "command.browserZoomOut.title", defaultValue: "Zoom Out"),
+                zoomResetTitle: String(localized: "command.browserZoomReset.title", defaultValue: "Actual Size"),
+                clearHistoryTitle: String(localized: "command.browserClearHistory.title", defaultValue: "Clear Browser History"),
+                clearHistorySubtitle: String(localized: "command.browserClearHistory.subtitle", defaultValue: "Browser"),
+                splitRightTitle: String(localized: "command.browserSplitRight.title", defaultValue: "Split Browser Right"),
+                splitRightSubtitle: String(localized: "command.browserSplitRight.subtitle", defaultValue: "Browser Layout"),
+                splitDownTitle: String(localized: "command.browserSplitDown.title", defaultValue: "Split Browser Down"),
+                splitDownSubtitle: String(localized: "command.browserSplitDown.subtitle", defaultValue: "Browser Layout"),
+                duplicateRightTitle: String(localized: "command.browserDuplicateRight.title", defaultValue: "Duplicate Browser to the Right"),
+                duplicateRightSubtitle: String(localized: "command.browserDuplicateRight.subtitle", defaultValue: "Browser Layout")
+            ),
+            markdown: CommandPaletteContributionStrings.Markdown(
+                zoomInTitle: String(localized: "command.markdownZoomIn.title", defaultValue: "Zoom In"),
+                zoomOutTitle: String(localized: "command.markdownZoomOut.title", defaultValue: "Zoom Out"),
+                zoomResetTitle: String(localized: "command.markdownZoomReset.title", defaultValue: "Actual Size")
+            ),
+            terminal: CommandPaletteContributionStrings.Terminal(
+                vscodeServeWebStopTitle: String(localized: "command.vscodeServeWebStop.title", defaultValue: "Stop VS Code Inline Server"),
+                vscodeServeWebRestartTitle: String(localized: "command.vscodeServeWebRestart.title", defaultValue: "Restart VS Code Inline Server"),
+                findInDirectoryTitle: String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…"),
+                findInDirectorySubtitle: String(localized: "command.findInDirectory.subtitle", defaultValue: "Right Sidebar"),
+                findTitle: String(localized: "command.terminalFind.title", defaultValue: "Find…"),
+                findNextTitle: String(localized: "command.terminalFindNext.title", defaultValue: "Find Next"),
+                findPreviousTitle: String(localized: "command.terminalFindPrevious.title", defaultValue: "Find Previous"),
+                hideFindTitle: String(localized: "command.terminalHideFind.title", defaultValue: "Hide Find Bar"),
+                useSelectionForFindTitle: String(localized: "command.terminalUseSelectionForFind.title", defaultValue: "Use Selection for Find"),
+                toggleTextBoxInputTitle: String(localized: "command.terminalToggleTextBoxInput.title", defaultValue: "Toggle TextBox Input"),
+                focusTextBoxInputTitle: String(localized: "command.terminalFocusTextBoxInput.title", defaultValue: "Focus TextBox Input"),
+                attachTextBoxFileTitle: String(localized: "command.terminalAttachTextBoxFile.title", defaultValue: "Attach File to TextBox Input"),
+                sendCtrlFTitle: String(localized: "command.terminalSendCtrlF.title", defaultValue: "Send Ctrl-F to Terminal"),
+                clearScreenKeepScrollbackTitle: String(localized: "command.terminalClearScreenKeepScrollback.title", defaultValue: "Clear Screen (Keep Scrollback)")
+            ),
+            fork: CommandPaletteContributionStrings.Fork(
+                rightTitle: String(localized: "command.forkAgentConversationRight.title", defaultValue: "Fork Conversation to the Right"),
+                leftTitle: String(localized: "command.forkAgentConversationLeft.title", defaultValue: "Fork Conversation to the Left"),
+                topTitle: String(localized: "command.forkAgentConversationTop.title", defaultValue: "Fork Conversation to the Top"),
+                bottomTitle: String(localized: "command.forkAgentConversationBottom.title", defaultValue: "Fork Conversation to the Bottom"),
+                newTabTitle: String(localized: "command.forkAgentConversationNewTab.title", defaultValue: "Fork Conversation to New Tab"),
+                newWorkspaceTitle: String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")
+            ),
+            split: CommandPaletteContributionStrings.Split(
+                terminalSplitRightTitle: String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right"),
+                terminalSplitRightSubtitle: String(localized: "command.terminalSplitRight.subtitle", defaultValue: "Terminal Layout"),
+                terminalSplitDownTitle: String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down"),
+                terminalSplitDownSubtitle: String(localized: "command.terminalSplitDown.subtitle", defaultValue: "Terminal Layout"),
+                terminalSplitBrowserRightTitle: String(localized: "command.terminalSplitBrowserRight.title", defaultValue: "Split Browser Right"),
+                terminalSplitBrowserRightSubtitle: String(localized: "command.terminalSplitBrowserRight.subtitle", defaultValue: "Terminal Layout"),
+                terminalSplitBrowserDownTitle: String(localized: "command.terminalSplitBrowserDown.title", defaultValue: "Split Browser Down"),
+                terminalSplitBrowserDownSubtitle: String(localized: "command.terminalSplitBrowserDown.subtitle", defaultValue: "Terminal Layout"),
+                toggleSplitZoomTitle: String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom"),
+                toggleSplitZoomSubtitle: String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")
+            )
+        )
+    }
+
+    /// Builds the app-state-dependent contribution slices the package provider
+    /// interleaves: extension-sidebar switches, right-sidebar/view/canvas/auth/
+    /// settings-toggle commands, workspace-color commands, identifier-copy and
+    /// move-tab commands, terminal directory open-targets, and cmux.json issue/
+    /// custom-action commands. All localized text resolves here, app-side.
+    private func commandPaletteContributionHostBlocks(
+        workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String,
+        panelSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
+    ) -> CommandPaletteContributionHostBlocks {
+        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
+            { _ in value }
         }
 
         func workspaceColorCommandTitle(_ paletteName: String) -> String {
@@ -4672,162 +4889,14 @@ struct ContentView: View {
             }
         }
 
-        var contributions: [CommandPaletteCommandContribution] = []
-
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.newWorkspace",
-                title: constant(String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")),
-                subtitle: constant(String(localized: "command.newWorkspace.subtitle", defaultValue: "Workspace")),
-                keywords: ["create", "new", "workspace"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.newBrowserWorkspace",
-                title: constant(String(localized: "command.newBrowserWorkspace.title", defaultValue: "New Browser Workspace")),
-                subtitle: constant(String(localized: "command.newBrowserWorkspace.subtitle", defaultValue: "Workspace")),
-                keywords: ["create", "new", "browser", "workspace", "web"],
-                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.newWindow",
-                title: constant(String(localized: "command.newWindow.title", defaultValue: "New Window")),
-                subtitle: constant(String(localized: "command.newWindow.subtitle", defaultValue: "Window")),
-                keywords: ["create", "new", "window"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.installCLI",
-                title: constant(String(localized: "command.installCLI.title", defaultValue: "Shell Command: Install 'cmux' in PATH")),
-                subtitle: constant(String(localized: "command.installCLI.subtitle", defaultValue: "CLI")),
-                keywords: ["install", "cli", "path", "shell", "command", "symlink"],
-                when: { !$0.bool(CommandPaletteContextKeys.cliInstalledInPATH) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.uninstallCLI",
-                title: constant(String(localized: "command.uninstallCLI.title", defaultValue: "Shell Command: Uninstall 'cmux' from PATH")),
-                subtitle: constant(String(localized: "command.uninstallCLI.subtitle", defaultValue: "CLI")),
-                keywords: ["uninstall", "remove", "cli", "path", "shell", "command", "symlink"],
-                when: { $0.bool(CommandPaletteContextKeys.cliInstalledInPATH) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.openFolder",
-                title: constant(String(localized: "command.openFolder.title", defaultValue: "Open Folder…")),
-                subtitle: constant(String(localized: "command.openFolder.subtitle", defaultValue: "Workspace")),
-                keywords: ["open", "folder", "repository", "project", "directory"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.openFolderInVSCodeInline",
-                title: constant(
-                    String(
-                        localized: "command.openFolderInVSCodeInline.title",
-                        defaultValue: "Open Folder in VS Code (Inline)…"
-                    )
-                ),
-                subtitle: constant(
-                    String(
-                        localized: "command.openFolderInVSCodeInline.subtitle",
-                        defaultValue: "VS Code Inline"
-                    )
-                ),
-                keywords: ["open", "folder", "directory", "project", "vs", "code", "inline", "editor", "browser"],
-                when: { _ in TerminalDirectoryOpenTarget.vscodeInline.isAvailable() }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.reopenPreviousSession",
-                title: constant(String(localized: "command.reopenPreviousSession.title", defaultValue: "Restore Previous App Launch")),
-                subtitle: constant(String(localized: "command.reopenPreviousSession.subtitle", defaultValue: "History")),
-                keywords: ["reopen", "restore", "previous", "session", "launch", "resume"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.newTerminalTab",
-                title: constant(String(localized: "command.newTerminalTab.title", defaultValue: "New Tab (Terminal)")),
-                subtitle: constant(String(localized: "command.newTerminalTab.subtitle", defaultValue: "Tab")),
-                shortcutHint: "⌘T",
-                keywords: ["new", "terminal", "tab"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.newBrowserTab",
-                title: constant(String(localized: "command.newBrowserTab.title", defaultValue: "New Tab (Browser)")),
-                subtitle: constant(String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab")),
-                shortcutHint: "⌘⇧L",
-                keywords: ["new", "browser", "tab", "web"],
-                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.closeTab",
-                title: constant(String(localized: "command.closeTab.title", defaultValue: "Close Tab")),
-                subtitle: constant(String(localized: "command.closeTab.subtitle", defaultValue: "Tab")),
-                shortcutHint: "⌘W",
-                keywords: ["close", "tab"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.closeWorkspace",
-                title: constant(String(localized: "command.closeWorkspace.title", defaultValue: "Close Workspace")),
-                subtitle: constant(String(localized: "command.closeWorkspace.subtitle", defaultValue: "Workspace")),
-                shortcutHint: "⌘⇧W",
-                keywords: ["close", "workspace"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.closeWindow",
-                title: constant(String(localized: "command.closeWindow.title", defaultValue: "Close Window")),
-                subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
-                keywords: ["close", "window"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleFullScreen",
-                title: constant(String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")),
-                subtitle: constant(String(localized: "command.toggleFullScreen.subtitle", defaultValue: "Window")),
-                keywords: ["fullscreen", "full", "screen", "window", "toggle"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.reopenClosedBrowserTab",
-                title: constant(String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")),
-                subtitle: constant(String(localized: "menu.history.title", defaultValue: "History")),
-                keywords: ["reopen", "closed", "recently", "history", "tab", "workspace", "window"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleSidebar",
-                title: constant(String(localized: "command.toggleLeftSidebar.title", defaultValue: "Toggle Left Sidebar")),
-                subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
-                keywords: ["toggle", "sidebar", "left", "layout"]
-            )
-        )
         // "Sidebar: <provider>" switch commands for each available view. The
         // built-in views are always offered; `descriptors` adds the hosted
         // extension sidebar only while the experimental Extensions beta is on.
+        var extensionSidebar: [CommandPaletteCommandContribution] = []
         for descriptor in CmuxExtensionSidebarSelection.descriptors {
             let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
             let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
-            contributions.append(
+            extensionSidebar.append(
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
                     title: constant(String.localizedStringWithFormat(titleFormat, title)),
@@ -4836,261 +4905,18 @@ struct ContentView: View {
                 )
             )
         }
-        contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
-        contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleMatchTerminalBackground",
-                title: { context in
-                    context.bool(CommandPaletteContextKeys.sidebarMatchTerminalBackground)
-                        ? String(localized: "command.disableMatchTerminalBackground.title", defaultValue: "Disable Match Terminal Background")
-                        : String(localized: "command.enableMatchTerminalBackground.title", defaultValue: "Enable Match Terminal Background")
-                },
-                subtitle: constant(String(localized: "command.matchTerminalBackground.subtitle", defaultValue: "Sidebar")),
-                keywords: ["match", "terminal", "background", "transparency", "sidebar", "surface", "chrome"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.enableMinimalMode",
-                title: constant(String(localized: "command.enableMinimalMode.title", defaultValue: "Enable Minimal Mode")),
-                subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
-                keywords: ["minimal", "mode", "titlebar", "sidebar", "layout"],
-                when: { !$0.bool(CommandPaletteContextKeys.workspaceMinimalModeEnabled) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.disableMinimalMode",
-                title: constant(String(localized: "command.disableMinimalMode.title", defaultValue: "Disable Minimal Mode")),
-                subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
-                keywords: ["minimal", "mode", "titlebar", "sidebar", "layout"],
-                when: { $0.bool(CommandPaletteContextKeys.workspaceMinimalModeEnabled) }
-            )
-        )
-        contributions.append(contentsOf: Self.commandPaletteViewCommandContributions())
-        contributions.append(contentsOf: Self.commandPaletteCanvasCommandContributions())
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.showNotifications",
-                title: constant(String(localized: "command.showNotifications.title", defaultValue: "Show Notifications")),
-                subtitle: constant(String(localized: "command.showNotifications.subtitle", defaultValue: "Notifications")),
-                keywords: ["notifications", "inbox"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.jumpUnread",
-                title: constant(String(localized: "command.jumpUnread.title", defaultValue: "Jump to Latest Unread")),
-                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
-                keywords: ["jump", "unread", "notification"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleUnread",
-                title: constant(String(localized: "command.toggleUnread.title", defaultValue: "Toggle Unread")),
-                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
-                keywords: ["toggle", "mark", "read", "unread", "notification"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.markOldestUnreadAndJumpNext",
-                title: constant(
-                    String(
-                        localized: "command.markOldestUnreadAndJumpNext.title",
-                        defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread"
-                    )
-                ),
-                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
-                keywords: ["mark", "oldest", "unread", "jump", "next", "notification", "defer"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.openSettings",
-                title: constant(String(localized: "command.openSettings.title", defaultValue: "Open Settings")),
-                subtitle: constant(String(localized: "command.openSettings.subtitle", defaultValue: "Global")),
-                shortcutHint: "⌘,",
-                keywords: ["settings", "preferences"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.openCmuxSettingsFile",
-                title: constant(String(localized: "settings.settingsJSON.openFile", defaultValue: "Open cmux.json")),
-                subtitle: constant(String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")),
-                keywords: ["open", "cmux", "json", "config", "configuration", "settings", "file", "editor", "dotfile"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.openGhosttySettings",
-                title: constant(
-                    String(
-                        localized: "command.openGhosttySettings.title",
-                        defaultValue: "Open Ghostty Settings in TextEdit"
-                    )
-                ),
-                subtitle: constant(
-                    String(localized: "command.openGhosttySettings.subtitle", defaultValue: "Ghostty Config Files")
-                ),
-                keywords: ["open", "ghostty", "settings", "config", "configuration", "file", "textedit", "terminal"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.mobileConnect",
-                title: constant(String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")),
-                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
-                keywords: Self.commandPaletteMobileConnectKeywords
-            )
-        )
-        contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions())
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.makeDefaultTerminal",
-                title: constant(
-                    String(
-                        localized: "command.makeDefaultTerminal.title",
-                        defaultValue: "Make cmux the Default Terminal"
-                    )
-                ),
-                subtitle: constant(
-                    String(localized: "command.makeDefaultTerminal.subtitle", defaultValue: "Global")
-                ),
-                keywords: String(
-                    localized: "command.makeDefaultTerminal.keywords",
-                    defaultValue: "default,terminal,ssh,launch,services,handler,command,tool,executable"
-                )
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty },
-                when: { !$0.bool(CommandPaletteContextKeys.defaultTerminalIsDefault) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.checkForUpdates",
-                title: constant(String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates")),
-                subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
-                keywords: ["update", "upgrade", "release"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.applyUpdateIfAvailable",
-                title: constant(String(localized: "command.applyUpdateIfAvailable.title", defaultValue: "Apply Update (If Available)")),
-                subtitle: constant(String(localized: "command.applyUpdateIfAvailable.subtitle", defaultValue: "Global")),
-                keywords: ["apply", "install", "update", "available"],
-                when: { $0.bool(CommandPaletteContextKeys.updateHasAvailable) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.attemptUpdate",
-                title: constant(String(localized: "command.attemptUpdate.title", defaultValue: "Attempt Update")),
-                subtitle: constant(String(localized: "command.attemptUpdate.subtitle", defaultValue: "Global")),
-                keywords: ["attempt", "check", "update", "upgrade", "release"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.restartSocketListener",
-                title: constant(String(localized: "command.restartSocketListener.title", defaultValue: "Restart CLI Listener")),
-                subtitle: constant(String(localized: "command.restartSocketListener.subtitle", defaultValue: "Global")),
-                keywords: ["restart", "socket", "listener", "cli", "cmux", "control"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.disableBrowser",
-                title: constant(String(localized: "command.disableBrowser.title", defaultValue: "Disable cmux Browser")),
-                subtitle: constant(String(localized: "command.browserAvailability.subtitle", defaultValue: "Browser")),
-                keywords: ["browser", "disable", "external", "default", "open", "auth"],
-                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.enableBrowser",
-                title: constant(String(localized: "command.enableBrowser.title", defaultValue: "Enable cmux Browser")),
-                subtitle: constant(String(localized: "command.browserAvailability.subtitle", defaultValue: "Browser")),
-                keywords: ["browser", "enable", "embedded", "open"],
-                when: { $0.bool(CommandPaletteContextKeys.browserDisabled) }
-            )
-        )
-        contributions.append(contentsOf: Self.commandPaletteSettingsToggleCommandContributions())
 
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.renameWorkspace",
-                title: constant(String(localized: "command.renameWorkspace.title", defaultValue: "Rename Workspace…")),
-                subtitle: workspaceSubtitle,
-                keywords: ["rename", "workspace", "title"],
-                dismissOnRun: false,
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
+        let makeDefaultTerminalKeywords = String(
+            localized: "command.makeDefaultTerminal.keywords",
+            defaultValue: "default,terminal,ssh,launch,services,handler,command,tool,executable"
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.editWorkspaceDescription",
-                title: constant(String(localized: "command.editWorkspaceDescription.title", defaultValue: "Edit Workspace Description…")),
-                subtitle: workspaceSubtitle,
-                keywords: ["edit", "workspace", "description", "notes", "markdown"],
-                dismissOnRun: false,
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.clearWorkspaceName",
-                title: constant(String(localized: "command.clearWorkspaceName.title", defaultValue: "Clear Workspace Name")),
-                subtitle: workspaceSubtitle,
-                keywords: ["clear", "workspace", "name"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
-                        && $0.bool(CommandPaletteContextKeys.workspaceHasCustomName)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.clearWorkspaceDescription",
-                title: constant(String(localized: "command.clearWorkspaceDescription.title", defaultValue: "Clear Workspace Description")),
-                subtitle: workspaceSubtitle,
-                keywords: ["clear", "workspace", "description", "notes"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
-                        && $0.bool(CommandPaletteContextKeys.workspaceHasCustomDescription)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleWorkspacePin",
-                title: { context in
-                    context.bool(CommandPaletteContextKeys.workspaceShouldPin) ? String(localized: "command.pinWorkspace.title", defaultValue: "Pin Workspace") : String(localized: "command.unpinWorkspace.title", defaultValue: "Unpin Workspace")
-                },
-                subtitle: workspaceSubtitle,
-                keywords: ["workspace", "pin", "pinned"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.resetWorkspaceColor",
-                title: constant(String(localized: "shortcut.resetWorkspaceColor.label", defaultValue: "Reset Workspace Color")),
-                subtitle: workspaceSubtitle,
-                keywords: ["workspace", "color", "reset", "clear", "palette"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
-        )
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+
+        var workspaceColor: [CommandPaletteCommandContribution] = []
         for entry in WorkspaceTabColorSettings.palette() {
-            contributions.append(
+            workspaceColor.append(
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteWorkspaceColorCommandID(entry.name),
                     title: constant(workspaceColorCommandTitle(entry.name)),
@@ -5100,407 +4926,14 @@ struct ContentView: View {
                 )
             )
         }
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.nextWorkspace",
-                title: constant(String(localized: "command.nextWorkspace.title", defaultValue: "Next Workspace")),
-                subtitle: constant(String(localized: "command.nextWorkspace.subtitle", defaultValue: "Workspace Navigation")),
-                keywords: ["next", "workspace", "navigate"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.previousWorkspace",
-                title: constant(String(localized: "command.previousWorkspace.title", defaultValue: "Previous Workspace")),
-                subtitle: constant(String(localized: "command.previousWorkspace.subtitle", defaultValue: "Workspace Navigation")),
-                keywords: ["previous", "workspace", "navigate"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.moveWorkspaceUp",
-                title: constant(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")),
-                subtitle: workspaceSubtitle,
-                keywords: ["workspace", "move", "up", "reorder"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasAbove) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.moveWorkspaceDown",
-                title: constant(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")),
-                subtitle: workspaceSubtitle,
-                keywords: ["workspace", "move", "down", "reorder"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasBelow) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.moveWorkspaceToTop",
-                title: constant(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")),
-                subtitle: workspaceSubtitle,
-                keywords: ["workspace", "move", "top", "reorder"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasAbove) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.closeOtherWorkspaces",
-                title: constant(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")),
-                subtitle: workspaceSubtitle,
-                keywords: ["close", "other", "workspaces", "reset", "workspace"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasPeers) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.closeWorkspacesBelow",
-                title: constant(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")),
-                subtitle: workspaceSubtitle,
-                keywords: ["close", "below", "workspaces", "workspace"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasBelow) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.closeWorkspacesAbove",
-                title: constant(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")),
-                subtitle: workspaceSubtitle,
-                keywords: ["close", "above", "workspaces", "workspace"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasAbove) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.markWorkspaceRead",
-                title: constant(String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read")),
-                subtitle: workspaceSubtitle,
-                keywords: ["workspace", "read", "notification", "inbox"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanMarkRead) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.markWorkspaceUnread",
-                title: constant(String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread")),
-                subtitle: workspaceSubtitle,
-                keywords: ["workspace", "unread", "notification", "inbox"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanMarkUnread) }
-            )
-        )
-        appendIdentifierCopyCommandContributions(
-            to: &contributions,
-            workspaceSubtitle: workspaceSubtitle,
-            panelSubtitle: panelSubtitle
-        )
 
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.renameTab",
-                title: constant(String(localized: "command.renameTab.title", defaultValue: "Rename Tab…")),
-                subtitle: panelSubtitle,
-                keywords: ["rename", "tab", "title"],
-                dismissOnRun: false,
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.clearTabName",
-                title: constant(String(localized: "command.clearTabName.title", defaultValue: "Clear Tab Name")),
-                subtitle: panelSubtitle,
-                keywords: ["clear", "tab", "name"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.hasFocusedPanel)
-                        && $0.bool(CommandPaletteContextKeys.panelHasCustomName)
-                }
-            )
-        )
-        appendMoveTabToNewWorkspaceCommandContribution(to: &contributions, panelSubtitle: panelSubtitle)
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleTabPin",
-                title: { context in
-                    context.bool(CommandPaletteContextKeys.panelShouldPin) ? String(localized: "command.pinTab.title", defaultValue: "Pin Tab") : String(localized: "command.unpinTab.title", defaultValue: "Unpin Tab")
-                },
-                subtitle: panelSubtitle,
-                keywords: ["tab", "pin", "pinned"],
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleTabUnread",
-                title: { context in
-                    context.bool(CommandPaletteContextKeys.panelHasUnread) ? String(localized: "command.markTabRead.title", defaultValue: "Mark Tab as Read") : String(localized: "command.markTabUnread.title", defaultValue: "Mark Tab as Unread")
-                },
-                subtitle: panelSubtitle,
-                keywords: ["tab", "read", "unread", "notification"],
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.nextTabInPane",
-                title: constant(String(localized: "command.nextTabInPane.title", defaultValue: "Next Tab in Pane")),
-                subtitle: constant(String(localized: "command.nextTabInPane.subtitle", defaultValue: "Tab Navigation")),
-                keywords: ["next", "tab", "pane"],
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.previousTabInPane",
-                title: constant(String(localized: "command.previousTabInPane.title", defaultValue: "Previous Tab in Pane")),
-                subtitle: constant(String(localized: "command.previousTabInPane.subtitle", defaultValue: "Tab Navigation")),
-                keywords: ["previous", "tab", "pane"],
-                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
-            )
-        )
-
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.openWorkspacePullRequests",
-                title: constant(String(localized: "command.openWorkspacePRLinks.title", defaultValue: "Open All Workspace PR Links")),
-                subtitle: workspaceSubtitle,
-                keywords: ["pull", "request", "review", "merge", "pr", "mr", "open", "links", "workspace"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
-                    $0.bool(CommandPaletteContextKeys.workspaceHasPullRequests)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.openDiffViewer",
-                title: constant(String(localized: "command.openDiffViewer.title", defaultValue: "Open Diff Viewer")),
-                subtitle: workspaceSubtitle,
-                keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
-                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserBack",
-                title: constant(String(localized: "command.browserBack.title", defaultValue: "Back")),
-                subtitle: browserPanelSubtitle,
-                shortcutHint: "⌘[",
-                keywords: ["browser", "back", "history"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserForward",
-                title: constant(String(localized: "command.browserForward.title", defaultValue: "Forward")),
-                subtitle: browserPanelSubtitle,
-                shortcutHint: "⌘]",
-                keywords: ["browser", "forward", "history"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserReload",
-                title: constant(String(localized: "command.browserReload.title", defaultValue: "Reload Page")),
-                subtitle: browserPanelSubtitle,
-                shortcutHint: "⌘R",
-                keywords: ["browser", "reload", "refresh"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserOpenDefault",
-                title: constant(String(localized: "command.browserOpenDefault.title", defaultValue: "Open Current Page in Default Browser")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["open", "default", "external", "browser"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserFocusAddressBar",
-                title: constant(String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")),
-                subtitle: browserPanelSubtitle,
-                shortcutHint: "⌘L",
-                keywords: ["browser", "address", "omnibar", "url"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserFocusMode",
-                title: { context in
-                    context.bool(CommandPaletteContextKeys.panelBrowserFocusModeActive)
-                        ? String(localized: "command.browserFocusMode.exit.title", defaultValue: "Exit Browser Focus Mode")
-                        : String(localized: "command.browserFocusMode.enter.title", defaultValue: "Enter Browser Focus Mode")
-                },
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "focus", "mode", "keyboard", "shortcuts", "webview"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserToggleOmnibar",
-                title: { context in
-                    if context.bool(CommandPaletteContextKeys.panelBrowserOmnibarVisible) {
-                        return String(localized: "command.browserHideOmnibar.title", defaultValue: "Hide Browser Omnibar")
-                    }
-                    return String(localized: "command.browserShowOmnibar.title", defaultValue: "Show Browser Omnibar")
-                },
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "address", "omnibar", "url", "toolbar", "chrome", "show", "hide"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserToggleDevTools",
-                title: constant(String(localized: "command.browserToggleDevTools.title", defaultValue: "Toggle Developer Tools")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "devtools", "inspector"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserConsole",
-                title: constant(String(localized: "command.browserConsole.title", defaultValue: "Show JavaScript Console")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "console", "javascript"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserReactGrab",
-                title: constant(String(localized: "command.browserReactGrab.title", defaultValue: "Toggle React Grab")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "react", "grab", "inspect", "element"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserZoomIn",
-                title: constant(String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "in"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserZoomOut",
-                title: constant(String(localized: "command.browserZoomOut.title", defaultValue: "Zoom Out")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "out"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserZoomReset",
-                title: constant(String(localized: "command.browserZoomReset.title", defaultValue: "Actual Size")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "reset", "actual size"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.markdownZoomIn",
-                title: constant(String(localized: "command.markdownZoomIn.title", defaultValue: "Zoom In")),
-                subtitle: markdownPanelSubtitle,
-                keywords: ["markdown", "zoom", "in", "font", "size", "bigger", "larger"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsMarkdown) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.markdownZoomOut",
-                title: constant(String(localized: "command.markdownZoomOut.title", defaultValue: "Zoom Out")),
-                subtitle: markdownPanelSubtitle,
-                keywords: ["markdown", "zoom", "out", "font", "size", "smaller"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsMarkdown) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.markdownZoomReset",
-                title: constant(String(localized: "command.markdownZoomReset.title", defaultValue: "Actual Size")),
-                subtitle: markdownPanelSubtitle,
-                keywords: ["markdown", "zoom", "reset", "actual size", "font", "default"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsMarkdown) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserClearHistory",
-                title: constant(String(localized: "command.browserClearHistory.title", defaultValue: "Clear Browser History")),
-                subtitle: constant(String(localized: "command.browserClearHistory.subtitle", defaultValue: "Browser")),
-                keywords: ["browser", "history", "clear"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserSplitRight",
-                title: constant(String(localized: "command.browserSplitRight.title", defaultValue: "Split Browser Right")),
-                subtitle: constant(String(localized: "command.browserSplitRight.subtitle", defaultValue: "Browser Layout")),
-                keywords: ["browser", "split", "right"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsBrowser) &&
-                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserSplitDown",
-                title: constant(String(localized: "command.browserSplitDown.title", defaultValue: "Split Browser Down")),
-                subtitle: constant(String(localized: "command.browserSplitDown.subtitle", defaultValue: "Browser Layout")),
-                keywords: ["browser", "split", "down"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsBrowser) &&
-                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserDuplicateRight",
-                title: constant(String(localized: "command.browserDuplicateRight.title", defaultValue: "Duplicate Browser to the Right")),
-                subtitle: constant(String(localized: "command.browserDuplicateRight.subtitle", defaultValue: "Browser Layout")),
-                keywords: ["browser", "duplicate", "clone", "split"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsBrowser) &&
-                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
-                }
-            )
-        )
-
+        var terminalDirectoryOpenTargets: [CommandPaletteCommandContribution] = []
         for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
-            contributions.append(
+            terminalDirectoryOpenTargets.append(
                 CommandPaletteCommandContribution(
                     commandId: target.commandPaletteCommandId,
                     title: constant(target.commandPaletteTitle),
-                    subtitle: terminalPanelSubtitle,
+                    subtitle: panelSubtitle,
                     keywords: target.commandPaletteKeywords,
                     when: { context in
                         context.bool(CommandPaletteContextKeys.panelIsTerminal)
@@ -5508,277 +4941,11 @@ struct ContentView: View {
                 )
             )
         }
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.vscodeServeWebStop",
-                title: constant(String(localized: "command.vscodeServeWebStop.title", defaultValue: "Stop VS Code Inline Server")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["vscode", "inline", "serve-web", "stop", "server"],
-                when: { context in
-                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
-                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscodeInline))
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.vscodeServeWebRestart",
-                title: constant(String(localized: "command.vscodeServeWebRestart.title", defaultValue: "Restart VS Code Inline Server")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["vscode", "inline", "serve-web", "restart", "server"],
-                when: { context in
-                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
-                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscodeInline))
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.findInDirectory",
-                title: constant(String(localized: "menu.find.findInDirectory", defaultValue: "Find in Directory…")),
-                subtitle: constant(String(localized: "command.findInDirectory.subtitle", defaultValue: "Right Sidebar")),
-                keywords: ["files", "directory", "find", "search"]
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalFind",
-                title: constant(String(localized: "command.terminalFind.title", defaultValue: "Find…")),
-                subtitle: terminalPanelSubtitle,
-                shortcutHint: "⌘F",
-                keywords: ["terminal", "find", "search"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalFindNext",
-                title: constant(String(localized: "command.terminalFindNext.title", defaultValue: "Find Next")),
-                subtitle: terminalPanelSubtitle,
-                shortcutHint: "⌘G",
-                keywords: ["terminal", "find", "next", "search"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalFindPrevious",
-                title: constant(String(localized: "command.terminalFindPrevious.title", defaultValue: "Find Previous")),
-                subtitle: terminalPanelSubtitle,
-                shortcutHint: "⌥⌘G",
-                keywords: ["terminal", "find", "previous", "search"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalHideFind",
-                title: constant(String(localized: "command.terminalHideFind.title", defaultValue: "Hide Find Bar")),
-                subtitle: terminalPanelSubtitle,
-                shortcutHint: "⌥⌘⇧F",
-                keywords: ["terminal", "hide", "find", "search"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalUseSelectionForFind",
-                title: constant(String(localized: "command.terminalUseSelectionForFind.title", defaultValue: "Use Selection for Find")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "selection", "find"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalToggleTextBoxInput",
-                title: constant(String(localized: "command.terminalToggleTextBoxInput.title", defaultValue: "Toggle TextBox Input")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "textbox", "text", "box", "rich", "input", "prompt"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalFocusTextBoxInput",
-                title: constant(String(localized: "command.terminalFocusTextBoxInput.title", defaultValue: "Focus TextBox Input")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "textbox", "text", "box", "rich", "input", "prompt", "focus"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalAttachTextBoxFile",
-                title: constant(String(localized: "command.terminalAttachTextBoxFile.title", defaultValue: "Attach File to TextBox Input")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "textbox", "text", "box", "rich", "input", "attach", "file", "image"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalSendCtrlF",
-                title: constant(String(localized: "command.terminalSendCtrlF.title", defaultValue: "Send Ctrl-F to Terminal")),
-                subtitle: terminalPanelSubtitle,
-                keywords: [
-                    "terminal", "ctrl", "control", "f", "send", "key", "passthrough",
-                    "force", "stop", "agent", "agents", "claude", "code", "hung", "background", "watchdog", "kill",
-                ],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalClearScreenKeepScrollback",
-                title: constant(String(localized: "command.terminalClearScreenKeepScrollback.title", defaultValue: "Clear Screen (Keep Scrollback)")),
-                subtitle: terminalPanelSubtitle,
-                keywords: [
-                    "terminal", "clear", "screen", "scrollback", "history", "keep",
-                    "preserve", "reset", "wipe", "cls", "erase",
-                ],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalSplitRight",
-                title: constant(String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")),
-                subtitle: constant(String(localized: "command.terminalSplitRight.subtitle", defaultValue: "Terminal Layout")),
-                keywords: ["terminal", "split", "right"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.forkAgentConversationRight",
-                title: constant(String(localized: "command.forkAgentConversationRight.title", defaultValue: "Fork Conversation to the Right")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "right", "split"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.forkAgentConversationLeft",
-                title: constant(String(localized: "command.forkAgentConversationLeft.title", defaultValue: "Fork Conversation to the Left")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "left", "split"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.forkAgentConversationTop",
-                title: constant(String(localized: "command.forkAgentConversationTop.title", defaultValue: "Fork Conversation to the Top")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "top", "up", "above", "split"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.forkAgentConversationBottom",
-                title: constant(String(localized: "command.forkAgentConversationBottom.title", defaultValue: "Fork Conversation to the Bottom")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "bottom", "down", "below", "split"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.forkAgentConversationNewTab",
-                title: constant(String(localized: "command.forkAgentConversationNewTab.title", defaultValue: "Fork Conversation to New Tab")),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "tab", "same", "pane"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.forkAgentConversationNewWorkspace",
-                title: constant(String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")),
-                subtitle: workspaceSubtitle,
-                keywords: ["terminal", "agent", "fork", "conversation", "session", "claude", "codex", "opencode", "new", "workspace"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    $0.bool(CommandPaletteContextKeys.panelHasForkableAgent)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalSplitDown",
-                title: constant(String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")),
-                subtitle: constant(String(localized: "command.terminalSplitDown.subtitle", defaultValue: "Terminal Layout")),
-                keywords: ["terminal", "split", "down"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalSplitBrowserRight",
-                title: constant(String(localized: "command.terminalSplitBrowserRight.title", defaultValue: "Split Browser Right")),
-                subtitle: constant(String(localized: "command.terminalSplitBrowserRight.subtitle", defaultValue: "Terminal Layout")),
-                keywords: ["terminal", "split", "browser", "right"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalSplitBrowserDown",
-                title: constant(String(localized: "command.terminalSplitBrowserDown.title", defaultValue: "Split Browser Down")),
-                subtitle: constant(String(localized: "command.terminalSplitBrowserDown.subtitle", defaultValue: "Terminal Layout")),
-                keywords: ["terminal", "split", "browser", "down"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleSplitZoom",
-                title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
-                subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
-                keywords: ["terminal", "pane", "split", "zoom", "maximize"],
-                when: { context in
-                    context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    context.bool(CommandPaletteContextKeys.workspaceHasSplits)
-                }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.equalizeSplits",
-                title: constant(String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")),
-                subtitle: workspaceSubtitle,
-                keywords: ["split", "equalize", "balance", "divider", "layout"],
-                when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
-            )
-        )
 
         let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
+        var cmuxConfigIssues: [CommandPaletteCommandContribution] = []
         for issue in cmuxConfigStore.configurationIssues {
-            contributions.append(
+            cmuxConfigIssues.append(
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteCmuxConfigIssueCommandID(issue),
                     title: constant(commandPaletteCmuxConfigIssueTitle(issue)),
@@ -5787,13 +4954,14 @@ struct ContentView: View {
                 )
             )
         }
+        var cmuxConfigCustomActions: [CommandPaletteCommandContribution] = []
         for action in cmuxConfigStore.paletteCustomActions() {
             let actionTitle = sanitizeCmuxConfigPaletteText(action.title)
             let subtitleText = action.subtitle
                 .map { sanitizeCmuxConfigPaletteText($0) }
                 .flatMap { $0.isEmpty ? nil : $0 }
                 ?? cmuxConfigDefaultSubtitle
-            contributions.append(
+            cmuxConfigCustomActions.append(
                 CommandPaletteCommandContribution(
                     commandId: action.id,
                     title: constant(actionTitle),
@@ -5803,7 +4971,27 @@ struct ContentView: View {
             )
         }
 
-        return contributions
+        return CommandPaletteContributionHostBlocks(
+            vscodeInlineAvailable: { TerminalDirectoryOpenTarget.vscodeInline.isAvailable() },
+            extensionSidebar: extensionSidebar,
+            rightSidebarMode: Self.commandPaletteRightSidebarModeCommandContributions(),
+            rightSidebarToolPane: Self.commandPaletteRightSidebarToolPaneCommandContributions(),
+            view: Self.commandPaletteViewCommandContributions(),
+            canvas: Self.commandPaletteCanvasCommandContributions(),
+            mobileConnectKeywords: Self.commandPaletteMobileConnectKeywords,
+            makeDefaultTerminalKeywords: makeDefaultTerminalKeywords,
+            auth: Self.commandPaletteAuthCommandContributions(),
+            settingsToggle: Self.commandPaletteSettingsToggleCommandContributions(),
+            workspaceColor: workspaceColor,
+            identifierCopy: identifierCopyCommandContributions(
+                workspaceSubtitle: workspaceSubtitle,
+                panelSubtitle: panelSubtitle
+            ),
+            moveTabToNewWorkspace: moveTabToNewWorkspaceCommandContributions(panelSubtitle: panelSubtitle),
+            terminalDirectoryOpenTargets: terminalDirectoryOpenTargets,
+            cmuxConfigIssues: cmuxConfigIssues,
+            cmuxConfigCustomActions: cmuxConfigCustomActions
+        )
     }
 
     private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
