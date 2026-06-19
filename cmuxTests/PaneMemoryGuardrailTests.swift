@@ -312,4 +312,18 @@ struct PaneMemoryGuardrailTests {
         #expect(workspace.panels[panelId] == nil)
         #expect(bootstrapManager.selectedWorkspace?.panels[panelId] == nil)
     }
+
+    @MainActor
+    @Test
+    func guardrailBannerScopesWarningToOwningTabManager() throws {
+        let owningManager = TabManager()
+        let otherManager = TabManager()
+        let workspace = try #require(owningManager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let warning = sample(workspace: workspace.id, pane: panelId, memoryGB: 9).warning
+
+        #expect(owningManager.ownsPaneMemoryGuardrailWarning(warning))
+        #expect(!otherManager.ownsPaneMemoryGuardrailWarning(warning))
+        #expect(!owningManager.ownsPaneMemoryGuardrailWarning(nil))
+    }
 }

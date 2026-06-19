@@ -7,6 +7,7 @@ import SwiftUI
 /// while `activeBanner` is nil.
 struct PaneMemoryGuardrailBanner: View {
     let guardrail: PaneMemoryGuardrail
+    let tabManager: TabManager
     @State private var isConfirmingKill = false
     @State private var killConfirmationWarning: PaneMemoryWarning?
 
@@ -19,7 +20,8 @@ struct PaneMemoryGuardrailBanner: View {
 
     var body: some View {
         Group {
-            if let warning = guardrail.activeBanner {
+            if let warning = guardrail.activeBanner,
+               tabManager.ownsPaneMemoryGuardrailWarning(warning) {
                 bannerCard(for: warning)
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
@@ -167,5 +169,12 @@ struct PaneMemoryGuardrailBanner: View {
             ),
             location, memoryText
         )
+    }
+}
+
+extension TabManager {
+    func ownsPaneMemoryGuardrailWarning(_ warning: PaneMemoryWarning?) -> Bool {
+        guard let warning else { return false }
+        return tabs.contains { $0.id == warning.workspaceId }
     }
 }
