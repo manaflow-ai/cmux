@@ -3,8 +3,8 @@ import Foundation
 
 actor SSHPTYResizeMonitor {
     private typealias ResizeEvent = (size: (cols: Int, rows: Int), force: Bool)
-    // Keep input-edge ordering bounded; failed writes retry on the next event.
-    private static let inputEdgeWriteTimeout: TimeInterval = 0.05
+    // Keep input-edge ordering bounded; failed sends retry on the next event.
+    private static let resizeResponseTimeout: TimeInterval = 0.05
 
     private let socketPath: String
     private let explicitPassword: String?
@@ -13,12 +13,14 @@ actor SSHPTYResizeMonitor {
     private let sessionID: String
     private let attachmentID: String
     private let attachmentToken: String
-    // AsyncStream.Continuation is safe to yield from stdin/signal callbacks;
-    // the newest-1 buffer bounds input-hot-path work while actor state drains.
+    // AsyncStream.Continuation is safe to yield from signal callbacks; the
+    // newest-1 buffer bounds resize churn while actor state drains.
     private let eventContinuation: AsyncStream<ResizeEvent>.Continuation
     private let source: DispatchSourceSignal
     private var lastSentSize: (cols: Int, rows: Int)
     private var pendingSize: (cols: Int, rows: Int)?
+    private var inputWaiters: [CheckedContinuation<Void, Never>] = []
+    private var isDraining = false
     private var isCancelled = false
 
     init(
@@ -58,7 +60,9 @@ actor SSHPTYResizeMonitor {
 
     func resizeBeforeInputIfNeeded() async {
         let size = CMUXCLI.currentCLITerminalSize()
-        await enqueue(size: size, force: false)
+        await withCheckedContinuation { continuation in
+            recordPendingResize(size: size, force: false, waiter: continuation)
+        }
     }
 
     nonisolated func cancel() {
@@ -72,41 +76,74 @@ actor SSHPTYResizeMonitor {
     private func processResizeEvents(_ events: AsyncStream<ResizeEvent>) async {
         for await event in events {
             guard !isCancelled else { break }
-            await enqueue(size: event.size, force: event.force)
+            recordPendingResize(size: event.size, force: event.force, waiter: nil)
         }
         isCancelled = true
         pendingSize = nil
+        resumeInputWaiters()
     }
 
     private func markCancelled() {
         isCancelled = true
         pendingSize = nil
+        resumeInputWaiters()
     }
 
-    private func enqueue(size: (cols: Int, rows: Int), force: Bool) async {
-        guard !isCancelled else { return }
+    private func recordPendingResize(
+        size: (cols: Int, rows: Int),
+        force: Bool,
+        waiter: CheckedContinuation<Void, Never>?
+    ) {
+        guard !isCancelled else {
+            waiter?.resume()
+            return
+        }
         if force || !Self.sameSize(size, lastSentSize) {
             pendingSize = size
         } else {
-            pendingSize = nil
+            if pendingSize == nil {
+                waiter?.resume()
+                return
+            }
         }
-        await drainPendingResizes()
+        if let waiter {
+            inputWaiters.append(waiter)
+        }
+        startDrainIfNeeded()
+    }
+
+    private func startDrainIfNeeded() {
+        guard !isDraining else { return }
+        isDraining = true
+        Task {
+            await self.drainPendingResizes()
+        }
     }
 
     private func drainPendingResizes() async {
+        defer {
+            isDraining = false
+        }
         while true {
             if isCancelled {
                 pendingSize = nil
+                resumeInputWaiters()
                 return
             }
             guard let size = pendingSize else {
                 return
             }
             pendingSize = nil
+            let waiters = inputWaiters
+            inputWaiters = []
 
             let sent = await sendResize(size: size)
+            // Waiters that existed before this send still need any newer
+            // resize that arrived during the socket round trip.
+            inputWaiters = waiters + inputWaiters
             if isCancelled {
                 pendingSize = nil
+                resumeInputWaiters()
                 return
             }
             if sent {
@@ -114,6 +151,7 @@ actor SSHPTYResizeMonitor {
                 let currentSize = CMUXCLI.currentCLITerminalSize()
                 pendingSize = Self.sameSize(currentSize, lastSentSize) ? nil : currentSize
                 if pendingSize == nil {
+                    resumeInputWaiters()
                     return
                 }
                 continue
@@ -122,8 +160,15 @@ actor SSHPTYResizeMonitor {
             if pendingSize == nil {
                 pendingSize = size
             }
+            resumeInputWaiters()
             return
         }
+    }
+
+    private func resumeInputWaiters() {
+        let waiters = inputWaiters
+        inputWaiters = []
+        waiters.forEach { $0.resume() }
     }
 
     private func sendResize(size: (cols: Int, rows: Int)) async -> Bool {
@@ -173,30 +218,20 @@ actor SSHPTYResizeMonitor {
             params["surface_id"] = surfaceID
             params["allow_moved_surface"] = true
         }
-        let request: [String: Any] = [
-            "id": UUID().uuidString,
-            "method": "workspace.remote.pty_resize",
-            "params": params,
-        ]
-        guard JSONSerialization.isValidJSONObject(request),
-              let requestData = try? JSONSerialization.data(withJSONObject: request, options: []),
-              let requestLine = String(data: requestData, encoding: .utf8) else {
-            return false
-        }
-
         let resizeClient = SocketClient(path: socketPath)
         defer { resizeClient.close() }
         do {
-            try resizeClient.connectWithoutRetry(responseTimeout: Self.inputEdgeWriteTimeout)
+            try resizeClient.connectWithoutRetry(responseTimeout: Self.resizeResponseTimeout)
             try CMUXCLI.authenticateSocketClientIfNeeded(
                 resizeClient,
                 explicitPassword: explicitPassword,
                 socketPath: socketPath,
-                responseTimeout: Self.inputEdgeWriteTimeout
+                responseTimeout: Self.resizeResponseTimeout
             )
-            try resizeClient.sendOneWay(
-                command: requestLine,
-                writeTimeout: Self.inputEdgeWriteTimeout
+            _ = try resizeClient.sendV2(
+                method: "workspace.remote.pty_resize",
+                params: params,
+                responseTimeout: Self.resizeResponseTimeout
             )
             return true
         } catch {

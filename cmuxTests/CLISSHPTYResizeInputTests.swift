@@ -143,7 +143,7 @@ struct CLISSHPTYResizeInputTests {
         )
         #expect(
             inputForwarded.wait(timeout: .now() + 5) == .success,
-            "Expected ssh-pty-attach to forward typed input without waiting for the resize RPC response"
+            "Expected ssh-pty-attach to forward typed input after the bounded resize RPC"
         )
 
         closeBridge.signal()
