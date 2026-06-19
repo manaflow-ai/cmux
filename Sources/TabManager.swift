@@ -11,6 +11,7 @@ import CmuxPanes
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
+import CmuxTestSupport
 import CmuxWorkspaces
 import CoreVideo
 import Combine
@@ -71,17 +72,24 @@ final class NotificationBurstCoalescer {
 // catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
 //
 // This is DEBUG-only and used only for UI tests; no polling or display-link loops exist in normal app runtime.
+//
+// The pure per-frame detection/trace logic lives in CmuxTestSupport's
+// VsyncIOSurfaceTimelineAnalyzer (a Sendable-input, AppKit-free value
+// transform). This app-side state owns the irreducible seam: the
+// CVDisplayLink lifecycle, the NSLock-guarded in-flight/finished
+// coordination read from the C callback, and the GhosttySurfaceScrollView /
+// QuartzCore live sampling closures. Each frame it samples its targets on the
+// main thread, converts them to VsyncFrameSample values, and feeds them to the
+// analyzer.
 fileprivate final class VsyncIOSurfaceTimelineState {
     struct Target {
         let label: String
         let sample: @MainActor () -> GhosttySurfaceScrollView.DebugFrameSample?
     }
 
-    let frameCount: Int
-    let closeFrame: Int
+    let analyzer: VsyncIOSurfaceTimelineAnalyzer
     let lock = NSLock()
 
-    var framesWritten = 0
     var inFlight = false
     var finished = false
 
@@ -90,17 +98,17 @@ fileprivate final class VsyncIOSurfaceTimelineState {
 
     var targets: [Target] = []
 
-    // Results
-    var firstBlank: (label: String, frame: Int)?
-    var firstSizeMismatch: (label: String, frame: Int, ios: String, expected: String)?
-    var trace: [String] = []
-
     var link: CVDisplayLink?
     var continuation: CheckedContinuation<Void, Never>?
 
+    var frameCount: Int { analyzer.frameCount }
+    var framesWritten: Int { analyzer.framesWritten }
+    var firstBlank: (label: String, frame: Int)? { analyzer.firstBlank }
+    var firstSizeMismatch: (label: String, frame: Int, ios: String, expected: String)? { analyzer.firstSizeMismatch }
+    var trace: [String] { analyzer.trace }
+
     init(frameCount: Int, closeFrame: Int) {
-        self.frameCount = frameCount
-        self.closeFrame = closeFrame
+        self.analyzer = VsyncIOSurfaceTimelineAnalyzer(frameCount: frameCount, closeFrame: closeFrame)
     }
 
     func tryBeginCapture() -> Bool {
@@ -148,7 +156,7 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
     // (The previous Task/@MainActor hop could be delayed long enough to skip the blank frame.)
     DispatchQueue.main.sync {
         defer { st.endCapture() }
-        guard st.framesWritten < st.frameCount else { return }
+        guard !st.analyzer.isComplete else { return }
 
         while st.nextActionIndex < st.scheduledActions.count {
             let next = st.scheduledActions[st.nextActionIndex]
@@ -157,44 +165,22 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
             next.action()
         }
 
-        for t in st.targets {
-            guard let s = t.sample() else { continue }
-
-            let iosW = s.iosurfaceWidthPx
-            let iosH = s.iosurfaceHeightPx
-            let expW = s.expectedWidthPx
-            let expH = s.expectedHeightPx
-            let gravity = s.layerContentsGravity
-            let hasDimensions = iosW > 0 && iosH > 0 && expW > 0 && expH > 0
-            let dw = hasDimensions ? abs(iosW - expW) : 0
-            let dh = hasDimensions ? abs(iosH - expH) : 0
-            let hasSizeMismatch = hasDimensions && (dw > 2 || dh > 2)
-            let stretchRisk = (gravity == CALayerContentsGravity.resize.rawValue)
-
-            // Ignore setup/warmup frames before the close action. We only care about
-            // regressions that happen at/after the close mutation.
-            if st.firstBlank == nil, st.framesWritten >= st.closeFrame, s.isProbablyBlank {
-                st.firstBlank = (label: t.label, frame: st.framesWritten)
-            }
-
-            if st.firstSizeMismatch == nil,
-               st.framesWritten >= st.closeFrame,
-               stretchRisk,
-               hasSizeMismatch {
-                st.firstSizeMismatch = (
-                    label: t.label,
-                    frame: st.framesWritten,
-                    ios: "\(iosW)x\(iosH)",
-                    expected: "\(expW)x\(expH)"
-                )
-            }
-
-            if st.trace.count < 200 {
-                st.trace.append("\(st.framesWritten):\(t.label):blank=\(s.isProbablyBlank ? 1 : 0):ios=\(iosW)x\(iosH):exp=\(expW)x\(expH):gravity=\(gravity):key=\(s.layerContentsKey)")
-            }
+        let frameSamples: [VsyncFrameSample] = st.targets.compactMap { t in
+            guard let s = t.sample() else { return nil }
+            return VsyncFrameSample(
+                label: t.label,
+                isProbablyBlank: s.isProbablyBlank,
+                iosurfaceWidthPx: s.iosurfaceWidthPx,
+                iosurfaceHeightPx: s.iosurfaceHeightPx,
+                expectedWidthPx: s.expectedWidthPx,
+                expectedHeightPx: s.expectedHeightPx,
+                layerContentsGravity: s.layerContentsGravity,
+                isStretchRisk: s.layerContentsGravity == CALayerContentsGravity.resize.rawValue,
+                layerContentsKey: s.layerContentsKey
+            )
         }
 
-        st.framesWritten += 1
+        st.analyzer.ingest(frameSamples: frameSamples)
     }
 
     // Stop/resume outside the main-thread sync block to avoid reentrancy issues.
