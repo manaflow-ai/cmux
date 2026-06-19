@@ -100,4 +100,114 @@ where Snapshot: Sendable, Binding: Sendable, Lifecycle: Sendable {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
     }
+
+    // MARK: - Per-status lifecycle storage
+
+    /// Records a per-status lifecycle state for `panelId` and notifies `recordChange`.
+    ///
+    /// The caller resolves the target panel (e.g. falling back to the focused panel) and confirms
+    /// the panel still exists before calling, because panel existence is app-target state the
+    /// model does not own; this method performs only the dictionary mutation and the change
+    /// notification. `recordChange` carries the app-coupled side effect (the hibernation
+    /// controller notification) so the model stays free of app types.
+    ///
+    /// Mirrors the storage half of `Workspace.setAgentLifecycle`.
+    public func setLifecycle(
+        key: String,
+        panelId: UUID,
+        lifecycle: Lifecycle,
+        recordChange: (UUID) -> Void
+    ) {
+        agentLifecycleStatesByPanelId[panelId, default: [:]][key] = lifecycle
+        recordChange(panelId)
+    }
+
+    /// Clears the lifecycle state for `key` on `panelId` (or, when `panelId` is nil, on every
+    /// panel that carries `key`), pruning panels that become empty, and notifies `recordChange`
+    /// for each panel actually changed. Reports whether anything was cleared.
+    ///
+    /// Mirrors `Workspace.clearAgentLifecycle`.
+    @discardableResult
+    public func clearLifecycle(
+        key: String,
+        panelId: UUID? = nil,
+        recordChange: (UUID) -> Void
+    ) -> Bool {
+        var didClear = false
+        let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
+        for panelId in panelIds {
+            guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
+            agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
+            if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
+                agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
+            }
+            didClear = true
+            recordChange(panelId)
+        }
+        return didClear
+    }
+
+    /// Clears every lifecycle state for `panelId` and notifies `recordChange` when something was
+    /// removed. Mirrors `Workspace.clearAgentLifecycleStates`.
+    public func clearLifecycleStates(panelId: UUID, recordChange: (UUID) -> Void) {
+        guard agentLifecycleStatesByPanelId.removeValue(forKey: panelId) != nil else { return }
+        recordChange(panelId)
+    }
+
+    /// Clears every lifecycle state for every panel and notifies `recordChange` once per panel
+    /// that had state. Mirrors `Workspace.clearAllAgentLifecycleStates`.
+    public func clearAllLifecycleStates(recordChange: (UUID) -> Void) {
+        let panelIds = Array(agentLifecycleStatesByPanelId.keys)
+        guard !panelIds.isEmpty else { return }
+        agentLifecycleStatesByPanelId.removeAll()
+        for panelId in panelIds {
+            recordChange(panelId)
+        }
+    }
+
+    /// Resolves the aggregate lifecycle state for `panelId` by returning the first value in
+    /// `priority` present among the panel's per-status states, or `fallback` when the panel has
+    /// no states or none of the prioritized values match.
+    ///
+    /// `priority` encodes the app's precedence order (e.g. running > needsInput > unknown >
+    /// idle); passing it in keeps the model free of the concrete lifecycle enum's cases.
+    /// Mirrors `Workspace.agentHibernationLifecycleState`.
+    public func resolvedLifecycleState(
+        panelId: UUID,
+        fallback: Lifecycle?,
+        priority: [Lifecycle]
+    ) -> Lifecycle? where Lifecycle: Equatable {
+        guard let panelStates = agentLifecycleStatesByPanelId[panelId],
+              !panelStates.isEmpty else {
+            return fallback
+        }
+        let states = Array(panelStates.values)
+        for candidate in priority where states.contains(candidate) {
+            return candidate
+        }
+        return fallback
+    }
+
+    // MARK: - Surface resume binding storage
+
+    /// Stores a surface resume binding for `panelId`. The caller validates the binding (presence
+    /// of a live terminal panel, non-empty startup input) because those are app-target concerns;
+    /// this method performs only the dictionary write. Mirrors the storage half of
+    /// `Workspace.setSurfaceResumeBinding`.
+    public func setSurfaceResumeBinding(_ binding: Binding, panelId: UUID) {
+        surfaceResumeBindingsByPanelId[panelId] = binding
+    }
+
+    /// Removes the surface resume binding for `panelId`, reporting whether one was present.
+    /// Mirrors `Workspace.clearSurfaceResumeBinding`.
+    @discardableResult
+    public func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+    }
+
+    /// Returns the surface resume binding for `panelId`, if any.
+    /// Mirrors `Workspace.surfaceResumeBinding`.
+    public func surfaceResumeBinding(panelId: UUID) -> Binding? {
+        surfaceResumeBindingsByPanelId[panelId]
+    }
 }
