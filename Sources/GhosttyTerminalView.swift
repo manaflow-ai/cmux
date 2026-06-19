@@ -3908,6 +3908,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        updateSurfaceSize(bypassLiveResizeCoalescing: true)
+        invalidateTextInputCoordinates()
+    }
+
     override var isOpaque: Bool { false }
 
     private func resolvedSurfaceSize(preferred size: CGSize?) -> CGSize {
@@ -3956,8 +3962,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func activeSurfaceResizeDeferralReason() -> String? {
-        if inLiveResize || window?.inLiveResize == true { return nil }
+        if isWindowLiveResizeActive { return nil }
         return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
+    }
+
+    private var isWindowLiveResizeActive: Bool {
+        inLiveResize || window?.inLiveResize == true
     }
 
     @discardableResult private func scheduleDeferredSurfaceSizeRetryIfNeeded() -> Bool {
@@ -3970,7 +3980,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @MainActor fileprivate func reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() { guard needsSurfaceSizeRetryAfterMetalLayerRealizes else { return }; deferredSurfaceSizeNonMetalRetryCount = 0; _ = updateSurfaceSize() }
 
     @discardableResult
-    private func updateSurfaceSize(size: CGSize? = nil) -> Bool {
+    private func updateSurfaceSize(
+        size: CGSize? = nil,
+        bypassLiveResizeCoalescing: Bool = false
+    ) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
         let size = resolvedSurfaceSize(preferred: size)
         guard size.width > 0 && size.height > 0 else {
@@ -4093,7 +4106,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             xScale: xScale,
             yScale: yScale,
             layerScale: layerScale,
-            backingSize: backingSize
+            backingSize: backingSize,
+            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing
         )
         return didChange || surfaceSizeChanged
     }
