@@ -31,6 +31,14 @@ def test_docs_only_skips_expensive_areas() -> None:
     assert_areas(["docs/ci.md", "README.md"], macos=False, web=False, go=False)
 
 
+def test_cli_contract_doc_runs_macos_contract_tests() -> None:
+    assert_areas(["docs/cli-contract.md"], macos=True, web=False, go=False)
+
+
+def test_changelog_runs_web_validation() -> None:
+    assert_areas(["CHANGELOG.md"], macos=False, web=True, go=False)
+
+
 def test_web_only_runs_web_without_macos() -> None:
     assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True, go=False)
 

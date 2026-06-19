@@ -55,6 +55,8 @@ def forces_all_areas(path: str) -> bool:
 def is_web_change(path: str) -> bool:
     if path.startswith(("web/", "webviews/", "Resources/agent-session")):
         return True
+    if path == "CHANGELOG.md":
+        return True
     return path in {
         "package.json",
         "bun.lock",
@@ -82,6 +84,8 @@ def is_macos_neutral(path: str) -> bool:
 
 def is_macos_change(path: str) -> bool:
     if forces_all_areas(path):
+        return True
+    if path == "docs/cli-contract.md":
         return True
     if path in {"package.json", "bun.lock", "biome.json"}:
         return True
