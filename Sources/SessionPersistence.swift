@@ -2,7 +2,7 @@ import CoreGraphics
 import CmuxCore
 import Foundation
 import Bonsplit
-import CmuxSession
+import CmuxWorkspaces
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -482,6 +482,12 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     private static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+extension SurfaceResumeBindingSnapshot: WorkspaceSurfaceResumeBinding {
+    var requiresPromptApproval: Bool {
+        approvalPolicy == .prompt
     }
 }
 
@@ -1421,6 +1427,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     }
 }
 
+extension SessionTerminalPanelSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {}
+
 struct SessionAgentHibernationSnapshot: Codable, Sendable {
     var hibernatedAt: TimeInterval
     var lastActivityAt: TimeInterval
@@ -1724,6 +1732,8 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var project: SessionProjectPanelSnapshot?
 }
 
+extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
+
 enum SessionSplitOrientation: String, Codable, Sendable {
     case horizontal
     case vertical
@@ -1849,6 +1859,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// with a `nil` default so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
 }
+
+extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
