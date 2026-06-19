@@ -2,11 +2,11 @@ import Foundation
 
 /// Settings under the dotted-id prefix `terminal.*`.
 public struct TerminalCatalogSection: SettingCatalogSection {
-    /// Canonical bounds for the terminal scroll-speed multiplier. Shared by the
-    /// app-side `TerminalScrollSpeedSettings` reader/clamp and the settings UI
-    /// slider so both agree on a single source of truth.
+    /// Default multiplier applied to terminal scroll deltas.
     public static let scrollSpeedDefault = 1.0
+    /// Minimum allowed multiplier for terminal scroll deltas.
     public static let scrollSpeedMinimum = 0.25
+    /// Maximum allowed multiplier for terminal scroll deltas.
     public static let scrollSpeedMaximum = 3.0
 
     public let showScrollBar = DefaultsKey<Bool>(
@@ -92,6 +92,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         defaultValue: []
     )
 
+    /// Multiplier applied to terminal scroll wheel and trackpad deltas.
     public let scrollSpeed = DefaultsKey<Double>(
         id: "terminal.scrollSpeed",
         defaultValue: TerminalCatalogSection.scrollSpeedDefault,
