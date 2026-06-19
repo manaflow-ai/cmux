@@ -8737,6 +8737,10 @@ struct CMUXCLI {
         let configuredForegroundAuthToken = deferredRemoteReconnectCommandScript == nil
             ? nil
             : deferredRemoteReconnectToken
+        let usesPersistentFreestyleCloud =
+            sshOptions.skipDaemonBootstrap &&
+            sshOptions.pinWorkspaceToTop &&
+            vmIDForSplitAttach != nil
         let usesPersistentSSHPTY =
             !sshOptions.skipDaemonBootstrap &&
             sshOptions.extraArguments.isEmpty &&
@@ -8744,7 +8748,7 @@ struct CMUXCLI {
             deferredRemoteReconnectCommandScript != nil
         let persistentDaemonSlot = usesPersistentSSHPTY
             ? "ssh-\(UUID().uuidString.lowercased())"
-            : nil
+            : (usesPersistentFreestyleCloud ? Self.persistentFreestyleCloudIdempotencyKey : nil)
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
             localCommandScript: combinedLocalCommandScript
@@ -8807,11 +8811,21 @@ struct CMUXCLI {
         if let vmIDForSplitAttach,
            sshOptions.skipDaemonBootstrap {
             let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-            let splitAttachCommand = "\(shellQuote(executablePath)) vm ssh-attach --id \(shellQuote(vmIDForSplitAttach))"
+            let splitAttachCommand = [
+                "env",
+                "CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}",
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS=${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}",
+                shellQuote(executablePath),
+                "vm",
+                "ssh-attach",
+                "--id",
+                shellQuote(vmIDForSplitAttach),
+            ].joined(separator: " ")
             reusableTerminalStartupCommand = buildReusableSSHStartupCommand(
                 sshCommand: splitAttachCommand,
                 shellFeatures: shellFeaturesValue,
-                remoteRelayPort: 0
+                remoteRelayPort: 0,
+                reconnectLimitDefault: 86400
             )
         } else {
             reusableTerminalStartupCommand = remoteTerminalSSHStartupCommand
@@ -8965,17 +8979,15 @@ struct CMUXCLI {
             if !didCreateWorkspace,
                sshOptions.pinWorkspaceToTop {
                 let surfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
-                let respawnStartedAt = Date()
-                _ = try client.sendV2(method: "surface.respawn", params: [
+                let reconnectStartedAt = Date()
+                _ = try client.sendV2(method: "workspace.remote.reconnect", params: [
                     "workspace_id": workspaceId,
                     "surface_id": surfaceId,
-                    "command": reusableTerminalStartupCommand,
-                    "tmux_start_command": reusableTerminalStartupCommand,
                 ])
                 cliDebugLog(
                     "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
                     "workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) " +
-                    "stage=surface.respawn elapsedMs=\(Int(Date().timeIntervalSince(respawnStartedAt) * 1000))"
+                    "stage=workspace.remote.reconnect elapsedMs=\(Int(Date().timeIntervalSince(reconnectStartedAt) * 1000))"
                 )
             }
             let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"

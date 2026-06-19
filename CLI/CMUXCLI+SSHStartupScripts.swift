@@ -8,7 +8,8 @@ extension CMUXCLI {
         isShellSnippet: Bool = false,
         passwordCredential: String? = nil,
         controlPathPreflightShellFunction: String? = nil,
-        retryPTYAttachStatus: Bool = false
+        retryPTYAttachStatus: Bool = false,
+        reconnectLimitDefault: Int = 20
     ) throws -> String {
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
@@ -17,7 +18,8 @@ extension CMUXCLI {
             isShellSnippet: isShellSnippet,
             passwordCredential: passwordCredential,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
-            retryPTYAttachStatus: retryPTYAttachStatus
+            retryPTYAttachStatus: retryPTYAttachStatus,
+            reconnectLimitDefault: reconnectLimitDefault
         )
         return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
     }
@@ -29,7 +31,8 @@ extension CMUXCLI {
         isShellSnippet: Bool = false,
         passwordCredential: String? = nil,
         controlPathPreflightShellFunction: String? = nil,
-        retryPTYAttachStatus: Bool = false
+        retryPTYAttachStatus: Bool = false,
+        reconnectLimitDefault: Int = 20
     ) -> String {
         let script = buildSSHStartupScriptBody(
             sshCommand: sshCommand,
@@ -38,7 +41,8 @@ extension CMUXCLI {
             isShellSnippet: isShellSnippet,
             passwordCredential: passwordCredential,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
-            retryPTYAttachStatus: retryPTYAttachStatus
+            retryPTYAttachStatus: retryPTYAttachStatus,
+            reconnectLimitDefault: reconnectLimitDefault
         )
         return reusableShellStartupCommand(
             scriptBody: script,
@@ -108,7 +112,7 @@ extension CMUXCLI {
             "set password [string trimright $password \"\\r\\n\"]",
             "spawn {*}$argv",
             "expect {",
-            "  -re {(?i)password:} { send -- \"$password\\r\"; interact }",
+            "  -nocase \"*password:*\" { send -- \"$password\\r\"; interact }",
             "  eof { set status [wait]; exit [lindex $status 3] }",
             "}",
             "set status [wait]",
@@ -141,7 +145,8 @@ extension CMUXCLI {
         isShellSnippet: Bool,
         passwordCredential: String?,
         controlPathPreflightShellFunction: String?,
-        retryPTYAttachStatus: Bool
+        retryPTYAttachStatus: Bool,
+        reconnectLimitDefault: Int
     ) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
@@ -181,7 +186,7 @@ extension CMUXCLI {
             "CMUX_SSH_SESSION_ENDED=0",
             "CMUX_SSH_STARTUP_PID=$$",
             "export CMUX_SSH_STARTUP_PID",
-            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
+            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-\(max(0, reconnectLimitDefault))}\"",
             "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",

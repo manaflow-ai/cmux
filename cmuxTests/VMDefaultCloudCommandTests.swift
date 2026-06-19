@@ -89,7 +89,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let decodedStartupCommand = self.decodedReusableShellStartupCommand(terminalStartupCommand)
                 XCTAssertFalse(terminalStartupCommand.isEmpty, "\(params)")
                 XCTAssertTrue(decodedStartupCommand.contains("vm ssh-attach"), decodedStartupCommand)
+                XCTAssertTrue(
+                    decodedStartupCommand.contains("env CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}"),
+                    decodedStartupCommand
+                )
                 XCTAssertFalse(decodedStartupCommand.contains(":lease-token@"), decodedStartupCommand)
+                XCTAssertEqual(params["preserve_after_terminal_exit"] as? Bool, true)
+                XCTAssertEqual(params["persistent_daemon_slot"] as? String, "cmux-default-freestyle-sshd-v1")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -228,7 +234,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let decodedStartupCommand = self.decodedReusableShellStartupCommand(terminalStartupCommand)
                 XCTAssertFalse(terminalStartupCommand.isEmpty, "\(params)")
                 XCTAssertTrue(decodedStartupCommand.contains("vm ssh-attach"), decodedStartupCommand)
+                XCTAssertTrue(
+                    decodedStartupCommand.contains("env CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}"),
+                    decodedStartupCommand
+                )
                 XCTAssertFalse(decodedStartupCommand.contains(":lease-token@"), decodedStartupCommand)
+                XCTAssertEqual(params["preserve_after_terminal_exit"] as? Bool, true)
+                XCTAssertEqual(params["persistent_daemon_slot"] as? String, "cmux-default-freestyle-sshd-v1")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -260,16 +272,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         ],
                     ]
                 )
-            case "surface.respawn":
+            case "workspace.remote.reconnect":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
                 XCTAssertEqual(params["surface_id"] as? String, surfaceID)
-                let command = params["command"] as? String ?? ""
-                let tmuxStartCommand = params["tmux_start_command"] as? String ?? ""
-                let decodedStartupCommand = self.decodedReusableShellStartupCommand(command)
-                XCTAssertEqual(command, tmuxStartCommand)
-                XCTAssertTrue(decodedStartupCommand.contains("vm ssh-attach"), decodedStartupCommand)
-                XCTAssertFalse(decodedStartupCommand.contains(":lease-token@"), decodedStartupCommand)
+                XCTAssertNil(params["command"])
+                XCTAssertNil(params["tmux_start_command"])
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -315,7 +323,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "workspace.remote.configure",
                 "workspace.select",
                 "surface.list",
-                "surface.respawn",
+                "workspace.remote.reconnect",
             ]
         )
     }
