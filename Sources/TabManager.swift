@@ -332,9 +332,8 @@ class TabManager: ObservableObject {
                 "tabCount": tabs.count
             ])
             let previousTabId = oldValue
-            if let previousTabId,
-               let previousPanelId = focusedPanelId(for: previousTabId) {
-                lastFocusedPanelByTab[previousTabId] = previousPanelId
+            if let previousTabId {
+                focusedSurface.recordRememberedFocusForPreviousSelection(previousTabId)
             }
             if shouldRecordFocusHistory {
                 if let previousTabId {
@@ -348,7 +347,7 @@ class TabManager: ObservableObject {
                    tabs.contains(where: { $0.id == selectedTabId }) {
                     let selectedEntry = FocusHistoryEntry(
                         workspaceId: selectedTabId,
-                        panelId: lastFocusedPanelByTab[selectedTabId]
+                        panelId: focusedSurface.rememberedFocusedPanelId(selectedTabId)
                     )
                     focusHistoryNavigation.recordFocusInHistory(
                         workspaceId: selectedTabId,
@@ -379,7 +378,7 @@ class TabManager: ObservableObject {
                 let suppressFocusHistory = self.focusHistoryNavigation.consumeSuppressedSelectionSideEffectGeneration(generation)
                 guard self.selectionSideEffectsGeneration == generation else { return }
                 let applySelectionSideEffects = {
-                    self.focusSelectedTabPanel(previousTabId: previousTabId)
+                    self.focusedSurface.focusSelectedWorkspacePanel(previousWorkspaceId: previousTabId)
                     self.updateWindowTitleForSelectedTab()
                     if let selectedTabId = self.selectedTabId {
                         self.dismissFocusedPanelNotificationIfActive(
@@ -405,7 +404,12 @@ class TabManager: ObservableObject {
             }
     }
     private var observers: [NSObjectProtocol] = []
-    private var lastFocusedPanelByTab: [UUID: UUID] = [:]
+    /// Per-window focused-surface bookkeeping (remembered focused panel per
+    /// workspace) + the deferred previous-workspace unfocus state machine
+    /// (CmuxWorkspaces). TabManager hosts its seam
+    /// (`TabManager+FocusedSurfaceHosting`) and forwards the legacy entry
+    /// points below.
+    let focusedSurface = FocusedSurfaceModel()
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
         let panelId: UUID
@@ -462,7 +466,6 @@ class TabManager: ObservableObject {
     private var selectionSideEffectsGeneration: UInt64 = 0
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
-    private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
@@ -545,6 +548,7 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.attach(host: self)
         notificationDismissal.attach(host: self)
         focusHistoryNavigation.attach(host: self)
+        focusedSurface.attach(host: self)
         // Workspace-list/group/selection storage (CmuxWorkspaces). Attached
         // before the first addWorkspace so the property-observer hooks fire
         // from the very first insertion, matching the legacy @Published
@@ -2107,7 +2111,7 @@ class TabManager: ObservableObject {
         unwireClosedBrowserTracking(for: removed)
         browserModel.removeClosedBrowserPanels(forWorkspaceId: removed.id)
         removed.owningTabManager = nil
-        lastFocusedPanelByTab.removeValue(forKey: removed.id)
+        focusedSurface.forgetRememberedFocus(workspaceId: removed.id)
 
         if tabs.isEmpty {
             // The UI assumes each window always has at least one workspace.
@@ -3110,7 +3114,7 @@ class TabManager: ObservableObject {
     }
 
     func rememberFocusedSurface(tabId: UUID, surfaceId: UUID) {
-        lastFocusedPanelByTab[tabId] = surfaceId
+        focusedSurface.rememberFocusedSurface(workspaceId: tabId, surfaceId: surfaceId)
     }
 
     func applyWindowBackgroundForSelectedTab() {
@@ -3133,123 +3137,18 @@ class TabManager: ObservableObject {
         applyWindowBackgroundForSelectedTab()
     }
 
-    private func focusSelectedTabPanel(previousTabId: UUID?) {
-        guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
-
-        let panelId: UUID
-        if let restoredPanelId = lastFocusedPanelByTab[selectedTabId],
-           tab.panels[restoredPanelId] != nil {
-            panelId = restoredPanelId
-        } else if let focusedPanelId = tab.focusedPanelId,
-                  tab.panels[focusedPanelId] != nil {
-            panelId = focusedPanelId
-        } else {
-            return
-        }
-
-        // Defer unfocusing the previous workspace's panel until ContentView confirms handoff
-        // completion (new workspace has focus or timeout fallback), to avoid a visible freeze gap.
-        if let previousTabId,
-           let previousTab = tabs.first(where: { $0.id == previousTabId }),
-           let previousPanelId = previousTab.focusedPanelId,
-           previousTab.panels[previousPanelId] != nil {
-            replacePendingWorkspaceUnfocusTarget(
-                with: (tabId: previousTabId, panelId: previousPanelId)
-            )
-        }
-
-        // Route workspace reactivation through the normal focus machinery so panel-local
-        // activation intents like browser find-field focus are restored on return.
-        tab.focusPanel(panelId)
-    }
-
     func completePendingWorkspaceUnfocus(reason: String) {
-        guard let pending = pendingWorkspaceUnfocusTarget else { return }
-        // If this tab became selected again before handoff completion, drop the stale
-        // pending entry so it cannot be flushed later and deactivate the selected workspace.
-        guard Self.shouldUnfocusPendingWorkspace(
-            pendingTabId: pending.tabId,
-            selectedTabId: selectedTabId
-        ) else {
-            pendingWorkspaceUnfocusTarget = nil
-#if DEBUG
-            cmuxDebugLog(
-                "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=selected_again"
-            )
-#endif
-            return
-        }
-        pendingWorkspaceUnfocusTarget = nil
-        unfocusWorkspacePanel(tabId: pending.tabId, panelId: pending.panelId)
-#if DEBUG
-        if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
-            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            cmuxDebugLog(
-                "ws.unfocus.complete id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
-                "tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=\(reason)"
-            )
-        } else {
-            cmuxDebugLog(
-                "ws.unfocus.complete id=none tab=\(Self.debugShortWorkspaceId(pending.tabId)) " +
-                "panel=\(String(pending.panelId.uuidString.prefix(5))) reason=\(reason)"
-            )
-        }
-#endif
+        focusedSurface.completePendingWorkspaceUnfocus(reason: reason)
     }
 
-    private func replacePendingWorkspaceUnfocusTarget(with next: (tabId: UUID, panelId: UUID)) {
-        if let current = pendingWorkspaceUnfocusTarget,
-           current.tabId == next.tabId,
-           current.panelId == next.panelId {
-            return
-        }
-
-        if let current = pendingWorkspaceUnfocusTarget {
-            // Never unfocus the currently selected workspace when replacing stale pending state.
-            if Self.shouldUnfocusPendingWorkspace(
-                pendingTabId: current.tabId,
-                selectedTabId: selectedTabId
-            ) {
-                unfocusWorkspacePanel(tabId: current.tabId, panelId: current.panelId)
-#if DEBUG
-                cmuxDebugLog(
-                    "ws.unfocus.flush tab=\(Self.debugShortWorkspaceId(current.tabId)) panel=\(String(current.panelId.uuidString.prefix(5))) reason=replaced"
-                )
-#endif
-            } else {
-#if DEBUG
-                cmuxDebugLog(
-                    "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(current.tabId)) panel=\(String(current.panelId.uuidString.prefix(5))) reason=replaced_selected"
-                )
-#endif
-            }
-        }
-
-        pendingWorkspaceUnfocusTarget = next
-#if DEBUG
-        if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
-            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            cmuxDebugLog(
-                "ws.unfocus.defer id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
-                "tab=\(Self.debugShortWorkspaceId(next.tabId)) panel=\(String(next.panelId.uuidString.prefix(5)))"
-            )
-        } else {
-            cmuxDebugLog(
-                "ws.unfocus.defer id=none tab=\(Self.debugShortWorkspaceId(next.tabId)) panel=\(String(next.panelId.uuidString.prefix(5)))"
-            )
-        }
-#endif
-    }
-
-    private func unfocusWorkspacePanel(tabId: UUID, panelId: UUID) {
-        guard let tab = tabs.first(where: { $0.id == tabId }),
-              let panel = tab.panels[panelId] else { return }
-        panel.unfocus()
-    }
-
+    /// Legacy static decision predicate retained for the app-host unit tests
+    /// that call `TabManager.shouldUnfocusPendingWorkspace`; forwards to the
+    /// model's owning copy (CmuxWorkspaces).
     static func shouldUnfocusPendingWorkspace(pendingTabId: UUID, selectedTabId: UUID?) -> Bool {
-        selectedTabId != pendingTabId
+        FocusedSurfaceModel.shouldUnfocusPendingWorkspace(
+            pendingTabId: pendingTabId,
+            selectedTabId: selectedTabId
+        )
     }
 
     // MARK: Notification dismissal (CmuxNotifications)
@@ -3361,7 +3260,7 @@ class TabManager: ObservableObject {
         let targetPanelId = surfaceId.flatMap { panelId(forSurfaceOrPanelId: $0, in: tab) }
         if let targetPanelId {
             // Keep selected-surface intent stable across selectedTabId didSet async restore.
-            lastFocusedPanelByTab[tabId] = targetPanelId
+            focusedSurface.rememberFocusedSurface(workspaceId: tabId, surfaceId: targetPanelId)
         }
         let shouldDismissRestoredUnread = dismissRestoredUnreadOnResume ?? !suppressFlash
         let dismissalContext: NotificationDismissalContext? = shouldDismissRestoredUnread ? .explicitWorkspaceResume : nil
@@ -3789,16 +3688,67 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.canNavigateForward
     }
 
-    // FocusHistoryHosting witnesses that touch private members
-    // (`focusSelectedTabPanel`, the `private(set)` revision counter); the
-    // rest of the conformance lives in TabManager+FocusHistoryHosting.swift.
+    // FocusHistoryHosting witnesses that touch private members (the
+    // `private(set)` revision counter) or forward into the focused-surface
+    // model; the rest of the conformance lives in
+    // TabManager+FocusHistoryHosting.swift.
 
     func focusSelectedWorkspacePanel() {
-        focusSelectedTabPanel(previousTabId: nil)
+        focusedSurface.focusSelectedWorkspacePanel(previousWorkspaceId: nil)
     }
 
     func focusHistoryRevisionDidChange() {
         focusHistoryRevision &+= 1
+    }
+
+    // FocusedSurfaceHosting witness that touches `private` DEBUG members
+    // (`debugCurrentWorkspaceSwitchSnapshot`, `debugShortWorkspaceId`,
+    // `debugMsText`, `cmuxDebugLog`); the rest of the conformance lives in
+    // TabManager+FocusedSurfaceHosting.swift. Formats the byte-identical legacy
+    // `ws.unfocus.*` trace lines; release builds make this a no-op exactly as
+    // the original `#if DEBUG`-guarded `cmuxDebugLog` calls were.
+    func logPendingWorkspaceUnfocusEvent(_ event: PendingWorkspaceUnfocusEvent) {
+#if DEBUG
+        switch event {
+        case let .deferred(workspaceId, panelId):
+            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                cmuxDebugLog(
+                    "ws.unfocus.defer id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
+                    "tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5)))"
+                )
+            } else {
+                cmuxDebugLog(
+                    "ws.unfocus.defer id=none tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5)))"
+                )
+            }
+        case let .flushedOnReplace(workspaceId, panelId):
+            cmuxDebugLog(
+                "ws.unfocus.flush tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5))) reason=replaced"
+            )
+        case let .droppedOnReplaceSelected(workspaceId, panelId):
+            cmuxDebugLog(
+                "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5))) reason=replaced_selected"
+            )
+        case let .droppedSelectedAgain(workspaceId, panelId):
+            cmuxDebugLog(
+                "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5))) reason=selected_again"
+            )
+        case let .completed(workspaceId, panelId, reason):
+            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                cmuxDebugLog(
+                    "ws.unfocus.complete id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
+                    "tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5))) reason=\(reason)"
+                )
+            } else {
+                cmuxDebugLog(
+                    "ws.unfocus.complete id=none tab=\(Self.debugShortWorkspaceId(workspaceId)) " +
+                    "panel=\(String(panelId.uuidString.prefix(5))) reason=\(reason)"
+                )
+            }
+        }
+#endif
     }
 
     // MARK: - Split Operations (Backwards Compatibility)
@@ -3964,7 +3914,7 @@ class TabManager: ObservableObject {
                    workspace.panels[focusedPanelId] != nil {
                     return focusedPanelId
                 }
-                if let rememberedPanelId = lastFocusedPanelByTab[tabId],
+                if let rememberedPanelId = focusedSurface.rememberedFocusedPanelId(tabId),
                    workspace.panels[rememberedPanelId] != nil {
                     return rememberedPanelId
                 }
@@ -5930,11 +5880,12 @@ extension TabManager {
         sidebarGitMetadataService.resetAllWorkspaceGitProbeTracking()
 
         // Clear non-@Published state without touching tabs/selectedTabId yet.
-        lastFocusedPanelByTab.removeAll()
+        // Resets both the remembered-focus map and the deferred-unfocus target
+        // (legacy `lastFocusedPanelByTab.removeAll()` + `pendingWorkspaceUnfocusTarget = nil`).
+        focusedSurface.reset()
         pendingPanelTitleUpdates.removeAll()
         focusHistoryNavigation.reset()
         focusHistoryRevision &+= 1
-        pendingWorkspaceUnfocusTarget = nil
         workspaceCycleCooldownTask?.cancel()
         workspaceCycleCooldownTask = nil
         isWorkspaceCycleHot = false
