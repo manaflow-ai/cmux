@@ -1904,16 +1904,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if target.isActive, connectionState == .connected { return }
         // The currently-active Mac to fall back to if the switch fails.
         let previousActive = pairedMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
+        // Refresh routes from the per-user backup so a Mac that relaunched on a
+        // new port is reachable — the same freshness guarantee auto-connect and
+        // aggregation use. Re-read the target from the store afterwards; fall back
+        // to the in-memory snapshot if the refresh or re-read yields nothing.
+        if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
+            await refresher.refreshFromBackup(stackUserID: identityProvider?.currentUserID)
+        }
+        let refreshedTarget = (try? await pairedMacStore.loadAll(stackUserID: identityProvider?.currentUserID))?
+            .first { $0.macDeviceID == macDeviceID } ?? target
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
-            target.routes,
+            refreshedTarget.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
             return
         }
-        await connectManualHost(name: target.displayName ?? host, host: host, port: port)
+        await connectManualHost(name: refreshedTarget.displayName ?? host, host: host, port: port)
         // Persist the active row only if the live connection is to THIS Mac's
         // route. A different switch tapped while this connect was in flight
         // supersedes it via `beginPairingAttempt`, leaving `connectionState`
