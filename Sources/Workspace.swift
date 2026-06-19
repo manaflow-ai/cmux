@@ -2456,28 +2456,64 @@ final class Workspace: Identifiable, ObservableObject {
         get { surfaceRegistry.panelShellActivityStates }
         set { surfaceRegistry.panelShellActivityStates = newValue }
     }
+    /// Agent lifecycle / hibernation / resume-binding per-panel state, owned by the
+    /// `CMUXAgentLaunch` model. The workspace forwards its former stored properties to this
+    /// instance's dictionaries so external readers stay byte-identical (the established
+    /// `panelShellActivityStates`-via-`surfaceRegistry` forwarding pattern).
+    let agentHibernation = AgentHibernationLifecycleModel<
+        SessionRestorableAgentSnapshot,
+        SurfaceResumeBindingSnapshot,
+        AgentHibernationLifecycleState
+    >()
+
+    /// Resume-progression state for a restored agent snapshot. Lifted to `CMUXAgentLaunch`; kept
+    /// as a typealias so existing `RestoredAgentResumeState` references stay byte-identical.
+    typealias RestoredAgentResumeState = AgentHibernationLifecycleModel<
+        SessionRestorableAgentSnapshot,
+        SurfaceResumeBindingSnapshot,
+        AgentHibernationLifecycleState
+    >.RestoredAgentResumeState
+
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
-    var agentPIDs: [String: pid_t] = [:]
-    var agentPIDPanelIdsByKey: [String: UUID] = [:]
-    var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
-    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    var agentPIDs: [String: pid_t] {
+        get { agentHibernation.agentPIDs }
+        set { agentHibernation.agentPIDs = newValue }
+    }
+    var agentPIDPanelIdsByKey: [String: UUID] {
+        get { agentHibernation.agentPIDPanelIdsByKey }
+        set { agentHibernation.agentPIDPanelIdsByKey = newValue }
+    }
+    var agentPIDKeysByPanelId: [UUID: Set<String>] {
+        get { agentHibernation.agentPIDKeysByPanelId }
+        set { agentHibernation.agentPIDKeysByPanelId = newValue }
+    }
+    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
+        get { agentHibernation.agentLifecycleStatesByPanelId }
+        set { agentHibernation.agentLifecycleStatesByPanelId = newValue }
+    }
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
-    var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
-    var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
-    private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
-    enum RestoredAgentResumeState: Equatable {
-        case manualResumeAvailable
-        case awaitingAutoResumeCommand
-        case autoResumeCommandRunning
-        case observedAgentCommandRunning
+    var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] {
+        get { agentHibernation.restoredAgentSnapshotsByPanelId }
+        set { agentHibernation.restoredAgentSnapshotsByPanelId = newValue }
     }
-    var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
-    var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
+    var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] {
+        get { agentHibernation.surfaceResumeBindingsByPanelId }
+        set { agentHibernation.surfaceResumeBindingsByPanelId = newValue }
+    }
+    private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] {
+        get { agentHibernation.restoredAgentResumeStatesByPanelId }
+        set { agentHibernation.restoredAgentResumeStatesByPanelId = newValue }
+    }
+    var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] {
+        get { agentHibernation.invalidatedRestoredAgentFingerprintsByPanelId }
+        set { agentHibernation.invalidatedRestoredAgentFingerprintsByPanelId = newValue }
+    }
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
 
@@ -4542,9 +4578,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
-        panelShellActivityStates[panelId] == .commandRunning
-            ? .observedAgentCommandRunning
-            : .manualResumeAvailable
+        agentHibernation.resumeStateForAcceptedSnapshot(
+            isCommandRunning: panelShellActivityStates[panelId] == .commandRunning
+        )
     }
 
     private func updateRestoredAgentResumeState(
@@ -4552,25 +4588,13 @@ final class Workspace: Identifiable, ObservableObject {
         restoredAgent: SessionRestorableAgentSnapshot,
         shellState: PanelShellActivityState
     ) {
-        switch shellState {
-        case .commandRunning:
-            switch restoredAgentResumeStatesByPanelId[panelId] {
-            case .some(.awaitingAutoResumeCommand):
-                restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
-            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
-                break
-            case .some(.manualResumeAvailable), nil:
-                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            }
-        case .promptIdle:
-            switch restoredAgentResumeStatesByPanelId[panelId] {
-            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
-                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), nil:
-                break
-            }
-        case .unknown:
-            break
+        let shouldInvalidate = agentHibernation.advanceResumeState(
+            panelId: panelId,
+            isCommandRunning: shellState == .commandRunning,
+            isPromptIdle: shellState == .promptIdle
+        )
+        if shouldInvalidate {
+            invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
         }
     }
 
@@ -4591,8 +4615,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func clearRestoredAgentSnapshot(panelId: UUID) {
-        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        agentHibernation.clearRestoredAgentSnapshot(panelId: panelId)
     }
 
     private func clearRestoredAgentResumeBinding(
