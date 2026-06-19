@@ -147,4 +147,36 @@ if [[ "$submit_output" != *"Recipient: founders@manaflow.com"* ]] ||
   exit 1
 fi
 
+archive_path="$(printf '%s\n' "$submit_output" | sed -n 's/^Archive: //p')"
+mkdir -p "$(dirname "$archive_path")"
+printf 'keep me' > "$archive_path"
+"$ROOT_DIR/Resources/bin/submit-cmux-profile" --dry-run --profile "$timeout_out" --target-name "cmux DEV dog" >/dev/null
+if [ "$(cat "$archive_path")" != "keep me" ]; then
+  echo "FAIL: submit helper dry run modified an existing archive" >&2
+  exit 1
+fi
+
+cancel_bin="$TMP_DIR/cancel-osascript"
+cat > "$cancel_bin" <<'EOF'
+#!/usr/bin/env bash
+echo "execution error: User canceled. (-128)" >&2
+exit 1
+EOF
+chmod +x "$cancel_bin"
+
+open_bin="$TMP_DIR/open-should-not-run"
+cat > "$open_bin" <<'EOF'
+#!/usr/bin/env bash
+echo "fallback open should not run" >&2
+exit 42
+EOF
+chmod +x "$open_bin"
+
+CMUX_PROFILE_OSASCRIPT="$cancel_bin" CMUX_PROFILE_OPEN="$open_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
+  --profile "$timeout_out" \
+  --target-name "cmux DEV dog" \
+  --target-pid 303 \
+  --channel dev \
+  --bundle-id com.cmuxterm.app.debug.dog
+
 echo "PASS: start-cmux-profiling target selection and default templates"

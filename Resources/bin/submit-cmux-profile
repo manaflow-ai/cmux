@@ -74,8 +74,6 @@ safe_base="$(basename "$profile_dir" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^
 [ -n "$safe_base" ] || safe_base="cmux-profile"
 archive_dir="${TMPDIR:-/tmp}/cmux-profile-submissions"
 archive_path="${archive_dir}/${safe_base}.zip"
-mkdir -p "$archive_dir"
-rm -f "$archive_path"
 
 if [ "$dry_run" = "true" ]; then
   printf 'Archive: %s\n' "$archive_path"
@@ -84,6 +82,8 @@ if [ "$dry_run" = "true" ]; then
   exit 0
 fi
 
+mkdir -p "$archive_dir"
+rm -f "$archive_path"
 "$ditto_bin" -c -k --sequesterRsrc --keepParent "$profile_dir" "$archive_path"
 
 subject="cmux profiling capture: ${target_name}"
@@ -103,7 +103,8 @@ EOF
 )"
 
 apple_script="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit.XXXXXX")"
-trap 'rm -f "$apple_script"' EXIT
+apple_error="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit-error.XXXXXX")"
+trap 'rm -f "$apple_script" "$apple_error"' EXIT
 cat > "$apple_script" <<'OSA'
 on run argv
   set archivePath to item 1 of argv
@@ -127,11 +128,15 @@ on run argv
 end run
 OSA
 
-if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body"
-then
+if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body" 2>"$apple_error"; then
   exit 0
 fi
 
+if grep -Fq "(-128)" "$apple_error"; then
+  exit 0
+fi
+
+cat "$apple_error" >&2
 "$open_bin" -R "$archive_path" >/dev/null 2>&1 || true
 "$open_bin" "mailto:${recipient}?subject=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$subject")" >/dev/null 2>&1 || true
 exit 1
