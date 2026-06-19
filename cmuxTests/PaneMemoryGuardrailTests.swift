@@ -195,7 +195,7 @@ struct PaneMemoryGuardrailTests {
     }
 
     @Test
-    func processTreeMemoryIncludesDetachedSurfaceDescendantWithoutTTY() {
+    func processTreeMemoryIncludesForegroundDescendantWithoutTTYOrCMUXScope() {
         let ws = UUID(), pane = UUID()
         func proc(
             _ pid: Int,
@@ -215,7 +215,7 @@ struct PaneMemoryGuardrailTests {
                 virtualBytes: 0, threadCount: 1
             )
         }
-        let shell = proc(100, ppid: 1, name: "zsh", mem: 10_000_000, pgid: 100, tty: 0x1600_0003, surface: pane)
+        let shell = proc(100, ppid: 1, name: "zsh", mem: 10_000_000, pgid: 100, tty: 0x1600_0003, surface: nil)
         let leak = proc(200, ppid: 100, name: "python", mem: 9_000_000_000, pgid: 200, tty: nil, surface: nil)
         let other = proc(300, ppid: 1, name: "other", mem: 1_000_000_000, pgid: 300, tty: nil, surface: nil)
         let snapshot = CmuxTopProcessSnapshot(
