@@ -615,19 +615,26 @@ struct ContentView: View {
         return max(minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
     }
 
+    /// The pure width-clamp policy for both sidebar dividers, configured with the
+    /// app's fixed sidebar layout constants. The math lives in `CmuxSidebar`; this
+    /// is the production composition of its bounds.
+    static let widthPolicy = SidebarWidthPolicy(
+        defaultSidebarWidth: CGFloat(SessionPersistencePolicy.defaultSidebarWidth),
+        minimumRightSidebarWidth: Self.minimumRightSidebarWidth,
+        maximumRightSidebarWidth: Self.maximumRightSidebarWidth,
+        minimumTerminalWidthWithRightSidebar: Self.minimumTerminalWidthWithRightSidebar
+    )
+
     static func clampedSidebarWidth(
         _ candidate: CGFloat,
         maximumWidth: CGFloat,
         minimumWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultMinimumSidebarWidth)
     ) -> CGFloat {
-        let sanitizedMaximumWidth = max(minimumWidth, maximumWidth.isFinite ? maximumWidth : minimumWidth)
-        guard candidate.isFinite else {
-            return max(
-                minimumWidth,
-                min(sanitizedMaximumWidth, CGFloat(SessionPersistencePolicy.defaultSidebarWidth))
-            )
-        }
-        return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
+        widthPolicy.clampLeftSidebarWidth(
+            candidate,
+            maximumWidth: maximumWidth,
+            minimumWidth: minimumWidth
+        )
     }
 
     static func clampedRightSidebarWidth(
@@ -635,21 +642,11 @@ struct ContentView: View {
         availableWidth: CGFloat,
         configuredMaximumWidth: CGFloat? = nil
     ) -> CGFloat {
-        let minimumWidth = Self.minimumRightSidebarWidth
-        let sanitizedCandidate = candidate.isFinite ? candidate : 220
-        let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = max(
-            minimumWidth,
-            sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
+        widthPolicy.clampRightSidebarWidth(
+            candidate,
+            availableWidth: availableWidth,
+            configuredMaximumWidth: configuredMaximumWidth
         )
-        let configuredOrDefaultCap: CGFloat
-        if let configuredMaximumWidth, configuredMaximumWidth.isFinite {
-            configuredOrDefaultCap = max(minimumWidth, configuredMaximumWidth)
-        } else {
-            configuredOrDefaultCap = Self.maximumRightSidebarWidth
-        }
-        let maximumWidth = min(configuredOrDefaultCap, availableWidthCap)
-        return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
