@@ -61,3 +61,21 @@ extension TerminalController {
         )
     }
 }
+
+/// App-side adapter from render-package validation to control-socket wire DTOs.
+nonisolated struct TerminalControllerCustomSidebarValidator: ControlCustomSidebarValidating {
+    func validate(directory: URL, name requestedName: String?) -> ControlCustomSidebarValidationReport {
+        let report = CustomSidebarValidator().validate(directory: directory, name: requestedName)
+        return ControlCustomSidebarValidationReport(
+            entries: report.entries.map { entry in
+                ControlCustomSidebarValidationEntry(
+                    name: entry.name,
+                    path: entry.fileURL.path,
+                    kind: entry.kind.rawValue,
+                    isValid: entry.isValid,
+                    errorMessage: entry.errorMessage
+                )
+            }
+        )
+    }
+}

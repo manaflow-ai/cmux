@@ -134,7 +134,7 @@ class TerminalController {
     private nonisolated let sidebarMetadataArgumentParser = SidebarMetadataArgumentParser()
     // Worker-lane custom-sidebar v2 command logic; app-only side effects stay
     // in TerminalController+CustomSidebarWorker.swift.
-    nonisolated let customSidebarCommandHandler = ControlCustomSidebarCommandHandler()
+    nonisolated let customSidebarCommandHandler = ControlCustomSidebarCommandHandler(validator: TerminalControllerCustomSidebarValidator())
     private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60

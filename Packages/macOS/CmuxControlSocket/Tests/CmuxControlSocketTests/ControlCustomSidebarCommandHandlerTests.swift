@@ -4,7 +4,7 @@ import Testing
 
 @Suite("ControlCustomSidebarCommandHandler")
 struct ControlCustomSidebarCommandHandlerTests {
-    private let handler = ControlCustomSidebarCommandHandler()
+    private let handler = ControlCustomSidebarCommandHandler(validator: TestCustomSidebarValidator())
     private let messages = ControlCustomSidebarCommandMessages(
         invalidName: "Sidebar name must not be empty.",
         selectMissingName: "Select requires a sidebar name."
@@ -26,11 +26,8 @@ struct ControlCustomSidebarCommandHandlerTests {
         ))
     }
 
-    @Test func reloadReportsAllNamesAndReloadsOnlyValidNames() throws {
+    @Test func reloadReportsValidNamesAndReloadsAllReportNames() throws {
         let directory = try temporaryDirectory()
-        try writeValidJSONSidebar(named: "ok", in: directory)
-        try #"{"root":{"type":"text","text":"Missing version"}}"#
-            .write(to: directory.appendingPathComponent("broken.json"), atomically: true, encoding: .utf8)
         var reloadedNames: [String] = []
 
         let result = handler.reload(
@@ -45,7 +42,7 @@ struct ControlCustomSidebarCommandHandlerTests {
             Issue.record("Expected ok object payload")
             return
         }
-        #expect(reloadedNames == ["ok"])
+        #expect(reloadedNames == ["broken", "ok"])
         #expect(payload["directory"] == .string(directory.path))
         #expect(payload["valid_count"] == .int(1))
         #expect(payload["error_count"] == .int(1))
@@ -76,7 +73,6 @@ struct ControlCustomSidebarCommandHandlerTests {
 
     @Test func selectValidSidebarPersistsSelectionAndReportsProvider() throws {
         let directory = try temporaryDirectory()
-        try writeValidJSONSidebar(named: "chosen", in: directory)
         var selection: ControlCustomSidebarSelection?
 
         let result = handler.select(
@@ -104,9 +100,49 @@ struct ControlCustomSidebarCommandHandlerTests {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
+}
 
-    private func writeValidJSONSidebar(named name: String, in directory: URL) throws {
-        try #"{"version":1,"root":{"type":"text","text":"OK"}}"#
-            .write(to: directory.appendingPathComponent("\(name).json"), atomically: true, encoding: .utf8)
+private struct TestCustomSidebarValidator: ControlCustomSidebarValidating {
+    func validate(directory: URL, name requestedName: String?) -> ControlCustomSidebarValidationReport {
+        let entries: [ControlCustomSidebarValidationEntry]
+        switch requestedName {
+        case .some("chosen"):
+            entries = [entry(name: "chosen", directory: directory, isValid: true)]
+        case .some("missing"):
+            entries = [entry(
+                name: "missing",
+                directory: directory,
+                isValid: false,
+                errorMessage: "Sidebar file is missing."
+            )]
+        case .some(let name):
+            entries = [entry(
+                name: name,
+                directory: directory,
+                isValid: false,
+                errorMessage: "Sidebar file is missing."
+            )]
+        case .none:
+            entries = [
+                entry(name: "broken", directory: directory, isValid: false, errorMessage: "Missing version"),
+                entry(name: "ok", directory: directory, isValid: true),
+            ]
+        }
+        return ControlCustomSidebarValidationReport(entries: entries)
+    }
+
+    private func entry(
+        name: String,
+        directory: URL,
+        isValid: Bool,
+        errorMessage: String? = nil
+    ) -> ControlCustomSidebarValidationEntry {
+        ControlCustomSidebarValidationEntry(
+            name: name,
+            path: directory.appendingPathComponent("\(name).json").path,
+            kind: "json",
+            isValid: isValid,
+            errorMessage: errorMessage
+        )
     }
 }

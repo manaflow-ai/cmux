@@ -1,15 +1,14 @@
 public import Foundation
-public import CmuxSwiftRenderUI
 
 /// Handles the worker-lane `sidebar.custom.*` v2 commands with typed wire payloads.
 public struct ControlCustomSidebarCommandHandler: Sendable {
-    private let makeValidator: @Sendable () -> CustomSidebarValidator
+    private let validator: any ControlCustomSidebarValidating
 
     /// Creates a custom-sidebar command handler.
     ///
-    /// - Parameter makeValidator: Factory for the validator used to discover and validate custom sidebars.
-    public init(makeValidator: @escaping @Sendable () -> CustomSidebarValidator = { CustomSidebarValidator() }) {
-        self.makeValidator = makeValidator
+    /// - Parameter validator: Validator used to discover and validate custom sidebars.
+    public init(validator: any ControlCustomSidebarValidating) {
+        self.validator = validator
     }
 
     /// Handles `sidebar.custom.validate`.
@@ -38,7 +37,7 @@ public struct ControlCustomSidebarCommandHandler: Sendable {
     ///   - params: Typed v2 request params.
     ///   - directory: Directory containing custom sidebar files.
     ///   - messages: App-localized socket error strings.
-    ///   - reload: Synchronous app-side reload callback for the validated report names.
+    ///   - reload: Synchronous app-side reload callback for every reported sidebar name.
     /// - Returns: Typed control result matching the legacy wire shape.
     public func reload(
         params: [String: JSONValue],
@@ -52,8 +51,9 @@ public struct ControlCustomSidebarCommandHandler: Sendable {
         }
         let report = validationReport(directory: directory, name: name)
         let validNames = report.validNames
-        if !validNames.isEmpty {
-            reload(validNames)
+        let reloadNames = report.names
+        if !reloadNames.isEmpty {
+            reload(reloadNames)
         }
         var payload = reportPayloadObject(report, directory: directory)
         payload["reloaded_count"] = .int(Int64(validNames.count))
@@ -104,15 +104,15 @@ public struct ControlCustomSidebarCommandHandler: Sendable {
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func validationReport(directory: URL, name: String?) -> CustomSidebarValidationReport {
-        makeValidator().validate(directory: directory, name: name)
+    private func validationReport(directory: URL, name: String?) -> ControlCustomSidebarValidationReport {
+        validator.validate(directory: directory, name: name)
     }
 
-    private func reportPayload(_ report: CustomSidebarValidationReport, directory: URL) -> JSONValue {
+    private func reportPayload(_ report: ControlCustomSidebarValidationReport, directory: URL) -> JSONValue {
         .object(reportPayloadObject(report, directory: directory))
     }
 
-    private func reportPayloadObject(_ report: CustomSidebarValidationReport, directory: URL) -> [String: JSONValue] {
+    private func reportPayloadObject(_ report: ControlCustomSidebarValidationReport, directory: URL) -> [String: JSONValue] {
         [
             "directory": .string(directory.path),
             "valid_count": .int(Int64(report.validCount)),
@@ -121,11 +121,11 @@ public struct ControlCustomSidebarCommandHandler: Sendable {
         ]
     }
 
-    private func sidebarPayload(_ entry: CustomSidebarValidationEntry) -> JSONValue {
+    private func sidebarPayload(_ entry: ControlCustomSidebarValidationEntry) -> JSONValue {
         .object([
             "name": .string(entry.name),
-            "path": .string(entry.fileURL.path),
-            "kind": .string(entry.kind.rawValue),
+            "path": .string(entry.path),
+            "kind": .string(entry.kind),
             "ok": .bool(entry.isValid),
             "error": entry.errorMessage.map(JSONValue.string) ?? .null,
         ])

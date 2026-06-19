@@ -15,14 +15,12 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxSettings"),
-        .package(path: "../CmuxSwiftRenderUI"),
     ],
     targets: [
         .target(
             name: "CmuxControlSocket",
             dependencies: [
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
-                .product(name: "CmuxSwiftRenderUI", package: "CmuxSwiftRenderUI"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
