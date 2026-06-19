@@ -424,7 +424,7 @@ public final class HostBrowserSignInFlow {
             try await coordinator.completeExternalSignIn()
         } catch {
             log.log("auth.callback completion failed: \(error)")
-            let displaySafe = AuthError(displaySafe: error) ?? .authFailure
+            let displaySafe = AuthError(displaySafe: error) ?? .serverError(0, "auth_failed")
             if displaySafe != .cancelled {
                 lastFailure = displaySafe
             }
