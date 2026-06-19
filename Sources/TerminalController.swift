@@ -20,6 +20,7 @@ import Bonsplit
 import WebKit
 import CmuxSidebar
 import CmuxWorkspaces
+import Darwin
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
@@ -33,6 +34,55 @@ extension Notification.Name {
 nonisolated private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let authenticated: Bool
+}
+
+/// One-shot file-descriptor wake for main-actor async socket replies.
+///
+/// The control socket still has a synchronous, line-in/line-out contract on a
+/// dedicated client thread. Auth commands need main-actor async work, so the
+/// main-actor task writes one byte to this pipe when the encoded response is
+/// ready; the client thread owns the blocking read and final socket write.
+nonisolated private final class SocketAsyncResponseWaiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let readFD: Int32
+    private let writeFD: Int32
+    private var response: String?
+
+    init?() {
+        var fds = [Int32](repeating: -1, count: 2)
+        guard pipe(&fds) == 0 else { return nil }
+        readFD = fds[0]
+        writeFD = fds[1]
+        _ = fcntl(readFD, F_SETFD, FD_CLOEXEC)
+        _ = fcntl(writeFD, F_SETFD, FD_CLOEXEC)
+    }
+
+    deinit {
+        close(readFD)
+        close(writeFD)
+    }
+
+    func complete(_ response: String) {
+        lock.lock()
+        self.response = response
+        lock.unlock()
+
+        var byte: UInt8 = 1
+        _ = Darwin.write(writeFD, &byte, 1)
+    }
+
+    func wait() -> String? {
+        var byte: UInt8 = 0
+        while true {
+            let result = Darwin.read(readFD, &byte, 1)
+            if result < 0, errno == EINTR { continue }
+            guard result > 0 else { return nil }
+            lock.lock()
+            let current = response
+            lock.unlock()
+            return current
+        }
+    }
 }
 
 nonisolated private struct RemotePTYSocketTarget {
@@ -2943,16 +2993,18 @@ class TerminalController {
         id: Any?,
         _ operation: @escaping @MainActor (AuthSocketCommandService) async -> JSONValue
     ) -> String {
-        let semaphore = DispatchSemaphore(value: 0)
-        // Single writer runs on MainActor and the socket worker reads after the semaphore.
-        nonisolated(unsafe) var payload: JSONValue?
-        Task { @MainActor [weak self] in
-            let service = self?.authSocketCommands ?? AuthSocketCommandService(coordinator: nil, browserSignIn: nil)
-            payload = await operation(service)
-            semaphore.signal()
+        guard let waiter = SocketAsyncResponseWaiter() else {
+            return v2Error(id: id, code: "internal_error", message: "Failed to create auth response waiter")
         }
-        semaphore.wait()
-        return v2Ok(id: id, result: payload ?? .object([:]))
+        Task { @MainActor [weak self] in
+            guard let self else {
+                waiter.complete(ControlResponseEncoder.encodeFailureResponse)
+                return
+            }
+            let payload = await operation(authSocketCommands)
+            waiter.complete(v2Ok(id: id, result: payload))
+        }
+        return waiter.wait() ?? ControlResponseEncoder.encodeFailureResponse
     }
 
     /// Bridges a legacy `Any?` request id to the wire value: missing ids
@@ -2965,7 +3017,7 @@ class TerminalController {
 
     /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
     /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
-    /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
+    /// worker thread on a semaphore.
     nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval = 17 * 60,
