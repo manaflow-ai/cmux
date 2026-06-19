@@ -14,6 +14,7 @@ actor FlowFakeAuthClient: AuthClient {
     private var user: CMUXAuthUser?
     private let store: FlowInMemoryTokenStore
     private(set) var pendingUserRequests = 0
+    private var currentUserError: (any Error)?
     private var userGateClosed = false
     private var userGateWaiters: [CheckedContinuation<Void, Never>] = []
     private var storedAccessGateArmed = false
@@ -25,6 +26,8 @@ actor FlowFakeAuthClient: AuthClient {
         self.user = user
         self.store = store
     }
+
+    func setCurrentUserError(_ error: (any Error)?) { currentUserError = error }
 
     func closeUserGate() { userGateClosed = true }
 
@@ -58,6 +61,9 @@ actor FlowFakeAuthClient: AuthClient {
             pendingUserRequests += 1
             await withCheckedContinuation { userGateWaiters.append($0) }
             pendingUserRequests -= 1
+        }
+        if let currentUserError {
+            throw currentUserError
         }
         return user
     }

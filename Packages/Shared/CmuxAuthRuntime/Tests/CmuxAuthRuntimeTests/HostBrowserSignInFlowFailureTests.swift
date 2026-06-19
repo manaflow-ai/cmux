@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import Foundation
+import StackAuth
 import Testing
 @testable import CmuxAuthRuntime
 
@@ -47,6 +48,23 @@ import Testing
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
         #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
         #expect(harness.flow.lastFailure == .unauthorized)
+    }
+
+    @Test func callbackValidationDisplayUnsafeErrorRecordsGenericServerFailure() async {
+        let harness = makeHostBrowserSignInFlowHarness(
+            user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil)
+        )
+        await harness.client.setCurrentUserError(StackAuthError(code: "RATE_LIMIT", message: "try later"))
+
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await waitForHostBrowserSession(harness.factory)
+        harness.factory.sessions[0].deliver(
+            hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0]))
+        )
+
+        #expect(await attempt.value == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(harness.flow.lastFailure == .serverError(0, "auth_failed"))
     }
 
     @Test func abandonedBrowserAttemptTimesOut() async throws {
