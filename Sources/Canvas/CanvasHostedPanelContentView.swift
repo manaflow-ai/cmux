@@ -15,6 +15,7 @@ struct CanvasHostedPanelContentView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
+    let customSidebarTabManager: TabManager?
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
@@ -28,6 +29,7 @@ struct CanvasHostedPanelContentView: View {
             portalPriority: portalPriority,
             isSplit: false,
             appearance: appearance,
+            customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: false,
             terminalAgentContext: "",
             onFocus: onRequestPanelFocus,

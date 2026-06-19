@@ -14,6 +14,8 @@ struct PanelContentView: View {
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
+    let customSidebarTabManager: TabManager?
+    let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
     let onFocus: () -> Void
@@ -95,13 +97,17 @@ struct PanelContentView: View {
             }
         case .customSidebar:
             if let customSidebarPanel = panel as? CustomSidebarPanel {
-                CustomSidebarPanelView(
-                    panel: customSidebarPanel,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
-                    appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
+                if let customSidebarTabManager {
+                    CustomSidebarPanelView(
+                        panel: customSidebarPanel,
+                        tabManager: customSidebarTabManager,
+                        sidebarUnread: customSidebarUnread,
+                        isFocused: isFocused,
+                        isVisibleInUI: isVisibleInUI,
+                        appearance: appearance,
+                        onRequestPanelFocus: onRequestPanelFocus
+                    )
+                }
             }
         case .agentSession:
             if let agentSessionPanel = panel as? AgentSessionPanel {

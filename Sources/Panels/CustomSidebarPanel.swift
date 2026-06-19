@@ -110,9 +110,9 @@ private final class CustomSidebarPaneDataContextCache {
 
 struct CustomSidebarPanelView: View {
     @ObservedObject var panel: CustomSidebarPanel
-    @EnvironmentObject private var tabManager: TabManager
-    @EnvironmentObject private var sidebarUnread: SidebarUnreadModel
     @ObservedObject private var paneTicker = CustomSidebarPaneTicker.shared
+    let tabManager: TabManager
+    let sidebarUnread: SidebarUnreadModel
     let isFocused: Bool
     let isVisibleInUI: Bool
     let appearance: PanelAppearance

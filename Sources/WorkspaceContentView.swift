@@ -225,7 +225,7 @@ struct WorkspaceContentView: View {
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
-                        appearance: appearance,
+                        appearance: appearance, customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                         terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                         onFocus: {
