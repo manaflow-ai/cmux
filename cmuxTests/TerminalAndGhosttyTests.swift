@@ -4407,7 +4407,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         var focusNotificationCount = 0
         XCTAssertTrue(
-            startOrFocusTerminalSearch(surface) { _ in
+            surface.startOrFocusSearch { _ in
                 focusNotificationCount += 1
             }
         )
