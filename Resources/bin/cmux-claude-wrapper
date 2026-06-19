@@ -358,7 +358,7 @@ reconcile_claude_config_dir_for_resume() {
     cmux_claude_config_dir_has_session "$current_root" "$sid" && return 0
 
     local root
-    for root in "$HOME/.claude" "$HOME"/.codex-accounts/claude/* "$HOME"/.subrouter/codex/claude/*; do
+    for root in "$HOME/.claude" "$HOME"/.codex-accounts/claude/* "$HOME/.subrouter/codex/claude" "$HOME"/.subrouter/codex/claude/*; do
         [[ "$root" == "$current_root" ]] && continue
         if cmux_claude_config_dir_has_session "$root" "$sid"; then
             export CLAUDE_CONFIG_DIR="$root"
