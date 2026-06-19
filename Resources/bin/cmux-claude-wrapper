@@ -23,6 +23,10 @@ cmux_claude_wrapper_is_self_or_shim() {
         return 0
     fi
     case "$candidate" in
+        # Keep this path in sync with the shell and Swift shim creators.
+        */cmux-cli-shims/*/claude)
+            return 0
+            ;;
         */Contents/Resources/bin/claude|*/Resources/bin/claude)
             return 0
             ;;
