@@ -72,6 +72,40 @@ extension ControlBrowserContext {
     ) -> ControlBrowserIsWebViewFocusedResolution {
         ControlBrowserIsWebViewFocusedResolution(focused: false)
     }
+
+    func controlBrowserCookiesGet(
+        params: [String: JSONValue],
+        nameFilter: String?,
+        domainFilter: String?,
+        pathFilter: String?
+    ) -> ControlBrowserCookiesGetResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserCookiesSet(
+        params: [String: JSONValue],
+        cookieRows: [JSONValue]
+    ) -> ControlBrowserCookiesSetResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserCookiesClear(
+        params: [String: JSONValue],
+        nameFilter: String?,
+        domainFilter: String?,
+        clearAll: Bool
+    ) -> ControlBrowserCookiesClearResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserStorageGet(
+        params: [String: JSONValue],
+        key: String?
+    ) -> ControlBrowserStorageGetResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserStorageSet(
+        params: [String: JSONValue],
+        key: String,
+        value: JSONValue
+    ) -> ControlBrowserStorageSetResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserStorageClear(
+        params: [String: JSONValue]
+    ) -> ControlBrowserStorageClearResolution { .failed(.tabManagerUnavailable) }
 }
 
 extension ControlBrowserPanelContext {

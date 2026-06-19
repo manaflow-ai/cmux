@@ -119,4 +119,57 @@ public protocol ControlBrowserContext: AnyObject {
         routing: ControlRoutingSelectors,
         surfaceID: UUID
     ) -> ControlBrowserIsWebViewFocusedResolution
+
+    /// `browser.cookies.get` — read the resolved browser's cookie store and
+    /// apply the optional `name`/`domain`/`path` filters. `params` is the raw
+    /// param object: the witness resolves the browser panel through the shared
+    /// `v2BrowserWithPanel` head (`surface_id`/`tab_id`/`pane_id` precedence),
+    /// which terminal-only routing selectors cannot express.
+    func controlBrowserCookiesGet(
+        params: [String: JSONValue],
+        nameFilter: String?,
+        domainFilter: String?,
+        pathFilter: String?
+    ) -> ControlBrowserCookiesGetResolution
+
+    /// `browser.cookies.set` — set cookies on the resolved browser's store.
+    /// `cookieRows` is the reconstituted cookie payload (the `cookies` array, or
+    /// a single cookie assembled from the individual params); the witness bridges
+    /// each row back to Foundation to build `HTTPCookie`s.
+    func controlBrowserCookiesSet(
+        params: [String: JSONValue],
+        cookieRows: [JSONValue]
+    ) -> ControlBrowserCookiesSetResolution
+
+    /// `browser.cookies.clear` — delete matching cookies from the resolved
+    /// browser's store. `clearAll` reproduces the legacy
+    /// `all == nil && name == nil && domain == nil` clear-everything rule.
+    func controlBrowserCookiesClear(
+        params: [String: JSONValue],
+        nameFilter: String?,
+        domainFilter: String?,
+        clearAll: Bool
+    ) -> ControlBrowserCookiesClearResolution
+
+    /// `browser.storage.get` — read `localStorage`/`sessionStorage`. `params` is
+    /// the raw param object the witness feeds to the app-side
+    /// `BrowserControlService.storageType(params:)`; `key` is the queried key.
+    func controlBrowserStorageGet(
+        params: [String: JSONValue],
+        key: String?
+    ) -> ControlBrowserStorageGetResolution
+
+    /// `browser.storage.set` — write a `localStorage`/`sessionStorage` entry.
+    /// `value` is the raw `value` param (normalized + JSON-literal-encoded by the
+    /// witness); `key` is the validated, non-empty key.
+    func controlBrowserStorageSet(
+        params: [String: JSONValue],
+        key: String,
+        value: JSONValue
+    ) -> ControlBrowserStorageSetResolution
+
+    /// `browser.storage.clear` — clear `localStorage`/`sessionStorage`.
+    func controlBrowserStorageClear(
+        params: [String: JSONValue]
+    ) -> ControlBrowserStorageClearResolution
 }
