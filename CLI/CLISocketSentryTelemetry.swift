@@ -154,10 +154,6 @@ final class CLISocketSentryTelemetry {
             scope.setTag(value: subcommand, key: "cli_subcommand")
             scope.setContext(value: context, key: "cli_socket")
         }
-#if DEBUG
-        recordFlushProbe(stage: stage)
-#endif
-        SentrySDK.flush(timeout: 2.0)
 #endif
     }
 
@@ -172,15 +168,6 @@ final class CLISocketSentryTelemetry {
             return
         }
         let payload = "stage=\(stage)\nerror=\(String(describing: error))\n"
-        try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
-    }
-
-    private func recordFlushProbe(stage: String) {
-        guard let path = processEnv["CMUX_CLI_SENTRY_FLUSH_PROBE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !path.isEmpty else {
-            return
-        }
-        let payload = "stage=\(stage)\n"
         try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
     }
 #endif
