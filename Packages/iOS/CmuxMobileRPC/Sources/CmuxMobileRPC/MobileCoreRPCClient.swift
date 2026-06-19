@@ -12,7 +12,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
-    private let session: MobileCoreRPCSession
+    // `internal` (not `private`) so `@testable import` can reach the session's
+    // writer-queue state from the test target, instead of exposing a debug/test
+    // hook in this production source file.
+    let session: MobileCoreRPCSession
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -353,16 +356,6 @@ extension MobileCoreRPCClient {
             timeoutNanoseconds: timeoutNanoseconds,
             operation: operation
         )
-    }
-
-    /// Test-only: number of requests currently parked at the session's writer
-    /// gate (registered in the write queue but not yet handed to the transport).
-    /// Lets a cancellation test wait until a queued `sendRequest` has actually
-    /// reached the gate before cancelling, instead of guessing with a fixed
-    /// number of `Task.yield()`s. Read-only and `#if DEBUG`, so it has no effect
-    /// on shipping builds.
-    public func debugQueuedRequestCount() async -> Int {
-        await session.debugQueuedRequestCount()
     }
 }
 #endif

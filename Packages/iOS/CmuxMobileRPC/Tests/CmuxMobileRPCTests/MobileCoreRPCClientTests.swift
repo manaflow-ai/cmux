@@ -110,9 +110,12 @@ import Testing
         // await-chain may not have reached the gate yet, so cancellation would
         // fire before `session.send` registers it and the cancelled-while-queued
         // invariant would never be exercised (false pass).
+        // Observe the session's writer-queue state directly through @testable
+        // import (no debug/test hook in production source). A request lands in
+        // `queuedRequestIDs` once its `send` reaches the serialization gate.
         var queuedReachedGate = false
         for _ in 0..<1000 {
-            if await client.debugQueuedRequestCount() >= 1 {
+            if await client.session.queuedRequestIDs.count >= 1 {
                 queuedReachedGate = true
                 break
             }

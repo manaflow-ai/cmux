@@ -33,7 +33,9 @@ actor MobileCoreRPCSession {
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
     private var pending: [String: PendingContinuation] = [:]
-    private var queuedRequestIDs: Set<String> = []
+    // `internal` (not `private`) so the cancellation test can observe the gate
+    // via `@testable import`, instead of a debug accessor in production source.
+    var queuedRequestIDs: Set<String> = []
     private var cancelledQueuedRequestIDs: Set<String> = []
     private var listeners: [UUID: EventListener] = [:]
     private var isTearingDown: Bool = false
@@ -312,18 +314,3 @@ actor MobileCoreRPCSession {
         return wasQueued && pending[requestID] != nil
     }
 }
-
-#if DEBUG
-extension MobileCoreRPCSession {
-    /// Test-only: number of requests registered in the writer queue (handed to
-    /// `writeQueue` but not yet drained by `writeLoop`). A request is inserted
-    /// here when its `send(payload:requestID:)` reaches the serialization gate
-    /// and removed when `writeLoop` begins draining it, so a non-zero count
-    /// means a caller is parked at the gate behind an in-flight send. Read-only;
-    /// never mutates session state. `#if DEBUG`, so it is absent from shipping
-    /// builds.
-    func debugQueuedRequestCount() -> Int {
-        queuedRequestIDs.count
-    }
-}
-#endif
