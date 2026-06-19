@@ -41,6 +41,21 @@ private actor MutableTeam {
     func set(_ value: String) { self.value = value }
 }
 
+/// Backup double whose records can change mid-session, to model a Mac
+/// republishing a fresh route after the once-per-launch restore already ran.
+private actor MutableBackup: PairedMacBackingUp {
+    private var records: [PairedMacBackupRecord]
+    private(set) var fetchCount = 0
+    init(records: [PairedMacBackupRecord]) { self.records = records }
+    func setRecords(_ records: [PairedMacBackupRecord]) { self.records = records }
+    func upload(ops: [PairedMacBackupOp]) async {}
+    func fetchAll() async -> [PairedMacBackupRecord]? {
+        fetchCount += 1
+        return records
+    }
+    func fetches() -> Int { fetchCount }
+}
+
 @Suite struct PairedMacBackupTests {
     private func makeInnerStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
@@ -243,6 +258,46 @@ private actor MutableTeam {
         await team.set("team-b")
         _ = try await store.loadAll(stackUserID: "user-1") // new (account, team) scope → re-restore
         #expect(await backup.fetches() == 2)
+    }
+
+    @Test func refreshFromBackupReFetchesStaleSecondaryRouteAfterMemo() async throws {
+        // Models the multi-Mac aggregation bug: a secondary Mac relaunches on a
+        // new port and republishes, but the once-per-launch restore is memoized
+        // so a plain read keeps the stale route. refreshFromBackup must force a
+        // re-fetch and apply the fresher route (LWW), so the read-only secondary
+        // workspace fetch dials the live port instead of a dead one.
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let stale = PairedMacBackupRecord(
+            macDeviceID: "mac-secondary", displayName: "Secondary",
+            routes: [try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: "100.0.0.9", port: 40000))],
+            createdAt: 1_000_000, lastSeenAt: 1_000_000, isActive: false
+        )
+        let backup = MutableBackup(records: [stale])
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        // First read restores the stale route and memoizes the scope.
+        _ = try await store.loadAll(stackUserID: "user-1")
+        #expect(await backup.fetches() == 1)
+
+        // The Mac relaunches on a new port and republishes (newer lastSeenAt).
+        let fresh = PairedMacBackupRecord(
+            macDeviceID: "mac-secondary", displayName: "Secondary",
+            routes: [try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: "100.0.0.9", port: 50919))],
+            createdAt: 1_000_000, lastSeenAt: 2_000_000, isActive: false
+        )
+        await backup.setRecords([fresh])
+
+        // A plain read is memoized: no re-fetch, route stays stale.
+        let memoized = try await store.loadAll(stackUserID: "user-1")
+        #expect(await backup.fetches() == 1)
+        #expect(memoized.first?.routes.first?.endpoint == .hostPort(host: "100.0.0.9", port: 40000))
+
+        // refreshFromBackup forces a re-fetch and applies the fresher route.
+        await store.refreshFromBackup(stackUserID: "user-1")
+        #expect(await backup.fetches() == 2)
+        let refreshed = try await inner.loadAll(stackUserID: "user-1")
+        #expect(refreshed.first?.routes.first?.endpoint == .hostPort(host: "100.0.0.9", port: 50919))
     }
 
     @Test func setActiveMirrorsScopeToBackup() async throws {

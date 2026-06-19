@@ -2534,6 +2534,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func refreshSecondaryMacWorkspaces() async {
         guard let pairedMacStore else { return }
         let account = identityProvider?.currentUserID
+        // Pull the authoritative backup first so a secondary Mac that relaunched
+        // on a new port has its route refreshed locally (LWW by lastSeenAt; the
+        // live foreground route is never clobbered). Without this the once-per-
+        // launch restore leaves stale routes and the read-only fetch below dials
+        // a dead port, silently dropping that Mac from the aggregated list.
+        if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
+            await refresher.refreshFromBackup(stackUserID: account)
+        }
         let macs = (try? await pairedMacStore.loadAll(stackUserID: account)) ?? []
         for mac in macs where !mac.macDeviceID.isEmpty && mac.macDeviceID != foregroundMacDeviceID {
             if let previews = await fetchSecondaryWorkspaceList(for: mac) {

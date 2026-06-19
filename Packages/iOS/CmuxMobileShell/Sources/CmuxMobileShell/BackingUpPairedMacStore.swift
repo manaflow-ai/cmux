@@ -2,6 +2,19 @@ public import CMUXMobileCore
 public import CmuxMobilePairedMac
 public import Foundation
 
+/// A paired-Mac store that can re-pull the authoritative backup on demand,
+/// instead of only once-per-launch at sign-in. Multi-Mac aggregation needs this:
+/// a secondary Mac that relaunched on a new port republishes its route to the
+/// backup, but the once-per-launch restore won't pick it up, so the iPhone's
+/// stored route goes stale and the read-only secondary fetch dials a dead port.
+/// Refreshing from the backup right before aggregating keeps secondary routes
+/// current (LWW by `lastSeenAt`, so the live foreground route is never clobbered).
+public protocol PairedMacBackupRefreshing: Sendable {
+    /// Force a backup re-fetch + LWW merge for the signed-in scope, bypassing the
+    /// once-per-launch restore memo. Best-effort; never throws.
+    func refreshFromBackup(stackUserID: String?) async
+}
+
 /// A ``MobilePairedMacStoring`` decorator that keeps the per-user Durable Object
 /// backup in sync with the local store, and restores from it on sign-in. Wraps
 /// the real ``MobilePairedMacStore`` at the composition root behind the
@@ -17,7 +30,7 @@ public import Foundation
 /// - `removeAll` (the sign-out wipe) is NOT mirrored (signing out must not delete
 ///   the account's server backup) and resets the restore memo so a same-launch
 ///   re-sign-in restores again.
-public actor BackingUpPairedMacStore: MobilePairedMacStoring {
+public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing {
     private let inner: any MobilePairedMacStoring
     private let backup: any PairedMacBackingUp
     /// The current team id, read live so the restore is scoped per (account,
@@ -122,6 +135,32 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring {
         restoredScopes.removeAll()
         inFlight.removeAll()
         lastSignedInAccount = nil
+    }
+
+    /// Force a backup re-fetch + LWW merge for the signed-in scope, ignoring the
+    /// once-per-launch memo. Used before multi-Mac aggregation so a secondary
+    /// Mac that relaunched on a new port has its route refreshed locally before
+    /// the read-only workspace fetch dials it. Best-effort; failures leave the
+    /// local store untouched (``PairedMacRestore`` no-ops on a failed fetch).
+    public func refreshFromBackup(stackUserID: String?) async {
+        guard let account = stackUserID, !account.isEmpty else { return }
+        lastSignedInAccount = account
+        // Coalesce with any in-flight restore for this scope so we never run two
+        // merges concurrently against the same store.
+        let team = (await teamIDProvider()) ?? ""
+        let scope = "\(account)\u{0}\(team)"
+        let task: Task<RestoreOutcome, Never>
+        if let existing = inFlight[scope] {
+            task = existing
+        } else {
+            let restore = PairedMacRestore(store: inner, backup: backup)
+            let created = Task { await restore.run(accountID: account) }
+            inFlight[scope] = created
+            task = created
+        }
+        let outcome = await task.value
+        inFlight[scope] = nil
+        if outcome.completed { restoredScopes.insert(scope) }
     }
 
     // MARK: - Internals
