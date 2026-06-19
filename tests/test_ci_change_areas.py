@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
 assert spec and spec.loader
@@ -88,8 +89,8 @@ def test_workflow_changes_run_everything() -> None:
     assert_areas([".github/workflows/ci.yml"], macos=True, web=True, go=True)
 
 
-def detect_step_script() -> str:
-    lines = CI_WORKFLOW.read_text(encoding="utf-8").splitlines()
+def detect_step_script(workflow_path: Path = CI_WORKFLOW) -> str:
+    lines = workflow_path.read_text(encoding="utf-8").splitlines()
     for index, line in enumerate(lines):
         if line == "      - name: Detect CI change areas":
             for run_index in range(index + 1, len(lines)):
@@ -108,8 +109,8 @@ def detect_step_script() -> str:
     raise AssertionError("Detect CI change areas run block not found")
 
 
-def workflow_job_block(job_name: str) -> str:
-    lines = CI_WORKFLOW.read_text(encoding="utf-8").splitlines()
+def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
+    lines = workflow_path.read_text(encoding="utf-8").splitlines()
     marker = f"  {job_name}:"
     for index, line in enumerate(lines):
         if line == marker:
@@ -122,13 +123,19 @@ def workflow_job_block(job_name: str) -> str:
     raise AssertionError(f"{job_name} job not found")
 
 
-def run_detect_step_for_paths(paths: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
-    script = detect_step_script()
+def run_detect_step_for_paths(
+    paths: list[str],
+    workflow_path: Path = CI_WORKFLOW,
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    script = detect_step_script(workflow_path)
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
+        helper_copy = repo / "scripts" / "ci" / "detect_ci_change_areas.py"
+        helper_copy.parent.mkdir(parents=True, exist_ok=True)
+        helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
         (repo / "base.txt").write_text("base\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
@@ -322,6 +329,26 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
     assert "if: ${{ always() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
+
+
+def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark() -> None:
+    result, outputs = run_detect_step_for_paths(["docs/ci-runners.md"], PERF_ACTIVATION_WORKFLOW)
+
+    assert "Resolved areas: macos=false web=false go=false" in result.stdout
+    assert outputs == ["macos=false", "web=false", "go=false"]
+
+    benchmark = workflow_job_block("activation-session-benchmark", PERF_ACTIVATION_WORKFLOW)
+    sentinel = workflow_job_block("activation-session", PERF_ACTIVATION_WORKFLOW)
+
+    assert "needs: activation_changes" in benchmark
+    assert "if: ${{ needs.activation_changes.outputs.macos == 'true' }}" in benchmark
+    assert "depot-macos-latest" in benchmark
+
+    assert "      - activation_changes" in sentinel
+    assert "      - activation-session-benchmark" in sentinel
+    assert "if: ${{ always() }}" in sentinel
+    assert 'macos == "true" and benchmark["result"] != "success"' in sentinel
+    assert 'benchmark["result"] not in {"success", "skipped"}' in sentinel
 
 
 if __name__ == "__main__":
