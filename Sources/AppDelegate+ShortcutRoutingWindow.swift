@@ -4,6 +4,9 @@ extension AppDelegate {
     var shortcutRoutingKeyWindow: NSWindow? {
 #if DEBUG
         if let window = debugShortcutRoutingFocusedWindowOverrideForTesting.window {
+            if debugShortcutRoutingFocusedWindowOverrideForTesting.shouldCaptureFocusedWindow {
+                return window
+            }
             if contextForMainWindow(window) != nil
                 || isMainTerminalWindow(window)
                 || cmuxWindowShouldOwnCloseShortcut(window) {

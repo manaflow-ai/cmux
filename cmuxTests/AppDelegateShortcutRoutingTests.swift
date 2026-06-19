@@ -888,7 +888,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace else {
             XCTFail("Expected test window and workspace")
@@ -4063,7 +4062,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
-              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let browserPanelId = manager.openBrowser(inWorkspace: workspace.id) else {
@@ -6319,22 +6317,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertTrue(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to own first responder before repair test"
-        )
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
 
         let orphanResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        attachTestResponder(orphanResponder, to: window)
-        orphanResponder.removeFromSuperview()
-        XCTAssertNil(orphanResponder.window, "Expected a simulated stranded responder")
+        installStrandedResponderDriftForTesting(orphanResponder, in: window, hostedView: terminalPanel.hostedView)
 
 #if DEBUG
         appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(orphanResponder)
@@ -6857,26 +6843,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        attachTestResponder(strayView, to: window)
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
+        installVisibleResponderDriftForTesting(
+            strayView,
+            in: window,
+            hostedView: terminalPanel.hostedView,
+            mismatchMessage: "Expected the simulated responder to disagree with the focused terminal"
+        )
         defer { strayView.removeFromSuperview() }
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertTrue(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to own first responder before repair test"
-        )
-
-        XCTAssertTrue(strayView.window === window, "Expected a simulated same-window responder")
-        XCTAssertFalse(
-            terminalPanel.hostedView.responderMatchesPreferredKeyboardFocus(strayView),
-            "Expected the simulated responder to disagree with the focused terminal"
-        )
 
 #if DEBUG
         appDelegate.debugSetShortcutRoutingKeyRepairFirstResponderForTesting(strayView)
@@ -11001,12 +10975,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
 
         let searchState = TerminalSurface.SearchState(needle: "")
         terminalPanel.surface.searchState = searchState
@@ -11029,14 +10998,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         let strayView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        attachTestResponder(strayView, to: window)
-        defer { strayView.removeFromSuperview() }
-
-        XCTAssertTrue(strayView.window === window, "Expected a simulated same-window responder")
-        XCTAssertFalse(
-            terminalPanel.hostedView.responderMatchesPreferredKeyboardFocus(strayView),
-            "Expected the simulated responder to disagree with terminal search focus"
+        installSearchResponderDriftForTesting(
+            strayView,
+            in: window,
+            hostedView: terminalPanel.hostedView,
+            searchField: searchField
         )
+        defer { strayView.removeFromSuperview() }
 
         guard let keyDown = makeKeyDownEvent(
             key: "a",

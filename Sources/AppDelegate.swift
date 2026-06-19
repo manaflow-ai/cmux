@@ -16192,7 +16192,7 @@ private extension NSApplication {
         }
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(
             event,
-            preferredWindow: event.window ?? keyWindow ?? mainWindow
+            preferredWindow: event.window ?? AppDelegate.shared?.shortcutRoutingActiveWindow ?? keyWindow ?? mainWindow
         ) {
             return
         }
@@ -16204,7 +16204,7 @@ private extension NSApplication {
                 return
             }
             let responder = event.window?.firstResponder
-                ?? keyWindow?.firstResponder
+                ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
             if let ghosttyView = cmuxOwningGhosttyView(for: responder) {
                 ghosttyView.keyDown(with: event)
