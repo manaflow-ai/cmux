@@ -16,6 +16,7 @@ final class PaneMemoryGuardrail {
     private static let enabledSetting = SettingCatalog().terminal.runawayMemoryGuardrailEnabled
     private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
     private static let pollInterval: TimeInterval = 4
+    private static let scopedScanInterval: TimeInterval = 60
     private static let defaultThresholdGB: Double = 8
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
     private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
@@ -47,6 +48,8 @@ final class PaneMemoryGuardrail {
     private var lastSamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
     @ObservationIgnored
     private var lastWarnedWorkspaceIds: Set<UUID> = []
+    @ObservationIgnored
+    private var lastScopedScanAt = Date.distantPast
     @ObservationIgnored
     private var pendingBanners: [PaneMemoryWarning] = []
     @ObservationIgnored
@@ -93,9 +96,14 @@ final class PaneMemoryGuardrail {
             return
         }
         let thresholdBytes = thresholdBytes()
+        let includeCMUXScope = consumeScopedScanIfDue(now: Date())
         isScanning = true
         let sampleTask = Task.detached(priority: .utility) {
-            Self.computeCachedSamples(descriptors: descriptors, thresholdBytes: thresholdBytes)
+            Self.computeCachedSamples(
+                descriptors: descriptors,
+                thresholdBytes: thresholdBytes,
+                includeCMUXScope: includeCMUXScope
+            )
         }
         scanApplyTask = Task { @MainActor [weak self] in
             let samples = await sampleTask.value
@@ -106,13 +114,14 @@ final class PaneMemoryGuardrail {
 
     nonisolated static func computeCachedSamples(
         descriptors: [PaneMemoryDescriptor],
-        thresholdBytes: Int64
+        thresholdBytes: Int64,
+        includeCMUXScope: Bool = false
     ) -> [PaneMemorySample] {
         computeSamples(
             descriptors: descriptors,
             thresholdBytes: thresholdBytes,
             snapshot: CmuxTopProcessSnapshot.captureCached(
-                includeCMUXScope: false,
+                includeCMUXScope: includeCMUXScope,
                 maximumAge: 2
             )
         )
@@ -120,12 +129,13 @@ final class PaneMemoryGuardrail {
 
     nonisolated static func computeFreshSamples(
         descriptors: [PaneMemoryDescriptor],
-        thresholdBytes: Int64
+        thresholdBytes: Int64,
+        includeCMUXScope: Bool = false
     ) -> [PaneMemorySample] {
         computeSamples(
             descriptors: descriptors,
             thresholdBytes: thresholdBytes,
-            snapshot: CmuxTopProcessSnapshot.capture(includeCMUXScope: false)
+            snapshot: CmuxTopProcessSnapshot.capture(includeCMUXScope: includeCMUXScope)
         )
     }
 
@@ -136,7 +146,7 @@ final class PaneMemoryGuardrail {
     ) -> [PaneMemorySample] {
         let clearBytes = Int64(Double(thresholdBytes) * PaneMemoryGuardrailEngine.clearFraction)
         return descriptors.map { descriptor in
-            var rootPIDs: Set<Int> = []
+            var rootPIDs = snapshot.pids(forCMUXSurfaceID: descriptor.panelId)
             if let foregroundPID = descriptor.foregroundPID {
                 rootPIDs.insert(foregroundPID)
             }
@@ -160,6 +170,14 @@ final class PaneMemoryGuardrail {
                 foregroundCommand: foregroundCommand
             )
         }
+    }
+
+    private func consumeScopedScanIfDue(now: Date) -> Bool {
+        guard now.timeIntervalSince(lastScopedScanAt) >= Self.scopedScanInterval else {
+            return false
+        }
+        lastScopedScanAt = now
+        return true
     }
 
     nonisolated static func memoryPressureProcessGroupIDs(
@@ -271,7 +289,11 @@ final class PaneMemoryGuardrail {
         }
         let thresholdBytes = thresholdBytes()
         let sampleTask = Task.detached(priority: .userInitiated) {
-            Self.computeFreshSamples(descriptors: [descriptor], thresholdBytes: thresholdBytes).first
+            Self.computeFreshSamples(
+                descriptors: [descriptor],
+                thresholdBytes: thresholdBytes,
+                includeCMUXScope: true
+            ).first
         }
         presentNextPendingBannerIfNeeded()
         Task { @MainActor [weak self] in
@@ -305,7 +327,8 @@ final class PaneMemoryGuardrail {
             validateBeforeSIGKILL: {
                 let freshSample = Self.computeFreshSamples(
                     descriptors: [descriptor],
-                    thresholdBytes: thresholdBytes
+                    thresholdBytes: thresholdBytes,
+                    includeCMUXScope: true
                 ).first
                 guard let freshSample, freshSample.memoryBytes >= thresholdBytes else {
                     return []

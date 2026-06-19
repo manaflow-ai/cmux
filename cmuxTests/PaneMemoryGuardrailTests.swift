@@ -245,6 +245,56 @@ struct PaneMemoryGuardrailTests {
     }
 
     @Test
+    func processTreeMemoryIncludesScopedDaemonWithoutTTYOrParentLink() {
+        let ws = UUID(), pane = UUID()
+        func proc(
+            _ pid: Int,
+            ppid: Int,
+            name: String,
+            mem: Int64,
+            pgid: Int,
+            tty: Int64?,
+            surface: UUID?
+        ) -> CmuxTopProcessInfo {
+            CmuxTopProcessInfo(
+                pid: pid, parentPID: ppid, name: name, path: nil, ttyDevice: tty,
+                cmuxWorkspaceID: surface == nil ? nil : ws, cmuxSurfaceID: surface, cmuxAttributionReason: nil,
+                processGroupID: pgid, terminalProcessGroupID: pgid, cpuPercent: 0,
+                memoryBytes: mem, memorySource: .physicalFootprint,
+                residentBytes: mem, residentMemorySource: .residentSize,
+                virtualBytes: 0, threadCount: 1
+            )
+        }
+        let shell = proc(100, ppid: 1, name: "zsh", mem: 10_000_000, pgid: 100, tty: 0x1600_0003, surface: nil)
+        let daemon = proc(200, ppid: 1, name: "python", mem: 9_000_000_000, pgid: 200, tty: nil, surface: pane)
+        let other = proc(300, ppid: 1, name: "other", mem: 1_000_000_000, pgid: 300, tty: nil, surface: nil)
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [shell, daemon, other],
+            sampledAt: Date(),
+            includesProcessDetails: false,
+            includesCMUXScope: true
+        )
+        let descriptor = PaneMemoryDescriptor(
+            workspaceId: ws,
+            panelId: pane,
+            workspaceTitle: "Workspace",
+            paneTitle: "Terminal",
+            ttyName: nil,
+            foregroundPID: 100
+        )
+
+        let sample = PaneMemoryGuardrail.computeSamples(
+            descriptors: [descriptor],
+            thresholdBytes: threshold,
+            snapshot: snapshot
+        ).first
+
+        #expect(sample?.memoryBytes == 9_010_000_000)
+        #expect(sample?.memoryPressureProcessGroupIDs == [200])
+        #expect(sample?.foregroundCommand == "zsh")
+    }
+
+    @Test
     func memoryPressureProcessGroupsAreEmptyAfterPressureClears() {
         let tty: Int64 = 0x1600_0003
         let shell = CmuxTopProcessInfo(
