@@ -413,7 +413,7 @@ struct cmuxApp: App {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
                 Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux.json")) {
-                    openCmuxSettingsFileInEditor()
+                    KeyboardShortcutSettings.openSettingsFileInEditor()
                 }
                 Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
                     GhosttyApp.shared.openConfigurationInTextEdit()
@@ -4415,9 +4415,3 @@ typealias BuildFlavor = CmuxFoundation.BuildFlavor
 // it replaced, so the freeze point is identical. Callers depend on the
 // `TelemetrySettingsReading` seam, never the storage mechanism.
 let telemetrySettings: any TelemetrySettingsReading = TelemetrySettingsStore(defaults: .standard)
-
-@MainActor
-func openCmuxSettingsFileInEditor() {
-    let url = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
-    PreferredEditorService(defaults: .standard).open(url)
-}

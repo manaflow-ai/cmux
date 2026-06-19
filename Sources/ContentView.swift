@@ -7614,7 +7614,7 @@ struct ContentView: View {
 #if DEBUG
             cmuxDebugLog("palette.openCmuxSettingsFile.invoke")
 #endif
-            openCmuxSettingsFileInEditor()
+            KeyboardShortcutSettings.openSettingsFileInEditor()
         }
         registry.register(commandId: "palette.openGhosttySettings") {
 #if DEBUG
