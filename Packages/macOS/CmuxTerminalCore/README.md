@@ -11,7 +11,7 @@ The terminal domain's core leaf: pure and Sendable terminal logic with no view d
 - `SurfaceCallbacks/` — `GhosttySurfaceCallbackContext`, the retained userdata for libghostty callbacks, behind the `TerminalSurfaceControlling`/`TerminalSurfaceHosting` seams.
 - `SurfaceValues/` — the Sendable surface value DTOs (`PendingKeyEvent`, `PendingSocketInput`, `ParsedSocketInput`, `NamedKeySendResult`, `InputSendResult`, `PortalLifecycleState`, `PortalHostLease`).
 - `Scrollbar/` — `GhosttyScrollbar`, the runtime scrollback geometry snapshot.
-- `DebugSupport/` — DEBUG-only UI-test scaffolding (`TerminalChildExitProbe`, scalar-hex journaling).
+- `DebugSupport/` — DEBUG-only scaffolding: `TerminalChildExitProbe` and scalar-hex journaling for UI tests, plus `GhosttyStartupAppearancePreviewProfile`/`GhosttyStartupAppearancePreviewState` for the startup-appearance debug panel (the profile setter installs the `TerminalStartupAppearancePreviewOverride` loader seam; the panel's `displayName`/`detail` presentation strings stay app-side so `String(localized:)` keeps its translations).
 
 ## Seams
 

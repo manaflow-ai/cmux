@@ -7,6 +7,7 @@ import CmuxSidebarRemoteRender
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxWorkspaces
+import CmuxTerminalCore
 import CmuxTestSupport
 import CmuxUpdater
 import CmuxUpdaterUI
