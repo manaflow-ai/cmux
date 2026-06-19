@@ -8274,7 +8274,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let sourcePane = paneId(forPanelId: panelId) else { return nil }
         let sourcePaneId = sourcePane.id.uuidString
         let tree = bonsplitController.treeSnapshot()
-        guard let path = browserPathToPane(targetPaneId: sourcePaneId, node: tree) else { return nil }
+        guard let path = tree.browserPathToPane(targetPaneId: sourcePaneId) else { return nil }
 
         let layout = bonsplitController.layoutSnapshot()
         let paneFrameById = Dictionary(uniqueKeysWithValues: layout.panes.map { ($0.paneId, $0.frame) })
@@ -8285,7 +8285,7 @@ final class Workspace: Identifiable, ObservableObject {
         for crumb in path {
             guard crumb.split.orientation == "horizontal", crumb.branch == .first else { continue }
             var candidateNodes: [ExternalPaneNode] = []
-            browserCollectPaneNodes(node: crumb.split.second, into: &candidateNodes)
+            crumb.split.second.browserCollectPaneNodes(into: &candidateNodes)
             if candidateNodes.isEmpty { continue }
 
             let sorted = candidateNodes.sorted { lhs, rhs in
@@ -8323,8 +8323,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let paneById = Dictionary(uniqueKeysWithValues: paneIds.map { ($0.id.uuidString, $0) })
         var paneBounds: [String: CGRect] = [:]
-        browserCollectNormalizedPaneBounds(
-            node: bonsplitController.treeSnapshot(),
+        bonsplitController.treeSnapshot().browserCollectNormalizedPaneBounds(
             availableRect: CGRect(x: 0, y: 0, width: 1, height: 1),
             into: &paneBounds
         )
@@ -8355,91 +8354,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
-    }
-
-    private enum BrowserPaneBranch {
-        case first
-        case second
-    }
-
-    private struct BrowserPaneBreadcrumb {
-        let split: ExternalSplitNode
-        let branch: BrowserPaneBranch
-    }
-
-    private func browserPathToPane(targetPaneId: String, node: ExternalTreeNode) -> [BrowserPaneBreadcrumb]? {
-        switch node {
-        case .pane(let paneNode):
-            return paneNode.id == targetPaneId ? [] : nil
-        case .split(let splitNode):
-            if var path = browserPathToPane(targetPaneId: targetPaneId, node: splitNode.first) {
-                path.append(BrowserPaneBreadcrumb(split: splitNode, branch: .first))
-                return path
-            }
-            if var path = browserPathToPane(targetPaneId: targetPaneId, node: splitNode.second) {
-                path.append(BrowserPaneBreadcrumb(split: splitNode, branch: .second))
-                return path
-            }
-            return nil
-        }
-    }
-
-    private func browserCollectPaneNodes(node: ExternalTreeNode, into output: inout [ExternalPaneNode]) {
-        switch node {
-        case .pane(let paneNode):
-            output.append(paneNode)
-        case .split(let splitNode):
-            browserCollectPaneNodes(node: splitNode.first, into: &output)
-            browserCollectPaneNodes(node: splitNode.second, into: &output)
-        }
-    }
-
-    private func browserCollectNormalizedPaneBounds(
-        node: ExternalTreeNode,
-        availableRect: CGRect,
-        into output: inout [String: CGRect]
-    ) {
-        switch node {
-        case .pane(let paneNode):
-            output[paneNode.id] = availableRect
-        case .split(let splitNode):
-            let divider = min(max(splitNode.dividerPosition, 0), 1)
-            let firstRect: CGRect
-            let secondRect: CGRect
-
-            if splitNode.orientation.lowercased() == "vertical" {
-                // Stacked split: first = top, second = bottom
-                firstRect = CGRect(
-                    x: availableRect.minX,
-                    y: availableRect.minY,
-                    width: availableRect.width,
-                    height: availableRect.height * divider
-                )
-                secondRect = CGRect(
-                    x: availableRect.minX,
-                    y: availableRect.minY + (availableRect.height * divider),
-                    width: availableRect.width,
-                    height: availableRect.height * (1 - divider)
-                )
-            } else {
-                // Side-by-side split: first = left, second = right
-                firstRect = CGRect(
-                    x: availableRect.minX,
-                    y: availableRect.minY,
-                    width: availableRect.width * divider,
-                    height: availableRect.height
-                )
-                secondRect = CGRect(
-                    x: availableRect.minX + (availableRect.width * divider),
-                    y: availableRect.minY,
-                    width: availableRect.width * (1 - divider),
-                    height: availableRect.height
-                )
-            }
-
-            browserCollectNormalizedPaneBounds(node: splitNode.first, availableRect: firstRect, into: &output)
-            browserCollectNormalizedPaneBounds(node: splitNode.second, availableRect: secondRect, into: &output)
-        }
     }
 
     private struct BrowserCloseFallbackPlan {
@@ -8536,7 +8450,7 @@ final class Workspace: Identifiable, ObservableObject {
         targetCenter: (x: Double, y: Double)?
     ) -> UUID? {
         var panes: [ExternalPaneNode] = []
-        browserCollectPaneNodes(node: node, into: &panes)
+        node.browserCollectPaneNodes(into: &panes)
         guard !panes.isEmpty else { return nil }
 
         let bestPane: ExternalPaneNode?
