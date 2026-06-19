@@ -151,6 +151,7 @@
 653	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Import/Detection/BrowserInstalledBrowserDetector.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
 649	Sources/CmuxTopSnapshot.swift
+649	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 636	Sources/TerminalController+ControlPaneContext.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
@@ -174,7 +175,6 @@
 585	Sources/Cloud/VMClient.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
-578	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
 571	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift

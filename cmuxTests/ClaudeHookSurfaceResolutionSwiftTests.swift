@@ -140,6 +140,77 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
+    @Test func claudeSessionStartIgnoresStaleTTYWorkspaceWhenBoundSurfaceIsGone() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-tty-workspace")
+        defer { context.cleanup() }
+
+        let ttyWorkspaceId = "77777777-7777-7777-7777-777777777777"
+        let staleTTYSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let ttyWorkspaceFocusedSurfaceId = "44444444-4444-4444-4444-444444444444"
+        let ttyName = "ttys-claude-stale-workspace"
+        let sessionId = "claude-stale-tty-workspace-session"
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: ttyName,
+            ttySurfaceId: staleTTYSurfaceId,
+            ttyWorkspaceId: ttyWorkspaceId,
+            surfacesByWorkspace: [
+                context.workspaceId: [(context.surfaceId, "surface:1", true)],
+                ttyWorkspaceId: [(ttyWorkspaceFocusedSurfaceId, "surface:2", true)],
+            ]
+        )
+
+        let environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
+        ]
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let request = try #require(
+            resumeBindingRequests(in: context).last,
+            "Expected Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+        )
+        #expect(
+            request["workspace_id"] as? String == context.workspaceId,
+            "Stale TTY workspace must not beat valid ambient CMUX_WORKSPACE_ID; params=\(request)"
+        )
+        #expect(
+            request["surface_id"] as? String == context.surfaceId,
+            "Stale TTY workspace must not fall through to its focused surface; params=\(request)"
+        )
+        #expect(
+            context.state.snapshot().contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    && $0.contains("--tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Claude visible status should stay on the valid ambient workspace and surface, saw \(context.state.snapshot())"
+        )
+    }
+
     @Test func claudeExplicitSurfaceOverridesMappedSessionAndTTYBinding() throws {
         let explicitSurfaceId = "33333333-3333-3333-3333-333333333333"
         let ttySurfaceId = "44444444-4444-4444-4444-444444444444"
