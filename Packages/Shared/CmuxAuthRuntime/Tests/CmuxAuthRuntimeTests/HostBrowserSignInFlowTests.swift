@@ -188,6 +188,38 @@ import Testing
         #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
     }
 
+    @Test func issuedFallbackCallbackStateSurvivesFailedRetryAndClearsFailureOnSuccess() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = makeHostBrowserSignInFlowHarness(user: user)
+
+        harness.flow.beginSignIn()
+        await waitForHostBrowserSession(harness.factory)
+        let fallbackURL = try #require(harness.flow.activeAttemptSignInURL)
+        let fallbackState = try #require(URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "cmux_auth_state" })?
+            .value)
+
+        harness.factory.sessions[0].cancel()
+        while harness.flow.isSigningIn {
+            await Task.yield()
+        }
+
+        let failedRetry = URL(string: "cmux-dev://auth-callback?other=1&cmux_auth_state=\(fallbackState)")!
+        #expect(await harness.flow.handleCallbackURL(failedRetry) == false)
+        #expect(harness.flow.lastFailure == .invalidCallback)
+        #expect(harness.coordinator.isAuthenticated == false)
+
+        let validRetry = await harness.flow.handleCallbackURL(hostBrowserCallbackURL(state: fallbackState))
+
+        #expect(validRetry)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(harness.flow.lastFailure == nil)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
     @Test func issuedFallbackCallbackAfterSignOutIsRejected() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = makeHostBrowserSignInFlowHarness(user: user)
