@@ -9626,7 +9626,12 @@ enum CmuxExtensionSidebarSelection {
     /// the same suite and key the store persists to, so the catalog stays the
     /// single definition of the key, decode, and default.
     static var isEnabled: Bool {
-        let key = SettingCatalog().betaFeatures.extensions
+        // Read the single beta-features section, not the whole `SettingCatalog`.
+        // Constructing the full catalog allocates ~20 sub-sections (including
+        // `AutomationCatalogSection`/`SecretFileKey`) just to reach one flag;
+        // doing that on the SwiftUI body's hot path turned the sidebar
+        // re-render into a CPU catastrophe (issue #5970).
+        let key = BetaFeaturesCatalogSection().extensions
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
@@ -9643,7 +9648,9 @@ enum CmuxExtensionSidebarSelection {
     /// Synchronous read of the experimental custom-sidebars flag, mirroring
     /// ``isEnabled`` for the AppKit/static paths (the picker menu).
     static var customSidebarsEnabled: Bool {
-        let key = SettingCatalog().betaFeatures.customSidebars
+        // See ``isEnabled``: read only the beta-features section so a body-path
+        // access does not allocate the entire `SettingCatalog` (issue #5970).
+        let key = BetaFeaturesCatalogSection().customSidebars
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
@@ -9686,13 +9693,23 @@ enum CmuxExtensionSidebarSelection {
     /// Resolves a custom-sidebar provider id to its backing file URL
     /// (`.swift` preferred), or `nil` if neither file exists.
     static func customSidebarFileURL(forProviderId providerId: String) -> URL? {
+        customSidebarFileURL(forProviderId: providerId, sidebarsDirectory: customSidebarsDirectory)
+    }
+
+    static func customSidebarFileURL(forProviderId providerId: String, sidebarsDirectory: URL) -> URL? {
         guard providerId.hasPrefix(customSidebarProviderPrefix) else { return nil }
         let name = String(providerId.dropFirst(customSidebarProviderPrefix.count))
-        let swiftURL = customSidebarsDirectory.appendingPathComponent("\(name).swift")
+        guard isValidCustomSidebarFileBaseName(name) else { return nil }
+        let swiftURL = sidebarsDirectory.appendingPathComponent("\(name).swift", isDirectory: false)
         if FileManager.default.fileExists(atPath: swiftURL.path) { return swiftURL }
-        let jsonURL = customSidebarsDirectory.appendingPathComponent("\(name).json")
+        let jsonURL = sidebarsDirectory.appendingPathComponent("\(name).json", isDirectory: false)
         if FileManager.default.fileExists(atPath: jsonURL.path) { return jsonURL }
         return nil
+    }
+
+    private static func isValidCustomSidebarFileBaseName(_ name: String) -> Bool {
+        guard !name.isEmpty, name != ".", name != ".." else { return false }
+        return name == (name as NSString).lastPathComponent
     }
 
     /// The always-available built-in views: the default workspaces sidebar plus
@@ -9742,6 +9759,33 @@ enum CmuxExtensionSidebarSelection {
 
     static func descriptor(for providerId: String) -> CmuxSidebarProviderDescriptor {
         descriptors.first { $0.id == providerId } ?? .defaultWorkspaces
+    }
+
+    /// Whether an already-`effectiveProviderId`-resolved selection renders the
+    /// built-in default workspaces sidebar. This mirrors
+    /// `descriptor(for:).id == defaultWorkspacesID` exactly for an effective id,
+    /// but WITHOUT building the full ``descriptors`` list — which constructs a
+    /// `SettingCatalog` twice (via ``isEnabled``/``customSidebarsEnabled``) and
+    /// enumerates the custom-sidebars directory. Those are far too expensive to
+    /// run on every SwiftUI body pass; doing so was the multiplier behind the
+    /// ~100% CPU re-render loop in issue #5970. Only cheap static lookups and at
+    /// most two `fileExists` probes run here, so it is safe for the body.
+    ///
+    /// The input must be ``effectiveProviderId``'s output: that already routes a
+    /// hosted/custom selection back to the default sidebar while its feature gate
+    /// is off, so this only needs to confirm the resolved id maps to a renderable
+    /// non-default view.
+    static func resolvesToDefaultSidebar(effectiveProviderId id: String) -> Bool {
+        if id == defaultProviderId { return true }
+        if id == hostedExtensionsProviderId { return false }
+        if id.hasPrefix(customSidebarProviderPrefix) {
+            // A custom selection survives only while its backing file exists;
+            // otherwise the descriptor lookup falls back to the default sidebar.
+            return customSidebarFileURL(forProviderId: id) == nil
+        }
+        // Bundled preset providers are always registered regardless of any beta
+        // flag; an unknown/stale id has no provider and falls back to default.
+        return provider(for: id) == nil
     }
 
     static func provider(for providerId: String) -> (any CmuxSidebarProvider)? {
@@ -9980,6 +10024,17 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    // Stable, memoized merged observation publishers for the extension
+    // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
+    // re-subscribed `.onReceive` to a fresh publisher every render, replaying
+    // the current value and re-bumping `extensionSidebarUpdateToken` in a
+    // ~100% CPU loop (issue #5970).
+    @State private var extensionSidebarObservationWorkspaceIds: [UUID] = []
+    @State private var extensionSidebarObservationPublishersBuilt = false
+    @State private var extensionSidebarImmediateObservationPublisher: AnyPublisher<Void, Never> =
+        Empty<Void, Never>().eraseToAnyPublisher()
+    @State private var extensionSidebarDebouncedObservationPublisher: AnyPublisher<Void, Never> =
+        Empty<Void, Never>().eraseToAnyPublisher()
     /// Bumped whenever any workspace's currentDirectory changes; the group
     /// header's resolved cwd-based config (color/icon/context menu /
     /// newWorkspacePlacement) reads it through the body, so a state
@@ -10378,7 +10433,7 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId).id == CmuxSidebarProviderDescriptor.defaultWorkspacesID {
+            if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -10664,8 +10719,21 @@ struct VerticalTabsSidebar: View {
         scrollView.applySidebarOverlayScrollerConfiguration()
     }
 
-    @ViewBuilder
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
+        extensionSidebarScrollAreaContent(renderContext: renderContext)
+            .onAppear {
+                refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
+            }
+            .onChange(of: renderContext.workspaceIds) { _, _ in
+                refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
+            }
+            .onDisappear {
+                clearExtensionSidebarObservationPublishers()
+            }
+    }
+
+    @ViewBuilder
+    private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext) -> some View {
         if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
@@ -10675,17 +10743,10 @@ struct VerticalTabsSidebar: View {
                     CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
                 }
             )
-            .onReceive(
-                extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-            ) { _ in
+            .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
             }
-            .onReceive(
-                extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-                    .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
-            ) { _ in
+            .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
             }
             // Fade the extension's content out at the bottom so it dissolves behind the
@@ -10847,17 +10908,10 @@ struct VerticalTabsSidebar: View {
             }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
-            .onReceive(
-                extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-            ) { _ in
+            .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
             }
-            .onReceive(
-                    extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
-                        .receive(on: RunLoop.main)
-                        .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
-                ) { _ in
+            .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
             }
             .onReceive(
@@ -10873,24 +10927,39 @@ struct VerticalTabsSidebar: View {
         extensionSidebarUpdateToken &+= 1
     }
 
-    private func extensionSidebarImmediateObservationPublisher(
-        renderContext: WorkspaceListRenderContext
-    ) -> AnyPublisher<Void, Never> {
-        let publishers = renderContext.tabs.map(\.sidebarImmediateObservationPublisher)
-        guard !publishers.isEmpty else {
-            return Empty<Void, Never>().eraseToAnyPublisher()
-        }
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+    private func clearExtensionSidebarObservationPublishers() {
+        extensionSidebarObservationWorkspaceIds = []
+        extensionSidebarObservationPublishersBuilt = false
+        extensionSidebarImmediateObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
+        extensionSidebarDebouncedObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
     }
 
-    private func extensionSidebarDebouncedObservationPublisher(
-        renderContext: WorkspaceListRenderContext
-    ) -> AnyPublisher<Void, Never> {
-        let publishers = renderContext.tabs.map(\.sidebarObservationPublisher)
-        guard !publishers.isEmpty else {
-            return Empty<Void, Never>().eraseToAnyPublisher()
+    private func refreshExtensionSidebarObservationPublishers(tabs: [Workspace]) {
+        let workspaceIds = tabs.map(\.id)
+        guard !extensionSidebarObservationPublishersBuilt ||
+              workspaceIds != extensionSidebarObservationWorkspaceIds
+        else { return }
+
+        extensionSidebarObservationPublishersBuilt = true
+        extensionSidebarObservationWorkspaceIds = workspaceIds
+
+        guard !tabs.isEmpty else {
+            extensionSidebarImmediateObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
+            extensionSidebarDebouncedObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
+            return
         }
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+
+        extensionSidebarImmediateObservationPublisher = Publishers.MergeMany(
+            tabs.map { $0.sidebarImmediateObservationPublisher }
+        )
+        .receive(on: RunLoop.main)
+        .eraseToAnyPublisher()
+        extensionSidebarDebouncedObservationPublisher = Publishers.MergeMany(
+            tabs.map { $0.sidebarObservationPublisher }
+        )
+        .receive(on: RunLoop.main)
+        .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
+        .eraseToAnyPublisher()
     }
 
     private func extensionSidebarRenderModel(
@@ -10906,8 +10975,12 @@ struct VerticalTabsSidebar: View {
         snapshot: CmuxSidebarProviderSnapshot,
         now: Date
     ) -> CmuxSidebarProviderRenderModel {
-        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId)
-        if let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) {
+        // Look up the provider directly by the effective id instead of round-
+        // tripping through `descriptor(for:)`, which rebuilds the full
+        // `descriptors` list (SettingCatalog + custom-sidebars directory scan)
+        // on every TimelineView tick. See issue #5970.
+        let providerId = effectiveExtensionSidebarProviderId
+        if let provider = CmuxExtensionSidebarSelection.provider(for: providerId) {
             let context = CmuxSidebarProviderRenderContext(now: now)
             if let contextualProvider = provider as? any CmuxContextualSidebarProvider {
                 return contextualProvider.render(snapshot: snapshot, context: context)
@@ -10915,7 +10988,7 @@ struct VerticalTabsSidebar: View {
             return provider.render(snapshot: snapshot)
         }
         return CmuxSidebarProviderRenderModel(
-            providerId: descriptor.id,
+            providerId: providerId,
             snapshotSequence: snapshot.sequence,
             sections: []
         )
