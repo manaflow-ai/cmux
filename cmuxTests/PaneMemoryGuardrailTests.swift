@@ -303,28 +303,50 @@ struct PaneMemoryGuardrailTests {
 
         let scoped = PaneMemoryGuardrail.reconcileScopedSamples(
             samples: [scopedSample],
-            previousScopedSamplesByKey: [:],
+            currentScopedOnlySamplesByKey: [scopedSample.key: scopedSample],
+            previousScopedOnlySamplesByKey: [:],
             includesCMUXScope: true,
             clearBytes: clearBytes
         )
         let unscoped = PaneMemoryGuardrail.reconcileScopedSamples(
             samples: [cheapSample],
-            previousScopedSamplesByKey: scoped.scopedSamplesByKey,
+            currentScopedOnlySamplesByKey: [:],
+            previousScopedOnlySamplesByKey: scoped.scopedOnlySamplesByKey,
             includesCMUXScope: false,
             clearBytes: clearBytes
         )
 
-        #expect(unscoped.samples.first?.memoryBytes == scopedSample.memoryBytes)
+        #expect(unscoped.samples.first?.memoryBytes == cheapSample.memoryBytes + scopedSample.memoryBytes)
         #expect(unscoped.samples.first?.memoryPressureProcessGroupIDs == [200])
 
         let cleared = PaneMemoryGuardrail.reconcileScopedSamples(
             samples: [cheapSample],
-            previousScopedSamplesByKey: unscoped.scopedSamplesByKey,
+            currentScopedOnlySamplesByKey: [:],
+            previousScopedOnlySamplesByKey: unscoped.scopedOnlySamplesByKey,
             includesCMUXScope: true,
             clearBytes: clearBytes
         )
-        #expect(cleared.scopedSamplesByKey.isEmpty)
+        #expect(cleared.scopedOnlySamplesByKey.isEmpty)
         #expect(cleared.samples.first?.memoryBytes == cheapSample.memoryBytes)
+    }
+
+    @Test
+    func unscopedTicksAddCheapAndScopedOnlyPressure() {
+        let ws = UUID(), pane = UUID()
+        let clearBytes = Int64(Double(threshold) * PaneMemoryGuardrailEngine.clearFraction)
+        let scopedOnlySample = sample(workspace: ws, pane: pane, memoryGB: 7, pgids: [200])
+        let cheapSample = sample(workspace: ws, pane: pane, memoryGB: 7, pgids: [300])
+
+        let reconciled = PaneMemoryGuardrail.reconcileScopedSamples(
+            samples: [cheapSample],
+            currentScopedOnlySamplesByKey: [:],
+            previousScopedOnlySamplesByKey: [scopedOnlySample.key: scopedOnlySample],
+            includesCMUXScope: false,
+            clearBytes: clearBytes
+        )
+
+        #expect(reconciled.samples.first?.memoryBytes == 14 * gb)
+        #expect(reconciled.samples.first?.memoryPressureProcessGroupIDs == [200, 300])
     }
 
     @Test
