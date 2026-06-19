@@ -4004,7 +4004,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.identifier = browserOmnibarTextFieldIdentifier
         field.panelId = browserPanelId
         field.stringValue = "example"
-        contentView.addSubview(field)
+        attachTestResponder(field, to: window)
         BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
         defer {
             BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
