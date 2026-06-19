@@ -11323,15 +11323,26 @@ struct CMUXCLI {
 
         let rawMode = TerminalRawMode()
         defer { rawMode?.restore() }
-        let resizeSource = startSSHPTYResizeSource(
-            client: client,
-            workspaceId: workspaceId,
-            surfaceID: surfaceID,
-            sessionID: sessionID,
-            attachmentID: attachmentID,
-            attachmentToken: attachmentToken,
-            socketLock: controlSocketLock
-        )
+        func sendCurrentSSHPTYResize() {
+            controlSocketLock.lock()
+            defer { controlSocketLock.unlock() }
+            let size = currentCLITerminalSize()
+            var params: [String: Any] = [
+                "workspace_id": workspaceId,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+                "attachment_token": attachmentToken,
+                "cols": size.cols,
+                "rows": size.rows,
+            ]
+            if let surfaceID {
+                params["surface_id"] = surfaceID
+                params["allow_moved_surface"] = true
+            }
+            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
+        }
+
+        let resizeSource = startSSHPTYResizeSource(onResize: sendCurrentSSHPTYResize)
         defer { resizeSource.cancel() }
 
         // Reconcile the remote PTY size once now that the SIGWINCH source is
@@ -11343,15 +11354,7 @@ struct CMUXCLI {
         // that window, leaving the remote PTY frozen at the handshake size and
         // corrupting full-screen TUIs. Pushing the current size here closes the
         // gap; it is a no-op on the daemon when the size already matches.
-        sendSSHPTYResize(
-            client: client,
-            workspaceId: workspaceId,
-            surfaceID: surfaceID,
-            sessionID: sessionID,
-            attachmentID: attachmentID,
-            attachmentToken: attachmentToken,
-            socketLock: controlSocketLock
-        )
+        sendCurrentSSHPTYResize()
 
         DispatchQueue.global(qos: .userInteractive).async {
             var buffer = [UInt8](repeating: 0, count: 8192)
@@ -11628,6 +11631,19 @@ struct CMUXCLI {
             }
         }
         throw CLIError(message: "ssh-pty-attach: bridge status exceeded \(maxStatusBytes) bytes")
+    }
+
+    private func startSSHPTYResizeSource(onResize: @escaping () -> Void) -> DispatchSourceSignal {
+        signal(SIGWINCH, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(
+            signal: SIGWINCH,
+            queue: DispatchQueue(label: "com.cmux.ssh-pty.resize")
+        )
+        source.setEventHandler {
+            onResize()
+        }
+        source.resume()
+        return source
     }
 
     private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
@@ -32400,7 +32416,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
     }
 
-    func currentCLITerminalSize() -> (cols: Int, rows: Int) {
+    private func currentCLITerminalSize() -> (cols: Int, rows: Int) {
         var size = winsize()
         if ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0,
            size.ws_col > 0,
