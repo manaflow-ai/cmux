@@ -170,9 +170,6 @@ public final class HostBrowserSignInFlow {
             return await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
         }
         log.log("auth.callback.external.reject reason=noActiveAttempt")
-        if callbackRouter.isAuthCallbackURL(url) {
-            lastFailure = .invalidCallback
-        }
         return false
     }
 

@@ -301,6 +301,7 @@ import Testing
         #expect(harness.coordinator.isAuthenticated == false)
         #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
         #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+        #expect(harness.flow.lastFailure == nil)
     }
 
     @Test func mismatchedCallbackStateIsRejected() async {
@@ -360,6 +361,7 @@ import Testing
         #expect(harness.coordinator.isAuthenticated == false)
         #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
         #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+        #expect(harness.flow.lastFailure == nil)
     }
 
     @Test func signOutDuringCallbackValidationStillRevokesWithCapturedCredentials() async {
