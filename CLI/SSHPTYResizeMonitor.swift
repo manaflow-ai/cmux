@@ -69,24 +69,24 @@ actor SSHPTYResizeMonitor {
 
     private func processResizeEvents(_ events: AsyncStream<ResizeEvent>) async {
         for await event in events {
-            enqueue(size: event.size, force: event.force)
+            await enqueue(size: event.size, force: event.force)
         }
         isCancelled = true
         pendingSize = nil
         eventTask = nil
     }
 
-    private func enqueue(size: (cols: Int, rows: Int), force: Bool) {
+    private func enqueue(size: (cols: Int, rows: Int), force: Bool) async {
         guard !isCancelled else { return }
         if force || !Self.sameSize(size, lastSentSize) {
             pendingSize = size
         } else {
             pendingSize = nil
         }
-        drainPendingResizes()
+        await drainPendingResizes()
     }
 
-    private func drainPendingResizes() {
+    private func drainPendingResizes() async {
         while true {
             if isCancelled {
                 return
@@ -96,7 +96,7 @@ actor SSHPTYResizeMonitor {
             }
             pendingSize = nil
 
-            if sendResize(size: size) {
+            if await sendResize(size: size) {
                 lastSentSize = size
                 let currentSize = CMUXCLI.currentCLITerminalSize()
                 pendingSize = Self.sameSize(currentSize, lastSentSize) ? nil : currentSize
@@ -113,7 +113,41 @@ actor SSHPTYResizeMonitor {
         }
     }
 
-    private func sendResize(size: (cols: Int, rows: Int)) -> Bool {
+    private func sendResize(size: (cols: Int, rows: Int)) async -> Bool {
+        let socketPath = self.socketPath
+        let explicitPassword = self.explicitPassword
+        let workspaceId = self.workspaceId
+        let surfaceID = self.surfaceID
+        let sessionID = self.sessionID
+        let attachmentID = self.attachmentID
+        let attachmentToken = self.attachmentToken
+        // SocketClient is synchronous; run the bounded RPC off the actor executor.
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: Self.sendResizeBlocking(
+                    socketPath: socketPath,
+                    explicitPassword: explicitPassword,
+                    workspaceId: workspaceId,
+                    surfaceID: surfaceID,
+                    sessionID: sessionID,
+                    attachmentID: attachmentID,
+                    attachmentToken: attachmentToken,
+                    size: size
+                ))
+            }
+        }
+    }
+
+    private static func sendResizeBlocking(
+        socketPath: String,
+        explicitPassword: String?,
+        workspaceId: String,
+        surfaceID: String?,
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        size: (cols: Int, rows: Int)
+    ) -> Bool {
         var params: [String: Any] = [
             "workspace_id": workspaceId,
             "session_id": sessionID,
