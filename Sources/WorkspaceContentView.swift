@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import CmuxFoundation
 import Bonsplit
+import CmuxCore
 import CmuxWorkspaces
 import CmuxTerminal
 
@@ -51,14 +52,6 @@ private enum WorkspaceTitlebarInteractionMetrics {
     // Keep in sync with the minimal-mode titlebar strip so the monitor only
     // covers titlebar chrome.
     static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
-}
-
-struct TmuxWorkspacePaneOverlayRenderState: Equatable {
-    let workspaceId: UUID
-    let unreadRects: [CGRect]
-    let flashRect: CGRect?
-    let flashToken: UInt64
-    let flashReason: WorkspaceAttentionFlashReason?
 }
 
 @MainActor

@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import CmuxCore
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -79,13 +80,9 @@ public enum PanelFocusIntent: Equatable {
     case project(ProjectPanelFocusIntent)
 }
 
-public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
-    case navigation
-    case notificationArrival
-    case notificationDismiss
-    case unreadIndicatorDismiss
-    case debug
-}
+/// Canonical definition lives in `CmuxCore.WorkspaceAttentionFlashReason`; this
+/// typealias keeps the unqualified app-target call sites byte-identical.
+public typealias WorkspaceAttentionFlashReason = CmuxCore.WorkspaceAttentionFlashReason
 
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
