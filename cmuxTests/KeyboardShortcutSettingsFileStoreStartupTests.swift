@@ -4,6 +4,7 @@ import AppKit
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
 import struct CmuxSettings.AppCatalogSection
+import enum CmuxSettings.AppIconMode
 import struct CmuxSettings.QuitConfirmationStore
 import enum CmuxSettings.ConfirmQuitMode
 import enum CmuxSettings.BrowserSearchEngine
@@ -28,11 +29,12 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
     override func tearDown() {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-        AppIconSettings.resetLiveEnvironmentProviderForTesting()
         AppearanceSettings.resetLiveEnvironmentProviderForTesting()
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }
+
+    private var appIconModeKey: String { AppCatalogSection().appIcon.userDefaultsKey }
 
     func testSettingsFileStoreParsesNumberedShortcutWithoutConsultingActiveShortcutStore() throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -98,15 +100,16 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
     func testSettingsFileStoreRestoresAbsentAppIconBackupDuringStartupWithoutTouchingAppKit() throws {
         let defaults = UserDefaults.standard
-        let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
+        let appIconModeKey = appIconModeKey
+        let previousMode = defaults.object(forKey: appIconModeKey)
         let previousAppearance = defaults.object(forKey: AppearanceSettings.appearanceModeKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         let previousImportedDefaults = defaults.data(forKey: importedManagedDefaultsKey)
         defer {
             if let previousMode {
-                defaults.set(previousMode, forKey: AppIconSettings.modeKey)
+                defaults.set(previousMode, forKey: appIconModeKey)
             } else {
-                defaults.removeObject(forKey: AppIconSettings.modeKey)
+                defaults.removeObject(forKey: appIconModeKey)
             }
 
             if let previousAppearance {
@@ -127,7 +130,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             }
         }
 
-        defaults.removeObject(forKey: AppIconSettings.modeKey)
+        defaults.removeObject(forKey: appIconModeKey)
         defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
         defaults.removeObject(forKey: importedManagedDefaultsKey)
@@ -147,40 +150,19 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             to: managedIconURL
         )
 
-        var startObservationCallCount = 0
-        var stopObservationCallCount = 0
-        var imageRequestCount = 0
-        var runtimeIconSetCount = 0
-        var dockTileNotificationCount = 0
-        AppIconSettings.setLiveEnvironmentProviderForTesting {
-            AppIconSettings.Environment(
-                isApplicationFinishedLaunching: { false },
-                imageForMode: { _ in
-                    imageRequestCount += 1
-                    return nil
-                },
-                setApplicationIconImage: { _ in
-                    runtimeIconSetCount += 1
-                },
-                startAppearanceObservation: {
-                    startObservationCallCount += 1
-                },
-                stopAppearanceObservation: {
-                    stopObservationCallCount += 1
-                },
-                notifyDockTilePlugin: {
-                    dockTileNotificationCount += 1
-                }
-            )
-        }
-
+        // The managed-config reload path now applies the icon through the
+        // shared `appIconApplier`, which early-returns before any AppKit work
+        // because `appIconLaunchReporter` reports not-finished-launching under
+        // XCTest. So this exercises the same "persist the default, never touch
+        // AppKit during startup" behavior without a static-facade fake; the
+        // apply service's gating is unit-tested in `AppIconSettingsTests`.
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: managedIconURL.path,
             fallbackPath: nil,
             startWatching: false
         )
 
-        XCTAssertEqual(defaults.string(forKey: AppIconSettings.modeKey), AppIconMode.automatic.rawValue)
+        XCTAssertEqual(defaults.string(forKey: appIconModeKey), AppIconMode.automatic.rawValue)
 
         let managedAppearanceURL = directoryURL.appendingPathComponent("appearance.json", isDirectory: false)
         try writeSettingsFile(
@@ -200,13 +182,8 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertNil(defaults.object(forKey: AppIconSettings.modeKey))
+        XCTAssertNil(defaults.object(forKey: appIconModeKey))
         XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
-        XCTAssertEqual(startObservationCallCount, 0)
-        XCTAssertEqual(stopObservationCallCount, 0)
-        XCTAssertEqual(imageRequestCount, 0)
-        XCTAssertEqual(runtimeIconSetCount, 0)
-        XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
     func testManagedAppearanceReplayUpdatesDefaultWithoutLiveAppearanceApplication() throws {

@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34179	CLI/cmux.swift
-17135	Sources/AppDelegate.swift
+17134	Sources/AppDelegate.swift
 14378	Sources/ContentView.swift
 12331	Sources/Workspace.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -11,7 +11,7 @@
 10419	Sources/TerminalController.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7988	Sources/Panels/BrowserPanelView.swift
-7355	cmuxTests/WorkspaceUnitTests.swift
+7303	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6218	cmuxTests/GhosttyConfigTests.swift
@@ -23,8 +23,8 @@
 5526	cmuxTests/BrowserConfigTests.swift
 4467	Sources/Panels/FilePreviewPanel.swift
 4401	cmuxTests/BrowserPanelTests.swift
-4370	Sources/cmuxApp.swift
 4225	Sources/BrowserWindowPortal.swift
+4116	Sources/cmuxApp.swift
 3937	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3896	cmuxTests/WindowAndDragTests.swift
@@ -48,10 +48,10 @@
 2067	Sources/SessionPersistence.swift
 2047	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
-1940	Sources/KeyboardShortcutSettingsFileStore.swift
+1942	Sources/KeyboardShortcutSettingsFileStore.swift
 1880	Sources/RestorableAgentSession.swift
-1869	cmuxTests/NotificationAndMenuBarTests.swift
 1861	Sources/TerminalController+ControlDebugContext.swift
+1847	cmuxTests/NotificationAndMenuBarTests.swift
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
@@ -66,10 +66,10 @@
 1445	Sources/FileExplorerStore.swift
 1426	Sources/VaultAgentProcessScanner.swift
 1412	Sources/RemoteTmuxControlConnection.swift
-1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1373	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
+1361	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
 1292	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
@@ -135,7 +135,7 @@
 707	CLI/CMUXCLI+AgentHookDefinitions.swift
 706	CLI/CMUXCLI+Config.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift
-696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
+697	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 693	Sources/Panels/BrowserPopupWindowController.swift
 691	Sources/NotificationSoundSettings.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
