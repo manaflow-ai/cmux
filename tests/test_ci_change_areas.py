@@ -51,12 +51,25 @@ def test_remote_daemon_runs_go_only() -> None:
     assert_areas(["daemon/remote/main.go"], macos=False, web=False, go=True)
 
 
+def test_remote_daemon_asset_builder_runs_go_validation() -> None:
+    assert_areas(["scripts/build_remote_daemon_release_assets.sh"], macos=True, web=False, go=True)
+
+
 def test_app_source_runs_macos() -> None:
     assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False, go=False)
 
 
 def test_workflow_changes_run_everything() -> None:
     assert_areas([".github/workflows/ci.yml"], macos=True, web=True, go=True)
+
+
+def test_router_changes_run_everything() -> None:
+    assert_areas(["scripts/ci/detect_ci_change_areas.py"], macos=True, web=True, go=True)
+    assert_areas(["tests/test_ci_change_areas.py"], macos=True, web=True, go=True)
+
+
+def test_ghosttykit_checksum_pin_runs_macos() -> None:
+    assert_areas(["scripts/ghosttykit-checksums.txt"], macos=True, web=False, go=False)
 
 
 def test_non_workflow_github_metadata_is_neutral() -> None:

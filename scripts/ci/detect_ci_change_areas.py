@@ -45,6 +45,13 @@ def is_workflow(path: str) -> bool:
     return path.startswith(".github/workflows/")
 
 
+def forces_all_areas(path: str) -> bool:
+    return is_workflow(path) or path in {
+        "scripts/ci/detect_ci_change_areas.py",
+        "tests/test_ci_change_areas.py",
+    }
+
+
 def is_web_change(path: str) -> bool:
     if path.startswith(("web/", "webviews/", "Resources/agent-session")):
         return True
@@ -59,7 +66,10 @@ def is_web_change(path: str) -> bool:
 
 
 def is_go_change(path: str) -> bool:
-    return path.startswith("daemon/remote/") or path == "tests/test_remote_daemon_release_assets.sh"
+    return path.startswith("daemon/remote/") or path in {
+        "scripts/build_remote_daemon_release_assets.sh",
+        "tests/test_remote_daemon_release_assets.sh",
+    }
 
 
 def is_macos_neutral(path: str) -> bool:
@@ -67,11 +77,11 @@ def is_macos_neutral(path: str) -> bool:
         return True
     if path.startswith(".github/") and not is_workflow(path):
         return True
-    return path.endswith((".md", ".mdx", ".rst", ".txt"))
+    return path.endswith((".md", ".mdx", ".rst"))
 
 
 def is_macos_change(path: str) -> bool:
-    if is_workflow(path):
+    if forces_all_areas(path):
         return True
     if path in {"package.json", "bun.lock", "biome.json"}:
         return True
@@ -89,7 +99,7 @@ def classify_files(paths: Iterable[str]) -> ChangeAreas:
         path = normalize_path(raw_path)
         if not path:
             continue
-        if is_workflow(path):
+        if forces_all_areas(path):
             macos = True
             web = True
             go = True
