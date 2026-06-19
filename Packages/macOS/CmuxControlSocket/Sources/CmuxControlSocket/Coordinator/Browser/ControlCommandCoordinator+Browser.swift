@@ -47,6 +47,18 @@ extension ControlCommandCoordinator {
             return browserFocusWebView(request.params)
         case "browser.is_webview_focused":
             return browserIsWebViewFocused(request.params)
+        case "browser.cookies.get":
+            return browserCookiesGet(request.params)
+        case "browser.cookies.set":
+            return browserCookiesSet(request.params)
+        case "browser.cookies.clear":
+            return browserCookiesClear(request.params)
+        case "browser.storage.get":
+            return browserStorageGet(request.params)
+        case "browser.storage.set":
+            return browserStorageSet(request.params)
+        case "browser.storage.clear":
+            return browserStorageClear(request.params)
         default:
             return nil
         }

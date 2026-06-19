@@ -264,7 +264,7 @@ class TerminalController {
     /// Stateless browser-control logic (JS builders, value normalization,
     /// diagnostics, failure classification) extracted to `CmuxBrowser`.
     /// The per-surface mutable state and WebKit evaluation seam stay here.
-    private nonisolated let v2BrowserControl = BrowserControlService(
+    nonisolated let v2BrowserControl = BrowserControlService(
         evalEnvelope: BrowserEvalEnvelope(
             typeKey: TerminalController.v2BrowserEvalEnvelopeTypeKey,
             valueKey: TerminalController.v2BrowserEvalEnvelopeValueKey,
@@ -1828,18 +1828,9 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: false))
         case "browser.import.dialog":
             return v2Result(id: id, self.v2BrowserImportDialog(params: params))
-        case "browser.cookies.get":
-            return v2Result(id: id, self.v2BrowserCookiesGet(params: params))
-        case "browser.cookies.set":
-            return v2Result(id: id, self.v2BrowserCookiesSet(params: params))
-        case "browser.cookies.clear":
-            return v2Result(id: id, self.v2BrowserCookiesClear(params: params))
-        case "browser.storage.get":
-            return v2Result(id: id, self.v2BrowserStorageGet(params: params))
-        case "browser.storage.set":
-            return v2Result(id: id, self.v2BrowserStorageSet(params: params))
-        case "browser.storage.clear":
-            return v2Result(id: id, self.v2BrowserStorageClear(params: params))
+        // browser.cookies.get/set/clear and browser.storage.get/set/clear handled
+        // above by ControlCommandCoordinator (handleBrowser) via the
+        // ControlBrowserContext seam.
         case "browser.tab.new":
             return v2Result(id: id, self.v2BrowserTabNew(params: params))
         case "browser.tab.list":
@@ -5429,7 +5420,7 @@ class TerminalController {
         return body(resolved)
     }
 
-    private func v2ResolveBrowserSurfaceId(
+    func v2ResolveBrowserSurfaceId(
         params: [String: Any],
         workspace: Workspace
     ) -> (surfaceId: UUID?, error: V2CallResult?) {
@@ -5455,11 +5446,11 @@ class TerminalController {
         return (workspace.focusedPanelId, nil)
     }
 
-    private nonisolated func v2JSONLiteral(_ value: Any) -> String {
+    nonisolated func v2JSONLiteral(_ value: Any) -> String {
         v2BrowserControl.jsonLiteral(value)
     }
 
-    private nonisolated func v2NormalizeJSValue(_ value: Any?) -> Any {
+    nonisolated func v2NormalizeJSValue(_ value: Any?) -> Any {
         v2BrowserControl.normalizeJSValue(value) { $0 is V2BrowserUndefinedSentinel }
     }
 
@@ -5823,7 +5814,7 @@ class TerminalController {
 #endif
     }
 
-    private nonisolated func v2RunBrowserJavaScript(
+    nonisolated func v2RunBrowserJavaScript(
         _ webView: WKWebView,
         surfaceId: UUID,
         script: String,
@@ -8414,7 +8405,7 @@ class TerminalController {
         return out
     }
 
-    private func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
+    func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
         v2AwaitCallback(timeout: timeout) { finish in
             store.getAllCookies { items in
                 finish(items)
@@ -8422,7 +8413,7 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
+    func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
         v2AwaitCallback(timeout: timeout) { finish in
             store.setCookie(cookie) {
                 finish(true)
@@ -8430,7 +8421,7 @@ class TerminalController {
         } ?? false
     }
 
-    private func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
+    func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
         v2AwaitCallback(timeout: timeout) { finish in
             store.delete(cookie) {
                 finish(true)
@@ -8438,7 +8429,7 @@ class TerminalController {
         } ?? false
     }
 
-    private func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
+    func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
         var props: [HTTPCookiePropertyKey: Any] = [:]
         if let name = raw["name"] as? String {
             props[.name] = name
@@ -8477,203 +8468,11 @@ class TerminalController {
         return HTTPCookie(properties: props)
     }
 
-    private func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
-            guard var cookies = v2BrowserCookieStoreAll(store) else {
-                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
-            }
 
-            if let name = v2String(params, "name") {
-                cookies = cookies.filter { $0.name == name }
-            }
-            if let domain = v2String(params, "domain") {
-                cookies = cookies.filter { $0.domain.contains(domain) }
-            }
-            if let path = v2String(params, "path") {
-                cookies = cookies.filter { $0.path == path }
-            }
-
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "cookies": cookies.map(v2BrowserCookieDict)
-            ])
-        }
-    }
-
-    private func v2BrowserCookiesSet(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
-            let fallbackURL = browserPanel.currentURL
-
-            var cookieObjects: [[String: Any]] = []
-            if let rows = params["cookies"] as? [[String: Any]] {
-                cookieObjects = rows
-            } else {
-                var single: [String: Any] = [:]
-                if let name = v2String(params, "name") { single["name"] = name }
-                if let value = v2String(params, "value") { single["value"] = value }
-                if let url = v2String(params, "url") { single["url"] = url }
-                if let domain = v2String(params, "domain") { single["domain"] = domain }
-                if let path = v2String(params, "path") { single["path"] = path }
-                if let secure = v2Bool(params, "secure") { single["secure"] = secure }
-                if let expires = v2Int(params, "expires") { single["expires"] = expires }
-                if !single.isEmpty {
-                    cookieObjects = [single]
-                }
-            }
-
-            guard !cookieObjects.isEmpty else {
-                return .err(code: "invalid_params", message: "Missing cookies payload", data: nil)
-            }
-
-            var setCount = 0
-            for raw in cookieObjects {
-                guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: fallbackURL) else {
-                    return .err(code: "invalid_params", message: "Invalid cookie payload", data: ["cookie": raw])
-                }
-                if v2BrowserCookieStoreSet(store, cookie: cookie) {
-                    setCount += 1
-                } else {
-                    return .err(code: "timeout", message: "Timed out setting cookie", data: ["name": cookie.name])
-                }
-            }
-
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "set": setCount
-            ])
-        }
-    }
-
-    private func v2BrowserCookiesClear(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
-            guard let cookies = v2BrowserCookieStoreAll(store) else {
-                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
-            }
-
-            let name = v2String(params, "name")
-            let domain = v2String(params, "domain")
-            let clearAll = params["all"] == nil && name == nil && domain == nil
-            let targets = cookies.filter { cookie in
-                if clearAll { return true }
-                if let name, cookie.name != name { return false }
-                if let domain, !cookie.domain.contains(domain) { return false }
-                return true
-            }
-
-            var removed = 0
-            for cookie in targets {
-                if v2BrowserCookieStoreDelete(store, cookie: cookie) {
-                    removed += 1
-                }
-            }
-
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "cleared": removed
-            ])
-        }
-    }
-
-    private func v2BrowserStorageType(_ params: [String: Any]) -> String {
+    func v2BrowserStorageType(_ params: [String: Any]) -> String {
         v2BrowserControl.storageType(params: params)
     }
 
-    private func v2BrowserStorageGet(params: [String: Any]) -> V2CallResult {
-        let storageType = v2BrowserStorageType(params)
-        let key = v2String(params, "key")
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let script = v2BrowserControl.storageGetScript(storageType: storageType, key: key)
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                guard let dict = value as? [String: Any],
-                      let ok = dict["ok"] as? Bool,
-                      ok else {
-                    return .err(code: "invalid_state", message: "Storage unavailable", data: ["type": storageType])
-                }
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                    "type": storageType,
-                    "key": v2OrNull(key),
-                    "value": v2NormalizeJSValue(dict["value"])
-                ])
-            }
-        }
-    }
-
-    private func v2BrowserStorageSet(params: [String: Any]) -> V2CallResult {
-        let storageType = v2BrowserStorageType(params)
-        guard let key = v2String(params, "key") else {
-            return .err(code: "invalid_params", message: "Missing key", data: nil)
-        }
-        guard let value = params["value"] else {
-            return .err(code: "invalid_params", message: "Missing value", data: nil)
-        }
-
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let valueLiteral = v2JSONLiteral(v2NormalizeJSValue(value))
-            let script = v2BrowserControl.storageSetScript(storageType: storageType, key: key, valueLiteral: valueLiteral)
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                guard let dict = value as? [String: Any],
-                      let ok = dict["ok"] as? Bool,
-                      ok else {
-                    return .err(code: "invalid_state", message: "Storage unavailable", data: ["type": storageType])
-                }
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                    "type": storageType,
-                    "key": key
-                ])
-            }
-        }
-    }
-
-    private func v2BrowserStorageClear(params: [String: Any]) -> V2CallResult {
-        let storageType = v2BrowserStorageType(params)
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let script = v2BrowserControl.storageClearScript(storageType: storageType)
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                guard let dict = value as? [String: Any],
-                      let ok = dict["ok"] as? Bool,
-                      ok else {
-                    return .err(code: "invalid_state", message: "Storage unavailable", data: ["type": storageType])
-                }
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                    "type": storageType,
-                    "cleared": true
-                ])
-            }
-        }
-    }
 
     private func v2BrowserTabList(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
