@@ -20,7 +20,14 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
-    private var processStore = AgentSessionProcessStore()
+    private let processStore: AgentSessionProcessStore
+    /// True for a live (Kanban-dispatched) session: the process store is shared
+    /// with a `CmuxLiveBackend`, and the card's provider auto-starts regardless
+    /// of its normal autoStart policy.
+    private let isLiveSession: Bool
+    /// The Kanban card's spec, injected once as the first prompt right after the
+    /// live session's provider starts. Cleared after it is sent.
+    private var injectedFirstPrompt: String?
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
@@ -29,6 +36,22 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         }
     }
     var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
+
+    /// - Parameters:
+    ///   - prebuiltProcessStore: When non-nil, this session adopts an existing
+    ///     store (shared with a `CmuxLiveBackend` so one process drives both the
+    ///     board card and this visible tab) and is treated as a live session.
+    ///   - injectedFirstPrompt: Sent once, right after the provider starts, as
+    ///     the live session's opening turn (the card's spec).
+    init(
+        prebuiltProcessStore: AgentSessionProcessStore? = nil,
+        injectedFirstPrompt: String? = nil
+    ) {
+        self.processStore = prebuiltProcessStore ?? AgentSessionProcessStore()
+        self.isLiveSession = prebuiltProcessStore != nil
+        self.injectedFirstPrompt = injectedFirstPrompt
+        super.init()
+    }
 
     func bind(
         panelId: UUID,
@@ -558,6 +581,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                     "transportKind": provider.transportKind,
                     "arguments": provider.launchArguments,
                     "autoStart": provider.shouldAutoStartSession
+                        || (isLiveSession && provider == initialProviderID)
                 ] as [String: Any]
             }
         case "provider.select":
@@ -596,6 +620,18 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 plan: plan,
                 workingDirectory: request.string("workingDirectory") ?? workingDirectory
             )
+            // Live sessions open with the Kanban card's spec as the first turn.
+            // Sent once, best-effort: a failure here must not fail the start.
+            if let prompt = injectedFirstPrompt {
+                injectedFirstPrompt = nil
+                do {
+                    try await processStore.writeLine(sessionId: session.sessionId, text: prompt)
+                } catch {
+#if DEBUG
+                    cmuxDebugLog("agentSession.live.injectFirstPrompt.failed error=\(error.localizedDescription)")
+#endif
+                }
+            }
             return [
                 "sessionId": session.sessionId,
                 "providerId": provider.rawValue,

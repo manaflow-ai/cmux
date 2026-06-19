@@ -9,7 +9,7 @@ final class AgentSessionPanel: Panel {
     let rendererKind: AgentSessionRendererKind
     let initialProviderID: AgentSessionProviderID
     let workingDirectory: String?
-    let rendererSession = AgentSessionWebRendererSession()
+    let rendererSession: AgentSessionWebRendererSession
 
     private(set) var currentProviderID: AgentSessionProviderID
     private(set) var displayTitle: String
@@ -25,7 +25,9 @@ final class AgentSessionPanel: Panel {
         workspaceId: UUID,
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID = .codex,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        prebuiltProcessStore: AgentSessionProcessStore? = nil,
+        injectedFirstPrompt: String? = nil
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -34,6 +36,10 @@ final class AgentSessionPanel: Panel {
         self.currentProviderID = initialProviderID
         self.workingDirectory = workingDirectory
         self.displayTitle = Self.title(provider: initialProviderID, rendererKind: rendererKind)
+        self.rendererSession = AgentSessionWebRendererSession(
+            prebuiltProcessStore: prebuiltProcessStore,
+            injectedFirstPrompt: injectedFirstPrompt
+        )
         self.rendererSession.onHasActiveProviderChanged = { [weak self] hasActiveProvider in
             self?.setHasActiveProvider(hasActiveProvider)
         }

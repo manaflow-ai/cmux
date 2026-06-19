@@ -8120,7 +8120,9 @@ final class Workspace: Identifiable, ObservableObject {
         rendererKind: AgentSessionRendererKind,
         workingDirectory: String? = nil,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        prebuiltProcessStore: AgentSessionProcessStore? = nil,
+        injectedFirstPrompt: String? = nil
     ) -> AgentSessionPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -8131,7 +8133,9 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             rendererKind: rendererKind,
             initialProviderID: providerID,
-            workingDirectory: directory
+            workingDirectory: directory,
+            prebuiltProcessStore: prebuiltProcessStore,
+            injectedFirstPrompt: injectedFirstPrompt
         )
         panels[agentPanel.id] = agentPanel
         panelTitles[agentPanel.id] = agentPanel.displayTitle
