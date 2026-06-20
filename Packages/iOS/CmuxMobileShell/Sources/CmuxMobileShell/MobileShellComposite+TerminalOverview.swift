@@ -35,7 +35,7 @@ extension MobileShellComposite {
         for terminal in workspace.terminals {
             guard !Task.isCancelled else { return }
             do {
-                let lines = try await requestTerminalOverviewPreviewLines(
+                let lines = try await Self.requestTerminalOverviewPreviewLines(
                     workspaceID: workspaceID,
                     terminalID: terminal.id,
                     client: client
@@ -70,7 +70,7 @@ extension MobileShellComposite {
         await closeRemoteTerminal(id: terminalID, in: workspaceID)
     }
 
-    static func terminalOverviewPreviewLines(from renderGrid: MobileTerminalRenderGridFrame) -> [String] {
+    nonisolated static func terminalOverviewPreviewLines(from renderGrid: MobileTerminalRenderGridFrame) -> [String] {
         guard renderGrid.full else { return [] }
         let rows = renderGrid.plainRows()
             .prefix(24)
@@ -86,7 +86,8 @@ extension MobileShellComposite {
         terminalOverviewPreviewLinesByID = terminalOverviewPreviewLinesByID.filter { liveTerminalIDs.contains($0.key) }
     }
 
-    private func requestTerminalOverviewPreviewLines(
+    // Keep RPC send/decode work off MobileShellComposite's main-actor state owner.
+    nonisolated private static func requestTerminalOverviewPreviewLines(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
         client: MobileCoreRPCClient
@@ -104,7 +105,7 @@ extension MobileShellComposite {
               renderGrid.surfaceID == terminalID.rawValue else {
             return []
         }
-        return Self.terminalOverviewPreviewLines(from: renderGrid)
+        return terminalOverviewPreviewLines(from: renderGrid)
     }
 
     private func closeRemoteTerminal(
@@ -113,16 +114,12 @@ extension MobileShellComposite {
     ) async {
         guard let client = remoteClient else { return }
         do {
-            let request = try MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.close",
-                params: [
-                    "workspace_id": workspaceID.rawValue,
-                    "surface_id": terminalID.rawValue,
-                    "client_id": clientID,
-                ]
+            let response = try await Self.requestCloseRemoteTerminal(
+                workspaceID: workspaceID,
+                terminalID: terminalID,
+                clientID: clientID,
+                client: client
             )
-            let responseData = try await client.sendRequest(request)
-            let response = try MobileSyncWorkspaceListResponse.decode(responseData)
             guard remoteClient === client,
                   connectionState == .connected,
                   !Task.isCancelled else { return }
@@ -135,6 +132,25 @@ extension MobileShellComposite {
             terminalOverviewLog.error("terminal close failed workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) error=\(String(describing: error), privacy: .public)")
             await refreshWorkspaces()
         }
+    }
+
+    // Keep RPC send/decode work off MobileShellComposite's main-actor state owner.
+    nonisolated private static func requestCloseRemoteTerminal(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID,
+        clientID: String,
+        client: MobileCoreRPCClient
+    ) async throws -> MobileSyncWorkspaceListResponse {
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.terminal.close",
+            params: [
+                "workspace_id": workspaceID.rawValue,
+                "surface_id": terminalID.rawValue,
+                "client_id": clientID,
+            ]
+        )
+        let responseData = try await client.sendRequest(request)
+        return try MobileSyncWorkspaceListResponse.decode(responseData)
     }
 
     private func closePreviewTerminal(
@@ -160,7 +176,7 @@ extension MobileShellComposite {
         }
     }
 
-    private static func terminalOverviewPreviewLine(from row: String) -> String {
+    nonisolated private static func terminalOverviewPreviewLine(from row: String) -> String {
         let trimmedRight = row.reversed().drop(while: { $0 == " " || $0 == "\t" }).reversed()
         let line = String(trimmedRight)
         guard line.count > 160 else {
