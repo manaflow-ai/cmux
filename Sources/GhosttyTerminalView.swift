@@ -309,6 +309,15 @@ class GhosttyApp {
     /// registry's legacy `AppDelegate.shared` reach-up.
     static let terminalSurfaceRegistry = TerminalSurfaceRegistry()
 
+    /// The injected workspace resolver (was the `AppDelegate.shared` reach-up in
+    /// `TerminalSurface.owningWorkspace()`). The app delegate conforms to
+    /// `WorkspaceResolving` and assigns itself here at launch, so the surface's
+    /// tab-to-`Workspace` lookup goes through an injected seam instead of a
+    /// global singleton. Transitional: dissolves into composition-root injection
+    /// when `GhosttyAppService` replaces this type.
+    @MainActor
+    static weak var workspaceResolver: (any WorkspaceResolving<Workspace>)?
+
     /// Gates rendered-frame notifications (was the
     /// `GhosttyRenderedFrameNotificationDemand` namespace enum).
     static let renderedFrameNotificationDemand = RenderDemandCounter()
@@ -2797,36 +2806,9 @@ class GhosttyApp {
 // MainWindowRouteRetiring. The process-wide instances live in the
 // transitional GhosttyApp composition statics below.
 
-/// Core Image filter that cuts a pane-local terminal fill out of the shared window backdrop.
-private final class TerminalSharedBackdropCutoutFilter: CIFilter {
-    private static let filterInputKeys = [kCIInputImageKey, kCIInputBackgroundImageKey]
-    private static let filterOutputKeys = [kCIOutputImageKey]
-
-    /// The mask image supplied by AppKit for the cutout view.
-    @objc dynamic var inputImage: CIImage?
-
-    /// The already-rendered shared backdrop behind the terminal surface.
-    @objc dynamic var inputBackgroundImage: CIImage?
-
-    /// Input keys advertised to AppKit's Core Image compositing pipeline.
-    override var inputKeys: [String] {
-        Self.filterInputKeys
-    }
-
-    /// Output keys advertised to AppKit's Core Image compositing pipeline.
-    override var outputKeys: [String] {
-        Self.filterOutputKeys
-    }
-
-    /// The backdrop image with the cutout mask removed.
-    override var outputImage: CIImage? {
-        guard let inputImage, let inputBackgroundImage else { return nil }
-        return CIBlendKernel.destinationOut.apply(
-            foreground: inputImage,
-            background: inputBackgroundImage
-        )
-    }
-}
+// TerminalSharedBackdropCutoutFilter (the pure CoreImage destination-out
+// compositing filter) moved to CmuxTerminal
+// (Engine/Rendering/TerminalSharedBackdropCutoutFilter.swift).
 
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
@@ -2846,7 +2828,7 @@ private final class TerminalSharedBackdropCutoutFilter: CIFilter {
 extension TerminalSurface {
     @MainActor
     func owningWorkspace() -> Workspace? {
-        AppDelegate.shared?.workspaceFor(tabId: tabId)
+        GhosttyApp.workspaceResolver?.workspace(forTabId: tabId)
     }
 }
 
