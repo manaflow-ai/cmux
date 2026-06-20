@@ -311,7 +311,9 @@ extension CMUXCLI {
         ),
         AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
-            configDir: ".copilot", configFile: "config.json", configDirEnvOverride: "COPILOT_HOME",
+            configDir: ".copilot/hooks", configFile: "cmux.json",
+            configDirEnvOverride: "COPILOT_HOME", configDirEnvOverrideSubpath: "hooks",
+            createConfigDirIfMissing: true,
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
             hookMarker: "cmux hooks copilot", format: .nested(timeoutMs: 5000),
             events: [
