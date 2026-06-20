@@ -80,27 +80,35 @@ private func installFileDropOverlayWhenReady(
         )
 }
 
-/// App-target `SelectedWorkspaceReading` adapter: a byte-faithful lift of the
-/// former `SelectedWorkspaceDirectoryObserver` Combine pipeline whose terminal
-/// `.sink` now yields each distinct snapshot into the `AsyncStream` consumed by
-/// `SelectedWorkspaceDirectoryModel` (which owns the generation counter + dedup)
-/// instead of bumping a `@Published` counter. Migrating `TabManager`/`Workspace`
-/// off Combine is deferred to those gods' own modernization PRs.
+/// App-target `SelectedWorkspaceReading` adapter feeding the package
+/// `SelectedWorkspaceDirectoryModel` through the `AsyncStream` seam.
+///
+/// **Modernization status.** The selection side is fully on `@Observable`
+/// observation: `WorkspacesModel.observeSelectedTabId` drives re-pointing,
+/// replacing the retired `selectedTabIdPublisher` Combine bridge. The inner
+/// per-workspace directory/remote fan-in (`Workspace.$currentDirectory` and the
+/// four `$remote*` properties) is the one remaining Combine `.sink`: those are
+/// `@Published` on `Workspace`, which is still an `ObservableObject`, so
+/// `withObservationTracking` cannot watch them. This bridge is load-bearing —
+/// without it the file explorer would stop following a `cd` while the same
+/// workspace stays selected — and is removable only once `Workspace` migrates
+/// to `@Observable` in its own (out-of-scope, behavior-affecting) PR. It is
+/// re-pointed on each selected-workspace-id change, hand-rolling the former
+/// `switchToLatest`.
+///
+/// **Dedup ownership.** Per the `SelectedWorkspaceReading` contract, this
+/// conformer forwards every upstream snapshot verbatim; the model is the single
+/// writer of `directoryChangeGeneration` and the single place that
+/// deduplicates (the legacy pipeline's trailing `removeDuplicates()`). The
+/// adapter therefore keeps no `lastSnapshot` of its own.
 @MainActor
 private final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceReading {
     let directorySnapshots: AsyncStream<SelectedWorkspaceDirectorySnapshot>
     private let continuation: AsyncStream<SelectedWorkspaceDirectorySnapshot>.Continuation
     private weak var tabManager: TabManager?
-    /// `@Observable` watch on the `WorkspacesModel` selection, replacing the
-    /// retired `selectedTabIdPublisher` Combine bridge that drove this pipeline.
-    /// The inner per-workspace `$currentDirectory`/`$remote*` `combineLatest`
-    /// (all `Workspace` `@Published`, out of this slice's scope) stays Combine
-    /// and is re-pointed on each selected-workspace-id change, hand-rolling the
-    /// former `switchToLatest`.
     private var selectionObservation: WorkspacesObservation?
     private var trackedSelectedWorkspaceId: UUID??
     private var innerCancellable: AnyCancellable?
-    private var lastSnapshot: SelectedWorkspaceDirectorySnapshot?
 
     init() {
         (directorySnapshots, continuation) = AsyncStream.makeStream(
@@ -124,8 +132,8 @@ private final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceR
     /// selected, like the former non-compacting `map`), and when the selected id
     /// changes (the former `removeDuplicates(by: id)`, nil included) re-points the
     /// inner subscription. A nil selection yields `.none`; a non-nil selection
-    /// subscribes to the workspace's directory/remote `combineLatest`. The final
-    /// snapshot `.removeDuplicates()` is reproduced via `lastSnapshot`.
+    /// subscribes to the workspace's directory/remote `combineLatest`. Each
+    /// snapshot is forwarded verbatim; the model owns deduplication.
     private func repointSelectedWorkspace() {
         guard let tabManager else { return }
         let selectedId = tabManager.selectedTabId
@@ -138,7 +146,7 @@ private final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceR
         innerCancellable?.cancel()
         guard let workspace else {
             // `Just(.none)` branch.
-            yieldIfChanged(.none)
+            continuation.yield(.none)
             return
         }
         innerCancellable = workspace.$currentDirectory
@@ -165,17 +173,8 @@ private final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceR
                 )
             }
             .sink { [weak self] snapshot in
-                self?.yieldIfChanged(snapshot)
+                self?.continuation.yield(snapshot)
             }
-    }
-
-    /// Reproduces the pipeline's trailing `.removeDuplicates()` over the merged
-    /// stream (deduping consecutive snapshots across the `switchToLatest`
-    /// boundary, so `lastSnapshot` is intentionally not reset on re-point).
-    private func yieldIfChanged(_ snapshot: SelectedWorkspaceDirectorySnapshot) {
-        if let lastSnapshot, lastSnapshot == snapshot { return }
-        lastSnapshot = snapshot
-        continuation.yield(snapshot)
     }
 
     deinit {
