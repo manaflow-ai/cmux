@@ -2114,6 +2114,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// seam because those require the live panel registry and the C bridge.
     let surfaceCreation = SurfaceCreationCoordinator()
 
+    /// The package-pure open-or-focus reuse resolver (CmuxWorkspaces) the
+    /// file-backed `openOrFocus…` entry points route their scan-and-route
+    /// decision through; stateless and held so it is not re-instantiated per call.
+    let surfaceReuseResolver = SurfaceReuseResolver()
+
     /// The session-restore coordinator (CmuxWorkspaces): owns the
     /// persisted-layout serialization bridge (live Bonsplit tree → persisted
     /// layout DTO and back to live divider positions). `Workspace` is its
@@ -7377,6 +7382,31 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         return extensionBrowserPanel
     }
 
+    /// Reuses an existing file-backed panel of kind `P` showing `filePath`, via
+    /// the package-pure ``SurfaceReuseResolver``: candidates are built in
+    /// `panels`-iteration order, keyed on symlink-resolved
+    /// ``String/surfaceFilePathIdentity``, matching the legacy inline
+    /// `for (existingId, panel) in panels { … resolvingSymlinksInPath … }` scans.
+    /// Focuses the match when `focus` is set; returns `nil` to create anew.
+    private func reusableFilePanel<P: Panel>(
+        ofKind _: P.Type,
+        filePath: String,
+        focus: Bool,
+        path: KeyPath<P, String>
+    ) -> P? {
+        let candidates = panels.compactMap { id, panel -> SurfaceReuseCandidate<String>? in
+            guard let typed = panel as? P else { return nil }
+            return SurfaceReuseCandidate(panelId: id, key: typed[keyPath: path].surfaceFilePathIdentity)
+        }
+        guard case let .focusExisting(existingId, shouldFocus) = surfaceReuseResolver.decision(
+            candidates: candidates,
+            requestedKey: filePath.surfaceFilePathIdentity,
+            shouldFocusExisting: focus
+        ) else { return nil }
+        if shouldFocus { focusPanel(existingId) }
+        return panels[existingId] as? P
+    }
+
     /// Open the markdown viewer for `filePath`, reusing an existing
     /// `MarkdownPanel` in this workspace that already shows the same file.
     /// Paths are compared after symlink resolution so `./README.md` and a
@@ -7388,13 +7418,8 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         from panelId: UUID,
         filePath: String
     ) -> MarkdownPanel? {
-        let canonical = (filePath as NSString).resolvingSymlinksInPath
-        for (existingId, panel) in panels {
-            guard let md = panel as? MarkdownPanel else { continue }
-            if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
-                focusPanel(existingId)
-                return md
-            }
+        if let existing = reusableFilePanel(ofKind: MarkdownPanel.self, filePath: filePath, focus: true, path: \.filePath) {
+            return existing
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
@@ -7532,7 +7557,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         targetIndex: Int? = nil
     ) -> ProjectPanel? {
         guard !projectPath.isEmpty else { return nil }
-        let url = URL(fileURLWithPath: (projectPath as NSString).expandingTildeInPath).standardizedFileURL
+        let url = surfaceCreation.standardizedProjectURL(projectPath: projectPath)
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -7582,15 +7607,8 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         filePath: String,
         focus: Bool = true
     ) -> MarkdownPanel? {
-        let canonical = (filePath as NSString).resolvingSymlinksInPath
-        for (existingId, panel) in panels {
-            guard let markdownPanel = panel as? MarkdownPanel else { continue }
-            if (markdownPanel.filePath as NSString).resolvingSymlinksInPath == canonical {
-                if focus {
-                    focusPanel(existingId)
-                }
-                return markdownPanel
-            }
+        if let existing = reusableFilePanel(ofKind: MarkdownPanel.self, filePath: filePath, focus: focus, path: \.filePath) {
+            return existing
         }
 
         return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
@@ -7643,15 +7661,8 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         filePath: String,
         focus: Bool = true
     ) -> FilePreviewPanel? {
-        let canonical = (filePath as NSString).resolvingSymlinksInPath
-        for (existingId, panel) in panels {
-            guard let preview = panel as? FilePreviewPanel else { continue }
-            if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
-                if focus {
-                    focusPanel(existingId)
-                }
-                return preview
-            }
+        if let existing = reusableFilePanel(ofKind: FilePreviewPanel.self, filePath: filePath, focus: focus, path: \.filePath) {
+            return existing
         }
 
         return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
@@ -7662,13 +7673,8 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         from panelId: UUID,
         filePath: String
     ) -> FilePreviewPanel? {
-        let canonical = (filePath as NSString).resolvingSymlinksInPath
-        for (existingId, panel) in panels {
-            guard let preview = panel as? FilePreviewPanel else { continue }
-            if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
-                focusPanel(existingId)
-                return preview
-            }
+        if let existing = reusableFilePanel(ofKind: FilePreviewPanel.self, filePath: filePath, focus: true, path: \.filePath) {
+            return existing
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {

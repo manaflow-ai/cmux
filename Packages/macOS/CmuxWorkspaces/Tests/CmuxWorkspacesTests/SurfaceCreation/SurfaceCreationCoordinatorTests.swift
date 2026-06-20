@@ -74,6 +74,22 @@ private final class StubSurfaceCreationHost: SurfaceCreationHosting {
 struct SurfaceCreationCoordinatorTests {
     private let coordinator = SurfaceCreationCoordinator()
 
+    @Test("A tilde-prefixed project path expands and standardizes")
+    func standardizedProjectURLExpandsTilde() {
+        let home = NSHomeDirectory()
+        #expect(
+            coordinator.standardizedProjectURL(projectPath: "~/proj").path
+                == URL(fileURLWithPath: home + "/proj").standardizedFileURL.path
+        )
+    }
+
+    @Test("Project path standardization collapses dot segments")
+    func standardizedProjectURLCollapsesDotSegments() {
+        #expect(
+            coordinator.standardizedProjectURL(projectPath: "/tmp/./a/../b").path == "/tmp/b"
+        )
+    }
+
     @Test("Whitespace-only and empty candidates normalize to nil")
     func normalizeEmpty() {
         #expect(coordinator.normalizedWorkingDirectory(nil) == nil)

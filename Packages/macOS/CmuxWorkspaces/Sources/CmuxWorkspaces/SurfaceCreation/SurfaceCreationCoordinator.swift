@@ -185,6 +185,23 @@ public final class SurfaceCreationCoordinator {
         return nil
     }
 
+    /// Expands a leading `~` and standardizes a requested project path into the
+    /// file URL the workspace hands to its `ProjectPanel`, mirroring the legacy
+    /// inline `URL(fileURLWithPath: (projectPath as NSString).expandingTildeInPath)
+    /// .standardizedFileURL` in `Workspace.newProjectSurface`.
+    ///
+    /// Pure path arithmetic with no live state: tilde expansion plus URL
+    /// standardization (`.`/`..`/redundant-slash collapsing). The workspace still
+    /// performs its own `projectPath.isEmpty` guard before calling, exactly as the
+    /// legacy body did, so an empty path never reaches here.
+    ///
+    /// - Parameter projectPath: the requested project directory path (may begin
+    ///   with `~`).
+    /// - Returns: the standardized file URL for the project root.
+    public nonisolated func standardizedProjectURL(projectPath: String) -> URL {
+        URL(fileURLWithPath: (projectPath as NSString).expandingTildeInPath).standardizedFileURL
+    }
+
     /// Promotes the inherited surface config so the pane is held open after a
     /// startup command exits, mirroring the legacy inline block in
     /// `Workspace.newTerminalSplitLocal`/`newTerminalSurfaceLocal`:
