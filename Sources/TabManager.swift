@@ -3480,9 +3480,9 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.invalidateFocusHistoryTarget(workspaceId: workspaceId, panelId: panelId)
     }
 
-    private func panelIdForFocusHistorySurface(_ surfaceId: UUID, workspaceId: UUID) -> UUID {
-        tabs.first(where: { $0.id == workspaceId })?.panelIdFromSurfaceId(TabID(uuid: surfaceId)) ?? surfaceId
-    }
+    // `panelIdForFocusHistorySurface` (the surface->panel translation the
+    // focus-surface observer feeds into recording) lives with the other
+    // focus-history `tabs` reads in TabManager+FocusHistoryHosting.swift.
 
     func focusHistoryMenuSnapshot(
         direction: FocusHistoryMenuDirection,
