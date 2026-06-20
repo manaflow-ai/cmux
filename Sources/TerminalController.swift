@@ -1170,10 +1170,18 @@ class TerminalController {
             // legacy shared dispatch did for every JS-eval browser method.
             v2MainSync { self.v2RefreshKnownRefs() }
             return runBrowserInteractionWorker(request.control)
-        case "browser.snapshot", "browser.eval", "browser.wait",
-             "browser.get.text", "browser.get.html", "browser.get.value", "browser.get.attr",
+        case "browser.get.text", "browser.get.html", "browser.get.value", "browser.get.attr",
              "browser.get.count", "browser.get.box", "browser.get.styles",
              "browser.is.visible", "browser.is.enabled", "browser.is.checked":
+            // The read-only `browser.get.*` / `browser.is.*` getters are owned by
+            // CmuxControlSocket's ``ControlBrowserQueryWorker`` (alongside
+            // `browser.find.*`), reaching the live browser surface through the
+            // ``ControlBrowserQueryReading`` seam (`controlResolveBrowserQuery`).
+            // Refresh refs first like the legacy shared dispatch did for every
+            // JS-eval browser method.
+            v2MainSync { self.v2RefreshKnownRefs() }
+            return runBrowserQueryWorker(request.control)
+        case "browser.snapshot", "browser.eval", "browser.wait":
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserJSCommandOnSocketWorker(method: request.method, params: request.params))
@@ -6181,6 +6189,50 @@ class TerminalController {
         }
     }
 
+    /// Resolves one `browser.get.*` / `browser.is.*` query request by running the
+    /// co-located legacy getter body and carrying its `V2CallResult` pre-shaped.
+    ///
+    /// Byte-faithful to the former `v2BrowserJSCommandOnSocketWorker` dispatch for
+    /// these methods: each case calls the identical `v2BrowserGet*` / `v2BrowserIs*`
+    /// body with the Foundation-bridged params, and `controlBridge` maps the
+    /// resulting payload to the package's typed `ControlCallResult`. The getter
+    /// bodies stay app-side because they reach the shared `v2BrowserSelectorAction`
+    /// retry loop (still shared with the `browser.*` interaction commands), the
+    /// `v2BrowserWithPanel` panel read (`get.title`), the `v2BrowserWithPanelContext`
+    /// `querySelectorAll` read (`get.count`), and the WebKit evaluation seam, none of
+    /// which this control package may import.
+    ///
+    /// `get.attr` re-reads and re-validates `attr`/`name` inside `v2BrowserGetAttr`
+    /// identically to the worker's guard, so passing the validated request straight
+    /// through preserves the legacy missing-param branch exactly (the worker's guard
+    /// and the body's guard are the same trimmed-non-empty check).
+    nonisolated func controlResolveBrowserQuery(
+        _ request: ControlBrowserQueryActionRequest
+    ) -> ControlCallResult {
+        switch request {
+        case let .getText(params):
+            return controlBridge(v2BrowserGetText(params: foundationParams(params)))
+        case let .getHTML(params):
+            return controlBridge(v2BrowserGetHTML(params: foundationParams(params)))
+        case let .getValue(params):
+            return controlBridge(v2BrowserGetValue(params: foundationParams(params)))
+        case let .getAttr(params, _):
+            return controlBridge(v2BrowserGetAttr(params: foundationParams(params)))
+        case let .getCount(params):
+            return controlBridge(v2BrowserGetCount(params: foundationParams(params)))
+        case let .getBox(params):
+            return controlBridge(v2BrowserGetBox(params: foundationParams(params)))
+        case let .getStyles(params):
+            return controlBridge(v2BrowserGetStyles(params: foundationParams(params)))
+        case let .isVisible(params):
+            return controlBridge(v2BrowserIsVisible(params: foundationParams(params)))
+        case let .isEnabled(params):
+            return controlBridge(v2BrowserIsEnabled(params: foundationParams(params)))
+        case let .isChecked(params):
+            return controlBridge(v2BrowserIsChecked(params: foundationParams(params)))
+        }
+    }
+
     /// Bridges a typed `[String: JSONValue]` param object back to the Foundation
     /// `[String: Any]` the legacy panel-resolution head (`v2ResolveTabManager` /
     /// `v2ResolveWorkspace` / `v2ResolveBrowserSurfaceId`) reads. The worker
@@ -6726,16 +6778,6 @@ class TerminalController {
         case "browser.snapshot": return v2BrowserSnapshot(params: params)
         case "browser.eval": return v2BrowserEval(params: params)
         case "browser.wait": return v2BrowserWait(params: params)
-        case "browser.get.text": return v2BrowserGetText(params: params)
-        case "browser.get.html": return v2BrowserGetHTML(params: params)
-        case "browser.get.value": return v2BrowserGetValue(params: params)
-        case "browser.get.attr": return v2BrowserGetAttr(params: params)
-        case "browser.get.count": return v2BrowserGetCount(params: params)
-        case "browser.get.box": return v2BrowserGetBox(params: params)
-        case "browser.get.styles": return v2BrowserGetStyles(params: params)
-        case "browser.is.visible": return v2BrowserIsVisible(params: params)
-        case "browser.is.enabled": return v2BrowserIsEnabled(params: params)
-        case "browser.is.checked": return v2BrowserIsChecked(params: params)
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }

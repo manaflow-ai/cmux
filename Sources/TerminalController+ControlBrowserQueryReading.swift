@@ -63,4 +63,14 @@ final class TerminalControllerBrowserQueryReading: ControlBrowserQueryReading, @
         }
         return owner.controlResolveBrowserFind(request)
     }
+
+    func resolveQuery(_ request: ControlBrowserQueryActionRequest) -> ControlCallResult {
+        guard let owner else {
+            // Mirrors the panel-resolution head when no TabManager is reachable;
+            // the legacy `v2BrowserWithPanel`/`v2BrowserWithPanelContext` head
+            // returned this exact error.
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        return owner.controlResolveBrowserQuery(request)
+    }
 }
