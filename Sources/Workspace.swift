@@ -6447,18 +6447,9 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             "transport=\(splitTransport) stage=start elapsedMs=0.00"
         )
 #endif
-        // Find the pane containing the source panel
-        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
-        var sourcePaneId: PaneID?
-        for paneId in bonsplitController.allPaneIds {
-            let tabs = bonsplitController.tabs(inPane: paneId)
-            if tabs.contains(where: { $0.id == sourceTabId }) {
-                sourcePaneId = paneId
-                break
-            }
-        }
-
-        guard let paneId = sourcePaneId else { return nil }
+        // Find the pane containing the source panel (the SurfaceLifecycleCoordinator
+        // owns this resolution: surfaceId(forPanelId:) then the allPaneIds.first scan).
+        guard let paneId = paneId(forPanelId: panelId) else { return nil }
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let explicitInitialCommand = surfaceCreation.normalizedExplicitInitialCommand(initialCommand)
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
@@ -7143,18 +7134,9 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             return nil
         }
 
-        // Find the pane containing the source panel
-        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
-        var sourcePaneId: PaneID?
-        for paneId in bonsplitController.allPaneIds {
-            let tabs = bonsplitController.tabs(inPane: paneId)
-            if tabs.contains(where: { $0.id == sourceTabId }) {
-                sourcePaneId = paneId
-                break
-            }
-        }
-
-        guard let paneId = sourcePaneId else { return nil }
+        // Find the pane containing the source panel (the SurfaceLifecycleCoordinator
+        // owns this resolution: surfaceId(forPanelId:) then the allPaneIds.first scan).
+        guard let paneId = paneId(forPanelId: panelId) else { return nil }
 
         // Create browser panel
         let browserPanel = BrowserPanel(
@@ -7445,17 +7427,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         focus: Bool = true,
         fontSize: Double? = nil
     ) -> MarkdownPanel? {
-        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
-        var sourcePaneId: PaneID?
-        for paneId in bonsplitController.allPaneIds {
-            let tabs = bonsplitController.tabs(inPane: paneId)
-            if tabs.contains(where: { $0.id == sourceTabId }) {
-                sourcePaneId = paneId
-                break
-            }
-        }
-
-        guard let paneId = sourcePaneId else { return nil }
+        guard let paneId = paneId(forPanelId: panelId) else { return nil }
 
         let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
         panels[markdownPanel.id] = markdownPanel
