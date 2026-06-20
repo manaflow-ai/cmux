@@ -282,6 +282,42 @@ final class MainWindowFocusController {
     }
 
     @discardableResult
+    func restoreFocusedPanelFocusFromWorkspaceSidebarIfNeeded(currentResponder: NSResponder? = nil) -> Bool {
+        let responder = currentResponder ?? window?.firstResponder
+        guard responder.map(ownsWorkspaceSidebarFocus) ?? false else {
+            return false
+        }
+
+        guard let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.panels[panelId] else {
+            if let window,
+               let responder,
+               ownsWorkspaceSidebarFocus(responder) {
+                window.makeFirstResponder(nil)
+            }
+            return false
+        }
+
+        rightSidebarFocusState = .inactive
+
+        if panel is TerminalPanel {
+            return focusTerminal()
+        }
+
+        intent = .mainPanel(workspaceId: workspace.id, panelId: panelId)
+        if let window,
+           let responder,
+           ownsWorkspaceSidebarFocus(responder) {
+            _ = window.makeFirstResponder(nil)
+        }
+        publishFeedFocusSnapshot()
+        workspace.focusPanel(panelId)
+        return panel.restoreFocusIntent(panel.preferredFocusIntentForActivation())
+    }
+
+    @discardableResult
     func restoreTargetAfterWindowBecameKey() -> Bool {
         guard case .rightSidebar(let mode) = intent else {
             return false

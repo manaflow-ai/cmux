@@ -17,25 +17,31 @@ final class WorkspaceSidebarKeyboardFocusView: NSView {
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 {
-            if let window,
-               AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() == true {
+            if restoreFocusedMainPanelFocus() {
                 return
             }
             window?.makeFirstResponder(nil)
             return
         }
-        if forwardKeyDownToFocusedTerminal(with: event) {
+        if forwardKeyDownToFocusedMainPanel(with: event) {
             return
         }
         if let characters = event.charactersIgnoringModifiers, !characters.isEmpty {
+            window?.makeFirstResponder(nil)
             return
         }
         super.keyDown(with: event)
     }
 
-    private func forwardKeyDownToFocusedTerminal(with event: NSEvent) -> Bool {
+    private func restoreFocusedMainPanelFocus() -> Bool {
+        guard let window else { return false }
+        return AppDelegate.shared?.keyboardFocusCoordinator(for: window)?
+            .restoreFocusedPanelFocusFromWorkspaceSidebarIfNeeded(currentResponder: self) == true
+    }
+
+    private func forwardKeyDownToFocusedMainPanel(with event: NSEvent) -> Bool {
         guard let window,
-              AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() == true,
+              restoreFocusedMainPanelFocus(),
               let target = window.firstResponder,
               target !== self else {
             return false

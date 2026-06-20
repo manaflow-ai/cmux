@@ -5,7 +5,7 @@
 17724	Sources/AppDelegate.swift
 16054	Sources/ContentView.swift
 13992	Sources/TerminalController.swift
-12864	cmuxTests/AppDelegateShortcutRoutingTests.swift
+12897	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12695	Sources/Workspace.swift
 11895	Sources/GhosttyTerminalView.swift
 11411	Sources/Panels/BrowserPanel.swift
@@ -107,12 +107,12 @@
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
+832	Sources/MainWindowFocusController.swift
 830	Sources/TaskManagerTypes.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 802	Sources/WorkspaceContentView.swift
 797	Sources/ClosedItemHistory.swift
-796	Sources/MainWindowFocusController.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
 769	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift

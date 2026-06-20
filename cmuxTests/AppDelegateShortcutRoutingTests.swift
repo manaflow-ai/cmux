@@ -11346,6 +11346,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testWorkspaceSidebarFocusForwardsTypingBackToFocusedBrowser() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        let sidebarResponder = WorkspaceSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        harness.window.contentView?.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+        sidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
+        XCTAssertTrue(appDelegate.focusWorkspaceSidebar(in: harness.window), "Expected workspace sidebar responder to take focus")
+        XCTAssertTrue(harness.window.firstResponder === sidebarResponder, "Expected workspace sidebar responder to own focus before typing")
+
+        guard let keyDown = makeKeyDownEvent(
+            key: "a",
+            modifiers: [],
+            keyCode: 0,
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct typing event")
+            return
+        }
+
+        sidebarResponder.keyDown(with: keyDown)
+
+        XCTAssertTrue(
+            harness.window.firstResponder === harness.webView,
+            "Typing after a workspace-sidebar shortcut should restore the focused browser instead of stealing terminal focus"
+        )
+    }
+
     func testGhosttyFindNavigationShortcutsFallThroughForTerminalFirstResponderWithSidebarMultiSelection() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
