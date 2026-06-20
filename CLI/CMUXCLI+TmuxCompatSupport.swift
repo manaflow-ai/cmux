@@ -65,54 +65,27 @@ extension CMUXCLI {
         return commandText.isEmpty ? nil : commandText
     }
 
-    /// Shell builtins that cannot be exec'd as a standalone binary, so a command
-    /// starting with one must run through a shell.
-    static let tmuxShellExecBuiltins: Set<String> = [
-        "cd", "exec", "eval", "source", ".", "export", "set", "unset",
-        "alias", "unalias", "pushd", "popd", "umask", "ulimit", ":",
-        "local", "readonly", "let", "trap",
+    /// Shell program names whose `<shell> … -c <arg>` invocation already runs
+    /// `<arg>` through a shell, so cmux must not wrap it a second time.
+    static let tmuxKnownShellNames: Set<String> = [
+        "sh", "bash", "zsh", "dash", "fish", "ksh", "ash", "mksh", "csh", "tcsh",
     ]
 
-    /// Unquoted shell metacharacters that make a command a shell expression
-    /// (control operators, pipes, redirections, substitutions, multi-line)
-    /// rather than a single program invocation. Detected at the character level
-    /// so operators without surrounding whitespace (`a&&b`, `a;b`) are caught.
-    static let tmuxShellMetacharacters: Set<Character> = [
-        "&", "|", ";", "<", ">", "$", "`", "\n",
-    ]
-
-    /// Whether a tmux shell-command must run through a shell rather than being
-    /// exec'd directly. True when it starts with a shell builtin (e.g. `cd`) or
-    /// contains an unquoted shell metacharacter (e.g. `&&`, `;`, `$`).
-    func tmuxCommandRequiresLoginShell(_ command: String) -> Bool {
-        if let first = tmuxShellWords(command).first, Self.tmuxShellExecBuiltins.contains(first) {
-            return true
+    /// Whether `command` is already a clean shell invocation — a known shell
+    /// followed by a `-c`-style command flag (e.g. OMO's `/bin/sh -c "…"`). In
+    /// that case the shell already interprets the inner command, so cmux must not
+    /// wrap it again. Conservative on purpose: an unrecognized form just gets
+    /// (harmlessly) wrapped, whereas a wrong "skip" could leave a shell
+    /// expression unwrapped, so only a known shell with a c-flag qualifies.
+    func tmuxCommandIsShellInvocation(_ command: String) -> Bool {
+        let words = tmuxShellWords(command)
+        guard let program = words.first.map({ ($0 as NSString).lastPathComponent }),
+              Self.tmuxKnownShellNames.contains(program) else {
+            return false
         }
-        var inSingleQuote = false
-        var inDoubleQuote = false
-        var escaping = false
-        for character in command {
-            if escaping {
-                escaping = false
-                continue
-            }
-            if character == "\\" && !inSingleQuote {
-                escaping = true
-                continue
-            }
-            if character == "'" && !inDoubleQuote {
-                inSingleQuote.toggle()
-                continue
-            }
-            if character == "\"" && !inSingleQuote {
-                inDoubleQuote.toggle()
-                continue
-            }
-            if !inSingleQuote, !inDoubleQuote, Self.tmuxShellMetacharacters.contains(character) {
-                return true
-            }
+        return words.dropFirst().contains { word in
+            word.hasPrefix("-") && word.contains("c")
         }
-        return false
     }
 
     /// Returns a pane start-command that the surface can exec correctly.
@@ -120,20 +93,20 @@ extension CMUXCLI {
     /// cmux hands a respawn/start command to the surface as the pane's process
     /// command. On macOS, Ghostty execs that command via `exec -l <command>`
     /// (see ghostty/src/termio/Exec.zig), which only works when `<command>` is a
-    /// single executable (optionally with arguments). A bare shell expression —
+    /// single executable. tmux shell-commands are arbitrary shell expressions —
     /// Claude Code agent-team teammates respawn with `cd <dir> && env … <claude> …`
-    /// — makes `exec -l cd …` try to exec the `cd` builtin as a binary; it fails
-    /// and the pane exits before the real command runs, so Claude Code 2.1.183
-    /// teammates never opened a split pane (issue #6447). Such commands are
-    /// rewritten to run through `${SHELL:-/bin/zsh} -lc` (the user's shell,
-    /// resolved when Ghostty execs the wrapper), matching real tmux's `$SHELL -c`
-    /// semantics so Ghostty execs the shell rather than a builtin/expression.
-    /// Commands that are already a single executable (including the
-    /// `/bin/sh -c "…"` form OMO uses) are returned unchanged so they are not
-    /// needlessly double-wrapped.
+    /// — so `exec -l cd …` tries to exec the `cd` builtin as a binary, fails, and
+    /// the pane exits before the real command runs; that is why Claude Code
+    /// 2.1.183 teammates never opened a split pane (issue #6447). Commands are run
+    /// through `${SHELL:-/bin/zsh} -lc` (the user's shell, resolved when Ghostty
+    /// execs the wrapper), matching real tmux's `$SHELL -c` semantics, so Ghostty
+    /// execs the shell rather than a builtin/expression/assignment-prefix. The
+    /// only commands left unwrapped are ones that are already a clean shell
+    /// invocation (e.g. OMO's `/bin/sh -c "…"`), which would otherwise be
+    /// redundantly double-wrapped.
     func tmuxShellInvokedStartCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, tmuxCommandRequiresLoginShell(trimmed) else { return command }
+        guard !trimmed.isEmpty, !tmuxCommandIsShellInvocation(trimmed) else { return command }
         return "${SHELL:-/bin/zsh} -lc \(tmuxShellQuote(trimmed))"
     }
 

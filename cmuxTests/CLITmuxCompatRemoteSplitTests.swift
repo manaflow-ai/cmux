@@ -173,10 +173,11 @@ import Testing
     /// src/termio/Exec.zig), which only works for a single executable — a bare shell
     /// expression like `cd … && … claude` makes it try to exec the `cd` builtin as a
     /// binary, the pane exits immediately, and the teammate never gets a visible pane
-    /// (it falls back to in-process). The fix runs shell-expression commands through a
-    /// login shell so Ghostty execs the shell, not the expression, while leaving
-    /// single-executable commands untouched. `tmux_start_command` stays the raw
-    /// command so `#{pane_start_command}` / OMX-HUD detection keep reporting it.
+    /// (it falls back to in-process). The fix runs tmux shell-commands through the
+    /// user's login shell so Ghostty execs the shell, not the expression, while
+    /// leaving commands that are already a clean shell invocation untouched.
+    /// `tmux_start_command` stays the raw command so `#{pane_start_command}` / OMX-HUD
+    /// detection keep reporting it.
     @Test func respawnPaneRunsShellExpressionsThroughLoginShell() throws {
         let shellPrefix = "${SHELL:-/bin/zsh} -lc "
 
@@ -196,24 +197,24 @@ import Testing
             "tmux_start_command must stay the raw command for display/OMX detection, got: \(teammateResult.startCommand)"
         )
 
-        // Operator without surrounding whitespace must still be detected as a shell
-        // expression and wrapped.
+        // Operator without surrounding whitespace must still be wrapped.
         let noSpaceOperator = try respawnPaneForwardedCommand("echo one;echo two")
         #expect(
             noSpaceOperator.command.hasPrefix(shellPrefix),
             "non-whitespace-separated operator must still be wrapped, got: \(noSpaceOperator.command)"
         )
 
-        // A single executable (with args) execs directly, so it is forwarded
-        // unchanged rather than needlessly wrapped.
-        let plainExecutable = try respawnPaneForwardedCommand("/opt/claude --resume abc --model sonnet")
+        // A leading `NAME=value` assignment is shell syntax (`exec` cannot run a
+        // program literally named `FOO=bar`), so it must be wrapped even with no
+        // operators present.
+        let assignmentPrefix = try respawnPaneForwardedCommand("FOO=bar /opt/claude --resume x")
         #expect(
-            plainExecutable.command == "/opt/claude --resume abc --model sonnet",
-            "single executable must be forwarded unchanged, got: \(plainExecutable.command)"
+            assignmentPrefix.command.hasPrefix(shellPrefix),
+            "assignment-prefixed command must be wrapped, got: \(assignmentPrefix.command)"
         )
 
-        // The `/bin/sh -c "…"` form (used by OMO) is already a single executable, so
-        // its inner operators stay quoted and the command is forwarded unchanged.
+        // The `/bin/sh -c "…"` form (used by OMO) is already a clean shell
+        // invocation, so it is forwarded unchanged rather than double-wrapped.
         let alreadyShellInvoked = try respawnPaneForwardedCommand("/bin/sh -c \"opencode attach; sleep 1\"")
         #expect(
             alreadyShellInvoked.command == "/bin/sh -c \"opencode attach; sleep 1\"",
