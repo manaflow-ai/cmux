@@ -635,40 +635,37 @@ class TerminalController {
         return trimmed
     }
 
+    // The VT-export path helpers now live on `TerminalSurface` in
+    // `CmuxTerminal` (`TerminalSurface+TextRead.swift`), beside the VT-export
+    // reader that uses them. These app-target entry points forward to the
+    // single package implementation so existing unit tests
+    // (`SessionPersistenceTests`) keep calling `TerminalController.…`.
     nonisolated static func normalizedExportedScreenPath(_ raw: String?) -> String? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if let url = URL(string: trimmed),
-           url.isFileURL,
-           !url.path.isEmpty {
-            return url.path
-        }
-        return trimmed.hasPrefix("/") ? trimmed : nil
+        TerminalSurface.normalizedExportedScreenPath(raw)
     }
 
     nonisolated static func shouldRemoveExportedScreenFile(
         fileURL: URL,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> Bool {
-        let standardizedFile = fileURL.standardizedFileURL
-        let temporary = temporaryDirectory.standardizedFileURL
-        return standardizedFile.path.hasPrefix(temporary.path + "/")
+        TerminalSurface.shouldRemoveExportedScreenFile(
+            fileURL: fileURL,
+            temporaryDirectory: temporaryDirectory
+        )
     }
 
     nonisolated static func shouldRemoveExportedScreenDirectory(
         fileURL: URL,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> Bool {
-        let directory = fileURL.deletingLastPathComponent().standardizedFileURL
-        let temporary = temporaryDirectory.standardizedFileURL
-        return directory.path.hasPrefix(temporary.path + "/")
+        TerminalSurface.shouldRemoveExportedScreenDirectory(
+            fileURL: fileURL,
+            temporaryDirectory: temporaryDirectory
+        )
     }
 
     nonisolated static func normalizedMobileVTExportText(_ text: String) -> String {
-        // Ghostty's VT formatter writes row separators as CRLF. Swift treats
-        // CRLF as one Character, so split(separator: "\n") would miss rows.
-        text.replacingOccurrences(of: "\r\n", with: "\n")
+        TerminalSurface.normalizedMobileVTExportText(text)
     }
 
     nonisolated static func parseReportedShellActivityState(
@@ -3027,92 +3024,32 @@ class TerminalController {
 
 
 
-    // `TerminalTextRawSnapshot`, `TerminalTextPayload`, and
-    // `TerminalTextPayloadError`, plus the pure payload assembly
-    // (`TerminalTextPayload.make`) and `String.terminalTextTail`, now live in
-    // `CmuxTerminal`. The Ghostty-pointer readers below stay app-side because
-    // they call `ghostty_surface_read_text` directly (engine-coupled residue,
-    // revisit when CmuxTerminalEngine lands).
+    // The terminal-text snapshot readers now live on `TerminalSurface` in
+    // `CmuxTerminal` (`TerminalSurface+TextRead.swift`), beside the existing
+    // Ghostty-pointer read path (`TerminalSurface.readText(surface:pointTag:)`)
+    // and the pure payload assembly (`TerminalTextPayload.make`,
+    // `String.terminalTextTail`). The methods below are thin forwarders that
+    // preserve the panel-level `TerminalPanel.performBindingAction(_:)`
+    // agent-hibernation guard and inject the shared
+    // `GhosttyApp.terminalPasteboard`; their signatures are unchanged so every
+    // caller (the control-plane conformances, the mobile replay path,
+    // hibernation, session snapshot, and the cmd-click UI test recorder) is
+    // byte-identical.
     func readTerminalTextRawSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool
     ) -> TerminalTextRawSnapshot? {
-        guard terminalPanel.surface.surface != nil else { return nil }
-        if includeScrollback {
-            return TerminalTextRawSnapshot(
-                viewport: nil,
-                screen: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SCREEN),
-                history: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SURFACE),
-                active: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_ACTIVE)
-            )
-        }
-        return TerminalTextRawSnapshot(
-            viewport: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_VIEWPORT),
-            screen: nil,
-            history: nil,
-            active: nil
-        )
+        terminalPanel.surface.readTextRawSnapshot(includeScrollback: includeScrollback)
     }
 
-    private func readTerminalSelectionText(terminalPanel: TerminalPanel, pointTag: ghostty_point_tag_e) -> String? {
-        guard let surface = terminalPanel.surface.surface else { return nil }
-        let topLeft = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else {
-            return nil
-        }
-        defer {
-            ghostty_surface_free_text(surface, &text)
-        }
-
-        guard let ptr = text.text, text.text_len > 0 else {
-            return ""
-        }
-        let rawData = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: rawData, as: UTF8.self)
-    }
-
-    // Relaxed from `private` to `internal`: the relocated v1
-    // `readTerminalTextBase64(surfaceArg:)` body (now in
-    // `TerminalController+ControlSurfaceSendNotifyV1.swift`) calls this shared
-    // panel-level reader, which stays here because the v2 read path also uses it.
+    // Stays callable from the relocated v1 `readTerminalTextBase64(surfaceArg:)`
+    // body (now in `TerminalController+ControlSurfaceSendNotifyV1.swift`) and
+    // the v2 read path; both pass a `TerminalPanel`.
     func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
-            return "ERROR: Terminal surface not found"
-        }
-        guard let snapshot = readTerminalTextRawSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback
-        ) else {
-            return "ERROR: Terminal surface not found"
-        }
-        switch TerminalTextPayload.make(
-            from: snapshot,
+        terminalPanel.surface.readTextBase64(
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
-        ) {
-        case .success(let payload):
-            return "OK \(payload.base64)"
-        case .failure(let error):
-            return "ERROR: \(error.message)"
-        }
+        )
     }
 
     private func readTerminalTextFromVTExportForSnapshot(
@@ -3121,62 +3058,13 @@ class TerminalController {
         lineLimit: Int?,
         normalizeLineEndings: Bool = true
     ) -> String? {
-        var actionSucceeded = false
-        let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
-            let ok = terminalPanel.performBindingAction(bindingAction)
-            actionSucceeded = ok
-            return ok
-        }
-        #if DEBUG
-        cmuxDebugLog("mobile.vtExport action=\(bindingAction) succeeded=\(actionSucceeded) hasPath=\(exportedPath != nil)")
-        #endif
-        guard let exportedPath = Self.normalizedExportedScreenPath(exportedPath) else {
-            return nil
-        }
-
-        let fileURL = URL(fileURLWithPath: exportedPath)
-        defer {
-            if Self.shouldRemoveExportedScreenFile(fileURL: fileURL) {
-                try? FileManager.default.removeItem(at: fileURL)
-                if Self.shouldRemoveExportedScreenDirectory(fileURL: fileURL) {
-                    try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
-                }
-            }
-        }
-
-        guard let data = try? Data(contentsOf: fileURL),
-              let rawOutput = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        var output = normalizeLineEndings
-            ? Self.normalizedMobileVTExportText(rawOutput)
-            : rawOutput
-        if let lineLimit {
-            output = output.terminalTextTail(maxLines: lineLimit)
-        }
-        return output
-    }
-
-    private func readPlainTerminalTextForSnapshot(
-        terminalPanel: TerminalPanel,
-        includeScrollback: Bool = false,
-        lineLimit: Int? = nil
-    ) -> String? {
-        let response = readTerminalTextBase64(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
+        terminalPanel.surface.readTextFromVTExportForSnapshot(
+            pasteboard: GhosttyApp.terminalPasteboard,
+            performBindingAction: { terminalPanel.performBindingAction(bindingAction) },
+            bindingAction: bindingAction,
+            lineLimit: lineLimit,
+            normalizeLineEndings: normalizeLineEndings
         )
-        guard response.hasPrefix("OK ") else { return nil }
-        let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        if base64.isEmpty {
-            return ""
-        }
-        guard let data = Data(base64Encoded: base64),
-              let decoded = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return decoded
     }
 
     func readTerminalTextForSnapshot(
@@ -3185,19 +3073,12 @@ class TerminalController {
         lineLimit: Int? = nil,
         allowVTExport: Bool = true
     ) -> String? {
-        if includeScrollback,
-           allowVTExport,
-           let vtOutput = readTerminalTextFromVTExportForSnapshot(
-               terminalPanel: terminalPanel,
-               lineLimit: lineLimit
-           ) {
-            return vtOutput
-        }
-
-        return readPlainTerminalTextForSnapshot(
-            terminalPanel: terminalPanel,
+        terminalPanel.surface.readTextForSnapshot(
+            pasteboard: GhosttyApp.terminalPasteboard,
+            performBindingAction: { terminalPanel.performBindingAction("write_screen_file:copy,vt") },
             includeScrollback: includeScrollback,
-            lineLimit: lineLimit
+            lineLimit: lineLimit,
+            allowVTExport: allowVTExport
         )
     }
 
@@ -3205,14 +3086,7 @@ class TerminalController {
         terminalPanel: TerminalPanel,
         lineLimit: Int
     ) -> String? {
-        // This runs from the periodic hibernation timer. Sample the visible tail
-        // only, rather than copying full scrollback every cycle.
-        readTerminalTextForSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: false,
-            lineLimit: lineLimit,
-            allowVTExport: false
-        )
+        terminalPanel.surface.readTextForHibernationFingerprint(lineLimit: lineLimit)
     }
 
     func readTerminalTextForSessionSnapshot(
@@ -3220,8 +3094,9 @@ class TerminalController {
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
-        readTerminalTextForSnapshot(
-            terminalPanel: terminalPanel,
+        terminalPanel.surface.readTextForSessionSnapshot(
+            pasteboard: GhosttyApp.terminalPasteboard,
+            performBindingAction: { terminalPanel.performBindingAction("write_screen_file:copy,vt") },
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
         )
