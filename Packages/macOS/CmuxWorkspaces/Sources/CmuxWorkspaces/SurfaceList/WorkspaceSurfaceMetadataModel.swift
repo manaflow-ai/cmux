@@ -189,6 +189,36 @@ public final class WorkspaceSurfaceMetadataModel<TabSelectionRequest> {
         return true
     }
 
+    /// Records `state` as the shell-activity classification for `panelId`,
+    /// returning the panel's previous state exactly when the report represents a
+    /// real transition the caller must act on, and `nil` otherwise.
+    ///
+    /// This owns the registry half of the legacy
+    /// `Workspace.updatePanelShellActivityState(panelId:state:)`: the
+    /// absent-panel guard (through ``SurfaceMetadataHosting/surfaceMetadataPanelExists(panelId:)``),
+    /// the unchanged-state guard, and the `panelShellActivityStates` write. Both
+    /// guards return `nil` so the caller skips the tail; only a landed write
+    /// returns the previous state.
+    ///
+    /// The tail the legacy body ran after the write, the restored-agent
+    /// resume-state update (it reaches `restoredAgentSnapshotsByPanelId` and the
+    /// agent-hibernation coordinator) and the DEBUG `surface.shellState` log
+    /// (it needs the workspace-id prefix and the `cmuxDebugLog` sink), is
+    /// irreducibly app-coupled, so the `Workspace` shim performs it with the
+    /// returned previous state. `panelShellActivityStates` carries no Combine
+    /// subscriber, so the direct registry write needs no observer-parity bridge.
+    @discardableResult
+    public func applyPanelShellActivityState(
+        panelId: UUID,
+        state: PanelShellActivityState
+    ) -> PanelShellActivityState? {
+        guard host?.surfaceMetadataPanelExists(panelId: panelId) == true else { return nil }
+        let previousState = registry.panelShellActivityStates[panelId] ?? .unknown
+        guard previousState != state else { return nil }
+        registry.panelShellActivityStates[panelId] = state
+        return previousState
+    }
+
     /// Recomputes the fused, sorted, deduplicated workspace listening-port
     /// projection from the per-surface registry ports plus the agent and remote
     /// port sets, writing the host's `listeningPorts` only when it changes.

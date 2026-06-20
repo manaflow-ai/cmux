@@ -14,11 +14,16 @@ private final class SurfaceMetadataHostStub: SurfaceMetadataHosting {
     var detectedPorts: [Int] = []
     var forwardedPorts: [Int] = []
     var listeningPorts: [Int] = []
+    var existingPanelIds: Set<UUID> = []
     private(set) var clearedGuardedPanelIds: [UUID] = []
     private(set) var listeningPortWrites = 0
     private(set) var ignoredReports: [(panelId: UUID, missing: String, saved: String, reported: String)] = []
 
     var surfaceMetadataFocusedPanelId: UUID? { focusedPanelId }
+
+    func surfaceMetadataPanelExists(panelId: UUID) -> Bool {
+        existingPanelIds.contains(panelId)
+    }
 
     var surfaceMetadataCurrentDirectory: String {
         get { currentDirectory }
@@ -231,6 +236,41 @@ struct WorkspaceSurfaceMetadataModelTests {
         model.recomputeListeningPorts()
 
         #expect(host.listeningPortWrites == writesAfterFirst)
+    }
+
+    @Test
+    func applyPanelShellActivityStateIgnoresAbsentPanel() {
+        let (model, registry, _) = makeModel()
+        let panelId = UUID()
+
+        #expect(model.applyPanelShellActivityState(panelId: panelId, state: .commandRunning) == nil)
+        #expect(registry.panelShellActivityStates[panelId] == nil)
+    }
+
+    @Test
+    func applyPanelShellActivityStateWritesAndReturnsPreviousStateOnTransition() {
+        let (model, registry, host) = makeModel()
+        let panelId = UUID()
+        host.existingPanelIds = [panelId]
+
+        // First transition: unknown (default) -> commandRunning.
+        #expect(model.applyPanelShellActivityState(panelId: panelId, state: .commandRunning) == .unknown)
+        #expect(registry.panelShellActivityStates[panelId] == .commandRunning)
+
+        // Second transition reports the prior commandRunning state.
+        #expect(model.applyPanelShellActivityState(panelId: panelId, state: .promptIdle) == .commandRunning)
+        #expect(registry.panelShellActivityStates[panelId] == .promptIdle)
+    }
+
+    @Test
+    func applyPanelShellActivityStateIgnoresUnchangedState() {
+        let (model, registry, host) = makeModel()
+        let panelId = UUID()
+        host.existingPanelIds = [panelId]
+        registry.panelShellActivityStates[panelId] = .promptIdle
+
+        #expect(model.applyPanelShellActivityState(panelId: panelId, state: .promptIdle) == nil)
+        #expect(registry.panelShellActivityStates[panelId] == .promptIdle)
     }
 
     @Test

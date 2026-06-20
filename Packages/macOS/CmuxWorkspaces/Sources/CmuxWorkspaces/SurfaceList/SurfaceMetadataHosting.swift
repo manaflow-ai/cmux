@@ -30,6 +30,13 @@ public protocol SurfaceMetadataHosting: AnyObject {
     /// (legacy `Workspace.focusedPanelId`).
     var surfaceMetadataFocusedPanelId: UUID? { get }
 
+    /// Whether a panel with `panelId` currently exists in the workspace
+    /// (legacy `Workspace.panels[panelId] != nil`).
+    /// ``WorkspaceSurfaceMetadataModel/applyPanelShellActivityState(panelId:state:)``
+    /// ignores a shell-activity report for an absent panel exactly as the
+    /// legacy body did.
+    func surfaceMetadataPanelExists(panelId: UUID) -> Bool
+
     /// The workspace's current working directory (legacy
     /// `Workspace.currentDirectory`). The setter is the `@Published` property
     /// whose `didSet` posts `.workspaceCurrentDirectoryDidChange`; the model
