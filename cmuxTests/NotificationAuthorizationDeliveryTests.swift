@@ -277,7 +277,7 @@ final class NotificationAuthorizationDeliveryTests {
         #expect(dismissedPayloads == [[old.id.uuidString]])
     }
 
-    @Test func suppressedFeedbackCoalescesStaleAuthorizationRefreshes() async {
+    @Test func suppressedFeedbackCoalescesColdAuthorizationRefreshWithoutBlockingFeedback() async {
         let store = TerminalNotificationStore.shared
         let originalAuthorizationState = store.authorizationState
         var statusProviderCalls = 0
@@ -332,6 +332,7 @@ final class NotificationAuthorizationDeliveryTests {
 
         #expect(statusProviderCalls == 1)
         #expect(pendingStatusCompletions.count == 1)
+        #expect(feedbackTitles.isEmpty)
 
         pendingStatusCompletions[0](.authorized)
         while let state = await authorizationUpdates.next() {
@@ -341,6 +342,9 @@ final class NotificationAuthorizationDeliveryTests {
         }
 
         #expect(store.authorizationState == .authorized)
-        #expect(feedbackTitles == ["Recordless 1", "Recordless 2"])
+        #expect(feedbackTitles.isEmpty)
+
+        store.scheduleUserNotificationForTesting(first, effects: effects)
+        #expect(feedbackTitles == ["Recordless 1"])
     }
 }

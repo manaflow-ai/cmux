@@ -1858,15 +1858,21 @@ final class TerminalNotificationStore: ObservableObject {
         for notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
-        resolveFallbackEffectsFromCurrentAuthorization(effects) { [weak self] effectiveEffects in
-            guard let self else { return }
-            self.playLocalNotificationFeedback(
-                title: self.resolvedNotificationTitle(for: notification),
-                subtitle: notification.subtitle,
-                body: notification.body,
-                effects: effectiveEffects
-            )
+        let currentAuthorizationState = authorizationState
+        let effectiveEffects = Self.fallbackEffects(
+            effects,
+            authorizationState: Self.immediateFallbackAuthorizationState(from: currentAuthorizationState)
+        )
+        if Self.shouldRefreshFallbackAuthorizationState(currentAuthorizationState),
+           effects.desktop || effects.sound || effects.command {
+            enqueueFallbackAuthorizationRefresh { _ in }
         }
+        playLocalNotificationFeedback(
+            title: resolvedNotificationTitle(for: notification),
+            subtitle: notification.subtitle,
+            body: notification.body,
+            effects: effectiveEffects
+        )
     }
 
     private func playLocalNotificationFeedback(
@@ -1881,23 +1887,6 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             effects: effects
         )
-    }
-
-    private func resolveFallbackEffectsFromCurrentAuthorization(
-        _ effects: TerminalNotificationPolicyEffects,
-        _ completion: @escaping (TerminalNotificationPolicyEffects) -> Void
-    ) {
-        guard effects.desktop || effects.sound || effects.command else {
-            completion(effects)
-            return
-        }
-        if authorizationState == .denied {
-            completion(Self.fallbackEffects(effects, authorizationState: .denied))
-            return
-        }
-        enqueueFallbackAuthorizationRefresh { state in
-            completion(Self.fallbackEffects(effects, authorizationState: state))
-        }
     }
 
     private func enqueueFallbackAuthorizationRefresh(
@@ -1934,6 +1923,28 @@ final class TerminalNotificationStore: ObservableObject {
             return state
         case .unknown, .notDetermined:
             return .denied
+        }
+    }
+
+    private static func immediateFallbackAuthorizationState(
+        from state: NotificationAuthorizationState
+    ) -> NotificationAuthorizationState {
+        switch state {
+        case .authorized, .denied, .provisional, .ephemeral:
+            return state
+        case .unknown, .notDetermined:
+            return .denied
+        }
+    }
+
+    private static func shouldRefreshFallbackAuthorizationState(
+        _ state: NotificationAuthorizationState
+    ) -> Bool {
+        switch state {
+        case .unknown, .notDetermined:
+            return true
+        case .authorized, .denied, .provisional, .ephemeral:
+            return false
         }
     }
 
