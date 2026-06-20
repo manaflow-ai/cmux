@@ -15,8 +15,14 @@ enum SidebarInlineRenameAction: Equatable {
 /// start; a second Escape (selection collapsed) cancels.
 struct SidebarInlineRenameKeyResolver {
     func action(for selector: Selector, selectionIsCollapsed: Bool) -> SidebarInlineRenameAction {
-        // STUB — replaced in Step 5 (green).
-        .passThrough
+        switch selector {
+        case #selector(NSResponder.insertNewline(_:)):
+            return .commit
+        case #selector(NSResponder.cancelOperation(_:)):
+            return selectionIsCollapsed ? .cancel : .caretToStart
+        default:
+            return .passThrough
+        }
     }
 }
 
@@ -25,7 +31,7 @@ struct SidebarInlineRenameKeyResolver {
 /// never clears an existing custom title — design spec §6.1).
 enum SidebarInlineRenameCommit {
     static func normalized(_ draft: String) -> String? {
-        // STUB — replaced in Step 5 (green).
-        draft
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
