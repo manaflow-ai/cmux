@@ -40,6 +40,12 @@ public final class DebugWindowsCoordinator {
     @ObservationIgnored
     private let tabBarBackdropLabContentProvider: (@MainActor () -> NSView)?
 
+    @ObservationIgnored
+    private var sidebarDebugController: SidebarDebugWindowController?
+
+    @ObservationIgnored
+    private let sidebarDebugContentProvider: (@MainActor () -> NSView)?
+
     #if DEBUG
     @ObservationIgnored
     private var splitButtonLayoutController: SplitButtonLayoutDebugWindowController?
@@ -92,10 +98,16 @@ public final class DebugWindowsCoordinator {
     ///     samples the app-target `GhosttyApp`/`Workspace` backdrop tuning, so the
     ///     app target injects it here. `nil` disables ``showTabBarBackdropLab()``
     ///     (no panel is presented).
+    ///   - sidebarDebugContentProvider: Builds the content view for the "Sidebar
+    ///     Debug" panel. The editor resolves the live app accent color and the
+    ///     localized active-indicator display names against the app bundle, so the
+    ///     app target injects it here. `nil` disables ``showSidebarDebug()`` (no
+    ///     panel is presented).
     public init(
         decorator: (any WindowDecorating)?,
         browserDebugContext: (any BrowserDebugContext)? = nil,
         tabBarBackdropLabContentProvider: (@MainActor () -> NSView)? = nil,
+        sidebarDebugContentProvider: (@MainActor () -> NSView)? = nil,
         debugWindowControlsContentProvider: (@MainActor () -> NSView)? = nil,
         menuBarExtraDebugContentProvider: (@MainActor () -> NSView)? = nil,
         backgroundDebugContentProvider: (@MainActor () -> NSView)? = nil
@@ -104,6 +116,7 @@ public final class DebugWindowsCoordinator {
         self.browserDebugContext = browserDebugContext
         self.aboutTitlebarStore = AboutTitlebarDebugStore(decorator: decorator)
         self.tabBarBackdropLabContentProvider = tabBarBackdropLabContentProvider
+        self.sidebarDebugContentProvider = sidebarDebugContentProvider
         #if DEBUG
         self.debugWindowControlsContentProvider = debugWindowControlsContentProvider
         self.menuBarExtraDebugContentProvider = menuBarExtraDebugContentProvider
@@ -156,6 +169,20 @@ public final class DebugWindowsCoordinator {
                 contentProvider: tabBarBackdropLabContentProvider
             )
         tabBarBackdropLabController = controller
+        controller.show()
+    }
+
+    /// Presents the Sidebar Debug editor, creating its window on first use.
+    ///
+    /// No-op when no content provider was injected at construction.
+    public func showSidebarDebug() {
+        guard let sidebarDebugContentProvider else { return }
+        let controller = sidebarDebugController
+            ?? SidebarDebugWindowController(
+                decorator: decorator,
+                contentProvider: sidebarDebugContentProvider
+            )
+        sidebarDebugController = controller
         controller.show()
     }
 

@@ -18,6 +18,8 @@ let package = Package(
         .package(path: "../CmuxWorkspaces"),
         // SidebarResizerBandPolicy (pure hit-band geometry) backs the resizer controller.
         .package(path: "../CmuxSidebar"),
+        // WorkspaceIndicatorStyle + the sidebar/workspace catalog sections back the Sidebar Debug editor.
+        .package(path: "../CmuxSettings"),
         // CMUXDebugLog backs the ReleasingWindowController close-teardown logging.
         .package(path: "../CMUXDebugLog"),
     ],
@@ -28,6 +30,7 @@ let package = Package(
                 "CmuxFoundation",
                 "CmuxWorkspaces",
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],
             swiftSettings: [
