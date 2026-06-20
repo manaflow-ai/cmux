@@ -62,10 +62,6 @@ final class DockSplitStore: BonsplitDelegate {
         }
     }
 
-    func applyGhosttyChrome(from config: GhosttyConfig) {
-        bonsplitController.configuration.appearance = Self.makeAppearance(from: config)
-    }
-
     // MARK: - Lookups
 
     func panel(for tabId: TabID) -> (any Panel)? {
@@ -181,10 +177,6 @@ final class DockSplitStore: BonsplitDelegate {
         return true
     }
 
-    func noteKeyboardFocusIntent(window: NSWindow?) {
-        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
-    }
-
     // MARK: - In-app creation
 
     /// Creates a new surface (tab) in an existing Dock pane. Used by the tab-bar
@@ -261,6 +253,7 @@ final class DockSplitStore: BonsplitDelegate {
             return panel.id
         }
 
+        let previousFocus = focus ? nil : focusedDockPaneSelection()
         panels[panel.id] = panel
         let newTab = Bonsplit.Tab(
             title: panel.displayTitle,
@@ -284,7 +277,11 @@ final class DockSplitStore: BonsplitDelegate {
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
         applyVisibility(to: panel)
-        if focus { focusPanel(panel.id) }
+        if focus {
+            focusPanel(panel.id)
+        } else {
+            restoreDockPaneSelection(previousFocus)
+        }
         return panel.id
     }
 
@@ -571,6 +568,7 @@ final class DockSplitStore: BonsplitDelegate {
         for tabId in bonsplitController.allTabIds {
             _ = bonsplitController.closeTab(tabId)
         }
+        collapseToSingleEmptyPane()
         reconcilePanels()
         for panel in panels.values { panel.close() }
         panels.removeAll()

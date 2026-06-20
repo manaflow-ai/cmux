@@ -3,6 +3,10 @@ import CmuxAppKitSupportUI
 import CmuxTerminal
 
 extension DockSplitStore {
+    func applyGhosttyChrome(from config: GhosttyConfig) {
+        bonsplitController.configuration.appearance = Self.makeAppearance(from: config)
+    }
+
     static func makeConfiguration() -> BonsplitConfiguration {
         let config = GhosttyConfig.load()
         return BonsplitConfiguration(
