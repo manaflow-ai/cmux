@@ -139,14 +139,20 @@ actor FlowInMemoryTokenStore: StackAuthTokenStoreProtocol {
 @MainActor
 final class FakeBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
     private(set) var sessions: [FakeBrowserAuthSession] = []
+    var nextStartResult = true
 
     func makeSession(
         signInURL: URL,
         callbackScheme: String,
-        completion: @escaping @MainActor (URL?) -> Void
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
     ) -> any HostBrowserAuthSession {
-        let session = FakeBrowserAuthSession(signInURL: signInURL, completion: completion)
+        let session = FakeBrowserAuthSession(
+            signInURL: signInURL,
+            startResult: nextStartResult,
+            completion: completion
+        )
         sessions.append(session)
+        nextStartResult = true
         return session
     }
 }
@@ -156,27 +162,37 @@ final class FakeBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
 final class FakeBrowserAuthSession: HostBrowserAuthSession {
     let signInURL: URL
     var deliverCancelCompletion = true
-    private let completion: @MainActor (URL?) -> Void
+    private let startResult: Bool
+    private let completion: @MainActor (HostBrowserAuthSessionResult) -> Void
     private var completed = false
     private(set) var cancelled = false
 
-    init(signInURL: URL, completion: @escaping @MainActor (URL?) -> Void) {
+    init(
+        signInURL: URL,
+        startResult: Bool,
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
+    ) {
         self.signInURL = signInURL
+        self.startResult = startResult
         self.completion = completion
     }
 
-    func start() -> Bool { true }
+    func start() -> Bool { startResult }
 
     func cancel() {
         cancelled = true
         if deliverCancelCompletion {
-            deliver(nil)
+            deliver(.cancelled(reason: "fake_cancel"))
         }
     }
 
-    func deliver(_ url: URL?) {
+    func deliver(_ url: URL) {
+        deliver(.callback(url))
+    }
+
+    func deliver(_ result: HostBrowserAuthSessionResult) {
         guard !completed else { return }
         completed = true
-        completion(url)
+        completion(result)
     }
 }

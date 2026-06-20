@@ -56,6 +56,7 @@ import Testing
 
         #expect(await attempt.value == false)
         #expect(harness.flow.isSigningIn == false)
+        #expect(harness.flow.lastFailure == nil)
     }
 
     @Test func signOutCancelsActivePopup() async {

@@ -93,6 +93,31 @@ import Testing
         #expect(harness.flow.lastFailure == nil)
     }
 
+    @Test func browserSessionStartFailureRecordsDiagnosticFailure() async {
+        let harness = HostBrowserSignInFlowHarness()
+        harness.factory.nextStartResult = false
+
+        let result = await harness.flow.signIn(timeout: 60)
+
+        #expect(result == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(harness.flow.isSigningIn == false)
+        #expect(harness.flow.lastFailure == .browserSignInFailed("start_returned_false"))
+    }
+
+    @Test func browserSessionCompletionFailureRecordsDiagnosticFailure() async {
+        let harness = HostBrowserSignInFlowHarness()
+
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(.failed(reason: "presentation_context_invalid"))
+
+        #expect(await attempt.value == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(harness.flow.isSigningIn == false)
+        #expect(harness.flow.lastFailure == .browserSignInFailed("presentation_context_invalid"))
+    }
+
     @Test func abandonedBrowserAttemptTimesOut() async throws {
         let clock = ManualTestClock()
         let harness = HostBrowserSignInFlowHarness(browserAttemptTimeout: 1, clock: clock)
