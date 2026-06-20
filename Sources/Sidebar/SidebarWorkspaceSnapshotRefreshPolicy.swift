@@ -35,6 +35,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,
             progress: progress,
+            activeCodingAgentCount: activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,

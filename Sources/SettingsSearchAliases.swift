@@ -118,6 +118,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:show-ports": localized("settings.search.alias.setting.app.show-ports", defaultValue: "sidebar.showPorts localhost port listener dev server url"),
         "sidebarAppearance:show-log": localized("settings.search.alias.setting.app.show-log", defaultValue: "sidebar.showLog log status latest message imperative"),
         "sidebarAppearance:show-progress": localized("settings.search.alias.setting.app.show-progress", defaultValue: "sidebar.showProgress progress bar percent status set_progress"),
+        "sidebarAppearance:show-agent-activity": localized("settings.search.alias.setting.app.show-agent-activity", defaultValue: "sidebar.showAgentActivity active coding agent agents spinner running count activity"),
         "sidebarAppearance:show-metadata": localized("settings.search.alias.setting.app.show-metadata", defaultValue: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
         "sidebarAppearance:right-max-width": localized("settings.search.alias.setting.sidebarAppearance.right-max-width", defaultValue: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
         "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),

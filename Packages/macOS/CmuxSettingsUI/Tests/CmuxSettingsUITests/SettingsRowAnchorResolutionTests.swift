@@ -96,6 +96,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showCustomMetadata",
         "sidebar.showLog",
         "sidebar.showNotificationMessage",
+        "sidebar.showAgentActivity",
         "sidebar.showPorts",
         "sidebar.showProgress",
         "sidebar.showPullRequests",

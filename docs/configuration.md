@@ -67,6 +67,20 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
+## `sidebar.showAgentActivity`
+
+Shows a compact spinner and count on sidebar workspace rows that currently have running coding agents.
+
+```json
+{
+  "sidebar": {
+    "showAgentActivity": true
+  }
+}
+```
+
+Default: `true`. The spinner is compositor-driven, so the row does not need a SwiftUI timer to animate. Toggle it from **Settings > Sidebar > Show Active Agents in Sidebar**.
+
 ## `automation.workspaceAutoNaming`
 
 Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short sidebar and tab names using each agent's own binary, and refreshes them as the conversation topic shifts. See [workspace-auto-naming.md](workspace-auto-naming.md) for the supported adapter list and full behavior.

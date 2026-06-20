@@ -33,6 +33,7 @@ public struct SidebarSection: View {
     @State private var showPorts: DefaultsValueModel<Bool>
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
+    @State private var showAgentActivity: DefaultsValueModel<Bool>
     @State private var showMetadata: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
@@ -59,6 +60,7 @@ public struct SidebarSection: View {
         _showPorts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPorts))
         _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
+        _showAgentActivity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentActivity))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
@@ -92,6 +94,7 @@ public struct SidebarSection: View {
             showPorts,
             showLog,
             showProgress,
+            showAgentActivity,
             showMetadata,
             rightMaxWidth,
             rememberedRightMaxWidth,
@@ -466,6 +469,17 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showAgentActivity"),
+                String(localized: "settings.app.showAgentActivity", defaultValue: "Show Active Agents in Sidebar"),
+                subtitle: String(localized: "settings.app.showAgentActivity.subtitle", defaultValue: "Display a spinner and count on workspaces with running coding agents.")
+            ) {
+                Toggle("", isOn: Binding(get: { showAgentActivity.current }, set: { showAgentActivity.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
             SettingsCardDivider()
 
             SettingsCardRow(

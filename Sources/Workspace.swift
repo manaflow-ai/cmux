@@ -2492,6 +2492,7 @@ final class Workspace: Identifiable, ObservableObject {
     var agentPIDPanelIdsByKey: [String: UUID] = [:]
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    let agentLifecycleStatesPublisher = CurrentValueSubject<[UUID: [String: AgentHibernationLifecycleState]], Never>([:])
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -4441,13 +4442,16 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
+        let previousStates = agentLifecycleStatesByPanelId
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        publishAgentLifecycleStatesIfNeeded(previousStates)
         recordAgentLifecycleChange(panelId: targetPanelId)
     }
 
     @discardableResult
     func clearAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
         var didClear = false
+        let previousStates = agentLifecycleStatesByPanelId
         let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
         for panelId in panelIds {
             guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
@@ -4458,21 +4462,31 @@ final class Workspace: Identifiable, ObservableObject {
             didClear = true
             recordAgentLifecycleChange(panelId: panelId)
         }
+        publishAgentLifecycleStatesIfNeeded(previousStates)
         return didClear
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
+        let previousStates = agentLifecycleStatesByPanelId
         guard agentLifecycleStatesByPanelId.removeValue(forKey: panelId) != nil else { return }
+        publishAgentLifecycleStatesIfNeeded(previousStates)
         recordAgentLifecycleChange(panelId: panelId)
     }
 
     func clearAllAgentLifecycleStates() {
         let panelIds = Array(agentLifecycleStatesByPanelId.keys)
         guard !panelIds.isEmpty else { return }
+        let previousStates = agentLifecycleStatesByPanelId
         agentLifecycleStatesByPanelId.removeAll()
+        publishAgentLifecycleStatesIfNeeded(previousStates)
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
         }
+    }
+
+    private func publishAgentLifecycleStatesIfNeeded(_ previousStates: [UUID: [String: AgentHibernationLifecycleState]]) {
+        guard previousStates != agentLifecycleStatesByPanelId else { return }
+        agentLifecycleStatesPublisher.send(agentLifecycleStatesByPanelId)
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {

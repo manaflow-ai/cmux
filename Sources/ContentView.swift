@@ -10036,6 +10036,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.sidebar.showAgentActivity) private var showAgentActivity
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -12119,6 +12120,7 @@ struct VerticalTabsSidebar: View {
             unreadCount: liveUnreadCount,
             hasMemoryWarning: liveHasMemoryWarning,
             latestNotificationText: liveLatestNotificationText,
+            showsAgentActivity: showAgentActivity,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -12885,6 +12887,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
         let progress: SidebarProgressState?
+        let activeCodingAgentCount: Int
         let compactGitBranchSummaryText: String?
         let compactDirectoryCandidates: [String]
         let compactBranchDirectoryCandidates: [String]
@@ -12917,6 +12920,7 @@ struct TabItemView: View, Equatable {
         lhs.unreadCount == rhs.unreadCount &&
         lhs.hasMemoryWarning == rhs.hasMemoryWarning &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
+        lhs.showsAgentActivity == rhs.showsAgentActivity &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -12948,6 +12952,7 @@ struct TabItemView: View, Equatable {
     /// the orange warning badge alongside the unread badge.
     let hasMemoryWarning: Bool
     let latestNotificationText: String?
+    let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -13167,6 +13172,26 @@ struct TabItemView: View, Equatable {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
+    private var activeCodingAgentTooltip: String {
+        if workspaceSnapshot.activeCodingAgentCount == 1 {
+            return String(
+                localized: "sidebar.agentActivity.tooltip.one",
+                defaultValue: "1 running coding agent"
+            )
+        }
+        let format = String(
+            localized: "sidebar.agentActivity.tooltip.many",
+            defaultValue: "%lld running coding agents"
+        )
+        return String.localizedStringWithFormat(format, Int64(workspaceSnapshot.activeCodingAgentCount))
+    }
+
+    private var activeCodingAgentSpinnerNSColor: NSColor {
+        usesInvertedActiveForeground
+            ? selectedWorkspaceForegroundNSColor(opacity: 0.92)
+            : .secondaryLabelColor
+    }
+
     private var remoteWorkspaceSidebarText: String? {
         guard tab.isRemoteWorkspace else { return nil }
         let trimmedTarget = tab.remoteDisplayTarget?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13361,6 +13386,18 @@ struct TabItemView: View, Equatable {
                             localized: "sidebar.memoryWarning.accessibilityLabel",
                             defaultValue: "High memory warning"
                         ))
+                }
+
+                if showsAgentActivity, workspaceSnapshot.activeCodingAgentCount > 0 {
+                    SidebarAgentActivityIndicator(
+                        count: workspaceSnapshot.activeCodingAgentCount,
+                        spinnerColor: activeCodingAgentSpinnerNSColor,
+                        foregroundColor: activeSecondaryColor(0.92),
+                        backgroundColor: activeSecondaryColor(0.14),
+                        fontScale: fontScale
+                    )
+                    .safeHelp(activeCodingAgentTooltip)
+                    .accessibilityLabel(Text(activeCodingAgentTooltip))
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -14423,6 +14460,9 @@ struct TabItemView: View, Equatable {
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,
+            activeCodingAgentCount: SidebarAgentActivitySummary.activeCodingAgentCount(
+                statesByPanelId: tab.agentLifecycleStatesByPanelId
+            ),
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,

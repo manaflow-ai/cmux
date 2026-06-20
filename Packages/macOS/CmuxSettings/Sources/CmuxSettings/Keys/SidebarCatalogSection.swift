@@ -110,6 +110,12 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowProgress"
     )
 
+    public let showAgentActivity = DefaultsKey<Bool>(
+        id: "sidebar.showAgentActivity",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowAgentActivity"
+    )
+
     public let showCustomMetadata = DefaultsKey<Bool>(
         id: "sidebar.showCustomMetadata",
         defaultValue: true,

@@ -70,4 +70,45 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
         )
     }
+
+    func testSidebarObservationPublisherEmitsForAgentLifecycleChanges() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        XCTAssertEqual(
+            publishCount,
+            1,
+            "Agent lifecycle changes must repaint the sidebar row so the active-agent spinner updates."
+        )
+    }
+
+    func testActiveCodingAgentCountOnlyCountsRunningAgents() {
+        let firstPanelId = UUID()
+        let secondPanelId = UUID()
+
+        let count = SidebarAgentActivitySummary.activeCodingAgentCount(
+            statesByPanelId: [
+                firstPanelId: [
+                    "codex": .running,
+                    "claude_code": .idle,
+                    "gemini": .needsInput,
+                ],
+                secondPanelId: [
+                    "opencode": .running,
+                    "kiro": .unknown,
+                ],
+            ]
+        )
+
+        XCTAssertEqual(count, 2)
+    }
 }
