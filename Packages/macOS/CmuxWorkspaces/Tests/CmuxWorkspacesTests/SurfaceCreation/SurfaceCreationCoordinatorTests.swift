@@ -324,6 +324,62 @@ struct SurfaceCreationCoordinatorTests {
         #expect(host.fallbackLogs.isEmpty)
     }
 
+    @Test("Whitespace-only and empty remote-PTY session ids normalize to nil")
+    func normalizeRemotePTYSessionIDEmpty() {
+        #expect(coordinator.normalizedRemotePTYSessionID(nil) == nil)
+        #expect(coordinator.normalizedRemotePTYSessionID("") == nil)
+        #expect(coordinator.normalizedRemotePTYSessionID("  \n\t ") == nil)
+    }
+
+    @Test("A non-empty remote-PTY session id is trimmed")
+    func normalizeRemotePTYSessionIDTrims() {
+        #expect(coordinator.normalizedRemotePTYSessionID("  sess-1  ") == "sess-1")
+        #expect(coordinator.normalizedRemotePTYSessionID("sess-2") == "sess-2")
+    }
+
+    @Test("An empty or whitespace-only explicit command normalizes to nil")
+    func normalizeExplicitInitialCommandEmpty() {
+        #expect(coordinator.normalizedExplicitInitialCommand(nil) == nil)
+        #expect(coordinator.normalizedExplicitInitialCommand("") == nil)
+        #expect(coordinator.normalizedExplicitInitialCommand("   \n ") == nil)
+    }
+
+    @Test("A non-empty explicit command is trimmed")
+    func normalizeExplicitInitialCommandTrims() {
+        #expect(coordinator.normalizedExplicitInitialCommand("  ls -la  ") == "ls -la")
+        #expect(coordinator.normalizedExplicitInitialCommand("echo hi") == "echo hi")
+    }
+
+    @Test("An explicit command replaces the remote command and clears the environment fold")
+    func resolveStartupCommandExplicitWins() {
+        let resolved = coordinator.resolveStartupCommand(
+            explicitCommand: "ls",
+            remoteCommand: "ssh vm"
+        )
+        #expect(resolved.startupCommand == "ls")
+        #expect(resolved.remoteCommandForEnvironment == nil)
+    }
+
+    @Test("No explicit command falls through to the remote command for launch and environment")
+    func resolveStartupCommandRemoteFallthrough() {
+        let resolved = coordinator.resolveStartupCommand(
+            explicitCommand: nil,
+            remoteCommand: "ssh vm"
+        )
+        #expect(resolved.startupCommand == "ssh vm")
+        #expect(resolved.remoteCommandForEnvironment == "ssh vm")
+    }
+
+    @Test("Neither an explicit nor a remote command leaves both resolved values nil")
+    func resolveStartupCommandBothNil() {
+        let resolved = coordinator.resolveStartupCommand(
+            explicitCommand: nil,
+            remoteCommand: nil
+        )
+        #expect(resolved.startupCommand == nil)
+        #expect(resolved.remoteCommandForEnvironment == nil)
+    }
+
     @Test("A zero final font size is not recorded as the last-known value")
     func inheritedConfigSkipsLastKnownWhenFontNonPositive() {
         let host = StubSurfaceCreationHost()

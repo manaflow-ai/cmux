@@ -114,6 +114,74 @@ public final class SurfaceCreationCoordinator {
         return environment
     }
 
+    /// Trims whitespace/newlines from a requested remote-PTY session id and maps
+    /// an empty result to `nil`, mirroring the legacy
+    /// `Workspace.normalizedRemotePTYSessionID`.
+    ///
+    /// Pure `String?` normalization with no live state. The workspace routes
+    /// every remote-PTY session id (restore, surface creation, relay alias
+    /// resolution, detach transfer) through this so a blank or whitespace-only id
+    /// is treated identically to `nil` everywhere, exactly as the legacy private
+    /// helper did.
+    ///
+    /// - Parameter value: the raw session id (may be `nil`, empty, or padded).
+    /// - Returns: the trimmed id, or `nil` when it is absent or whitespace-only.
+    public nonisolated func normalizedRemotePTYSessionID(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    /// Normalizes a caller's requested initial command, mirroring the legacy
+    /// inline `let explicitInitialCommand = (requestedInitialCommand?.isEmpty
+    /// == false) ? requestedInitialCommand : nil` after the trim in
+    /// `newTerminalSplitLocal`/`newTerminalSurfaceLocal`.
+    ///
+    /// Pure `String?` normalization: trims whitespace/newlines, then maps a
+    /// `nil`-or-empty result to `nil` so an empty explicit command falls through
+    /// to the remote startup command in
+    /// ``resolveStartupCommand(explicitCommand:remoteCommand:)``.
+    ///
+    /// - Parameter initialCommand: the caller's requested initial command.
+    /// - Returns: the trimmed command, or `nil` when it is absent or empty.
+    public nonisolated func normalizedExplicitInitialCommand(_ initialCommand: String?) -> String? {
+        let requested = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (requested?.isEmpty == false) ? requested : nil
+    }
+
+    /// Resolves the startup command and the environment-fold remote command from
+    /// the already-normalized explicit and remote commands, mirroring the
+    /// byte-identical inline derivation shared by `newTerminalSplitLocal` and
+    /// `newTerminalSurfaceLocal`:
+    ///
+    /// ```swift
+    /// let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
+    /// let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+    /// ```
+    ///
+    /// The live read of the workspace's remote startup command (and the
+    /// surface path's `suppressWorkspaceRemoteStartupCommand` gate) stays on the
+    /// workspace, which passes the resolved `remoteCommand` here; this method owns
+    /// only the pure pick. An explicit command fully replaces the remote command
+    /// for launch AND removes the remote command from the environment overlay.
+    ///
+    /// - Parameters:
+    ///   - explicitCommand: the normalized explicit initial command, or `nil`.
+    ///   - remoteCommand: the workspace's remote startup command, or `nil`.
+    /// - Returns: the resolved launch command and the remote command to fold into
+    ///   the startup environment.
+    public nonisolated func resolveStartupCommand(
+        explicitCommand: String?,
+        remoteCommand: String?
+    ) -> TerminalStartupCommandResolution {
+        TerminalStartupCommandResolution(
+            startupCommand: explicitCommand ?? remoteCommand,
+            remoteCommandForEnvironment: explicitCommand == nil ? remoteCommand : nil
+        )
+    }
+
     /// Walks the workspace's ordered inheritance-source candidates and returns
     /// the inherited Ghostty config for the new surface, mirroring the legacy
     /// `Workspace.inheritedTerminalConfig(preferredPanelId:inPane:)` exactly.

@@ -5448,11 +5448,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     private func normalizedRemotePTYSessionID(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
+        surfaceCreation.normalizedRemotePTYSessionID(value)
     }
 
     private nonisolated static let remoteRelayWorkspaceIDKeys: Set<String> = [
@@ -6492,11 +6488,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 
         guard let paneId = sourcePaneId else { return nil }
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
-        let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let explicitInitialCommand = surfaceCreation.normalizedExplicitInitialCommand(initialCommand)
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
-        let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
-        let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+        let startupCommandResolution = surfaceCreation.resolveStartupCommand(
+            explicitCommand: explicitInitialCommand,
+            remoteCommand: remoteTerminalStartupCommand
+        )
+        let startupCommand = startupCommandResolution.startupCommand
+        let remoteStartupCommandForEnvironment = startupCommandResolution.remoteCommandForEnvironment
         let effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment),
             remoteStartupCommand: remoteStartupCommandForEnvironment
@@ -6753,11 +6752,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
-        let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let explicitInitialCommand = surfaceCreation.normalizedExplicitInitialCommand(initialCommand)
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
-        let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
-        let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+        let startupCommandResolution = surfaceCreation.resolveStartupCommand(
+            explicitCommand: explicitInitialCommand,
+            remoteCommand: remoteTerminalStartupCommand
+        )
+        let startupCommand = startupCommandResolution.startupCommand
+        let remoteStartupCommandForEnvironment = startupCommandResolution.remoteCommandForEnvironment
         let effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironmentMergingWorkspaceEnvironment(startupEnvironment),
             remoteStartupCommand: remoteStartupCommandForEnvironment
