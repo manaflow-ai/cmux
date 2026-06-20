@@ -250,6 +250,38 @@ class TerminalController {
         reading: TerminalControllerSidebarCustomReading()
     )
 
+    /// The worker-lane `remote.tmux.*` RPC handler (CmuxControlSocket), reaching
+    /// the `@MainActor` `RemoteTmuxController` (via `AppDelegate.shared`) and the
+    /// `RemoteTmuxController.isEnabled` beta flag strictly through the
+    /// ``ControlRemoteTmuxReading`` seam conformed by
+    /// ``TerminalControllerRemoteTmuxReading``. The seam conformer holds no live
+    /// `TerminalController` state (it reads statics and hops to main per call),
+    /// so it is a plain `Sendable` value and the worker can be built eagerly. The
+    /// localized error strings are resolved app-side (app bundle) and passed
+    /// through. Read from the nonisolated socket-worker lane, so stored
+    /// `nonisolated`.
+    nonisolated(unsafe) var controlRemoteTmuxWorker = ControlRemoteTmuxWorker(
+        reading: TerminalControllerRemoteTmuxReading(),
+        strings: ControlRemoteTmuxStrings(
+            disabled: String(
+                localized: "socket.remoteTmux.disabled",
+                defaultValue: "remote tmux beta is disabled"
+            ),
+            hostRequired: String(
+                localized: "socket.remoteTmux.hostRequired",
+                defaultValue: "host is required"
+            ),
+            sessionRequired: String(
+                localized: "socket.remoteTmux.sessionRequired",
+                defaultValue: "session is required"
+            ),
+            hostAndSessionRequired: String(
+                localized: "socket.remoteTmux.hostAndSessionRequired",
+                defaultValue: "host and session are required"
+            )
+        )
+    )
+
     /// The worker-lane `browser.find.*` RPC handler (CmuxControlSocket), reaching
     /// the live browser surface (panel resolution, finder-script construction, JS
     /// evaluation, element-ref allocation) strictly through the
@@ -1182,18 +1214,18 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceRemotePTYBridge(params: request.params))
         case "workspace.remote.pty_resize":
             return v2Result(id: request.id, v2WorkspaceRemotePTYResize(params: request.params))
-        case "remote.tmux.sessions":
-            return v2RemoteTmuxSessions(id: request.id, params: request.params)
-        case "remote.tmux.attach":
-            return v2RemoteTmuxAttach(id: request.id, params: request.params)
-        case "remote.tmux.detach":
-            return v2RemoteTmuxDetach(id: request.id, params: request.params)
-        case "remote.tmux.state":
-            return v2RemoteTmuxState(id: request.id, params: request.params)
-        case "remote.tmux.mirror":
-            return v2RemoteTmuxMirror(id: request.id, params: request.params)
-        case "remote.tmux.window":
-            return v2RemoteTmuxWindow(id: request.id, params: request.params)
+        case "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach",
+             "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window":
+            // The `remote.tmux.*` command bodies live in CmuxControlSocket's
+            // ``ControlRemoteTmuxWorker`` (the beta-flag gate, the
+            // SSH-injection-hardened param parsing, the per-command timeout +
+            // `vm_error` rendering, and the reply payload shaping), reaching the
+            // live `@MainActor` `RemoteTmuxController` strictly through the
+            // ``ControlRemoteTmuxReading`` seam conformed by
+            // ``TerminalControllerRemoteTmuxReading``. The worker is `async`; the
+            // single worker-thread→async bridge lives in ``runRemoteTmuxWorker``
+            // (replacing the per-body `v2VmCall` semaphore + `MainActor.run`).
+            return runRemoteTmuxWorker(request.control)
         case "sidebar.custom.validate", "sidebar.custom.reload", "sidebar.custom.select":
             // Worker-lane bodies live in CmuxControlSocket's
             // ``ControlSidebarCustomWorker`` (validation runs on this worker
