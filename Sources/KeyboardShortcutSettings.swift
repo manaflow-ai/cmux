@@ -173,6 +173,7 @@ enum KeyboardShortcutSettings {
         case showBrowserJavaScriptConsole
         case toggleBrowserFocusMode
         case toggleReactGrab
+        case openChat
         case openDiffViewer
         case diffViewerScrollDown
         case diffViewerScrollUp
@@ -286,6 +287,7 @@ enum KeyboardShortcutSettings {
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
+            case .openChat: return String(localized: "shortcut.openChat.label", defaultValue: "Open Chat")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
             case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
@@ -541,6 +543,11 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .openChat:
+                // Cmd+Ctrl+Shift+C. Cmd+Opt+C is Safari's JavaScript Console and
+                // Cmd+Ctrl+C is commonly owned by editors/terminal flows, so Shift
+                // keeps the "C for Chat" mnemonic on an app-owned chord.
+                return StoredShortcut(key: "c", command: true, shift: true, option: false, control: true)
             case .openDiffViewer:
                 // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for
                 // "Look Up & data detectors" — the OS swallows it before it reaches the

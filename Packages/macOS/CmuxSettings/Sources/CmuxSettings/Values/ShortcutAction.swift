@@ -104,6 +104,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case canvasDistributeVertically
 
     // MARK: Browser & Find
+    case openChat
     case openDiffViewer
     case saveFilePreview
     case openBrowser
@@ -192,7 +193,7 @@ extension ShortcutAction {
              .canvasEqualizeWidths, .canvasEqualizeHeights,
              .canvasDistributeHorizontally, .canvasDistributeVertically:
             return .panes
-        case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
+        case .openChat, .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
              .browserForward, .browserReload, .browserHardReload, .browserZoomIn, .browserZoomOut,
              .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
              .find, .findInDirectory, .findNext, .findPrevious,
@@ -393,6 +394,7 @@ extension ShortcutAction {
             return String(localized: "shortcut.canvasDistributeHorizontally.label", defaultValue: "Canvas: Distribute Horizontally")
         case .canvasDistributeVertically:
             return String(localized: "shortcut.canvasDistributeVertically.label", defaultValue: "Canvas: Distribute Vertically")
+        case .openChat: return String(localized: "shortcut.openChat.label", defaultValue: "Open Chat")
         case .openDiffViewer: return "Open Diff Viewer"
         case .saveFilePreview: return "Save File Preview"
         case .openBrowser: return "Open Browser"

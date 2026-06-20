@@ -6924,6 +6924,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.openChat",
+                title: constant(String(localized: "command.openChat.title", defaultValue: "Open Chat")),
+                subtitle: workspaceSubtitle,
+                keywords: ["chat", "codex", "composer", "prompt", "build", "model"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserBack",
                 title: constant(String(localized: "command.browserBack.title", defaultValue: "Back")),
                 subtitle: browserPanelSubtitle,
@@ -7878,6 +7890,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.openDiffViewer") {
             if AppDelegate.shared?.openDiffViewerForFocusedWorkspace(for: tabManager) != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.openChat") {
+            if AppDelegate.shared?.openChatForFocusedWorkspace(for: tabManager) != true {
                 NSSound.beep()
             }
         }

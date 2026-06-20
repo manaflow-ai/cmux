@@ -1276,6 +1276,7 @@
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
               "toggleReactGrab",
+              "openChat",
               "openDiffViewer",
               "diffViewerScrollDown",
               "diffViewerScrollUp",

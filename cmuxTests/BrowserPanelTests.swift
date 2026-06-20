@@ -670,6 +670,17 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(loopbackPanel.shouldPersistSessionSnapshot())
         XCTAssertFalse(loopbackPanel.shouldRenderWebViewForSessionSnapshot())
 
+        let openChatURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/chat.html#cmux-open-chat"))
+        let openChatPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: openChatURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertEqual(openChatPanel.preferredURLStringForOmnibar(), openChatURL.absoluteString)
+        XCTAssertNil(openChatPanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(openChatPanel.shouldPersistSessionSnapshot())
+        XCTAssertFalse(openChatPanel.shouldRenderWebViewForSessionSnapshot())
+
         let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
         let aliasPanel = BrowserPanel(
             workspaceId: UUID(),
@@ -700,14 +711,17 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
 
         let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
         let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let openChatURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/chat.html#cmux-open-chat"))
         let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
         let normalURL = try XCTUnwrap(URL(string: "https://example.com/page"))
 
         store.recordVisit(url: schemeURL, title: "Diff")
         store.recordVisit(url: loopbackURL, title: "Diff")
+        store.recordVisit(url: openChatURL, title: "Chat")
         store.recordVisit(url: aliasURL, title: "Diff")
         store.recordTypedNavigation(url: aliasURL)
         store.recordTypedNavigation(url: loopbackURL)
+        store.recordTypedNavigation(url: openChatURL)
         XCTAssertTrue(store.entries.isEmpty)
 
         store.recordVisit(url: normalURL, title: "Normal")

@@ -956,6 +956,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Live `cmux diff` viewer subprocesses, keyed by pid, retained until they exit.
     /// Declared outside `#if DEBUG` because process retention is production behavior.
     private var diffViewerProcesses: [Int32: Process] = [:]
+    /// Live `cmux open-chat` subprocesses, keyed by pid, retained until they exit.
+    /// Declared outside `#if DEBUG` because process retention is production behavior.
+    private var openChatProcesses: [Int32: Process] = [:]
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -993,6 +996,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
     /// assert routing without launching a subprocess.
     var debugOpenDiffViewerHandler: (() -> Void)?
+    /// Test seam: when set, ``openChatForFocusedWorkspace(for:)`` invokes this
+    /// instead of spawning the bundled `cmux open-chat` CLI, so shortcut-dispatch tests
+    /// can assert routing without launching a subprocess.
+    var debugOpenChatHandler: (() -> Void)?
     var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
@@ -6145,6 +6152,123 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             outputCollector.cancel()
 #if DEBUG
             cmuxDebugLog("openDiffViewer failed errorType=\(type(of: error))")
+#endif
+            return false
+        }
+    }
+
+    /// Opens the Chat composer for the focused workspace of `tabManager` by spawning the
+    /// bundled `cmux open-chat` CLI. This is the single shared chat-open path: the
+    /// menu item, command-palette entry, and Open Chat keyboard shortcut funnel through
+    /// here so neither duplicates chat-open logic. Returns `false` (caller beeps) when
+    /// there is no focused workspace or the bundled CLI is missing.
+    @discardableResult
+    func openChatForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
+#if DEBUG
+        if let debugOpenChatHandler {
+            debugOpenChatHandler()
+            return true
+        }
+#endif
+        guard let workspace = tabManager?.selectedWorkspace,
+              let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            return false
+        }
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        let cwd = workspace.resolvedWorkingDirectory()
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let workspaceName: String
+        if let trimmedCustomTitle = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !trimmedCustomTitle.isEmpty {
+            workspaceName = trimmedCustomTitle
+        } else {
+            workspaceName = workspace.title
+        }
+        return launchOpenChatProcess(
+            cliURL: cliURL,
+            socketPath: socketPath,
+            cwd: cwd,
+            workspaceName: workspaceName,
+            workspaceId: workspace.id,
+            surfaceId: workspace.focusedPanelId
+        )
+    }
+
+    @discardableResult
+    private func launchOpenChatProcess(
+        cliURL: URL,
+        socketPath: String,
+        cwd: String,
+        workspaceName: String,
+        workspaceId: UUID,
+        surfaceId: UUID?
+    ) -> Bool {
+        let process = Process()
+        process.executableURL = cliURL
+        var arguments = [
+            "--socket", socketPath,
+            "open-chat",
+            "--cwd", cwd,
+            "--workspace", workspaceId.uuidString,
+            "--workspace-name", workspaceName,
+            "--focus", "true",
+        ]
+        if let surfaceId {
+            arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
+        }
+        process.arguments = arguments
+        process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+        if let surfaceId {
+            environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
+        }
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        let outputCollector = ProcessOutputCollector(stdout: stdoutPipe, stderr: stderrPipe)
+        outputCollector.start()
+        process.terminationHandler = { terminatedProcess in
+            let output = outputCollector.finish()
+            let processIdentifier = terminatedProcess.processIdentifier
+            let terminationStatus = terminatedProcess.terminationStatus
+            Task { @MainActor in
+                AppDelegate.shared?.openChatProcesses.removeValue(forKey: processIdentifier)
+                guard terminationStatus != 0 else { return }
+#if DEBUG
+                // Log only non-sensitive metadata: the child's stdout/stderr can echo
+                // repo paths and prompt text, so report a byte count, not the text.
+                cmuxDebugLog("openChat exited status=\(terminationStatus) outputBytes=\(output.utf8.count)")
+#endif
+                NSSound.beep()
+            }
+        }
+
+        do {
+            try process.run()
+            let processIdentifier = process.processIdentifier
+            openChatProcesses[processIdentifier] = process
+            if !process.isRunning {
+                openChatProcesses.removeValue(forKey: processIdentifier)
+            }
+#if DEBUG
+            cmuxDebugLog("openChat pid=\(process.processIdentifier)")
+#endif
+            return true
+        } catch {
+            outputCollector.cancel()
+#if DEBUG
+            cmuxDebugLog("openChat failed errorType=\(type(of: error))")
 #endif
             return false
         }
@@ -13056,6 +13180,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // focused workspace and beeps if it can't be opened (matching the palette).
             let manager = activeTabManagerForCommands(preferredWindow: mainWindowForShortcutEvent(event))
             if !openDiffViewerForFocusedWorkspace(for: manager) {
+                NSSound.beep()
+            }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .openChat) {
+            // Shares the command palette's chat-open path; targets the event window's
+            // focused workspace and beeps if it can't be opened (matching the palette).
+            let manager = activeTabManagerForCommands(preferredWindow: mainWindowForShortcutEvent(event))
+            if !openChatForFocusedWorkspace(for: manager) {
                 NSSound.beep()
             }
             return true
