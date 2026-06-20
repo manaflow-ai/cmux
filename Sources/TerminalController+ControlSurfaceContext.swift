@@ -190,10 +190,20 @@ extension TerminalController: ControlSurfaceContext {
         if tabManager.selectedTabId != ws.id {
             tabManager.selectWorkspace(ws)
         }
-        guard ws.panels[surfaceID] != nil else {
+        if ws.panels[surfaceID] != nil {
+            ws.focusPanel(surfaceID)
+        } else if ws.containsDockPanel(surfaceID) {
+            let preferredWindow = v2ResolveWindowId(tabManager: tabManager)
+                .flatMap { AppDelegate.shared?.mainWindow(for: $0) }
+            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                mode: .dock,
+                focusFirstItem: false,
+                preferredWindow: preferredWindow
+            )
+            ws.dockSplit.focusPanel(surfaceID)
+        } else {
             return .surfaceNotFound(surfaceID)
         }
-        ws.focusPanel(surfaceID)
         return .focused(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,

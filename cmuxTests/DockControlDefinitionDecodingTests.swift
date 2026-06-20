@@ -27,6 +27,23 @@ struct DockControlDefinitionDecodingTests {
         return url
     }
 
+    private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+        let request: [String: Any] = [
+            "id": method,
+            "method": method,
+            "params": params
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(String(data: requestData, encoding: .utf8))
+        let raw = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try #require(raw.data(using: .utf8))
+        let envelope = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        if envelope["ok"] as? Bool != true {
+            Issue.record("Expected \(method) to succeed: \(raw)")
+        }
+        return try #require(envelope["result"] as? [String: Any])
+    }
+
     @MainActor
     private func terminalPanel(in store: DockSplitStore, panelId: UUID) throws -> TerminalPanel {
         let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -304,6 +321,42 @@ struct DockControlDefinitionDecodingTests {
         defer { terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil) }
 
         #expect(workspace.needsConfirmClose())
+    }
+
+    @Test("surface.focus accepts Dock surface handles")
+    @MainActor
+    func surfaceFocusAcceptsDockSurfaceHandles() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(manager.tabs.first)
+        let store = workspace.dockSplit
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let secondPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
+
+        #expect(store.focusedPanelId == firstPanelId)
+
+        let result = try v2Result(
+            method: "surface.focus",
+            params: ["surface_id": secondPanelId.uuidString]
+        )
+
+        #expect(result["window_id"] as? String == windowId.uuidString)
+        #expect(result["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(result["surface_id"] as? String == secondPanelId.uuidString)
+        #expect(store.focusedPanelId == secondPanelId)
     }
 
     @Test("Dock pane close prompt lists every tab that will close")
