@@ -193,7 +193,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return Self.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
     }
     public var pairingCode: String
-    public var workspaces: [MobileWorkspacePreview] {
+    /// The per-Mac source of truth for workspaces, keyed by `macDeviceID` (or
+    /// ``foregroundAnonymousKey`` for an anonymous/manual-ticket foreground). Every
+    /// connected Mac writes only its own entry; ``workspaces`` and
+    /// ``workspaceGroups`` are pure derivations over this map
+    /// (``MobileWorkspaceAggregation``), never assigned directly, so a stale or
+    /// half-merged aggregate is unrepresentable. Transport-agnostic: fed by N
+    /// direct phone->Mac connections today, one phone->Durable Object stream later.
+    private var workspacesByMac: [String: MacWorkspaceState] = [:] {
+        didSet { recomputeDerivedWorkspaceState() }
+    }
+    /// The flat aggregated workspace list the UI renders. A materialized
+    /// derivation of ``workspacesByMac``: only ``recomputeDerivedWorkspaceState``
+    /// assigns it, so it is never independently mutated.
+    public private(set) var workspaces: [MobileWorkspacePreview] = [] {
         didSet {
             workspaceTopologyVersion &+= 1
             prunePendingAttachmentsForMissingTerminals()
@@ -205,7 +218,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The Mac's workspace groups, in section order. Empty when the Mac reports no
     /// groups (or is old enough not to emit them). Drives the collapsible group
     /// sections in the workspace list.
-    public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
+    /// The group sections the UI renders. A materialized derivation of
+    /// ``workspacesByMac`` (currently the foreground Mac's groups).
+    public private(set) var workspaceGroups: [MobileWorkspaceGroupPreview] = []
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -593,14 +608,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// workspaces can be aggregated. `foregroundMacDeviceID` is the Mac whose
     /// connection drives terminal I/O and the connected UI.
     private var connections: [String: MacConnection] = [:]
-    private var foregroundMacDeviceID: String?
-    /// Workspaces fetched per Mac for the aggregated multi-Mac list (P3), keyed
-    /// by `macDeviceID`. The foreground Mac's list flows through the normal
-    /// connect/refresh path; this holds the OTHER known Macs' lists, fetched
-    /// read-only. Merged into the published `workspaces` only when multi-Mac
-    /// aggregation is wired into the list (the next, device-verified step), so
-    /// populating it here cannot disturb the single-Mac flow.
-    private var secondaryWorkspacesByMac: [String: [MobileWorkspacePreview]] = [:]
+    private var foregroundMacDeviceID: String? {
+        didSet { recomputeDerivedWorkspaceState() }
+    }
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -709,6 +719,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.macConnectionStatus = connectionState == .connected ? .connected : .unavailable
         self.connectedHostName = connectedHostName
         self.pairingCode = pairingCode
+        // Seed the per-Mac source of truth from the injected workspaces (preview /
+        // tests) so the derived list stays consistent; mirror it into the derived
+        // cache directly since `didSet` does not fire during init.
+        self.workspacesByMac = workspaces.isEmpty
+            ? [:]
+            : [Self.foregroundAnonymousKey: MacWorkspaceState(
+                macDeviceID: Self.foregroundAnonymousKey, workspaces: workspaces)]
         self.workspaces = workspaces
         self.terminalInputText = ""
         self.connectionError = nil
@@ -861,14 +878,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
-        workspaces = PreviewMobileHost.workspaces
-        // Group sections are account-scoped like `pairedMacs`/`registryDevices`
+        // Local preview / disconnected placeholder: seed the foreground (anonymous)
+        // entry as the source of truth; `workspaces`/`workspaceGroups` derive from
+        // it. Group sections are account-scoped like `pairedMacs`/`registryDevices`
         // above: the placeholder workspaces are ungrouped, and the previous
-        // account's group names must not survive into the next session. (Plain
-        // disconnect intentionally keeps groups together with the last-known
-        // workspace snapshot for the offline view; the next full list response
-        // replaces both wholesale.)
-        workspaceGroups = []
+        // account's group names must not survive into the next session.
+        workspacesByMac = [Self.foregroundAnonymousKey: MacWorkspaceState(
+            macDeviceID: Self.foregroundAnonymousKey,
+            workspaces: PreviewMobileHost.workspaces,
+            groups: []
+        )]
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
         // Selection resets above are done; allow draft saving again so a
@@ -2586,8 +2605,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Refresh the read-only workspace lists for every signed-in paired Mac that
-    /// is NOT the foreground connection, into `secondaryWorkspacesByMac` (P3).
-    /// Best-effort and additive; does not publish into `workspaces` yet.
+    /// is NOT the foreground connection, writing each into its ``workspacesByMac``
+    /// entry. The derived ``workspaces`` recomputes automatically. Best-effort.
     func refreshSecondaryMacWorkspaces() async {
         guard let pairedMacStore else { return }
         let account = identityProvider?.currentUserID
@@ -2602,10 +2621,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let macs = (try? await pairedMacStore.loadAll(stackUserID: account)) ?? []
         for mac in macs where !mac.macDeviceID.isEmpty && mac.macDeviceID != foregroundMacDeviceID {
             if let previews = await fetchSecondaryWorkspaceList(for: mac) {
-                secondaryWorkspacesByMac[mac.macDeviceID] = previews
+                // Writing the per-Mac entry recomputes the derived list (didSet);
+                // no explicit merge/publish, the aggregate is a pure derivation.
+                workspacesByMac[mac.macDeviceID] = MacWorkspaceState(
+                    macDeviceID: mac.macDeviceID,
+                    displayName: mac.displayName,
+                    workspaces: previews,
+                    status: .connected
+                )
             }
         }
-        publishAggregatedWorkspaces()
     }
 
     /// Whether the multi-Mac aggregated workspace list is enabled. Env override,
@@ -2627,20 +2652,88 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
     }
 
-    /// Merge the other Macs' fetched workspaces into the published list, after the
-    /// foreground Mac's rows. No-op when aggregation is disabled or there are no
-    /// secondary workspaces, so the single-Mac list is byte-for-byte unchanged.
-    /// De-dups by workspace id (foreground wins) and preserves per-Mac order.
-    private func publishAggregatedWorkspaces() {
-        guard Self.multiMacAggregationEnabled, !secondaryWorkspacesByMac.isEmpty else { return }
-        var merged = workspaces.filter { $0.macDeviceID == foregroundMacDeviceID || $0.macDeviceID == nil }
-        var seen = Set(merged.map(\.id))
-        for macID in secondaryWorkspacesByMac.keys.sorted() where macID != foregroundMacDeviceID {
-            for workspace in secondaryWorkspacesByMac[macID] ?? [] where seen.insert(workspace.id).inserted {
-                merged.append(workspace)
-            }
+    /// Sentinel key for the foreground Mac when its attach ticket carries no
+    /// macDeviceID (anonymous / manual host). Keeps the foreground entry in
+    /// ``workspacesByMac`` addressable even without a real device id.
+    static let foregroundAnonymousKey = "__cmux_foreground__"
+
+    /// The key the foreground Mac's state lives under in ``workspacesByMac``.
+    private var foregroundMacKey: String { foregroundMacDeviceID ?? Self.foregroundAnonymousKey }
+
+    /// Recompute the derived ``workspaces`` / ``workspaceGroups`` from the per-Mac
+    /// source of truth. Pure and cheap; the only place those two are assigned,
+    /// called on any ``workspacesByMac`` or foreground change.
+    private func recomputeDerivedWorkspaceState() {
+        let foregroundKey: String?
+        if let id = foregroundMacDeviceID, workspacesByMac[id] != nil {
+            foregroundKey = id
+        } else if workspacesByMac[Self.foregroundAnonymousKey] != nil {
+            foregroundKey = Self.foregroundAnonymousKey
+        } else {
+            foregroundKey = nil
         }
-        workspaces = merged
+        workspaces = MobileWorkspaceAggregation.derivedWorkspaces(
+            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+        workspaceGroups = MobileWorkspaceAggregation.derivedGroups(
+            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+    }
+
+    /// Replace or merge the foreground Mac's workspace state. The single seam the
+    /// foreground sync stream writes through, so the foreground entry is always
+    /// keyed by ``foregroundMacKey`` and its rows stamped with the real device id
+    /// (when known) for the machine filter. `groups == nil` leaves groups as-is
+    /// (a merge/single-entry refresh omits them).
+    private func setForegroundWorkspaceState(
+        workspaces newWorkspaces: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview]?,
+        merge: Bool
+    ) {
+        let key = foregroundMacKey
+        let stamped = newWorkspaces.map { workspace -> MobileWorkspacePreview in
+            guard workspace.macDeviceID == nil, let id = foregroundMacDeviceID else { return workspace }
+            var copy = workspace
+            copy.macDeviceID = id
+            return copy
+        }
+        var state = workspacesByMac[key] ?? MacWorkspaceState(macDeviceID: key)
+        if merge {
+            var merged = state.workspaces
+            for workspace in stamped {
+                if let index = merged.firstIndex(where: { $0.id == workspace.id }) {
+                    merged[index] = workspace
+                } else {
+                    merged.append(workspace)
+                }
+            }
+            state.workspaces = merged
+        } else {
+            state.workspaces = stamped
+        }
+        if let groups { state.groups = groups }
+        state.status = .connected
+        workspacesByMac[key] = state
+    }
+
+    #if DEBUG
+    /// Test seam: seed the foreground Mac's workspaces/groups (the per-Mac source
+    /// of truth) so the derived ``workspaces``/``workspaceGroups`` reflect them,
+    /// for tests downstream of the list that do not run a live connection.
+    func setWorkspacesForTesting(
+        _ workspaces: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview] = []
+    ) {
+        setForegroundWorkspaceState(workspaces: workspaces, groups: groups, merge: false)
+    }
+    #endif
+
+    /// Apply an optimistic mutation to the foreground Mac's workspace list (e.g. a
+    /// just-created workspace or terminal) directly on the per-Mac source of
+    /// truth, so the derived list reflects it immediately.
+    private func mutateForegroundWorkspaces(_ body: (inout [MobileWorkspacePreview]) -> Void) {
+        let key = foregroundMacKey
+        var state = workspacesByMac[key] ?? MacWorkspaceState(macDeviceID: key)
+        body(&state.workspaces)
+        workspacesByMac[key] = state
     }
 
     private static func shouldFallbackToSyntheticManualTicket(after error: any Error) -> Bool {
@@ -2730,7 +2823,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ),
             ]
         )
-        workspaces.append(workspace)
+        mutateForegroundWorkspaces { $0.append(workspace) }
         selectedWorkspaceID = workspace.id
         selectedTerminalID = workspace.terminals.first?.id
         suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
@@ -2760,16 +2853,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return
         }
-        guard let workspaceIndex = workspaces.firstIndex(where: { $0.id == targetWorkspaceID }) else {
+        guard let workspace = workspaces.first(where: { $0.id == targetWorkspaceID }) else {
             return
         }
         selectedWorkspaceID = targetWorkspaceID
-        let terminalIndex = workspaces[workspaceIndex].terminals.count + 1
+        let terminalIndex = workspace.terminals.count + 1
         let terminal = MobileTerminalPreview(
-            id: .init(rawValue: "\(workspaces[workspaceIndex].id.rawValue)-terminal-\(terminalIndex)"),
+            id: .init(rawValue: "\(workspace.id.rawValue)-terminal-\(terminalIndex)"),
             name: L10n.terminalName(index: terminalIndex)
         )
-        workspaces[workspaceIndex].terminals.append(terminal)
+        mutateForegroundWorkspaces { list in
+            if let index = list.firstIndex(where: { $0.id == targetWorkspaceID }) {
+                list[index].terminals.append(terminal)
+            }
+        }
         selectedTerminalID = terminal.id
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
     }
@@ -3777,11 +3874,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
         // Drop the foreground entry from the connection pool (P2). Secondary
         // read-only connections (P3) are torn down separately.
+        let offlineForegroundKey = foregroundMacKey
         if let foreground = foregroundMacDeviceID {
             connections[foreground] = nil
         }
         foregroundMacDeviceID = nil
-        secondaryWorkspacesByMac.removeAll()
+        // Keep the now-offline foreground Mac's last-known workspaces for the
+        // offline view; drop the secondary read-only entries. The derived list
+        // recomputes to just the offline Mac's rows.
+        workspacesByMac = workspacesByMac.filter { $0.key == offlineForegroundKey }
         rawTerminalInputBuffer.clear()
     }
 
@@ -5567,30 +5668,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mergeExistingWorkspaces: Bool = false
     ) {
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
-        if mergeExistingWorkspaces {
-            var mergedWorkspaces = workspaces
-            for remoteWorkspace in remoteWorkspaces {
-                if let existingIndex = mergedWorkspaces.firstIndex(where: { $0.id == remoteWorkspace.id }) {
-                    mergedWorkspaces[existingIndex] = remoteWorkspace
-                } else {
-                    mergedWorkspaces.append(remoteWorkspace)
-                }
-            }
-            workspaces = mergedWorkspaces
-        } else {
-            workspaces = remoteWorkspaces
-        }
-        // Re-merge the other Macs' rows (no-op unless multi-Mac aggregation is on
-        // and secondaries are present), so a foreground refresh does not drop them.
-        publishAggregatedWorkspaces()
-        // Group sections always reflect the latest full response (never merged):
-        // a merge path is a single-entry create/refresh that omits groups, so
-        // applying its empty groups array would wrongly clear the sections. Only a
-        // full-list response (the non-merge path, which the event-driven refresh
-        // and initial sync use) carries authoritative group state.
-        if !mergeExistingWorkspaces {
-            workspaceGroups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
-        }
+        // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
+        // recompute from the source of truth automatically (no explicit merge or
+        // publish). Group sections are authoritative only on a full-list response:
+        // a merge path is a single-entry create/refresh that omits groups, so pass
+        // nil there to leave the existing sections intact.
+        let groups: [MobileWorkspaceGroupPreview]? = mergeExistingWorkspaces
+            ? nil
+            : response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+        setForegroundWorkspaceState(
+            workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }
@@ -5706,18 +5793,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {
         let terminalID = ticket.terminalID ?? "attached-terminal"
-        workspaces = [
-            MobileWorkspacePreview(
-                id: .init(rawValue: ticket.workspaceID),
-                name: L10n.string("mobile.preview.attachedWorkspaceName", defaultValue: "Attached Workspace"),
-                terminals: [
-                    MobileTerminalPreview(
-                        id: .init(rawValue: terminalID),
-                        name: L10n.string("mobile.preview.attachedTerminalName", defaultValue: "Attached Terminal")
-                    ),
-                ]
-            ),
-        ]
+        setForegroundWorkspaceState(
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: .init(rawValue: ticket.workspaceID),
+                    name: L10n.string("mobile.preview.attachedWorkspaceName", defaultValue: "Attached Workspace"),
+                    terminals: [
+                        MobileTerminalPreview(
+                            id: .init(rawValue: terminalID),
+                            name: L10n.string("mobile.preview.attachedTerminalName", defaultValue: "Attached Terminal")
+                        ),
+                    ]
+                ),
+            ],
+            groups: [],
+            merge: false
+        )
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
     }

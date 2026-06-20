@@ -45,7 +45,7 @@ import Testing
         store.connectPreviewHost()
         // Group sections are account-scoped: the previous account's group
         // names must not survive sign-out into the next session.
-        store.workspaceGroups = [
+        store.setWorkspacesForTesting(store.workspaces, groups: [
             MobileWorkspaceGroupPreview(
                 id: "group-1",
                 name: "previous account group",
@@ -53,7 +53,7 @@ import Testing
                 isPinned: false,
                 anchorWorkspaceID: "workspace-main"
             )
-        ]
+        ])
 
         store.signOut()
 
