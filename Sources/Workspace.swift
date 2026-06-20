@@ -3446,6 +3446,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     func canClosePanelWithoutPrompt(panelId: UUID, source: CloseTabCloseSource) -> Bool {
         guard !isPanelPinned(panelId) else { return false }
+        let closePolicy = CloseTabWarningStore(defaults: .standard)
+        if source == .tabCloseButton, closePolicy.hidesTabCloseButton {
+            return false
+        }
         if isRemoteTmuxMirror,
            let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
            remoteTmuxController.isMirrorWindowTab(workspaceId: id, panelId: panelId) {
@@ -3453,7 +3457,7 @@ final class Workspace: Identifiable, ObservableObject {
             // flow that the local tab close button uses for remote tmux windows.
             return false
         }
-        return !CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+        return !closePolicy.shouldConfirmClose(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
             source: source
         )
