@@ -167,9 +167,9 @@ private struct DockSplitContentView: View {
     @ViewBuilder
     private func dockContent(tab: Bonsplit.Tab, paneId: PaneID) -> some View {
         if let panel = store.panel(for: tab.id) {
-            let isFocused = store.focusedPanelId == panel.id
+            let isFocused = store.panelIsActiveInVisibleDockPane(panel.id)
             let isSelectedInPane = store.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
-            let isVisibleInUI = store.isVisibleInUI && isSelectedInPane
+            let isVisibleInUI = store.panelIsSelectedInVisibleDockPane(panel.id)
             let isSplit = store.bonsplitController.allPaneIds.count > 1
             PanelContentView(
                 panel: panel,
@@ -185,7 +185,7 @@ private struct DockSplitContentView: View {
                 customSidebarTabManager: nil,
                 hasUnreadNotification: false,
                 terminalAgentContext: "",
-                paneOwnershipOverride: isSelectedInPane,
+                paneOwnershipOverride: isVisibleInUI,
                 onFocus: {
                     store.bonsplitController.focusPane(paneId)
                     store.noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)

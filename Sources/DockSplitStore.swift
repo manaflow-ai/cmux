@@ -58,6 +58,9 @@ final class DockSplitStore: BonsplitDelegate {
             guard source == .closeButton else { return }
             self?.tabCloseButtonCloseDockTabIds.insert(tabId)
         }
+        self.bonsplitController.onTabZoomToggleRequest = { [weak self] _, paneId in
+            self?.toggleDockPaneZoom(inPane: paneId) ?? false
+        }
         // Drop the controller's default welcome tab so the root pane starts
         // empty and renders the in-app create affordance until config seeds it.
         for tabId in bonsplitController.allTabIds {
@@ -509,8 +512,6 @@ final class DockSplitStore: BonsplitDelegate {
         }
     }
 
-    // MARK: - Visibility
-
     // MARK: - BonsplitDelegate
 
     /// Closes and removes any panels whose Bonsplit tab is no longer present in
@@ -522,9 +523,8 @@ final class DockSplitStore: BonsplitDelegate {
             guard let panelId = surfaceIdToPanelId.removeValue(forKey: tabId) else { continue }
             panelCancellables[panelId]?.cancel()
             panelCancellables.removeValue(forKey: panelId)
-            if let panel = panels.removeValue(forKey: panelId) {
-                panel.close()
-            }
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
+            if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }
     }
 

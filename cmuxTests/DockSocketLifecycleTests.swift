@@ -276,6 +276,93 @@ struct DockSocketLifecycleTests {
         #expect(!secondPanel.hostedView.debugPortalActive)
     }
 
+    @Test("Dock zoom hides selected panels outside the zoomed pane")
+    @MainActor
+    func dockZoomHidesSelectedPanelsOutsideZoomedPane() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.tabs.first)
+        let store = workspace.dockSplit
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+
+        let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let secondPanelId = try #require(store.newSplit(
+            kind: .terminal,
+            orientation: .vertical,
+            insertFirst: false,
+            sourcePanelId: firstPanelId,
+            focus: true
+        ))
+        let firstTabId = try #require(store.surfaceId(forPanelId: firstPanelId))
+        let secondTabId = try #require(store.surfaceId(forPanelId: secondPanelId))
+        let firstPane = try #require(store.paneId(forPanelId: firstPanelId))
+        let secondPane = try #require(store.paneId(forPanelId: secondPanelId))
+        let firstPanel = try #require(store.panel(for: firstTabId) as? TerminalPanel)
+        let secondPanel = try #require(store.panel(for: secondTabId) as? TerminalPanel)
+
+        store.setVisibleInUI(true)
+
+        #expect(firstPane != secondPane)
+        #expect(store.panelIsSelectedInVisibleDockPane(firstPanelId))
+        #expect(store.panelIsSelectedInVisibleDockPane(secondPanelId))
+        #expect(firstPanel.hostedView.debugPortalVisibleInUI)
+        #expect(secondPanel.hostedView.debugPortalVisibleInUI)
+
+        #expect(store.bonsplitController.requestTabZoomToggle(for: secondTabId, inPane: secondPane))
+
+        #expect(store.bonsplitController.zoomedPaneId == secondPane)
+        #expect(!store.panelIsSelectedInVisibleDockPane(firstPanelId))
+        #expect(!store.panelIsActiveInVisibleDockPane(firstPanelId))
+        #expect(!firstPanel.hostedView.debugPortalVisibleInUI)
+        #expect(!firstPanel.hostedView.debugPortalActive)
+        #expect(store.panelIsSelectedInVisibleDockPane(secondPanelId))
+        #expect(store.panelIsActiveInVisibleDockPane(secondPanelId))
+        #expect(secondPanel.hostedView.debugPortalVisibleInUI)
+        #expect(secondPanel.hostedView.debugPortalActive)
+    }
+
+    @Test("Dock UI tab close clears surface notifications")
+    @MainActor
+    func dockUITabCloseClearsSurfaceNotifications() throws {
+        let notificationStore = TerminalNotificationStore.shared
+        notificationStore.replaceNotificationsForTesting([])
+
+        try withSocketAppContext { _, workspace, _ in
+            let appDelegate = try #require(AppDelegate.shared)
+            let previousNotificationStore = appDelegate.notificationStore
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let store = workspace.dockSplit
+            let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+            let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+            let tabId = try #require(store.surfaceId(forPanelId: panelId))
+            notificationStore.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: workspace.id,
+                    surfaceId: panelId,
+                    title: "Dock",
+                    subtitle: "",
+                    body: "Unread",
+                    createdAt: Date(),
+                    isRead: false
+                ),
+            ])
+
+            #expect(notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+
+            store.forceCloseDockTabIds.insert(tabId)
+            #expect(store.bonsplitController.closeTab(tabId))
+
+            #expect(!store.containsPanel(panelId))
+            #expect(!notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+        }
+    }
+
     @Test("Runtime close routes Dock terminals through the Dock lifecycle")
     @MainActor
     func runtimeCloseRoutesDockTerminalsThroughDockLifecycle() throws {

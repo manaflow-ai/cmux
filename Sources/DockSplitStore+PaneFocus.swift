@@ -36,15 +36,29 @@ extension DockSplitStore {
         bonsplitController.focusPane(rootPane)
     }
 
+    func paneIsRenderedInVisibleDock(_ paneId: PaneID) -> Bool {
+        guard isVisibleInUI else { return false }
+        guard let zoomedPaneId = bonsplitController.zoomedPaneId else { return true }
+        return zoomedPaneId == paneId
+    }
+
     func panelIsSelectedInVisibleDockPane(_ panelId: UUID) -> Bool {
-        guard isVisibleInUI,
-              let tabId = surfaceId(forPanelId: panelId),
+        guard let tabId = surfaceId(forPanelId: panelId),
               let paneId = paneId(forPanelId: panelId) else { return false }
+        guard paneIsRenderedInVisibleDock(paneId) else { return false }
         return bonsplitController.selectedTab(inPane: paneId)?.id == tabId
     }
 
     func panelIsActiveInVisibleDockPane(_ panelId: UUID) -> Bool {
-        isVisibleInUI && focusedPanelId == panelId
+        panelIsSelectedInVisibleDockPane(panelId) && focusedPanelId == panelId
+    }
+
+    @discardableResult
+    func toggleDockPaneZoom(inPane paneId: PaneID) -> Bool {
+        guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
+        bonsplitController.focusPane(paneId)
+        applyVisibilityToAllPanels()
+        return true
     }
 
     func applyVisibilityToAllPanels() {
@@ -62,7 +76,7 @@ extension DockSplitStore {
 
     func applyDockSelection(tabId: TabID, inPane pane: PaneID) {
         applyVisibilityToAllPanels()
-        guard isVisibleInUI,
+        guard paneIsRenderedInVisibleDock(pane),
               bonsplitController.focusedPaneId == pane,
               let selectedPanel = panel(for: tabId) else { return }
 
