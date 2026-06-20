@@ -13,13 +13,21 @@ import Testing
     private func makeCoordinator(
         client: any AuthClient,
         clock: ManualTestClock,
+        cachedUser: CMUXAuthUser? = nil,
+        hasCachedTokens: Bool = false,
         onSignedIn: @escaping @Sendable () async -> Void = {}
     ) -> AuthCoordinator {
         let store = FakeKeyValueStore()
+        let sessionCache = CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens")
+        let userCache = CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user")
+        sessionCache.setHasTokens(hasCachedTokens)
+        if let cachedUser {
+            try? userCache.save(cachedUser)
+        }
         return AuthCoordinator(
             client: client,
-            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
-            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            sessionCache: sessionCache,
+            userCache: userCache,
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
@@ -60,6 +68,38 @@ import Testing
 
         await #expect(throws: AuthError.timedOut) { try await send.value }
         #expect(coordinator.isLoading == false)
+    }
+
+    @Test func launchRestoreTokenProbeTimeoutStopsRestoringSession() async throws {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = HangingLaunchTokenProbeAuthClient(user: user)
+        let coordinator = makeCoordinator(
+            client: client,
+            clock: clock,
+            cachedUser: user,
+            hasCachedTokens: true
+        )
+
+        #expect(coordinator.isRestoringSession)
+        coordinator.start()
+        await client.accessTokenDidStart()
+        await clock.waitUntilSleepers()
+        clock.advance(by: Self.testTimeouts.network)
+
+        let completion = TestPhaseSignal()
+        let bootstrap = Task {
+            await coordinator.awaitBootstrapped()
+            await completion.markStarted()
+        }
+        defer { bootstrap.cancel() }
+
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(await completion.didStart)
+        #expect(coordinator.isRestoringSession == false)
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
     }
 
     @Test func promptPhasesWinTheirDeadlinesWithoutAdvancingTime() async throws {
@@ -106,4 +146,41 @@ import Testing
         // (transient), unlike a definitive .unauthorized.
         #expect(AuthError.timedOut.cachedSessionValidationFailureAction == .preserveCachedSession)
     }
+}
+
+actor HangingLaunchTokenProbeAuthClient: AuthClient {
+    private let user: CMUXAuthUser
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var accessStarted = false
+
+    init(user: CMUXAuthUser) {
+        self.user = user
+    }
+
+    func accessTokenDidStart() async {
+        if accessStarted { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func accessToken() async -> String? {
+        accessStarted = true
+        for waiter in startWaiters { waiter.resume() }
+        startWaiters = []
+        await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+        return nil
+    }
+
+    func refreshToken() async -> String? { "refresh" }
+    func forceRefreshAccessToken() async -> String? { nil }
+    func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? { user }
+    func listTeams() async throws -> [CMUXAuthTeam] { [] }
+    func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "nonce" }
+    func signInWithMagicLink(code: String) async throws {}
+    func signInWithCredential(email: String, password: String) async throws {}
+    func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
+    func storedAccessToken() async -> String? { nil }
+    func clearLocalSession() async {}
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {}
+    func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
+    func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { nil }
 }
