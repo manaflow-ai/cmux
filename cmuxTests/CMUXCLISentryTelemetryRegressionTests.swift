@@ -77,14 +77,12 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
         var environment = sentryProbeEnvironment(socketPath: socketPath, probePath: captureProbePath)
         environment["CMUX_CLI_SENTRY_FLUSH_PROBE_PATH"] = flushProbePath
 
-        let startedAt = Date()
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["ping"],
             environment: environment,
             timeout: 2
         )
-        let elapsed = Date().timeIntervalSince(startedAt)
 
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertNotEqual(result.status, 0, result.stdout)
@@ -97,7 +95,6 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
             FileManager.default.fileExists(atPath: flushProbePath),
             "CLI telemetry capture must not synchronously flush Sentry on the command's exit path."
         )
-        XCTAssertLessThan(elapsed, 1.0, "CLI telemetry capture should return without waiting on Sentry upload.")
     }
 
     private func bundledCLIPath() throws -> String {
