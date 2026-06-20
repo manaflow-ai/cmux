@@ -1106,13 +1106,14 @@ struct RestorableAgentSessionIndex: Sendable {
                         lookup: claudeTranscriptLookup
                     )
                     : record
+                let originalLaunchCommand = effectiveRecord.launchCommand
+                let trustedLaunchCommand = trustedLaunchCommand(originalLaunchCommand, kind: kind)
+                let strippedUntrustedLaunchArguments =
+                    trustedLaunchCommand == nil && !(originalLaunchCommand?.arguments.isEmpty ?? true)
                 // Drop untrusted launch captures before ANY derivation: the
                 // working directory below would otherwise inherit the foreign
                 // agent's launch cwd even though the launch command is stripped.
-                effectiveRecord.launchCommand = trustedLaunchCommand(
-                    effectiveRecord.launchCommand,
-                    kind: kind
-                )
+                effectiveRecord.launchCommand = trustedLaunchCommand
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
@@ -1120,6 +1121,7 @@ struct RestorableAgentSessionIndex: Sendable {
                       hookRecordIsRestorable(
                           effectiveRecord,
                           kind: kind,
+                          strippedUntrustedLaunchArguments: strippedUntrustedLaunchArguments,
                           fileManager: fileManager,
                           claudeTranscriptLookup: claudeTranscriptLookup
                       ) else {
@@ -1252,11 +1254,16 @@ struct RestorableAgentSessionIndex: Sendable {
     private static func hookRecordIsRestorable(
         _ record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
+        strippedUntrustedLaunchArguments: Bool = false,
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
         guard kind == .claude else {
             return record.isRestorable != false
+                && (
+                    strippedUntrustedLaunchArguments
+                        || hookRecordHasPositiveRestorabilitySignal(record, kind: kind)
+                )
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
            regularNonEmptyFileExists(
@@ -1266,6 +1273,76 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
         return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
+    }
+
+    private static func hookRecordHasPositiveRestorabilitySignal(
+        _ record: RestorableAgentHookSessionRecord,
+        kind: RestorableAgentKind
+    ) -> Bool {
+        if record.isRestorable == true {
+            return true
+        }
+        // For non-Claude agents, transcript paths alone are not durable proof:
+        // legacy Codex exec/review records can contain one even though resume
+        // will fail with "No saved session found".
+        if !(record.launchCommand?.arguments.isEmpty ?? true) {
+            return true
+        }
+        return hookRecordHasLegacyEnvOnlyLaunchSignal(record, kind: kind)
+    }
+
+    private static func hookRecordHasLegacyEnvOnlyLaunchSignal(
+        _ record: RestorableAgentHookSessionRecord,
+        kind: RestorableAgentKind
+    ) -> Bool {
+        guard let launchCommand = record.launchCommand,
+              launchCommand.arguments.isEmpty,
+              let environment = launchCommand.environment else {
+            return false
+        }
+        return legacyEnvOnlyRestorabilityEnvironmentKeys(for: kind)
+            .contains { normalizedNonEmptyValue(environment[$0]) != nil }
+    }
+
+    private static func legacyEnvOnlyRestorabilityEnvironmentKeys(
+        for kind: RestorableAgentKind
+    ) -> Set<String> {
+        switch kind.rawValue {
+        case "claude":
+            return []
+        case "codex":
+            return ["CODEX_HOME"]
+        case "grok":
+            return ["GROK_HOME"]
+        case "pi", "omp":
+            return ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "PI_CONFIG_DIR"]
+        case "amp":
+            return ["AMP_SETTINGS_FILE"]
+        case "cursor":
+            return []
+        case "gemini":
+            return ["GEMINI_CLI_HOME"]
+        case "kiro":
+            return ["KIRO_HOME"]
+        case "antigravity":
+            return ["GEMINI_CLI_HOME"]
+        case "opencode":
+            return ["OPENCODE_CONFIG_DIR"]
+        case "rovodev":
+            return ["CMUX_ROVODEV_SESSIONS_DIR"]
+        case "hermes-agent":
+            return ["HERMES_HOME"]
+        case "copilot":
+            return ["COPILOT_HOME"]
+        case "codebuddy":
+            return ["CODEBUDDY_CONFIG_DIR", "CODEBUDDY_ENV_FILE"]
+        case "factory":
+            return []
+        case "qoder":
+            return ["QODER_CONFIG_DIR"]
+        default:
+            return []
+        }
     }
 
     private static func resolvedClaudeWorkflowRecord(

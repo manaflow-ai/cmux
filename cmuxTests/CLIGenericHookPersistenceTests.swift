@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
@@ -42,6 +42,29 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "enabled"
                 ],
                 expectedEnvironment: nil
+            ),
+            GenericHookPersistenceScenario(
+                agent: "codex",
+                subcommand: "prompt-submit",
+                sessionId: "codex-session-123",
+                executable: "/usr/local/bin/codex",
+                launchArguments: [
+                    "/usr/local/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "resume",
+                    "old-session",
+                    "initial prompt should not persist"
+                ],
+                extraEnvironment: [
+                    "CODEX_HOME": "/tmp/codex home"
+                ],
+                expectedArguments: [
+                    "/usr/local/bin/codex",
+                    "--model",
+                    "gpt-5.4"
+                ],
+                expectedEnvironment: ["CODEX_HOME": "/tmp/codex home"]
             ),
             GenericHookPersistenceScenario(
                 agent: "gemini",
@@ -3260,6 +3283,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
         XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
         XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
+        if scenario.subcommand == "prompt-submit" {
+            XCTAssertEqual(
+                session["isRestorable"] as? Bool,
+                true,
+                "argv-bearing prompt-submit should durably mark \(scenario.agent) restorable"
+            )
+        }
 
         if scenario.agent == "kiro" {
             let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in
@@ -3294,6 +3324,108 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// drop CODEX_HOME, so the resume/fork binding fell back to a bare `codex resume <id>` against the
     /// default home and failed with "No saved session found". The hook must still carry the captured
     /// CODEX_HOME into the resume binding's environment.
+    func testCodexSessionStartPersistsEnvOnlyRestorableLaunchCommand() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-session-start-home")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-session-start-home-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-start-env-only"
+        let codexHome = root.appendingPathComponent("codex-accounts/work", isDirectory: true).path
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        // A reaped, definitely-exited PID forces the no-argv capture path: processArguments() returns
+        // nil for a dead process, so the hook can only carry CODEX_HOME via the env-only record.
+        let deadHelper = Process()
+        deadHelper.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try deadHelper.run()
+        deadHelper.waitUntilExit()
+        let deadPID = Int(deadHelper.processIdentifier)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id, ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CODEX_PID"] = String(deadPID)
+        environment["CODEX_HOME"] = codexHome
+        for key in [
+            "CMUX_AGENT_LAUNCH_KIND",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE",
+            "CMUX_AGENT_LAUNCH_ARGV_B64",
+            "CMUX_AGENT_LAUNCH_CWD",
+        ] {
+            environment.removeValue(forKey: key)
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else { return nil }
+            return payload["params"] as? [String: Any]
+        }
+        let params = try XCTUnwrap(resumeRequests.last, "expected a surface.resume.set; saw \(state.snapshot())")
+        XCTAssertEqual((params["environment"] as? [String: String])?["CODEX_HOME"], codexHome)
+
+        let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(
+            persisted["isRestorable"] as? Bool,
+            true,
+            "accepted env-only SessionStart must persist the positive restorability signal used by the live resume binding"
+        )
+        let persistedLaunch = try XCTUnwrap(
+            persisted["launchCommand"] as? [String: Any],
+            "env-only launchCommand must survive app reload"
+        )
+        XCTAssertEqual((persistedLaunch["environment"] as? [String: String])?["CODEX_HOME"], codexHome)
+        XCTAssertEqual(persistedLaunch["arguments"] as? [String], [])
+    }
+
     func testCodexHookPreservesCodexHomeWhenLaunchCommandUnavailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-home")
@@ -3334,6 +3466,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "startedAt": now,
                     "updatedAt": now,
                     "pid": deadPID,
+                    "isRestorable": true,
                 ],
             ],
         ]
@@ -3412,6 +3545,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
         let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
         let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(
+            persisted["isRestorable"] as? Bool,
+            true,
+            "prompt-submit should durably mark the Codex session restorable before persisting env-only CODEX_HOME"
+        )
         let persistedLaunch = try XCTUnwrap(
             persisted["launchCommand"] as? [String: Any],
             "env-only launchCommand must be persisted for the fork path"
@@ -3419,6 +3557,210 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(
             (persistedLaunch["environment"] as? [String: String])?["CODEX_HOME"], codexHome,
             "persisted launchCommand must carry CODEX_HOME"
+        )
+    }
+
+    func testClaudeSessionStartPublishesEnvOnlyResumeBindingWhenRestorable() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("claude-env-resume")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-env-resume-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "claude-env-only-session"
+        let transcriptPath = root.appendingPathComponent("claude-session.jsonl").path
+        let claudeConfigDir = root.appendingPathComponent("claude-config", isDirectory: true).path
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id, ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CLAUDE_CONFIG_DIR"] = claudeConfigDir
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "claude"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        for key in ["CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_ARGV_B64"] {
+            environment.removeValue(forKey: key)
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(root.path)","transcript_path":"\#(transcriptPath)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else { return nil }
+            return payload["params"] as? [String: Any]
+        }
+        let params = try XCTUnwrap(resumeRequests.last, "expected a surface.resume.set; saw \(state.snapshot())")
+        XCTAssertEqual(params["kind"] as? String, "claude")
+        XCTAssertEqual(params["checkpoint_id"] as? String, sessionId)
+        XCTAssertEqual(params["auto_resume"] as? Bool, true)
+        let command = try XCTUnwrap(params["command"] as? String)
+        XCTAssertTrue(command.contains("--resume"), command)
+        XCTAssertTrue(command.contains(sessionId), command)
+        let boundEnvironment = try XCTUnwrap(params["environment"] as? [String: Any])
+        XCTAssertEqual(boundEnvironment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] as? String, "1")
+        XCTAssertEqual(boundEnvironment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] as? String, "CLAUDE_CONFIG_DIR")
+        XCTAssertEqual(boundEnvironment["CLAUDE_CONFIG_DIR"] as? String, claudeConfigDir)
+    }
+
+    /// Issue #6209 / #5393: a reaped Codex session with no captured launch command and no positive
+    /// restorability signal must not synthesize a default `codex resume <id>` surface binding. An
+    /// env-only CODEX_HOME capture and Codex transcript path are provenance that should be preserved
+    /// only after another positive signal proves the session is restorable.
+    func testCodexHookDoesNotPublishDefaultResumeBindingWithoutRestorabilitySignal() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-no-restorable-signal")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-no-restorable-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-unproven-session"
+        let ttyName = "ttys305"
+        let transcriptPath = root.appendingPathComponent("codex-unproven.jsonl").path
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let deadHelper = Process()
+        deadHelper.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try deadHelper.run()
+        deadHelper.waitUntilExit()
+        let deadPID = Int(deadHelper.processIdentifier)
+
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                    "pid": deadPID,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id, ok: true,
+                    result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
+                )
+            case "surface.resume.set", "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id, ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CODEX_HOME"] = root.appendingPathComponent("codex-accounts/work", isDirectory: true).path
+        for key in ["CMUX_AGENT_LAUNCH_KIND", "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD"] {
+            environment.removeValue(forKey: key)
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","transcript_path":"\#(transcriptPath)","prompt":"continue"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            state.snapshot().contains { command in
+                self.jsonObject(command)?["method"] as? String == "surface.resume.set"
+            },
+            "nil launchCommand with only Codex transcript provenance must not publish a synthesized codex resume binding; saw \(state.snapshot())"
+        )
+        XCTAssertFalse(
+            state.snapshot().contains { command in
+                self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+            },
+            "nil launchCommand with only Codex transcript provenance must not clear an existing resume binding; saw \(state.snapshot())"
+        )
+        let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertNil(
+            persisted["launchCommand"],
+            "env-only launch provenance must not be persisted from Codex transcript provenance alone"
         )
     }
 
@@ -3623,6 +3965,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-exec-session"
         let ttyName = "ttys304"
+        let transcriptPath = root.appendingPathComponent("codex-exec.jsonl").path
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -3675,25 +4018,41 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","transcript_path":"\#(transcriptPath)","prompt":"continue"}"#,
             timeout: 5
         )
 
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            state.snapshot().contains { command in
+                self.jsonObject(command)?["method"] as? String == "surface.resume.set"
+            },
+            "transcript_path must not bypass sanitizer rejection for non-restorable codex exec; saw \(state.snapshot())"
+        )
+        XCTAssertFalse(
+            state.snapshot().contains { command in
+                self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+            },
+            "sanitizer rejection must not clear an existing resume binding; saw \(state.snapshot())"
+        )
 
         // No env-only CODEX_HOME record may be persisted for the rejected non-restorable argv.
         let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
-        if let data = try? Data(contentsOf: storeURL),
-           let storeJSON = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let sessions = storeJSON["sessions"] as? [String: Any],
-           let persisted = sessions[sessionId] as? [String: Any] {
-            let env = (persisted["launchCommand"] as? [String: Any])?["environment"] as? [String: String]
-            XCTAssertNil(
-                env?["CODEX_HOME"],
-                "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
-            )
-        }
+        let data = try XCTUnwrap(try? Data(contentsOf: storeURL), "expected codex hook store to be written")
+        let storeJSON = try XCTUnwrap(try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any], "expected session record to exist")
+        XCTAssertEqual(
+            persisted["isRestorable"] as? Bool,
+            false,
+            "sanitizer-rejected codex exec must be durably marked non-restorable"
+        )
+        let env = (persisted["launchCommand"] as? [String: Any])?["environment"] as? [String: String]
+        XCTAssertNil(
+            env?["CODEX_HOME"],
+            "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
+        )
     }
 }

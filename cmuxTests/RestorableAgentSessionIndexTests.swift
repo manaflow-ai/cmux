@@ -1,6 +1,6 @@
 import CMUXAgentLaunch
 import Foundation
-import XCTest
+@preconcurrency import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -839,6 +839,180 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         }
     }
 
+    // Legacy env-only launch records preserve agent config/home variables when argv capture was
+    // unavailable. They predate the explicit isRestorable field, so the load-time gate must keep
+    // accepting that safe shape while still rejecting explicit non-restorable and transcript-only
+    // poisoned records.
+    func testLegacyCodexEnvOnlyHookRecordPreservesCodexHomeWithoutRestorableFlag() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-env-only-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let codexHome = root.appendingPathComponent("codex-accounts/work", isDirectory: true)
+        let grokHome = root.appendingPathComponent("grok-home", isDirectory: true)
+        let kiroHome = root.appendingPathComponent("kiro-home", isDirectory: true)
+
+        let legacyWorkspaceId = UUID()
+        let legacyPanelId = UUID()
+        let legacyGrokWorkspaceId = UUID()
+        let legacyGrokPanelId = UUID()
+        let legacyKiroWorkspaceId = UUID()
+        let legacyKiroPanelId = UUID()
+        let rejectedWorkspaceId = UUID()
+        let rejectedPanelId = UUID()
+        let restorableWorkspaceId = UUID()
+        let restorablePanelId = UUID()
+        let transcriptOnlyWorkspaceId = UUID()
+        let transcriptOnlyPanelId = UUID()
+        let legacySessionId = "77777777-7777-7777-7777-777777777777"
+        let legacyGrokSessionId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        let legacyKiroSessionId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        let rejectedSessionId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let restorableSessionId = "88888888-8888-8888-8888-888888888888"
+        let transcriptOnlySessionId = "99999999-9999-9999-9999-999999999999"
+        let transcriptURL = root.appendingPathComponent("legacy-codex-transcript.jsonl", isDirectory: false)
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        func envOnlyRecord(
+            sessionId: String,
+            workspaceId: UUID,
+            panelId: UUID,
+            isRestorable: Bool?,
+            launcher: String = "codex",
+            executablePath: String = "codex",
+            environment: [String: String]? = nil
+        ) -> [String: Any] {
+            var record: [String: Any] = [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId.uuidString,
+                "surfaceId": panelId.uuidString,
+                "cwd": dir.path,
+                "pid": NSNull(),
+                "updatedAt": 10,
+                "launchCommand": [
+                    "launcher": launcher,
+                    "executablePath": executablePath,
+                    "arguments": [],
+                    "workingDirectory": dir.path,
+                    "environment": environment ?? ["CODEX_HOME": codexHome.path],
+                    "capturedAt": 10,
+                    "source": "environment",
+                ],
+            ]
+            if let isRestorable {
+                record["isRestorable"] = isRestorable
+            }
+            return record
+        }
+
+        func transcriptOnlyRecord(sessionId: String, workspaceId: UUID, panelId: UUID) -> [String: Any] {
+            [
+                "sessionId": sessionId,
+                "workspaceId": workspaceId.uuidString,
+                "surfaceId": panelId.uuidString,
+                "cwd": dir.path,
+                "pid": NSNull(),
+                "transcriptPath": transcriptURL.path,
+                "updatedAt": 10,
+            ]
+        }
+
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [
+                legacySessionId: envOnlyRecord(
+                    sessionId: legacySessionId,
+                    workspaceId: legacyWorkspaceId,
+                    panelId: legacyPanelId,
+                    isRestorable: nil
+                ),
+                rejectedSessionId: envOnlyRecord(
+                    sessionId: rejectedSessionId,
+                    workspaceId: rejectedWorkspaceId,
+                    panelId: rejectedPanelId,
+                    isRestorable: false
+                ),
+                restorableSessionId: envOnlyRecord(
+                    sessionId: restorableSessionId,
+                    workspaceId: restorableWorkspaceId,
+                    panelId: restorablePanelId,
+                    isRestorable: true
+                ),
+                transcriptOnlySessionId: transcriptOnlyRecord(
+                    sessionId: transcriptOnlySessionId,
+                    workspaceId: transcriptOnlyWorkspaceId,
+                    panelId: transcriptOnlyPanelId
+                ),
+            ]
+        )
+        try writeHookStore(
+            root: root,
+            storeFilename: "grok-hook-sessions.json",
+            sessions: [
+                legacyGrokSessionId: envOnlyRecord(
+                    sessionId: legacyGrokSessionId,
+                    workspaceId: legacyGrokWorkspaceId,
+                    panelId: legacyGrokPanelId,
+                    isRestorable: nil,
+                    launcher: "grok",
+                    executablePath: "grok",
+                    environment: ["GROK_HOME": grokHome.path]
+                ),
+            ]
+        )
+        try writeHookStore(
+            root: root,
+            storeFilename: "kiro-hook-sessions.json",
+            sessions: [
+                legacyKiroSessionId: envOnlyRecord(
+                    sessionId: legacyKiroSessionId,
+                    workspaceId: legacyKiroWorkspaceId,
+                    panelId: legacyKiroPanelId,
+                    isRestorable: nil,
+                    launcher: "kiro",
+                    executablePath: "kiro-cli",
+                    environment: ["KIRO_HOME": kiroHome.path]
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        let legacySnapshot = try XCTUnwrap(index.snapshot(workspaceId: legacyWorkspaceId, panelId: legacyPanelId))
+        let legacyResume = try XCTUnwrap(legacySnapshot.resumeCommand)
+        XCTAssertTrue(legacyResume.contains("'codex' 'resume' '\(legacySessionId)'"), legacyResume)
+        XCTAssertTrue(legacyResume.contains("CODEX_HOME=\(codexHome.path)"), legacyResume)
+        let legacyGrokSnapshot = try XCTUnwrap(
+            index.snapshot(workspaceId: legacyGrokWorkspaceId, panelId: legacyGrokPanelId)
+        )
+        let legacyGrokResume = try XCTUnwrap(legacyGrokSnapshot.resumeCommand)
+        XCTAssertTrue(legacyGrokResume.contains("'grok' '-r' '\(legacyGrokSessionId)'"), legacyGrokResume)
+        XCTAssertTrue(legacyGrokResume.contains("GROK_HOME=\(grokHome.path)"), legacyGrokResume)
+        let legacyKiroSnapshot = try XCTUnwrap(
+            index.snapshot(workspaceId: legacyKiroWorkspaceId, panelId: legacyKiroPanelId)
+        )
+        let legacyKiroResume = try XCTUnwrap(legacyKiroSnapshot.resumeCommand)
+        XCTAssertTrue(
+            legacyKiroResume.contains("'kiro-cli' 'chat' '--resume-id' '\(legacyKiroSessionId)'"),
+            legacyKiroResume
+        )
+        XCTAssertTrue(legacyKiroResume.contains("KIRO_HOME=\(kiroHome.path)"), legacyKiroResume)
+        XCTAssertNil(
+            index.snapshot(workspaceId: rejectedWorkspaceId, panelId: rejectedPanelId),
+            "explicit non-restorable Codex env-only records must not synthesize codex resume"
+        )
+        XCTAssertNil(
+            index.snapshot(workspaceId: transcriptOnlyWorkspaceId, panelId: transcriptOnlyPanelId),
+            "legacy transcript-only Codex records must not synthesize codex resume"
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restorableWorkspaceId, panelId: restorablePanelId))
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(resume.contains("'codex' 'resume' '\(restorableSessionId)'"), resume)
+        XCTAssertTrue(resume.contains("CODEX_HOME=\(codexHome.path)"), resume)
+    }
+
     // Spawn an agent, end it, spawn a new one on the same surface: restore must pick the NEWEST
     // session (highest updatedAt), not the stale earlier one.
     func testReplacementRestoresNewestSessionForSurface() throws {
@@ -1132,6 +1306,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
             recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
         )
+        record.removeValue(forKey: "isRestorable")
         record["launchCommand"] = [
             "launcher": "claude",
             "executablePath": "/Users/someone/.local/bin/claude",
@@ -1188,6 +1363,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
             recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
         )
+        record.removeValue(forKey: "isRestorable")
         record["launchCommand"] = [
             "launcher": "codex",
             "executablePath": "sh",
