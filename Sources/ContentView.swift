@@ -193,7 +193,7 @@ struct ContentView: View {
     @State private var tmuxWorkspacePaneOverlayRegistry = TmuxWorkspacePaneOverlayRegistry(
         target: AppTmuxWorkspacePaneOverlayTarget()
     )
-    @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
+    @State private var commandPaletteCoordinator = CommandPaletteCoordinator()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
@@ -2549,7 +2549,7 @@ struct ContentView: View {
             Divider()
 
             CommandPaletteCommandListRenderView(
-                renderModel: commandPaletteOverlayRenderModel,
+                coordinator: commandPaletteCoordinator,
                 onRunResult: runCommandPaletteResult(commandID:)
             )
 
@@ -3152,7 +3152,7 @@ struct ContentView: View {
     }
 
     private func syncCommandPaletteOverlayCommandListState() {
-        commandPaletteOverlayRenderModel.scheduleCommandListUpdate(commandPaletteOverlayCommandListStateSnapshot())
+        commandPaletteCoordinator.scheduleCommandListUpdate(commandPaletteOverlayCommandListStateSnapshot())
     }
 
     private func scheduleCommandPaletteResultsRefresh(
