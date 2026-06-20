@@ -4,7 +4,7 @@ import Foundation
 private nonisolated let cmuxTopPIDPathBufferSize = 4096
 
 nonisolated extension CmuxTopProcessSnapshot {
-    static func allProcesses(includeProcessDetails: Bool) -> [CmuxTopProcessInfo] {
+    static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) -> [CmuxTopProcessInfo] {
         let sampledProcesses = allBSDProcesses()
         guard !sampledProcesses.isEmpty else { return [] }
 
@@ -30,6 +30,7 @@ nonisolated extension CmuxTopProcessSnapshot {
             guard let processRecord = processInfo(
                 from: process,
                 includeProcessDetails: includeProcessDetails,
+                includeCMUXScope: includeCMUXScope,
                 sampledAtNanoseconds: sampledAtNanoseconds,
                 currentCPUSamples: &currentCPUSamples
             ) else {
@@ -48,7 +49,9 @@ nonisolated extension CmuxTopProcessSnapshot {
                   let cpuPercent = cpuPercentages[key] else { continue }
             processRecords[index].info.cpuPercent = cpuPercent
         }
-        pruneCMUXScopeCache(activeKeys: activeScopeKeys)
+        if includeCMUXScope {
+            pruneCMUXScopeCache(activeKeys: activeScopeKeys)
+        }
         return processRecords.map(\.info)
     }
 
@@ -75,6 +78,7 @@ nonisolated extension CmuxTopProcessSnapshot {
     private static func processInfo(
         from bsdInfo: proc_bsdinfo,
         includeProcessDetails: Bool,
+        includeCMUXScope: Bool,
         sampledAtNanoseconds: UInt64,
         currentCPUSamples: inout [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample]
     ) -> (info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)? {
@@ -89,7 +93,9 @@ nonisolated extension CmuxTopProcessSnapshot {
         let path = includeProcessDetails ? processPath(pid: pid) : nil
         let rawTTY = Int64(bsdInfo.e_tdev)
         let ttyDevice = rawTTY > 0 ? rawTTY : nil
-        let cmuxScope = cachedCMUXScope(for: pid, cacheKey: cacheKey, nowNanoseconds: sampledAtNanoseconds)
+        let cmuxScope = includeCMUXScope
+            ? cachedCMUXScope(for: pid, cacheKey: cacheKey, nowNanoseconds: sampledAtNanoseconds)
+            : nil
         let rawProcessGroupID = Int(bsdInfo.pbi_pgid)
         let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
         let rawTerminalProcessGroupID = Int(bsdInfo.e_tpgid)
