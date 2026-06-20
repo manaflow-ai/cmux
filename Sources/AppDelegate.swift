@@ -13140,11 +13140,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
         if matchConfiguredShortcut(event: event, action: .nextSurface) {
-            tabManager?.selectNextSurface()
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            routedManager?.selectNextSurface()
             return true
         }
         if matchConfiguredShortcut(event: event, action: .prevSurface) {
-            tabManager?.selectPreviousSurface()
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            routedManager?.selectPreviousSurface()
             return true
         }
 
@@ -13339,7 +13341,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // goto_tab fallback from creating a new window when the index is out of bounds.
         if shortcutWhenClauseAllows(action: .selectWorkspaceByNumber, event: event),
            let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
-            if let manager = tabManager,
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if let manager = routedManager,
                let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
                 cmuxDebugLog(
@@ -13354,10 +13357,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for surfaces within the focused pane (9 = last)
         if shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event),
            let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if digit == 9 {
-                tabManager?.selectLastSurface()
+                routedManager?.selectLastSurface()
             } else {
-                tabManager?.selectSurface(at: digit - 1)
+                routedManager?.selectSurface(at: digit - 1)
             }
             return true
         }
@@ -13480,11 +13484,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Surface navigation (legacy Ctrl+Tab support)
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
-            tabManager?.selectNextSurface()
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            routedManager?.selectNextSurface()
             return true
         }
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
-            tabManager?.selectPreviousSurface()
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            routedManager?.selectPreviousSurface()
             return true
         }
 
