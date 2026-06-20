@@ -17,3 +17,8 @@ bool ghostty_config_get(void *config, void *out, const char *key, uintptr_t len)
     (void)len;
     return false;
 }
+
+void ghostty_set_window_background_blur(void *app, void *window) {
+    (void)app;
+    (void)window;
+}
