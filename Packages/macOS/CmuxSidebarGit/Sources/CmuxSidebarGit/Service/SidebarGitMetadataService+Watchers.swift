@@ -1,5 +1,5 @@
 import Foundation
-internal import CmuxFileWatch
+internal import CmuxFoundation
 
 // MARK: - Filesystem watchers on each tracked directory's git paths.
 

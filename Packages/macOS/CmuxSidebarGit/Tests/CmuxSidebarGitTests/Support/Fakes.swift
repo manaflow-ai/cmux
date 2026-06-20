@@ -1,6 +1,6 @@
 import Foundation
 import CmuxGit
-import CmuxProcess
+import CmuxFoundation
 @testable import CmuxSidebarGit
 
 /// A reader returning canned metadata, with an optional gate the test holds

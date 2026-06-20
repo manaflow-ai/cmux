@@ -1,6 +1,5 @@
 import CmuxFoundation
 import AppKit
-import CmuxFileWatch
 import Combine
 import Foundation
 import QuartzCore

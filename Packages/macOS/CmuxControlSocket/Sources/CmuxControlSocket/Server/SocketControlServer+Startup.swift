@@ -1,5 +1,4 @@
 public import CmuxSettings
-internal import CmuxSocketControl
 internal import Darwin
 internal import Foundation
 
