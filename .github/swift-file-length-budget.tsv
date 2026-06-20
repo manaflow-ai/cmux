@@ -47,7 +47,7 @@
 2126	cmuxTests/CmuxConfigTests.swift
 2105	Sources/SessionPersistence.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
-1957	Sources/RestorableAgentSession.swift
+2015	Sources/RestorableAgentSession.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1940	Sources/KeyboardShortcutSettingsFileStore.swift
 1869	cmuxTests/NotificationAndMenuBarTests.swift
@@ -61,10 +61,10 @@
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
 1496	cmuxUITests/MultiWindowNotificationsUITests.swift
+1451	cmuxTests/RestorableAgentSessionIndexTests.swift
 1445	Sources/FileExplorerStore.swift
 1412	Sources/RemoteTmuxControlConnection.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
-1380	cmuxTests/RestorableAgentSessionIndexTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1373	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
