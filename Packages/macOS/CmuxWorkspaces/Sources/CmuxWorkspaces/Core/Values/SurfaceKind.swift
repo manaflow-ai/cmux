@@ -25,6 +25,8 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let filePreview = SurfaceKind(rawValue: "filePreview")
     /// A right-sidebar tool pane hosted as a surface.
     public static let rightSidebarTool = SurfaceKind(rawValue: "rightSidebarTool")
+    /// A custom sidebar hosted as a Bonsplit pane.
+    public static let customSidebar = SurfaceKind(rawValue: "customSidebar")
     /// An agent-session pane.
     public static let agentSession = SurfaceKind(rawValue: "agentSession")
     /// A project pane.
