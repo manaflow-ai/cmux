@@ -2680,11 +2680,15 @@ class TabManager: ObservableObject {
     }
 
     private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
-        // Stored under the legacy closeWorkspaceOnLastSurfaceShortcut key:
-        // true means the Close shortcut closes the workspace on its last surface.
-        settings.value(for: settingsCatalog.app.keepWorkspaceOpenWhenClosingLastSurface) &&
+        closeWorkspaceOnLastSurfacePreferenceEnabled() &&
             workspace.panels.count <= 1 &&
             workspace.panels[panelId] != nil
+    }
+
+    func closeWorkspaceOnLastSurfacePreferenceEnabled() -> Bool {
+        // Stored under the legacy closeWorkspaceOnLastSurfaceShortcut key:
+        // true means closing the last surface closes the workspace.
+        settings.value(for: settingsCatalog.app.keepWorkspaceOpenWhenClosingLastSurface)
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
@@ -2717,9 +2721,6 @@ class TabManager: ObservableObject {
         )
 #endif
 
-        // The last-surface shortcut preference only affects the Close Tab shortcut path.
-        // The tab close button continues to use Workspace's explicit-close path when it
-        // closes the last surface.
         if closesWorkspaceOnLastSurfaceShortcut,
            let surfaceId = tab.surfaceIdFromPanelId(panelId) {
             tab.markExplicitClose(surfaceId: surfaceId)

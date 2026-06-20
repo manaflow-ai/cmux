@@ -11114,7 +11114,7 @@ extension Workspace: BonsplitDelegate {
               manager.tabs.contains(where: { $0.id == id }) else {
             return false
         }
-        return true
+        return manager.closeWorkspaceOnLastSurfacePreferenceEnabled()
     }
 
     @MainActor
