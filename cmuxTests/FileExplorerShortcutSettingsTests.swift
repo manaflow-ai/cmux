@@ -186,21 +186,25 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
                 defer: false
             )
             let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
-            let outlineView = FileExplorerNSOutlineView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            let tableView = FileExplorerSearchResultsTableView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            tableView.fileExplorerPanelPlacement = .pane
+            var commitCount = 0
+            tableView.onCommit = {
+                commitCount += 1
+            }
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
             column.isEditable = false
-            outlineView.addTableColumn(column)
-            outlineView.outlineTableColumn = column
+            tableView.addTableColumn(column)
             let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
-            scrollView.documentView = outlineView
+            scrollView.documentView = tableView
             contentView.addSubview(scrollView)
             window.contentView = contentView
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
             defer { window.orderOut(nil) }
 
-            #expect(window.makeFirstResponder(outlineView))
-            #expect(window.firstResponder === outlineView)
+            #expect(window.makeFirstResponder(tableView))
+            #expect(window.firstResponder === tableView)
 
             let commandR = StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             KeyboardShortcutSettings.setShortcut(commandR, for: .fileExplorerOpenSelection)
@@ -210,6 +214,8 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
             #expect(!appDelegate.shortcutWhenClauseAllows(action: .fileExplorerOpenSelection, event: event))
             #expect(appDelegate.shortcutWhenClauseAllows(action: .renameTab, event: event))
             #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.pane))
+            #expect(appDelegate.handleConfiguredShortcutKeyEquivalent(event))
+            #expect(commitCount == 1)
         }
     }
 
