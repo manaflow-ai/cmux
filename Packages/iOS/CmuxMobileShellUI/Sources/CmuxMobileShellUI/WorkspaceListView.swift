@@ -44,6 +44,9 @@ struct WorkspaceListView: View {
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
+    /// Present the add-device (pairing) flow from the Computers screen. `nil`
+    /// hides the add affordance there.
+    var showAddDevice: (() -> Void)?
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
@@ -219,7 +222,7 @@ struct WorkspaceListView: View {
         // leaving a parent sheet covering it.
         .sheet(isPresented: $showingDeviceTree) {
             if let store {
-                DeviceTreeView(store: store, selectWorkspace: selectWorkspace)
+                DeviceTreeView(store: store, selectWorkspace: selectWorkspace, showAddDevice: showAddDevice)
             }
         }
         #endif
@@ -230,9 +233,9 @@ struct WorkspaceListView: View {
         Button {
             showingDeviceTree = true
         } label: {
-            Image(systemName: "rectangle.stack")
+            Image(systemName: "desktopcomputer")
         }
-        .accessibilityLabel(L10n.string("mobile.settings.devices", defaultValue: "Devices"))
+        .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
     #endif

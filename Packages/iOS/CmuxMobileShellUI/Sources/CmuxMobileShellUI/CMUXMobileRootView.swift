@@ -206,7 +206,7 @@ struct CMUXMobileRootView: View {
             // whatever workspaces have aggregated (foreground + live secondary
             // subscriptions); the foreground connection is established without any
             // tap. Opening a workspace attaches its Mac on demand.
-            WorkspaceShellView(store: store, signOut: signOut)
+            WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
         }
     }
 

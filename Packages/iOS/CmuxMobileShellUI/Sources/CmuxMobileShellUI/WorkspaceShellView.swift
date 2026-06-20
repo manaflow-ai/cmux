@@ -12,6 +12,9 @@ import AppKit
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
+    /// Present the add-device (pairing) flow from the Computers screen. `nil`
+    /// hides the add affordance.
+    var showAddDevice: (() -> Void)?
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
@@ -86,6 +89,7 @@ struct WorkspaceShellView: View {
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
                 reconnect: reconnectClosure,
+                showAddDevice: showAddDevice,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
@@ -168,6 +172,7 @@ struct WorkspaceShellView: View {
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
                 reconnect: reconnectClosure,
+                showAddDevice: showAddDevice,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,

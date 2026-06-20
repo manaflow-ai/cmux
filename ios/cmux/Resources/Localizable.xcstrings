@@ -970,6 +970,125 @@
         }
       }
     },
+    "mobile.computers.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータを追加"
+          }
+        }
+      }
+    },
+    "mobile.computers.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No computers yet. Add one to see its workspaces here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータがありません。追加するとワークスペースがここに表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.computers.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Macs signed in to your account. Workspaces from every computer appear together in the main list."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントにサインインしている Mac。すべてのコンピュータのワークスペースがメインのリストにまとめて表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.computers.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "mobile.computers.removeMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This computer and its workspaces stop appearing here. Pair it again to add it back."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータとそのワークスペースは表示されなくなります。再度ペアリングすると追加できます。"
+          }
+        }
+      }
+    },
+    "mobile.computers.removeTitleFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を削除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.computers.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ"
+          }
+        }
+      }
+    },
     "mobile.connection.connected": {
       "extractionState": "manual",
       "localizations": {
