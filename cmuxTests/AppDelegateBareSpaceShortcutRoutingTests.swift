@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWindowing
 import XCTest
 
 #if canImport(cmux_DEV)
