@@ -3301,8 +3301,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
     private var suppressClosedPanelHistory = false
-    private enum TabStripCloseSource { case closeButton, middleClick }
-    private var tabStripCloseSources: [TabID: TabStripCloseSource] = [:]
+    private var tabStripCloseButtonByTabId: [TabID: Bool] = [:]
     /// Deterministic tab selection to apply after a tab closes, keyed by closing tab ID.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
     private var postCloseClearSplitZoomTabIds: Set<TabID> = []
@@ -3473,11 +3472,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
     func markTabCloseButtonClose(surfaceId: TabID) {
         markExplicitClose(surfaceId: surfaceId)
-        tabStripCloseSources[surfaceId] = .closeButton
+        tabStripCloseButtonByTabId[surfaceId] = true
     }
     func markTabStripMiddleClickClose(surfaceId: TabID) {
         markExplicitClose(surfaceId: surfaceId)
-        tabStripCloseSources[surfaceId] = .middleClick
+        tabStripCloseButtonByTabId[surfaceId] = false
     }
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
         paneTree.surfaceId(forPanelId: panelId)
@@ -11597,9 +11596,8 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        let tabStripCloseSource = tabStripCloseSources.removeValue(forKey: tab.id)
-        let tabStripClose = tabStripCloseSource != nil
-        let tabCloseButtonClose = tabStripCloseSource == .closeButton
+        let tabCloseButtonClose = tabStripCloseButtonByTabId.removeValue(forKey: tab.id)
+        let tabStripClose = tabCloseButtonClose != nil
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabStripClose
 
         // Remote tmux mirror tab closes are routed to tmux and veto the local
@@ -11612,7 +11610,7 @@ extension Workspace: BonsplitDelegate {
            let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
            remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
             let confirmationSource: CloseTabCloseSource =
-                tabCloseButtonClose ? .tabCloseButton : .shortcut
+                tabCloseButtonClose == true ? .tabCloseButton : .shortcut
             if !CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
                 requiresConfirmation: true, source: confirmationSource
             ) {
@@ -11749,7 +11747,7 @@ extension Workspace: BonsplitDelegate {
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id, tabStripClose: tabStripClose) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
-            if tabCloseButtonClose {
+            if tabCloseButtonClose == true {
                 owningTabManager?.closeWorkspaceFromTabCloseButton(self)
             } else {
                 owningTabManager?.closeWorkspaceFromCloseTabGesture(self)
@@ -11767,7 +11765,7 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        let confirmationSource: CloseTabCloseSource = tabCloseButtonClose ? .tabCloseButton : .shortcut
+        let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
         if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
             source: confirmationSource
@@ -11823,7 +11821,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
-        tabStripCloseSources.removeValue(forKey: tabId)
+        tabStripCloseButtonByTabId.removeValue(forKey: tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
