@@ -173,6 +173,24 @@ struct CMUXAuthStateTests {
         #expect(state.isRestoringSession)
     }
 
+    @Test("Primed state ignores auto-login credentials when cached tokens exist")
+    func primedStateIgnoresAutoLoginCredentialsWhenCachedTokensExist() {
+        let user = CMUXAuthUser(id: "user_123", primaryEmail: "user@example.com", displayName: "Test User")
+        let state = CMUXAuthState.primed(
+            clearAuthRequested: false,
+            mockDataEnabled: false,
+            fixtureUser: nil,
+            autoLoginCredentials: CMUXAuthAutoLoginCredentials(email: "user@example.com", password: "password"),
+            cachedUser: user,
+            hasTokens: true,
+            mockUser: CMUXAuthUser(id: "mock", primaryEmail: "mock@example.com", displayName: "Mock")
+        )
+
+        #expect(state.isAuthenticated)
+        #expect(state.currentUser == user)
+        #expect(!state.isRestoringSession)
+    }
+
     @Test("Primed state does not authenticate from cached user alone")
     func primedStateDoesNotAuthenticateFromCachedUserAlone() {
         let user = CMUXAuthUser(id: "user_123", primaryEmail: "user@example.com", displayName: "Test User")
