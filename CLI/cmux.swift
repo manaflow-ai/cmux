@@ -3172,6 +3172,11 @@ struct CMUXCLI {
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
+        if (command == "notes" || command == "note"),
+           offlineNotesCommandDoesNotNeedSocket(commandArgs) {
+            try runOfflineNotesCommandWithoutSocket(commandArgs: commandArgs, jsonOutput: jsonOutput)
+            return
+        }
 
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
@@ -4161,6 +4166,15 @@ struct CMUXCLI {
 
         case "memory":
             try runMemoryCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "notes", "note":
+            try runOfflineNotesCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
 
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -5292,6 +5306,8 @@ struct CMUXCLI {
         "new-window",
         "new-workspace",
         "next-window",
+        "note",
+        "notes",
         "notify",
         "omc",
         "omo",
@@ -16020,6 +16036,8 @@ struct CMUXCLI {
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
             """
+        case "notes", "note":
+            return offlineNotesUsageHelp()
         default:
             return nil
         }
@@ -34166,6 +34184,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
+          notes <add|list|flush|clear|path> [--agent <name>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
