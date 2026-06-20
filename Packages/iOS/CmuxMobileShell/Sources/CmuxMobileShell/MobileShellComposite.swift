@@ -1192,6 +1192,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
+        activeRoute = directRoute
         let attemptID = beginPairingAttempt(method: "manual")
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
@@ -3324,6 +3325,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // therefore cannot authorize, which is intended.
         let routeAllowsStackAuthFallback = allowsStackAuthFallback
             ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsStackAuth)
+        let pairingAttemptStartedAt = Date()
         var lastError: (any Error)?
         for route in supportedRoutes {
             activeRoute = route
@@ -3336,9 +3338,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             for workspaceListRequest in workspaceListRequests {
                 do {
+                    let requestTimeoutNanoseconds = Self.boundedPairingRequestTimeoutNanoseconds(
+                        runtime: runtime,
+                        attemptStartedAt: pairingAttemptStartedAt
+                    )
+                    guard requestTimeoutNanoseconds > 0 else {
+                        throw MobileShellConnectionError.requestTimedOut
+                    }
                     let resultData = try await client.sendRequest(
                         workspaceListRequest.data,
-                        timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+                        timeoutNanoseconds: requestTimeoutNanoseconds
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
                     guard isCurrentConnectionAttempt(generation) else { return nil }
@@ -3381,9 +3390,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
 
-        clearRemoteConnectionContext()
         diagnosticLog?.record(DiagnosticEvent(.pairFail))
         throw lastError ?? MobileShellConnectionError.connectionClosed
+    }
+
+    private static func boundedPairingRequestTimeoutNanoseconds(
+        runtime: any MobileSyncRuntime,
+        attemptStartedAt: Date
+    ) -> UInt64 {
+        let requestTimeout = runtime.pairingRequestTimeoutNanoseconds
+        let attemptTimeout = runtime.pairingAttemptTimeoutNanoseconds
+        guard attemptTimeout > 0 else {
+            return requestTimeout
+        }
+
+        let elapsedSeconds = max(0, Date().timeIntervalSince(attemptStartedAt))
+        let elapsedNanoseconds = UInt64((elapsedSeconds * 1_000_000_000).rounded(.up))
+        guard elapsedNanoseconds < attemptTimeout else {
+            return 0
+        }
+        return min(requestTimeout, attemptTimeout - elapsedNanoseconds)
     }
 
     private struct WorkspaceListRequest {

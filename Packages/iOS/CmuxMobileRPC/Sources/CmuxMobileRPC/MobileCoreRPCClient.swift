@@ -3,6 +3,49 @@ internal import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import Foundation
 
+private final class RPCRequestTimeoutState<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, any Error>?
+    private var cancelHandler: (@Sendable () -> Void)?
+
+    func install(_ continuation: CheckedContinuation<T, any Error>) {
+        lock.lock()
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func setCancelHandler(_ handler: @escaping @Sendable () -> Void) {
+        lock.lock()
+        cancelHandler = handler
+        lock.unlock()
+    }
+
+    func resume(returning value: T) {
+        finish { $0.resume(returning: value) }
+    }
+
+    func resume(throwing error: any Error) {
+        finish { $0.resume(throwing: error) }
+    }
+
+    func cancel() {
+        finish { $0.resume(throwing: CancellationError()) }
+    }
+
+    private func finish(_ resume: (CheckedContinuation<T, any Error>) -> Void) {
+        lock.lock()
+        let continuation = continuation
+        let cancelHandler = cancelHandler
+        self.continuation = nil
+        self.cancelHandler = nil
+        lock.unlock()
+
+        guard let continuation else { return }
+        cancelHandler?()
+        resume(continuation)
+    }
+}
+
 /// A multiplexed RPC client over a single persistent transport to a paired Mac.
 ///
 /// All stored properties are immutable `let`s of `Sendable` types (the session
@@ -320,24 +363,32 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         try Task.checkCancellation()
-        return try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                throw MobileShellConnectionError.requestTimedOut
-            }
-            do {
-                guard let result = try await group.next() else {
-                    throw CancellationError()
+        let state = RPCRequestTimeoutState<T>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                state.install(continuation)
+                let operationTask = Task {
+                    do {
+                        state.resume(returning: try await operation())
+                    } catch {
+                        state.resume(throwing: error)
+                    }
                 }
-                group.cancelAll()
-                return result
-            } catch {
-                group.cancelAll()
-                throw error
+                let timeoutTask = Task {
+                    do {
+                        try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    } catch {
+                        return
+                    }
+                    state.resume(throwing: MobileShellConnectionError.requestTimedOut)
+                }
+                state.setCancelHandler {
+                    operationTask.cancel()
+                    timeoutTask.cancel()
+                }
             }
+        } onCancel: {
+            state.cancel()
         }
     }
 }

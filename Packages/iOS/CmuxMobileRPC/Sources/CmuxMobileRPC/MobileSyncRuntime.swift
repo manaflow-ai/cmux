@@ -26,6 +26,9 @@ public protocol MobileSyncRuntime: Sendable {
     /// Shorter deadline for pairing-time requests (ticket mint, initial
     /// workspace list), in nanoseconds.
     var pairingRequestTimeoutNanoseconds: UInt64 { get }
+    /// Hard deadline for one user-initiated pairing attempt, in nanoseconds.
+    /// This bounds the whole QR/manual flow, not just one route or RPC.
+    var pairingAttemptTimeoutNanoseconds: UInt64 { get }
     /// Whether the host supports server-pushed events. When `false`, the shell
     /// skips background subscribe/poll so scripted-transport tests do not
     /// consume responses intended for foreground methods.
@@ -40,6 +43,10 @@ public protocol MobileSyncRuntime: Sendable {
 }
 
 public extension MobileSyncRuntime {
+    /// Default user-facing pairing deadline. Individual RPCs can have their own
+    /// request timeout, but the sheet must not spin through stacked route waits.
+    var pairingAttemptTimeoutNanoseconds: UInt64 { 8_000_000_000 }
+
     /// Default probe deadline: generous against a momentarily loaded Mac,
     /// while keeping dead-stream recovery within a few seconds of the silence
     /// threshold instead of the full ``rpcRequestTimeoutNanoseconds``.

@@ -9,6 +9,7 @@ import OSLog
 public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
+    public static let defaultPairingAttemptTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
 
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
@@ -20,6 +21,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public var stackAccessTokenForceRefresher: @Sendable () async throws -> String
     public var rpcRequestTimeoutNanoseconds: UInt64
     public var pairingRequestTimeoutNanoseconds: UInt64
+    public var pairingAttemptTimeoutNanoseconds: UInt64
     public var now: @Sendable () -> Date
     /// When false, `MobileShellStore` skips background terminal refresh.
     /// Scripted transport tests set this off so background subscribe/poll
@@ -112,6 +114,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         stackAccessTokenForceRefresher: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
+        pairingAttemptTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingAttemptTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
         supportsServerPushEvents: Bool = true
     ) {
@@ -121,6 +124,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.stackAccessTokenForceRefresher = stackAccessTokenForceRefresher ?? { throw AuthError.unauthorized }
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
+        self.pairingAttemptTimeoutNanoseconds = pairingAttemptTimeoutNanoseconds
         self.now = now
         self.supportsServerPushEvents = supportsServerPushEvents
     }
@@ -131,6 +135,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         stackAccessTokenForceRefresher: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
+        pairingAttemptTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingAttemptTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
         supportsServerPushEvents: Bool = true
     ) {
@@ -140,6 +145,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.stackAccessTokenForceRefresher = stackAccessTokenForceRefresher ?? { throw AuthError.unauthorized }
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
+        self.pairingAttemptTimeoutNanoseconds = pairingAttemptTimeoutNanoseconds
         self.supportsServerPushEvents = supportsServerPushEvents
         self.now = now
     }
