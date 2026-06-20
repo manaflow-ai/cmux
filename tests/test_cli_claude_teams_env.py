@@ -36,6 +36,7 @@ def run_claude_teams(
         real_bin.mkdir(parents=True, exist_ok=True)
 
         env_log = tmp / "agent-teams.log"
+        sandboxed_log = tmp / "sandboxed.log"
         tmux_log = tmp / "tmux-path.log"
         cmux_bin_log = tmp / "cmux-bin.log"
         argv_log = tmp / "argv.log"
@@ -56,6 +57,7 @@ def run_claude_teams(
             """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS-__UNSET__}" > "$FAKE_AGENT_TEAMS_LOG"
+printf '%s\\n' "${CLAUDE_CODE_SANDBOXED-__UNSET__}" > "$FAKE_SANDBOXED_LOG"
 command -v tmux > "$FAKE_TMUX_PATH_LOG"
 printf '%s\\n' "${CMUX_CLAUDE_TEAMS_CMUX_BIN-__UNSET__}" > "$FAKE_CMUX_BIN_LOG"
 printf '%s\\n' "$@" > "$FAKE_ARGV_LOG"
@@ -108,6 +110,7 @@ fs.writeFileSync(
         env["HOME"] = str(fake_home)
         env["PATH"] = f"{real_bin}:{base_env.get('PATH', '/usr/bin:/bin')}"
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
+        env["FAKE_SANDBOXED_LOG"] = str(sandboxed_log)
         env["FAKE_TMUX_PATH_LOG"] = str(tmux_log)
         env["FAKE_CMUX_BIN_LOG"] = str(cmux_bin_log)
         env["FAKE_ARGV_LOG"] = str(argv_log)
@@ -156,6 +159,14 @@ fs.writeFileSync(
             print(f"FAIL: expected CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1, got {agent_teams_value!r}")
             raise SystemExit(1)
 
+        # #6447: the lead must skip Claude Code's interactive "trust this folder?"
+        # gate (which otherwise deadlocks the unattended session) via
+        # CLAUDE_CODE_SANDBOXED.
+        sandboxed_value = read_text(sandboxed_log)
+        if sandboxed_value != "1":
+            print(f"FAIL: expected CLAUDE_CODE_SANDBOXED=1 to skip the trust gate, got {sandboxed_value!r}")
+            raise SystemExit(1)
+
         tmux_path = read_text(tmux_log)
         if not tmux_path:
             print("FAIL: fake claude did not observe a tmux binary in PATH")
@@ -186,6 +197,18 @@ fs.writeFileSync(
         argv_lines = argv_log.read_text(encoding="utf-8").splitlines()
         if argv_lines[:2] != ["--teammate-mode", "auto"]:
             print(f"FAIL: expected launcher to prepend --teammate-mode auto, got {argv_lines!r}")
+            raise SystemExit(1)
+
+        # #6447: so a plain `cmux claude-teams "make a demo team"` actually opens
+        # split panes, the lead is nudged (via an appended system prompt) toward
+        # named split-pane teammates instead of nameless in-process subagents.
+        if "--append-system-prompt" not in argv_lines:
+            print(f"FAIL: expected claude-teams to append a team-spawn system prompt, got {argv_lines!r}")
+            raise SystemExit(1)
+        nudge_index = argv_lines.index("--append-system-prompt")
+        nudge_text = argv_lines[nudge_index + 1] if nudge_index + 1 < len(argv_lines) else ""
+        if "teammate" not in nudge_text.lower() or "pane" not in nudge_text.lower():
+            print(f"FAIL: team-spawn nudge must steer toward split-pane teammates, got {nudge_text!r}")
             raise SystemExit(1)
 
         if "--version" not in argv_lines:

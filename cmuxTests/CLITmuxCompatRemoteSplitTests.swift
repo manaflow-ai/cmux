@@ -100,7 +100,8 @@ import Testing
     /// and returns the `command` / `tmux_start_command` forwarded to
     /// `surface.respawn`.
     private func respawnPaneForwardedCommand(
-        _ command: String
+        _ command: String,
+        extraEnvironment: [String: String] = [:]
     ) throws -> (command: String, startCommand: String) {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITmuxCompatRemoteSplitBundleToken.self)
         let tmpDir = FileManager.default.temporaryDirectory
@@ -142,17 +143,21 @@ import Testing
             }
         }
 
+        var environment = [
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "HOME": tmpDir.path,
+            "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
         let result = Self.runProcess(
             executablePath: cliPath,
             arguments: ["__tmux-compat", "respawn-pane", "-k", "--", command],
-            environment: [
-                "CMUX_SOCKET_PATH": socketPath,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": surfaceId,
-                "HOME": tmpDir.path,
-                "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-            ],
+            environment: environment,
             timeout: 30
         )
         #expect(handled.wait(timeout: .now() + 30) == .success)
@@ -225,6 +230,48 @@ import Testing
         #expect(
             shellForm.command.contains("/bin/sh -c \"opencode attach; sleep 1\""),
             "wrapper must carry the original command verbatim, got: \(shellForm.command)"
+        )
+    }
+
+    /// Regression for #6447: even after the teammate command runs through a shell,
+    /// each spawned `claude` opened its pane but then blocked forever on Claude
+    /// Code's interactive "Do you trust this folder?" gate and never checked in —
+    /// which looked like the teammate "failing to start". Claude Code short-circuits
+    /// that gate on `CLAUDE_CODE_SANDBOXED`. Teammate panes are respawned by cmux
+    /// (not by `cmux claude-teams`), so they do not inherit the launcher env and must
+    /// be re-supplied it. cmux injects it ONLY in a claude-teams context (detected via
+    /// `CMUX_CLAUDE_TEAMS_CMUX_BIN`); OMO and the public `respawn-pane` are unchanged.
+    @Test func respawnPaneInjectsClaudeTeamsTrustBypass() throws {
+        let teammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"
+
+        // claude-teams context: the trust-bypass var is exported ahead of the
+        // original command, still inside the /bin/sh -c wrapper.
+        let inTeams = try respawnPaneForwardedCommand(
+            teammate,
+            extraEnvironment: ["CMUX_CLAUDE_TEAMS_CMUX_BIN": "/opt/cmux/bin/cmux"]
+        )
+        #expect(
+            inTeams.command.hasPrefix("/bin/sh -c "),
+            "claude-teams respawn must still run through /bin/sh -c, got: \(inTeams.command)"
+        )
+        #expect(
+            inTeams.command.contains("export CLAUDE_CODE_SANDBOXED="),
+            "claude-teams respawn must export CLAUDE_CODE_SANDBOXED so the teammate skips the trust gate, got: \(inTeams.command)"
+        )
+        #expect(
+            inTeams.command.contains(teammate),
+            "the original teammate command must still be carried verbatim, got: \(inTeams.command)"
+        )
+        #expect(
+            inTeams.startCommand == teammate,
+            "tmux_start_command must stay the raw command (no injected env), got: \(inTeams.startCommand)"
+        )
+
+        // No claude-teams context (OMO / public respawn-pane): no injection.
+        let outsideTeams = try respawnPaneForwardedCommand(teammate)
+        #expect(
+            !outsideTeams.command.contains("CLAUDE_CODE_SANDBOXED"),
+            "non-claude-teams respawn must not inject CLAUDE_CODE_SANDBOXED, got: \(outsideTeams.command)"
         )
     }
 
