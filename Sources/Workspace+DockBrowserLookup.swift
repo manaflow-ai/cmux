@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 
 extension Workspace {
     func dockBrowserPanel(for panelId: UUID) -> BrowserPanel? {
@@ -47,7 +48,7 @@ extension DockSplitStore {
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
-        return BrowserPanel(
+        let panel = BrowserPanel(
             workspaceId: workspaceId,
             profileID: preferredProfileID,
             initialURL: url,
@@ -58,5 +59,23 @@ extension DockSplitStore {
             isRemoteWorkspace: settings.isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier
         )
+        panel.setRemoteWorkspaceStatus(settings.remoteStatus)
+        return panel
+    }
+
+    func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {
+        for browserPanel in dockBrowserPanels {
+            browserPanel.setRemoteProxyEndpoint(endpoint)
+        }
+    }
+
+    func applyRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
+        for browserPanel in dockBrowserPanels {
+            browserPanel.setRemoteWorkspaceStatus(status)
+        }
+    }
+
+    private var dockBrowserPanels: [BrowserPanel] {
+        bonsplitController.allTabIds.compactMap { panel(for: $0) as? BrowserPanel }
     }
 }

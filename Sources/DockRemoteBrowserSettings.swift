@@ -10,11 +10,13 @@ struct DockRemoteBrowserSettings: Sendable {
     let bypassRemoteProxy: Bool
     let isRemoteWorkspace: Bool
     let remoteWebsiteDataStoreIdentifier: UUID?
+    let remoteStatus: BrowserRemoteWorkspaceStatus?
 
     static let local = DockRemoteBrowserSettings(
         proxyEndpoint: nil,
         bypassRemoteProxy: false,
         isRemoteWorkspace: false,
-        remoteWebsiteDataStoreIdentifier: nil
+        remoteWebsiteDataStoreIdentifier: nil,
+        remoteStatus: nil
     )
 }
