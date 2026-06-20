@@ -5401,15 +5401,17 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         base: [String: String],
         remoteStartupCommand: String?
     ) -> [String: String] {
-        guard remoteStartupCommand != nil,
-              let remoteEnvironment = remoteConfiguration?.sshTerminalStartupEnvironment else {
-            return base
-        }
-        var environment = base
-        for (key, value) in remoteEnvironment {
-            environment[key] = value
-        }
-        return environment
+        // The two live-state conditions (a remote command is in effect AND this
+        // workspace has a remote SSH startup environment) stay here; the
+        // value-typed overlay is the coordinator's
+        // mergedStartupEnvironment(base:remoteEnvironment:).
+        let remoteEnvironment = remoteStartupCommand == nil
+            ? nil
+            : remoteConfiguration?.sshTerminalStartupEnvironment
+        return surfaceCreation.mergedStartupEnvironment(
+            base: base,
+            remoteEnvironment: remoteEnvironment
+        )
     }
 
     private func normalizedRemotePTYSessionID(_ value: String?) -> String? {
@@ -6524,11 +6526,10 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         // respawns a local login shell when the command exits (the PTY falls through
         // to $SHELL), and a dead VM looks identical to a healthy workspace with a
         // local prompt — which is what we saw during dogfood.
-        if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
-        }
+        inheritedConfig = surfaceCreation.configHoldingPaneAfterStartupCommand(
+            inheritedConfig: inheritedConfig,
+            hasStartupCommand: startupCommand != nil
+        )
 #if DEBUG
         dlog(
             "split.timing workspace=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
@@ -6784,11 +6785,10 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         // See the comment at the other call site: hold the PTY open after the remote
         // command exits so the user sees the error rather than a silently-respawned
         // local login shell.
-        if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
-        }
+        inheritedConfig = surfaceCreation.configHoldingPaneAfterStartupCommand(
+            inheritedConfig: inheritedConfig,
+            hasStartupCommand: startupCommand != nil
+        )
         let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
             ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
         let requestedWorkingDirectory = inheritWorkingDirectoryFallback && startupCommand == nil
@@ -10149,11 +10149,10 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             base: startupEnvironmentMergingWorkspaceEnvironment([:]),
             remoteStartupCommand: startupCommand
         )
-        if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
-        }
+        inheritedConfig = surfaceCreation.configHoldingPaneAfterStartupCommand(
+            inheritedConfig: inheritedConfig,
+            hasStartupCommand: startupCommand != nil
+        )
 
         let newPanel = TerminalPanel(
             workspaceId: id,
