@@ -2029,7 +2029,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
-        agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSessions(workspaceID: $0) }
+        agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSession(titleChange: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded(notificationStore: notificationStore)
@@ -6585,9 +6585,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context?.keyboardFocusCoordinator.rememberRightSidebarMode(mode)
             }
             return .ok
-
         case .getState:
-            return .state(.init(visible: state.isVisible, mode: state.mode))
+            return .state(.init(visible: state.isVisible, modeRawValue: state.rightSidebarRemoteModeRawValue))
         }
     }
 

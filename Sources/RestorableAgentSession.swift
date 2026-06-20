@@ -1106,13 +1106,14 @@ struct RestorableAgentSessionIndex: Sendable {
                         lookup: claudeTranscriptLookup
                     )
                     : record
+                let originalLaunchCommand = effectiveRecord.launchCommand
+                let trustedLaunchCommand = trustedLaunchCommand(originalLaunchCommand, kind: kind)
+                let strippedUntrustedLaunchArguments =
+                    trustedLaunchCommand == nil && !(originalLaunchCommand?.arguments.isEmpty ?? true)
                 // Drop untrusted launch captures before ANY derivation: the
                 // working directory below would otherwise inherit the foreign
                 // agent's launch cwd even though the launch command is stripped.
-                effectiveRecord.launchCommand = trustedLaunchCommand(
-                    effectiveRecord.launchCommand,
-                    kind: kind
-                )
+                effectiveRecord.launchCommand = trustedLaunchCommand
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
@@ -1120,6 +1121,7 @@ struct RestorableAgentSessionIndex: Sendable {
                       hookRecordIsRestorable(
                           effectiveRecord,
                           kind: kind,
+                          strippedUntrustedLaunchArguments: strippedUntrustedLaunchArguments,
                           fileManager: fileManager,
                           claudeTranscriptLookup: claudeTranscriptLookup
                       ) else {
@@ -1252,11 +1254,16 @@ struct RestorableAgentSessionIndex: Sendable {
     private static func hookRecordIsRestorable(
         _ record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
+        strippedUntrustedLaunchArguments: Bool = false,
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
         guard kind == .claude else {
-            return record.isRestorable != false && hookRecordHasPositiveRestorabilitySignal(record, kind: kind)
+            return record.isRestorable != false
+                && (
+                    strippedUntrustedLaunchArguments
+                        || hookRecordHasPositiveRestorabilitySignal(record, kind: kind)
+                )
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
            regularNonEmptyFileExists(

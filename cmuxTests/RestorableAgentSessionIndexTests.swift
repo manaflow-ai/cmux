@@ -1306,6 +1306,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
             recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
         )
+        record.removeValue(forKey: "isRestorable")
         record["launchCommand"] = [
             "launcher": "claude",
             "executablePath": "/Users/someone/.local/bin/claude",
@@ -1362,6 +1363,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
             recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
         )
+        record.removeValue(forKey: "isRestorable")
         record["launchCommand"] = [
             "launcher": "codex",
             "executablePath": "sh",
