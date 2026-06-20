@@ -4072,40 +4072,29 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         var handlerRegistry = CommandPaletteHandlerRegistry()
         registerCommandPaletteHandlers(&handlerRegistry)
 
-        var commands: [CommandPaletteCommand] = []
-        commands.reserveCapacity(contributions.count)
-        var nextRank = 0
-
-        for contribution in contributions {
-            let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId)
-                .flatMap { cmuxConfigStore.resolvedAction(id: $0) }
-            if let configuredPaletteAction, !configuredPaletteAction.palette {
-                continue
+        return CommandPaletteCommandListBuildPlan(
+            contributions: contributions,
+            context: context,
+            resolveConfigOverride: { commandId in
+                commandPaletteConfigActionID(for: commandId)
+                    .flatMap { cmuxConfigStore.resolvedAction(id: $0) }
+                    .map {
+                        CommandPaletteConfigActionOverride(
+                            palette: $0.palette,
+                            title: $0.title,
+                            subtitle: $0.subtitle,
+                            keywords: $0.keywords
+                        )
+                    }
+            },
+            resolveShortcutHint: { contribution, context in
+                commandPaletteShortcutHint(for: contribution, context: context)
+            },
+            resolveHandler: { handlerRegistry.handler(for: $0) },
+            onMissingHandler: { commandId in
+                assertionFailure("No command palette handler registered for \(commandId)")
             }
-            guard contribution.when(context), contribution.enablement(context) else { continue }
-            guard let action = handlerRegistry.handler(for: contribution.commandId) else {
-                assertionFailure("No command palette handler registered for \(contribution.commandId)")
-                continue
-            }
-            commands.append(
-                CommandPaletteCommand(
-                    id: contribution.commandId,
-                    rank: nextRank,
-                    title: configuredPaletteAction?.title ?? contribution.title(context),
-                    subtitle: configuredPaletteAction?.subtitle ?? contribution.subtitle(context),
-                    shortcutHint: commandPaletteShortcutHint(for: contribution, context: context),
-                    kindLabel: nil,
-                    keywords: configuredPaletteAction?.keywords.isEmpty == false
-                        ? configuredPaletteAction?.keywords ?? contribution.keywords
-                        : contribution.keywords,
-                    dismissOnRun: contribution.dismissOnRun,
-                    action: action
-                )
-            )
-            nextRank += 1
-        }
-
-        return commands
+        ).commands
     }
 
     private func commandPaletteConfigActionID(for commandId: String) -> String? {
@@ -4146,55 +4135,10 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
             }
             return shortcut.displayString
         }
-        if let staticShortcut = commandPaletteStaticShortcutHint(for: contribution.commandId) {
+        if let staticShortcut = CommandPaletteStaticShortcutHint(commandId: contribution.commandId).value {
             return staticShortcut
         }
         return contribution.shortcutHint
-    }
-
-    private func commandPaletteStaticShortcutHint(for commandId: String) -> String? {
-        switch commandId {
-        case "palette.closeTab":
-            return "⌘W"
-        case "palette.closeWorkspace":
-            return "⌘⇧W"
-        case "palette.openSettings":
-            return "⌘,"
-        case "palette.browserBack":
-            return "⌘["
-        case "palette.browserForward":
-            return "⌘]"
-        case "palette.browserReload":
-            return "⌘R"
-        case "palette.browserFocusAddressBar":
-            return "⌘L"
-        case "palette.browserZoomIn":
-            return "⌘="
-        case "palette.browserZoomOut":
-            return "⌘-"
-        case "palette.browserZoomReset":
-            return "⌘0"
-        case "palette.markdownZoomIn":
-            return "⌘="
-        case "palette.markdownZoomOut":
-            return "⌘-"
-        case "palette.markdownZoomReset":
-            return "⌘0"
-        case "palette.terminalFind":
-            return "⌘F"
-        case "palette.terminalFindNext":
-            return "⌘G"
-        case "palette.terminalFindPrevious":
-            return "⌥⌘G"
-        case "palette.terminalHideFind":
-            return "⌥⌘⇧F"
-        case "palette.terminalUseSelectionForFind":
-            return "⌘E"
-        case "palette.toggleFullScreen":
-            return "\u{2303}\u{2318}F"
-        default:
-            return nil
-        }
     }
 
     private func commandPaletteContextSnapshot(
@@ -4663,9 +4607,9 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         }
         var cmuxConfigCustomActions: [CommandPaletteCommandContribution] = []
         for action in cmuxConfigStore.paletteCustomActions() {
-            let actionTitle = sanitizeCmuxConfigPaletteText(action.title)
+            let actionTitle = action.title.cmuxConfigPaletteSanitized
             let subtitleText = action.subtitle
-                .map { sanitizeCmuxConfigPaletteText($0) }
+                .map { $0.cmuxConfigPaletteSanitized }
                 .flatMap { $0.isEmpty ? nil : $0 }
                 ?? cmuxConfigDefaultSubtitle
             cmuxConfigCustomActions.append(
@@ -4701,17 +4645,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         )
     }
 
-    private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
-        let dangerous: Set<Unicode.Scalar> = [
-            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
-            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
-            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
-            "\u{FEFF}",
-        ]
-        let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
-        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private func commandPaletteCmuxConfigIssueTitle(_ issue: CmuxConfigIssue) -> String {
         switch issue.kind {
         case .schemaError:
@@ -4731,8 +4664,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         let rawPath = issue.sourcePath.map {
             NSString(string: $0).abbreviatingWithTildeInPath
         } ?? issue.settingName
-        let path = sanitizeCmuxConfigPaletteText(rawPath)
-        let detail = sanitizeCmuxConfigPaletteText(commandPaletteCmuxConfigIssueDetail(issue))
+        let path = rawPath.cmuxConfigPaletteSanitized
+        let detail = commandPaletteCmuxConfigIssueDetail(issue).cmuxConfigPaletteSanitized
         guard !detail.isEmpty else { return path }
         let format = String(
             localized: "command.cmuxConfig.issue.subtitle",
