@@ -11602,28 +11602,11 @@ extension Workspace: BonsplitDelegate {
         let tabCloseButtonClose = tabStripCloseSource == .closeButton
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabStripClose
 
-        // Remote tmux mirror: closing a window tab means "kill that tmux window".
-        // Route ANY non-programmatic close (close button, ⌘W, and batch closes
-        // like "close others / close to the left/right") to the remote and veto
-        // the immediate local close — the tab is removed when tmux reports
-        // %window-close, which also tears the window mirror down (so a batch
-        // close can't abandon the mirror's pane surfaces, and the window doesn't
-        // reappear on the next rebuild). Programmatic closes (forceCloseTabIds,
-        // used by the mirror's own rebuild) are excluded — they do the actual
-        // removal. Falls through to the normal local close when there is no live
-        // mirror connection.
-        //
-        // Kill-window is destructive (unlike detach), so it gets the same close
-        // confirmation as a local tab with a running process. The decision uses a
-        // LIVE activity query (tmux evaluates pane_current_command at query time)
-        // rather than the subscription cache, which tmux only refreshes about
-        // once a second — otherwise a command started right before ⌘W would
-        // slip through unconfirmed. The kill is only sent on Confirm (or when
-        // the fresh answer says idle); the %window-close round trip still does
-        // the actual tab removal, so the silent-close case costs one extra
-        // round trip on a path that already waits one. Batch closes never reach
-        // this confirmation: they confirm once up front and route the kill
-        // directly (see closeTabsFromContextMenu), bypassing this delegate.
+        // Remote tmux mirror tab closes are routed to tmux and veto the local
+        // close; the tab is removed when tmux reports %window-close. Programmatic
+        // force closes are excluded because they perform the mirror rebuild's
+        // actual local removal. Kill-window is destructive, so live activity still
+        // drives confirmation before sending the remote kill.
         if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
            let panelId = panelIdFromSurfaceId(tab.id),
            let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
@@ -11638,16 +11621,19 @@ extension Workspace: BonsplitDelegate {
                 // the target resolved two lines up on the same main-actor tick,
                 // and falling through to a LOCAL close of a mirror tab would
                 // leave the remote window alive to resurrect it.
+                clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
                 _ = remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
                 return false
             } else {
                 if pendingCloseConfirmTabIds.contains(tab.id) {
+                    clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
                     return false
                 }
                 let confirmationManager = owningTabManager
                     ?? AppDelegate.shared?.tabManagerFor(tabId: id)
                     ?? AppDelegate.shared?.tabManager
                 if let confirmationManager, confirmationManager.isCloseConfirmationInFlight {
+                    clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
                     return false
                 }
                 pendingCloseConfirmTabIds.insert(tab.id)
@@ -11662,6 +11648,7 @@ extension Workspace: BonsplitDelegate {
                     guard let self else { return }
                     if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
                         self.pendingCloseConfirmTabIds.remove(tabId)
+                        self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                         return
                     }
                     Task { @MainActor in
@@ -11672,13 +11659,20 @@ extension Workspace: BonsplitDelegate {
 
                         // If the tab disappeared while we were scheduling (e.g. the
                         // command finished and another client killed the window), do nothing.
-                        guard self.panelIdFromSurfaceId(tabId) != nil else { return }
+                        guard self.panelIdFromSurfaceId(tabId) != nil else {
+                            self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+                            return
+                        }
 
                         let confirmed = await self.confirmClosePanel(for: tabId, nameOverride: commandName)
-                        guard confirmed else { return }
+                        guard confirmed else {
+                            self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+                            return
+                        }
 
                         // Re-resolves the target, so a window that died while the
                         // dialog was up is a no-op rather than a stray kill.
+                        self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                         _ = remoteTmuxController.handleMirrorTabCloseRequested(
                             workspaceId: self.id, panelId: panelId
                         )
@@ -11705,10 +11699,12 @@ extension Workspace: BonsplitDelegate {
                     // died remotely) — nothing left to close.
                     guard self.panelIdFromSurfaceId(tabId) != nil else {
                         self.pendingCloseConfirmTabIds.remove(tabId)
+                        self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                         return
                     }
                     guard activity.hasActiveCommand else {
                         self.pendingCloseConfirmTabIds.remove(tabId)
+                        self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                         _ = remoteTmuxController.handleMirrorTabCloseRequested(
                             workspaceId: self.id, panelId: panelId
                         )
