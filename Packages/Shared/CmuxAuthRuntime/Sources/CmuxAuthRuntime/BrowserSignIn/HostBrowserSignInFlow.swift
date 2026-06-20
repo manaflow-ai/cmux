@@ -2,28 +2,16 @@ public import Foundation
 public import Observation
 import os
 
-/// The macOS hosted-browser sign-in flow.
-///
-/// Drives one `ASWebAuthenticationSession` attempt at a time against the cmux
-/// web app's hosted sign-in page, then seeds the callback tokens into the
-/// injected token store and publishes the session through the shared
-/// ``AuthCoordinator`` (`completeExternalSignIn()`). Also handles auth
-/// callback URLs that arrive through the app's URL scheme outside a popup.
-/// Owns the attempt/sign-out race guards so a late browser callback can never
-/// resurrect a session the user just signed out of.
+/// macOS hosted-browser sign-in flow, including external URL callbacks and
+/// attempt/sign-out race guards.
 @MainActor
 @Observable
 public final class HostBrowserSignInFlow {
     /// Whether a browser sign-in attempt (popup + completion) is in flight.
     public private(set) var isSigningIn = false
 
-    /// Whether the in-flight sign-in attempt has been waiting on the hosted
-    /// (Safari-backed) `ASWebAuthenticationSession` longer than
-    /// ``slowSignInThreshold`` without delivering a callback. The Settings
-    /// account UI watches this to offer an "open sign-in in your default
-    /// browser" fallback when the system sign-in window hangs (issue #6015),
-    /// instead of leaving the user on an indefinite spinner. Resets to `false`
-    /// whenever an attempt completes, is cancelled, or is replaced.
+    /// Whether the in-flight popup has waited long enough for the UI to offer
+    /// the default-browser fallback instead of an indefinite spinner.
     public private(set) var signInIsSlow = false
 
     /// Display-safe failure from the most recent hosted-browser sign-in
@@ -54,21 +42,6 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
 
     /// Creates the flow.
-    /// - Parameters:
-    ///   - coordinator: The shared auth coordinator that owns session state.
-    ///   - tokenStore: The store the `StackClientApp` reads tokens from; the
-    ///     callback tokens are seeded here.
-    ///   - sessionFactory: Browser-session seam (production:
-    ///     ``ASWebBrowserAuthSessionFactory``).
-    ///   - callbackRouter: Recognizes/parses auth callback URLs.
-    ///   - makeSignInURL: Builds the hosted sign-in URL per attempt (the
-    ///     composition root derives it from its environment table).
-    ///   - callbackScheme: The custom callback scheme for the popup.
-    ///   - clock: Drives the sign-in deadline; tests inject a virtual clock.
-    ///   - browserAttemptTimeout: Cancels abandoned external-browser attempts.
-    ///   - slowSignInThreshold: How long an attempt may wait on the hosted
-    ///     browser before ``signInIsSlow`` flips to surface the manual
-    ///     default-browser fallback. `0` disables the hint.
     public init(
         coordinator: AuthCoordinator,
         tokenStore: any StackAuthTokenStoreProtocol,
@@ -106,13 +79,8 @@ public final class HostBrowserSignInFlow {
         return makeSignInURL(state)
     }
 
-    /// The hosted sign-in URL for the in-flight attempt, to open in the user's
-    /// real default browser when the hosted-browser popup hangs (issue #6015).
-    /// Reuses the active attempt's callback state, so the resulting
-    /// `cmux://auth-callback` deep link routes back into the in-flight attempt
-    /// through ``handleCallbackURL(_:)`` instead of being rejected as a
-    /// stateful callback with no matching attempt. `nil` when no attempt is in
-    /// flight.
+    /// Sign-in URL for the active attempt, reused by the default-browser fallback
+    /// so the callback still routes to this in-flight attempt.
     public var activeAttemptSignInURL: URL? {
         guard let activeCallbackState else { return nil }
         pendingFallbackCallbackState = activeCallbackState
@@ -199,37 +167,38 @@ public final class HostBrowserSignInFlow {
         _ = await awaitWithDeadline(attempt, timeout: timeout)
     }
 
-    /// Await `attempt`, resolving `false` at the deadline while the attempt
-    /// keeps running in the background.
-    ///
-    /// Deadline, not polling: bounded + cancellable (cancelled as soon as the
-    /// attempt resolves), virtual-clock testable via the injected clock.
+    /// Await `attempt`, resolving `false` at the deadline while the underlying
+    /// attempt keeps running in the background.
     private func awaitWithDeadline(_ attempt: Task<Bool, Never>, timeout: TimeInterval) async -> Bool {
         // Clamp before converting so an oversized Double can't overflow.
         let clamped = max(0, min(timeout, 24 * 60 * 60))
         let clock = self.clock
-        let deadlineTask = Task { try await clock.sleep(for: .seconds(clamped)) }
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            let didResume = OSAllocatedUnfairLock(initialState: false)
-            let resume: @Sendable (Bool) -> Void = { result in
-                let alreadyResumed = didResume.withLock { state -> Bool in
-                    if state { return true }
-                    state = true
-                    return false
+        let stream = AsyncStream<Bool>(bufferingPolicy: .bufferingOldest(1)) { continuation in
+            let deadlineTask = Task {
+                do {
+                    try await clock.sleep(for: .seconds(clamped))
+                } catch {
+                    return
                 }
-                guard !alreadyResumed else { return }
-                deadlineTask.cancel()
-                continuation.resume(returning: result)
+                guard !Task.isCancelled else { return }
+                continuation.yield(false)
+                continuation.finish()
             }
-            Task { @MainActor in
+            let attemptWaitTask = Task {
                 let result = await attempt.value
-                resume(result)
+                continuation.yield(result)
+                continuation.finish()
+                deadlineTask.cancel()
             }
-            Task { @MainActor in
-                try? await deadlineTask.value
-                resume(false)
+            continuation.onTermination = { @Sendable _ in
+                deadlineTask.cancel()
+                attemptWaitTask.cancel()
             }
         }
+        for await result in stream {
+            return result
+        }
+        return false
     }
 
     // MARK: - Attempt lifecycle
@@ -279,9 +248,9 @@ public final class HostBrowserSignInFlow {
             ) { url in
                 // The factory delivers the completion exactly once (including
                 // after cancel()), so this resume cannot double-fire.
-                self.log.log("auth.browser.session.completion id=\(attemptID) \(url.map(authCallbackSummary) ?? "url=nil")")
+                self.log.log("auth.browser.session.completion id=\(attemptID) \(url.map(self.authCallbackSummary) ?? "url=nil")")
                 if let url, !self.callbackRouter.isAuthCallbackURL(url) {
-                    self.log.log("auth.browser.session.completion.ignored id=\(attemptID) reason=nonAuthCallback \(authCallbackSummary(url))")
+                    self.log.log("auth.browser.session.completion.ignored id=\(attemptID) reason=nonAuthCallback \(self.authCallbackSummary(url))")
                     return
                 }
                 self.resumeActiveSessionContinuation(
@@ -491,25 +460,25 @@ public final class HostBrowserSignInFlow {
         UUID().uuidString.lowercased()
     }
 
-}
+    private func authCallbackState(from url: URL) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "cmux_auth_state" })?
+            .value
+    }
 
-private func authCallbackState(from url: URL) -> String? {
-    URLComponents(url: url, resolvingAgainstBaseURL: false)?
-        .queryItems?
-        .first(where: { $0.name == "cmux_auth_state" })?
-        .value
-}
+    private func redactedAuthState(_ state: String) -> String {
+        "\(state.prefix(8))..."
+    }
 
-private func redactedAuthState(_ state: String) -> String {
-    "\(state.prefix(8))..."
-}
+    private func authCallbackSummary(_ url: URL) -> String {
+        let scheme = url.scheme ?? "nil"
+        let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .map(\.name)
+            .joined(separator: ",") ?? ""
+        return "scheme=\(scheme) target=\(target.isEmpty ? "nil" : target) queryKeys=\(queryItems.isEmpty ? "none" : queryItems)"
+    }
 
-private func authCallbackSummary(_ url: URL) -> String {
-    let scheme = url.scheme ?? "nil"
-    let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-        .queryItems?
-        .map(\.name)
-        .joined(separator: ",") ?? ""
-    return "scheme=\(scheme) target=\(target.isEmpty ? "nil" : target) queryKeys=\(queryItems.isEmpty ? "none" : queryItems)"
 }
