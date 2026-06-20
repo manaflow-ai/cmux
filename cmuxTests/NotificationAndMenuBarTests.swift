@@ -7,6 +7,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import CmuxSettings
+import CmuxAppKitSupportUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

@@ -2,34 +2,34 @@
 #if DEBUG
 
 public import AppKit
+internal import SwiftUI
 
 /// Hosts the app's "Menu Bar Extra Debug" panel in a floating utility window.
 ///
-/// The controller owns only generic AppKit window plumbing: it reuses
+/// The controller owns the panel's SwiftUI content directly: it reuses
 /// ``ReleasingWindowController``'s recreate-on-reopen teardown semantics, builds
-/// the utility ``NSPanel`` with the fixed `cmux.menubarDebug` chrome, and decorates
-/// the panel through the injected ``WindowDecorating`` seam. The panel's SwiftUI
-/// content is irreducibly app-coupled (it reads the app-target
-/// `MenuBarIconDebugSettings` defaults and asks the application delegate to refresh
-/// the live menu-bar icon), so the app target supplies the content view through the
-/// injected `contentProvider`; this package owns no reference to those types or to
-/// the application delegate.
+/// the utility ``NSPanel`` with the fixed `cmux.menubarDebug` chrome, mounts
+/// ``MenuBarExtraDebugView`` (which edits the package-owned
+/// ``MenuBarIconDebugSettings`` defaults), and decorates the panel through the
+/// injected ``WindowDecorating`` seam. The view's one app-coupled value, redrawing
+/// the live menu-bar icon, is inverted into the injected `refreshMenuBarIcon`
+/// closure; this package owns no reference to the application delegate.
 public final class MenuBarExtraDebugWindowController: ReleasingWindowController {
     private weak var decorator: (any WindowDecorating)?
-    private let contentProvider: @MainActor () -> NSView
+    private let refreshMenuBarIcon: @MainActor () -> Void
 
     /// Creates the controller. The panel is built lazily on first presentation.
     ///
     /// - Parameters:
     ///   - decorator: The seam used to normalize the panel's chrome.
-    ///   - contentProvider: Builds the panel's content view. Invoked on the main
-    ///     actor each time the window is (re)created.
+    ///   - refreshMenuBarIcon: Redraws the live menu-bar icon after a tuning
+    ///     change. Forwarded into ``MenuBarExtraDebugView``.
     public init(
         decorator: (any WindowDecorating)?,
-        contentProvider: @escaping @MainActor () -> NSView
+        refreshMenuBarIcon: @escaping @MainActor () -> Void
     ) {
         self.decorator = decorator
-        self.contentProvider = contentProvider
+        self.refreshMenuBarIcon = refreshMenuBarIcon
         super.init()
     }
 
@@ -51,7 +51,9 @@ public final class MenuBarExtraDebugWindowController: ReleasingWindowController 
         window.isMovableByWindowBackground = true
         window.identifier = NSUserInterfaceItemIdentifier("cmux.menubarDebug")
         window.center()
-        window.contentView = contentProvider()
+        window.contentView = NSHostingView(
+            rootView: MenuBarExtraDebugView(refreshMenuBarIcon: refreshMenuBarIcon)
+        )
         decorator?.applyWindowDecorations(to: window)
         return window
     }

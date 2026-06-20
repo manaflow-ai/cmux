@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import CmuxAppKitSupportUI
 
 @MainActor
 final class MenuBarExtraController: NSObject, NSMenuDelegate {
@@ -547,130 +548,6 @@ enum MenuBarOnlySettings {
         let targetPolicy = activationPolicy(defaults: defaults)
         guard application.activationPolicy() != targetPolicy else { return }
         application.setActivationPolicy(targetPolicy)
-    }
-}
-
-struct MenuBarBadgeRenderConfig {
-    var badgeRect: NSRect
-    var singleDigitFontSize: CGFloat
-    var multiDigitFontSize: CGFloat
-    var singleDigitYOffset: CGFloat
-    var multiDigitYOffset: CGFloat
-    var singleDigitXAdjust: CGFloat
-    var multiDigitXAdjust: CGFloat
-    var textRectWidthAdjust: CGFloat
-}
-
-enum MenuBarIconDebugSettings {
-    static let previewEnabledKey = "menubarDebugPreviewEnabled"
-    static let previewCountKey = "menubarDebugPreviewCount"
-    static let badgeRectXKey = "menubarDebugBadgeRectX"
-    static let badgeRectYKey = "menubarDebugBadgeRectY"
-    static let badgeRectWidthKey = "menubarDebugBadgeRectWidth"
-    static let badgeRectHeightKey = "menubarDebugBadgeRectHeight"
-    static let singleDigitFontSizeKey = "menubarDebugSingleDigitFontSize"
-    static let multiDigitFontSizeKey = "menubarDebugMultiDigitFontSize"
-    static let singleDigitYOffsetKey = "menubarDebugSingleDigitYOffset"
-    static let multiDigitYOffsetKey = "menubarDebugMultiDigitYOffset"
-    static let singleDigitXAdjustKey = "menubarDebugSingleDigitXAdjust"
-    static let legacySingleDigitXAdjustKey = "menubarDebugTextRectXAdjust"
-    static let multiDigitXAdjustKey = "menubarDebugMultiDigitXAdjust"
-    static let textRectWidthAdjustKey = "menubarDebugTextRectWidthAdjust"
-
-    static let defaultBadgeRect = NSRect(x: 5.38, y: 6.43, width: 10.75, height: 11.58)
-    static let defaultSingleDigitFontSize: CGFloat = 6.7
-    static let defaultMultiDigitFontSize: CGFloat = 6.7
-    static let defaultSingleDigitYOffset: CGFloat = 0.6
-    static let defaultMultiDigitYOffset: CGFloat = 0.6
-    static let defaultSingleDigitXAdjust: CGFloat = -1.1
-    static let defaultMultiDigitXAdjust: CGFloat = 2.42
-    static let defaultTextRectWidthAdjust: CGFloat = 1.8
-
-    static func displayedUnreadCount(actualUnreadCount: Int, defaults: UserDefaults = .standard) -> Int {
-        guard defaults.bool(forKey: previewEnabledKey) else { return actualUnreadCount }
-        let value = defaults.integer(forKey: previewCountKey)
-        return max(0, min(value, 99))
-    }
-
-    static func badgeRenderConfig(defaults: UserDefaults = .standard) -> MenuBarBadgeRenderConfig {
-        let x = value(defaults, key: badgeRectXKey, fallback: defaultBadgeRect.origin.x, range: 0...20)
-        let y = value(defaults, key: badgeRectYKey, fallback: defaultBadgeRect.origin.y, range: 0...20)
-        let width = value(defaults, key: badgeRectWidthKey, fallback: defaultBadgeRect.width, range: 4...14)
-        let height = value(defaults, key: badgeRectHeightKey, fallback: defaultBadgeRect.height, range: 4...14)
-        let singleFont = value(defaults, key: singleDigitFontSizeKey, fallback: defaultSingleDigitFontSize, range: 6...14)
-        let multiFont = value(defaults, key: multiDigitFontSizeKey, fallback: defaultMultiDigitFontSize, range: 6...14)
-        let singleY = value(defaults, key: singleDigitYOffsetKey, fallback: defaultSingleDigitYOffset, range: -3...4)
-        let multiY = value(defaults, key: multiDigitYOffsetKey, fallback: defaultMultiDigitYOffset, range: -3...4)
-        let singleX = value(
-            defaults,
-            key: singleDigitXAdjustKey,
-            legacyKey: legacySingleDigitXAdjustKey,
-            fallback: defaultSingleDigitXAdjust,
-            range: -4...4
-        )
-        let multiX = value(defaults, key: multiDigitXAdjustKey, fallback: defaultMultiDigitXAdjust, range: -4...4)
-        let widthAdjust = value(defaults, key: textRectWidthAdjustKey, fallback: defaultTextRectWidthAdjust, range: -3...5)
-
-        return MenuBarBadgeRenderConfig(
-            badgeRect: NSRect(x: x, y: y, width: width, height: height),
-            singleDigitFontSize: singleFont,
-            multiDigitFontSize: multiFont,
-            singleDigitYOffset: singleY,
-            multiDigitYOffset: multiY,
-            singleDigitXAdjust: singleX,
-            multiDigitXAdjust: multiX,
-            textRectWidthAdjust: widthAdjust
-        )
-    }
-
-    static func copyPayload(defaults: UserDefaults = .standard) -> String {
-        let config = badgeRenderConfig(defaults: defaults)
-        let previewEnabled = defaults.bool(forKey: previewEnabledKey)
-        let previewCount = max(0, min(defaults.integer(forKey: previewCountKey), 99))
-        return """
-        menubarDebugPreviewEnabled=\(previewEnabled)
-        menubarDebugPreviewCount=\(previewCount)
-        menubarDebugBadgeRectX=\(String(format: "%.2f", config.badgeRect.origin.x))
-        menubarDebugBadgeRectY=\(String(format: "%.2f", config.badgeRect.origin.y))
-        menubarDebugBadgeRectWidth=\(String(format: "%.2f", config.badgeRect.width))
-        menubarDebugBadgeRectHeight=\(String(format: "%.2f", config.badgeRect.height))
-        menubarDebugSingleDigitFontSize=\(String(format: "%.2f", config.singleDigitFontSize))
-        menubarDebugMultiDigitFontSize=\(String(format: "%.2f", config.multiDigitFontSize))
-        menubarDebugSingleDigitYOffset=\(String(format: "%.2f", config.singleDigitYOffset))
-        menubarDebugMultiDigitYOffset=\(String(format: "%.2f", config.multiDigitYOffset))
-        menubarDebugSingleDigitXAdjust=\(String(format: "%.2f", config.singleDigitXAdjust))
-        menubarDebugMultiDigitXAdjust=\(String(format: "%.2f", config.multiDigitXAdjust))
-        menubarDebugTextRectWidthAdjust=\(String(format: "%.2f", config.textRectWidthAdjust))
-        """
-    }
-
-    private static func value(
-        _ defaults: UserDefaults,
-        key: String,
-        legacyKey: String? = nil,
-        fallback: CGFloat,
-        range: ClosedRange<CGFloat>
-    ) -> CGFloat {
-        if let parsed = parse(defaults.object(forKey: key), fallback: fallback, range: range) {
-            return parsed
-        }
-        if let legacyKey, let parsed = parse(defaults.object(forKey: legacyKey), fallback: fallback, range: range) {
-            return parsed
-        }
-        return fallback
-    }
-
-    private static func parse(
-        _ object: Any?,
-        fallback: CGFloat,
-        range: ClosedRange<CGFloat>
-    ) -> CGFloat? {
-        guard let number = object as? NSNumber else {
-            return nil
-        }
-        let candidate = CGFloat(number.doubleValue)
-        guard candidate.isFinite else { return fallback }
-        return max(range.lowerBound, min(candidate, range.upperBound))
     }
 }
 

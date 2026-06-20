@@ -4,18 +4,19 @@ import Testing
 
 @testable import CmuxAppKitSupportUI
 
-/// Covers the two injected-content debug window shells (Menu Bar Extra Debug and
-/// Background Debug) the app forwards into ``DebugWindowsCoordinator``. Each builds
-/// its panel with a stable auxiliary identifier, mounts the app-supplied content
-/// view, and routes chrome decoration through the injected ``WindowDecorating`` seam.
+/// Covers the two debug window shells the app forwards into
+/// ``DebugWindowsCoordinator``. Background Debug mounts an app-supplied content
+/// view; Menu Bar Extra Debug owns its package ``MenuBarExtraDebugView`` and is
+/// injected only the live-icon refresh closure. Each builds its panel with a stable
+/// auxiliary identifier and routes chrome decoration through the injected
+/// ``WindowDecorating`` seam.
 @MainActor
 @Suite struct InjectedContentDebugWindowControllerTests {
     @Test func menuBarExtraShowBuildsPanelMountsContentAndDecorates() {
         let decorator = RecordingDecorator()
-        let content = NSView()
         let controller = MenuBarExtraDebugWindowController(
             decorator: decorator,
-            contentProvider: { content }
+            refreshMenuBarIcon: {}
         )
 
         controller.show()
@@ -23,7 +24,7 @@ import Testing
         let window = controller.window
         #expect(window != nil)
         #expect(window?.identifier?.rawValue == "cmux.menubarDebug")
-        #expect(window?.contentView === content)
+        #expect(window?.contentView != nil)
         #expect(decorator.decorated.count == 1)
         #expect(decorator.decorated.first === window)
     }
@@ -31,7 +32,7 @@ import Testing
     @Test func menuBarExtraShowWithoutDecoratorStillBuildsPanel() {
         let controller = MenuBarExtraDebugWindowController(
             decorator: nil,
-            contentProvider: { NSView() }
+            refreshMenuBarIcon: {}
         )
 
         controller.show()
