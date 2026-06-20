@@ -124,10 +124,26 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             // Terminal entries are encoded exactly as the legacy schema (no
             // `type` key) so existing project-config trust fingerprints stay
             // stable for unchanged configs.
-            try container.encode(command ?? "", forKey: .command)
+            guard let command = command?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !command.isEmpty else {
+                let context = EncodingError.Context(
+                    codingPath: container.codingPath + [CodingKeys.command],
+                    debugDescription: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
+                )
+                throw EncodingError.invalidValue(command as Any, context)
+            }
+            try container.encode(command, forKey: .command)
         case .browser:
             try container.encode(DockSurfaceKind.browser.rawValue, forKey: .type)
-            try container.encode(url ?? "", forKey: .url)
+            guard let url = url?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !url.isEmpty else {
+                let context = EncodingError.Context(
+                    codingPath: container.codingPath + [CodingKeys.url],
+                    debugDescription: String(localized: "dock.error.blankControlURL", defaultValue: "Dock browser control url must not be blank.")
+                )
+                throw EncodingError.invalidValue(url as Any, context)
+            }
+            try container.encode(url, forKey: .url)
         }
         try container.encodeIfPresent(cwd, forKey: .cwd)
         try container.encodeIfPresent(height, forKey: .height)

@@ -37,6 +37,7 @@ final class DockSplitStore: BonsplitDelegate {
     private var configurationLoadGeneration = 0
     private var configurationIdentityGeneration = 0
     private var activeConfigURL: URL?
+    private var rootDirectoryOverride: String?
     private var resolvedBaseDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
     /// The resolved config identity last loaded into the Dock tree. Project
     /// config lookup walks upward, so multiple workspace directories can share
@@ -129,6 +130,10 @@ final class DockSplitStore: BonsplitDelegate {
         setVisibleInUI(shouldBeVisible)
     }
 
+    func setRootDirectory(_ directory: String?) {
+        rootDirectoryOverride = Self.normalizedBaseDirectory(directory)
+    }
+
     /// Re-seeds the Dock when the workspace's base directory changed since the
     /// last config load (so a different project's `.cmux/dock.json` applies).
     /// Re-seeding replaces the tree, matching the prior Dock lifecycle.
@@ -137,7 +142,7 @@ final class DockSplitStore: BonsplitDelegate {
         guard configurationLoadTask == nil else { return }
         configurationIdentityGeneration += 1
         let generation = configurationIdentityGeneration
-        let rootDirectory = baseDirectoryProvider()
+        let rootDirectory = currentBaseDirectory()
         configurationIdentityTask?.cancel()
         configurationIdentityTask = Task.detached(priority: .utility) { [weak self] in
             let current = Self.configIdentity(rootDirectory: rootDirectory)
@@ -535,8 +540,13 @@ final class DockSplitStore: BonsplitDelegate {
         }
     }
 
+    private static func normalizedBaseDirectory(_ directory: String?) -> String? {
+        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func currentBaseDirectory() -> String {
-        if let directory = baseDirectoryProvider(), !directory.isEmpty {
+        if let directory = rootDirectoryOverride ?? Self.normalizedBaseDirectory(baseDirectoryProvider()) {
             return directory
         }
         return resolvedBaseDirectory
@@ -581,7 +591,7 @@ final class DockSplitStore: BonsplitDelegate {
     private func startConfigurationLoad(replacingPanels: Bool) {
         configurationLoadGeneration += 1
         let generation = configurationLoadGeneration
-        let rootDirectory = baseDirectoryProvider()
+        let rootDirectory = currentBaseDirectory()
         configurationIdentityTask?.cancel()
         configurationLoadTask?.cancel()
         configurationLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
@@ -640,6 +650,8 @@ final class DockSplitStore: BonsplitDelegate {
             }
         case .failed(let identity, let message):
             lastLoadedConfigIdentity = identity
+            activeConfigURL = identity.sourcePath.map { URL(fileURLWithPath: $0, isDirectory: false) }
+            resolvedBaseDirectory = identity.baseDirectory
             sourceLabel = String(localized: "dock.source.error", defaultValue: "Dock")
             errorMessage = message
         }
@@ -724,70 +736,34 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     func openConfiguration() {
+        let target: URL
         do {
-            let target: URL
             if let activeConfigURL {
                 target = activeConfigURL
             } else {
-                target = try Self.preferredEditableConfigURL(rootDirectory: baseDirectoryProvider())
+                target = try Self.preferredEditableConfigURL(rootDirectory: currentBaseDirectory())
             }
-            if !FileManager.default.fileExists(atPath: target.path) {
-                try Self.writeTemplate(to: target)
-            }
-            NSWorkspace.shared.open(target)
         } catch {
             errorMessage = error.localizedDescription
+            return
         }
-    }
 
-    private static func resolvedWorkingDirectory(_ cwd: String?, baseDirectory: String) -> String {
-        guard let cwd, !cwd.isEmpty else { return baseDirectory }
-        if cwd.hasPrefix("/") {
-            return cwd
-        }
-        return (baseDirectory as NSString).appendingPathComponent(cwd)
-    }
+        Task { [weak self] in
+            let result: (target: URL?, errorMessage: String?) = await Task.detached(priority: .userInitiated) {
+                do {
+                    try Self.prepareEditableConfig(at: target)
+                    return (target, nil)
+                } catch {
+                    return (nil, error.localizedDescription)
+                }
+            }.value
 
-    private static func shellStartupScript(command: String, workingDirectory: String) -> String {
-        let tempDir = FileManager.default.temporaryDirectory
-        let scriptURL = tempDir.appendingPathComponent(
-            "cmux-dock-control-\(UUID().uuidString.lowercased()).sh"
-        )
-        let encodedCommand = Data(command.utf8).base64EncodedString()
-        let encodedWorkingDirectory = Data(workingDirectory.utf8).base64EncodedString()
-        let body = """
-        #!/bin/sh
-        cmux_dock_decode() { printf '%s' "$1" | base64 --decode 2>/dev/null || printf '%s' "$1" | base64 -D 2>/dev/null; }
-        cmux_dock_login_shell() {
-          cmux_dock_user="$(id -un 2>/dev/null || printf '%s' "${USER:-}")"
-          cmux_dock_ds_shell="$(dscl . -read "/Users/$cmux_dock_user" UserShell 2>/dev/null | awk '{print $2; exit}')"
-          if [ -n "$cmux_dock_ds_shell" ] && [ -x "$cmux_dock_ds_shell" ]; then printf '%s\\n' "$cmux_dock_ds_shell"
-          elif [ -n "${SHELL:-}" ] && [ -x "${SHELL:-}" ]; then printf '%s\\n' "$SHELL"
-          else printf '%s\\n' /bin/sh; fi
-        }
-        cmux_dock_command="$(cmux_dock_decode '\(encodedCommand)')"
-        cmux_dock_working_directory="$(cmux_dock_decode '\(encodedWorkingDirectory)')"
-        cmux_dock_shell="$(cmux_dock_login_shell)"
-        cmux_dock_bundle_bin=""
-        if [ -n "${CMUX_BUNDLED_CLI_PATH:-}" ]; then cmux_dock_bundle_bin="$(dirname "$CMUX_BUNDLED_CLI_PATH")"; fi
-        export SHELL="$cmux_dock_shell"
-        rm -f -- "$0" 2>/dev/null || true
-        case "$(basename "$cmux_dock_shell")" in
-          fish)
-            CMUX_DOCK_BUNDLE_BIN="$cmux_dock_bundle_bin" CMUX_DOCK_START_COMMAND="$cmux_dock_command" CMUX_DOCK_START_DIRECTORY="$cmux_dock_working_directory" "$cmux_dock_shell" -l -c 'if test -n "$CMUX_DOCK_BUNDLE_BIN"; and not contains -- "$CMUX_DOCK_BUNDLE_BIN" $PATH; set -gx PATH "$CMUX_DOCK_BUNDLE_BIN" $PATH; end; if test -n "$CMUX_DOCK_START_DIRECTORY"; cd "$CMUX_DOCK_START_DIRECTORY"; end; eval "$CMUX_DOCK_START_COMMAND"'
-            ;;
-          *) CMUX_DOCK_BUNDLE_BIN="$cmux_dock_bundle_bin" CMUX_DOCK_START_COMMAND="$cmux_dock_command" CMUX_DOCK_START_DIRECTORY="$cmux_dock_working_directory" "$cmux_dock_shell" -lc 'if [ -n "${CMUX_DOCK_BUNDLE_BIN:-}" ]; then case ":${PATH:-}:" in *":$CMUX_DOCK_BUNDLE_BIN:"*) ;; *) PATH="$CMUX_DOCK_BUNDLE_BIN${PATH:+:$PATH}"; export PATH ;; esac; fi; cd "$CMUX_DOCK_START_DIRECTORY" 2>/dev/null || true; eval "$CMUX_DOCK_START_COMMAND"'
-            ;;
-        esac
-        printf '\\n'
-        exec "$cmux_dock_shell" -l
-        """
-        do {
-            try body.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
-            return scriptURL.path
-        } catch {
-            return "/bin/sh"
+            guard let self else { return }
+            if let target = result.target {
+                NSWorkspace.shared.open(target)
+            } else if let message = result.errorMessage {
+                self.errorMessage = message
+            }
         }
     }
 }

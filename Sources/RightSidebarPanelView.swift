@@ -416,7 +416,7 @@ struct RightSidebarPanelView: View {
                         store: workspace.dockSplit,
                         isSidebarVisible: fileExplorerState.isVisible,
                         mode: fileExplorerState.mode,
-                        rootDirectory: workspace.currentDirectory,
+                        rootDirectory: RightSidebarDirectoryContext.dockRootDirectory(workspaceDirectory: workspace.currentDirectory, fallbackDirectory: sessionIndexDirectory),
                         windowAppearance: windowAppearance
                     )
                     .id(workspace.id)

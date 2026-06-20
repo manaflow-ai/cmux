@@ -94,6 +94,14 @@ struct DockControlDefinitionDecodingTests {
         #expect(encoded.contains("\"command\":\"lazygit\""))
     }
 
+    @Test("Terminal entries without command fail to encode")
+    func terminalReencodeMissingCommandThrows() {
+        let control = DockControlDefinition(id: "git", title: "Git")
+        #expect(throws: (any Error).self) {
+            _ = try JSONEncoder().encode(control)
+        }
+    }
+
     @Test("Browser entries re-encode with type and url")
     func browserReencodeIncludesTypeAndURL() throws {
         let control = DockControlDefinition(
@@ -105,6 +113,14 @@ struct DockControlDefinitionDecodingTests {
         let encoded = String(data: try JSONEncoder().encode(control), encoding: .utf8) ?? ""
         #expect(encoded.contains("\"type\""))
         #expect(encoded.contains("\"url\""))
+    }
+
+    @Test("Browser entries without url fail to encode")
+    func browserReencodeMissingURLThrows() {
+        let control = DockControlDefinition(id: "docs", title: "Docs", kind: .browser)
+        #expect(throws: (any Error).self) {
+            _ = try JSONEncoder().encode(control)
+        }
     }
 
     @Test("Mixed terminal + browser config file decodes")

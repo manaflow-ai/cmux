@@ -34,6 +34,7 @@ struct DockPanelView: View {
         .accessibilityIdentifier("DockPanel")
         .onAppear {
             refreshAppearance(reason: "onAppear")
+            store.setRootDirectory(rootDirectory)
             store.setActive(isVisible: isSidebarVisible, mode: mode)
         }
         .onDisappear { store.setVisibleInUI(false) }
@@ -44,6 +45,7 @@ struct DockPanelView: View {
             store.setActive(isVisible: isSidebarVisible, mode: newMode)
         }
         .onChange(of: rootDirectory) { _, _ in
+            store.setRootDirectory(rootDirectory)
             store.setActive(isVisible: isSidebarVisible, mode: mode)
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in

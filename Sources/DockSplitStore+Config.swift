@@ -59,7 +59,7 @@ extension DockSplitStore {
         )
     }
 
-    static func sourceLabel(for resolution: DockConfigResolution) -> String {
+    nonisolated static func sourceLabel(for resolution: DockConfigResolution) -> String {
         if resolution.sourceURL == nil {
             return String(localized: "dock.source.title", defaultValue: "Dock")
         }
@@ -68,7 +68,7 @@ extension DockSplitStore {
             : String(localized: "dock.source.global", defaultValue: "Global Dock")
     }
 
-    static func preferredEditableConfigURL(rootDirectory: String?) throws -> URL {
+    nonisolated static func preferredEditableConfigURL(rootDirectory: String?) throws -> URL {
         if let rootDirectory = rootDirectory.flatMap(existingDirectory) {
             return URL(fileURLWithPath: rootDirectory, isDirectory: true)
                 .appendingPathComponent(".cmux", isDirectory: true)
@@ -77,7 +77,7 @@ extension DockSplitStore {
         return globalConfigURL()
     }
 
-    static func writeTemplate(to url: URL) throws {
+    nonisolated static func writeTemplate(to url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -96,7 +96,13 @@ extension DockSplitStore {
         try data.write(to: url, options: .atomic)
     }
 
-    static func trustDescriptor(for resolution: DockConfigResolution) -> CmuxActionTrustDescriptor {
+    nonisolated static func prepareEditableConfig(at url: URL) throws {
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try writeTemplate(to: url)
+        }
+    }
+
+    nonisolated static func trustDescriptor(for resolution: DockConfigResolution) -> CmuxActionTrustDescriptor {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = (try? encoder.encode(DockConfigFile(controls: resolution.controls))) ?? Data()
