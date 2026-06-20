@@ -221,5 +221,6 @@
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
 504	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
+503	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/CMUXMobileRootView.swift
 503	Sources/Settings/ConfigSource.swift
 502	Sources/CmuxEventPublishing.swift
