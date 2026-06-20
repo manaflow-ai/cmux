@@ -217,4 +217,32 @@ public final class SessionRestoreCoordinator<Layout> where Layout: SessionLayout
         if stored.isProcessDetected { return nil }
         return stored
     }
+
+    // MARK: - Closed-panel restore anchoring
+
+    /// Chooses which sibling tab a closing panel should anchor its restore to,
+    /// byte-faithfully reproducing the inline neighbor-selection branch of the
+    /// legacy `Workspace.closedPanelHistoryEntry(panelId:tabId:pane:)` body.
+    ///
+    /// The legacy body, having located the closing tab at `closedTabIndex` in a
+    /// pane holding `tabCount` tabs, preferred the tab immediately *after* the
+    /// closing one, fell back to the tab immediately *before* it, and produced no
+    /// anchor when the closing tab was the pane's only tab. Returning the chosen
+    /// index (rather than a resolved panel id) keeps the live tab-list read and
+    /// the `surfaceId → panelId` resolution app-side, where the pane-tree state
+    /// lives, while the selection rule lives here with the other restore
+    /// decisions. The caller resolves `paneTabs[index].id` through its own map.
+    ///
+    /// Returns `nil` when there is no sibling to anchor to (the closing tab is
+    /// the pane's only tab, or `closedTabIndex` is out of range), exactly as the
+    /// legacy `return nil` fall-through did.
+    public func paneAnchorNeighborIndex(forClosedTabIndex closedTabIndex: Int, tabCount: Int) -> Int? {
+        if closedTabIndex + 1 < tabCount {
+            return closedTabIndex + 1
+        }
+        if closedTabIndex > 0 {
+            return closedTabIndex - 1
+        }
+        return nil
+    }
 }

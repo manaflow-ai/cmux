@@ -367,4 +367,31 @@ struct SessionRestoreCoordinatorTests {
         )
         #expect(result == stored)
     }
+
+    // MARK: - Closed-panel restore anchoring
+
+    @Test("anchor: prefers the next tab when one exists")
+    func anchorPrefersNextTab() {
+        #expect(coordinator().paneAnchorNeighborIndex(forClosedTabIndex: 1, tabCount: 4) == 2)
+    }
+
+    @Test("anchor: closing the last tab falls back to the previous tab")
+    func anchorFallsBackToPreviousTab() {
+        #expect(coordinator().paneAnchorNeighborIndex(forClosedTabIndex: 3, tabCount: 4) == 2)
+    }
+
+    @Test("anchor: closing the only tab has no anchor")
+    func anchorNoneForSoleTab() {
+        #expect(coordinator().paneAnchorNeighborIndex(forClosedTabIndex: 0, tabCount: 1) == nil)
+    }
+
+    @Test("anchor: closing the first tab of many prefers the next tab")
+    func anchorFirstOfManyPrefersNext() {
+        #expect(coordinator().paneAnchorNeighborIndex(forClosedTabIndex: 0, tabCount: 3) == 1)
+    }
+
+    @Test("anchor: closing the last of two falls back to the first")
+    func anchorLastOfTwoFallsBack() {
+        #expect(coordinator().paneAnchorNeighborIndex(forClosedTabIndex: 1, tabCount: 2) == 0)
+    }
 }
