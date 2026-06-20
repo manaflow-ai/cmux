@@ -2329,7 +2329,11 @@ class TabManager: ObservableObject {
         }
     }
 
-    func selectWorkspace(_ workspace: Workspace, restorePanelFocus: Bool = true) {
+    func selectWorkspace(_ workspace: Workspace) {
+        selectWorkspace(workspace, restorePanelFocus: true)
+    }
+
+    func selectWorkspace(_ workspace: Workspace, restorePanelFocus: Bool) {
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif

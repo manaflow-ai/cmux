@@ -187,6 +187,33 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    func testRoutedCollisionExceptionDoesNotPermitChordPrefixAmbiguity() {
+        let routedShortcut = KeyboardShortcutSettings.Action.findPrevious.defaultShortcut
+        let chordWithRoutedPrefix = StoredShortcut(
+            key: "g",
+            command: true,
+            shift: true,
+            option: false,
+            control: false,
+            chordKey: "x"
+        )
+
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.groupSelectedWorkspaces.conflicts(
+                with: chordWithRoutedPrefix,
+                proposedAction: .findPrevious,
+                configuredShortcut: routedShortcut
+            )
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.findPrevious.conflicts(
+                with: routedShortcut,
+                proposedAction: .groupSelectedWorkspaces,
+                configuredShortcut: chordWithRoutedPrefix
+            )
+        )
+    }
+
     func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
         let focusMode = KeyboardShortcutSettings.Action.toggleBrowserFocusMode
 

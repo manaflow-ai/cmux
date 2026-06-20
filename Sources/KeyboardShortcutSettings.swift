@@ -619,7 +619,11 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
-            if allowsRoutedShortcutCollision(with: proposedAction) {
+            if allowsRoutedShortcutCollision(
+                with: proposedAction,
+                proposedShortcut: proposedShortcut,
+                configuredShortcut: configuredShortcut
+            ) {
                 return false
             }
             // Two bindings on the same keystroke only collide when some focus
@@ -646,7 +650,15 @@ enum KeyboardShortcutSettings {
             )
         }
 
-        private func allowsRoutedShortcutCollision(with other: Action) -> Bool {
+        private func allowsRoutedShortcutCollision(
+            with other: Action,
+            proposedShortcut: StoredShortcut,
+            configuredShortcut: StoredShortcut
+        ) -> Bool {
+            guard Self.isIntentionalRoutedCollisionShortcut(proposedShortcut),
+                  Self.isIntentionalRoutedCollisionShortcut(configuredShortcut) else {
+                return false
+            }
             switch (self, other) {
             case (.groupSelectedWorkspaces, .findPrevious),
                  (.findPrevious, .groupSelectedWorkspaces),
@@ -658,6 +670,15 @@ enum KeyboardShortcutSettings {
             default:
                 return false
             }
+        }
+
+        private static func isIntentionalRoutedCollisionShortcut(_ shortcut: StoredShortcut) -> Bool {
+            !shortcut.hasChord &&
+                shortcut.key == "g" &&
+                shortcut.command &&
+                shortcut.shift &&
+                !shortcut.option &&
+                !shortcut.control
         }
 
         func normalizedRecordedShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {

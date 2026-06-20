@@ -6574,6 +6574,62 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(menuProbe.callCount, 0, "The app menu must not steal Ghostty's Cmd+Shift+G binding")
     }
 
+    func testFocusHistoryShortcutsStayAppOwnedWhenTerminalFocused() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before focus history shortcuts"
+        )
+
+        let cases: [(KeyboardShortcutSettings.Action, String, UInt16)] = [
+            (.focusHistoryBack, "[", 33),
+            (.focusHistoryForward, "]", 30),
+        ]
+
+        for (action, key, keyCode) in cases {
+            withTemporaryShortcut(action: action) {
+                guard let event = makeKeyDownEvent(
+                    key: key,
+                    modifiers: [.command],
+                    keyCode: keyCode,
+                    windowNumber: window.windowNumber
+                ) else {
+                    XCTFail("Failed to construct \(key) focus-history event")
+                    return
+                }
+
+                XCTAssertFalse(
+                    appDelegate.shouldRouteFocusedTerminalGhosttyOwnedShortcut(event, in: window),
+                    "\(action.label) must stay app-owned instead of pre-routing to Ghostty"
+                )
+            }
+        }
+    }
+
     func testWindowPerformKeyEquivalentForwardsClearedCmdDPastStaleMenuShortcut() {
         let previousMainMenu = NSApp.mainMenu
         let probeWindow = NSWindow(
