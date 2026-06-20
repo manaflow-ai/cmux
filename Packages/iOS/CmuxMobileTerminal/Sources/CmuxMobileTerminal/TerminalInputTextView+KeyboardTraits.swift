@@ -17,7 +17,9 @@ extension TerminalInputTextView {
     ///
     /// When disabled, the terminal input proxy keeps all correction traits off
     /// so commands cannot be rewritten. When enabled, those traits return to the
-    /// system default so UIKit respects the user's global keyboard settings.
+    /// system default so UIKit respects the user's global keyboard settings; any
+    /// replacement edits are translated into terminal cursor/backspace/input
+    /// events by ``TerminalInputTextView`` before the proxy buffer is cleared.
     /// Autocapitalization is left untouched here — it stays off unconditionally
     /// (set once in `init`). Called from `init` and on every
     /// ``TerminalKeyboardConfiguration/didChangeNotification``.

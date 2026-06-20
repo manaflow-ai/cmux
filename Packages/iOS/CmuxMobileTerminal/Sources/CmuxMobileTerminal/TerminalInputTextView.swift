@@ -46,12 +46,19 @@ final class TerminalInputTextView: UITextView {
     private var commandAccessorySticky: Bool { modifierState.isStickyOn(.command) }
     private var shiftAccessorySticky: Bool { modifierState.isStickyOn(.shift) }
     private var pendingDirectInsertMirrorText = ""
+    /// Bounded mirror of plain soft-keyboard text already sent to the PTY. It is
+    /// only used to translate UIKit autocorrection replacements into terminal
+    /// edits, and is reset whenever cursor position becomes uncertain.
+    private var committedInputMirrorText = ""
 
     /// Monotonic-ish tap timestamp for the reducer's double-tap window. Uses
     /// the same wall-clock source the legacy `Date()` comparisons used, so the
     /// 0.4s sticky promotion behaves identically.
     private static func tapNow() -> TimeInterval { Date().timeIntervalSinceReferenceDate }
     private static let directInsertMirrorTextLimit = 128
+    private static let committedInputMirrorTextLimit = 512
+    private static let cursorLeftSequence = Data([0x1B, 0x5B, 0x44])
+    private static let cursorRightSequence = Data([0x1B, 0x5B, 0x43])
 
     override var canBecomeFirstResponder: Bool { true }
 
@@ -527,6 +534,7 @@ final class TerminalInputTextView: UITextView {
                 setCommandAccessoryArmed(false)
             }
             // Cmd+Backspace on Mac = delete to start of line (Ctrl+U / 0x15)
+            resetCommittedInputMirrorText()
             onEscapeSequence?(Data([0x15]))
             return
         }
@@ -538,6 +546,7 @@ final class TerminalInputTextView: UITextView {
                 input: UIKeyCommand.inputDelete,
                 modifierFlags: [.alternate]
             ) {
+                resetCommittedInputMirrorText()
                 onEscapeSequence?(output)
             }
             return
@@ -546,6 +555,7 @@ final class TerminalInputTextView: UITextView {
             if !controlAccessorySticky {
                 setControlAccessoryArmed(false)
             }
+            resetCommittedInputMirrorText()
             onBackspace?()
             return
         }
@@ -556,6 +566,7 @@ final class TerminalInputTextView: UITextView {
             if !shiftAccessorySticky {
                 setShiftAccessoryArmed(false)
             }
+            resetCommittedInputMirrorText()
             onBackspace?()
             return
         }
@@ -563,6 +574,7 @@ final class TerminalInputTextView: UITextView {
             super.deleteBackward()
             return
         }
+        removeLastCommittedInputMirrorCharacter()
         onBackspace?()
     }
 
@@ -648,6 +660,7 @@ final class TerminalInputTextView: UITextView {
         disarmAllModifiers()
         refreshAccessoryButtonStyles()
         guard let output = custom.output else { return }
+        resetCommittedInputMirrorText()
         onEscapeSequence?(output)
     }
 
@@ -656,6 +669,7 @@ final class TerminalInputTextView: UITextView {
         guard let data = TerminalHardwareKeyResolver.data(input: input, modifierFlags: modifierFlags) else {
             return false
         }
+        resetCommittedInputMirrorText()
         onEscapeSequence?(data)
         return true
     }
@@ -876,6 +890,7 @@ final class TerminalInputTextView: UITextView {
                 setControlAccessoryArmed(false)
             }
             if let output = action.output {
+                resetCommittedInputMirrorText()
                 onEscapeSequence?(output)
             }
             return
@@ -887,6 +902,7 @@ final class TerminalInputTextView: UITextView {
                 setAlternateAccessoryArmed(false)
             }
             if let output = alternateAccessoryOutput(for: action) {
+                resetCommittedInputMirrorText()
                 onEscapeSequence?(output)
             }
             return
@@ -898,6 +914,7 @@ final class TerminalInputTextView: UITextView {
                 setCommandAccessoryArmed(false)
             }
             if let output = commandAccessoryOutput(for: action) {
+                resetCommittedInputMirrorText()
                 onEscapeSequence?(output)
             }
             return
@@ -909,6 +926,7 @@ final class TerminalInputTextView: UITextView {
                 setShiftAccessoryArmed(false)
             }
             if let output = shiftAccessoryOutput(for: action) {
+                resetCommittedInputMirrorText()
                 onEscapeSequence?(output)
             }
             return
@@ -925,6 +943,7 @@ final class TerminalInputTextView: UITextView {
             toggleShiftModifier()
         default:
             if let output = action.output {
+                resetCommittedInputMirrorText()
                 onEscapeSequence?(output)
             }
         }
@@ -955,6 +974,7 @@ final class TerminalInputTextView: UITextView {
             }
         }
         if pasteboard.hasStrings, let string = pasteboard.string, !string.isEmpty {
+            resetCommittedInputMirrorText()
             onText?(string)
         }
     }
@@ -1003,7 +1023,7 @@ final class TerminalInputTextView: UITextView {
     private func handleTextChange(currentText: String, isComposing: Bool) {
         TerminalInputDebugLog.log("proxy.textChange text=\(TerminalInputDebugLog.textSummary(currentText)) composing=\(isComposing) pendingDirect=\(TerminalInputDebugLog.textSummary(pendingDirectInsertMirrorText))")
         if isComposing {
-            pendingDirectInsertMirrorText = ""
+            resetCommittedInputMirrorText()
         } else if !pendingDirectInsertMirrorText.isEmpty {
             if currentText == pendingDirectInsertMirrorText {
                 TerminalInputDebugLog.log("proxy.textChange suppressed direct insert mirror text=\(TerminalInputDebugLog.textSummary(currentText))")
@@ -1014,6 +1034,20 @@ final class TerminalInputTextView: UITextView {
                 return
             }
             pendingDirectInsertMirrorText = ""
+        }
+
+        if !isComposing, !committedInputMirrorText.isEmpty {
+            if currentText == committedInputMirrorText {
+                TerminalInputDebugLog.log("proxy.textChange suppressed committed mirror text=\(TerminalInputDebugLog.textSummary(currentText))")
+                clearProxyTextBuffer()
+                return
+            }
+            if !currentText.isEmpty {
+                applyTerminalReplacement(from: committedInputMirrorText, to: currentText)
+                setCommittedInputMirrorText(currentText)
+                clearProxyTextBuffer()
+                return
+            }
         }
 
         let result = TerminalTextInputPipeline.process(text: currentText, isComposing: isComposing)
@@ -1034,6 +1068,81 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
+    private func clearProxyTextBuffer() {
+        if text != "" {
+            text = ""
+        }
+    }
+
+    private func recordCommittedInputMirrorText(_ committedText: String) {
+        guard !committedText.isEmpty else { return }
+        committedInputMirrorText.append(committedText)
+        trimCommittedInputMirrorText()
+    }
+
+    private func setCommittedInputMirrorText(_ text: String) {
+        committedInputMirrorText = text
+        trimCommittedInputMirrorText()
+    }
+
+    private func resetCommittedInputMirrorText() {
+        committedInputMirrorText = ""
+        pendingDirectInsertMirrorText = ""
+    }
+
+    private func removeLastCommittedInputMirrorCharacter() {
+        guard !committedInputMirrorText.isEmpty else { return }
+        committedInputMirrorText.removeLast()
+    }
+
+    private func trimCommittedInputMirrorText() {
+        if let lineBreakIndex = committedInputMirrorText.lastIndex(where: { $0 == "\n" || $0 == "\r" }) {
+            committedInputMirrorText = String(committedInputMirrorText[committedInputMirrorText.index(after: lineBreakIndex)...])
+        }
+        if committedInputMirrorText.count > Self.committedInputMirrorTextLimit {
+            committedInputMirrorText = String(committedInputMirrorText.suffix(Self.committedInputMirrorTextLimit))
+        }
+    }
+
+    private func applyTerminalReplacement(from oldText: String, to newText: String) {
+        let oldCharacters = Array(oldText)
+        let newCharacters = Array(newText)
+        guard oldCharacters != newCharacters else { return }
+
+        var prefixCount = 0
+        while prefixCount < oldCharacters.count,
+              prefixCount < newCharacters.count,
+              oldCharacters[prefixCount] == newCharacters[prefixCount] {
+            prefixCount += 1
+        }
+
+        var oldEditEnd = oldCharacters.count
+        var newEditEnd = newCharacters.count
+        while oldEditEnd > prefixCount,
+              newEditEnd > prefixCount,
+              oldCharacters[oldEditEnd - 1] == newCharacters[newEditEnd - 1] {
+            oldEditEnd -= 1
+            newEditEnd -= 1
+        }
+
+        let suffixCount = oldCharacters.count - oldEditEnd
+        sendCursor(sequence: Self.cursorLeftSequence, count: suffixCount)
+        for _ in prefixCount..<oldEditEnd {
+            onBackspace?()
+        }
+        if prefixCount < newEditEnd {
+            onText?(String(newCharacters[prefixCount..<newEditEnd]))
+        }
+        sendCursor(sequence: Self.cursorRightSequence, count: suffixCount)
+    }
+
+    private func sendCursor(sequence: Data, count: Int) {
+        guard count > 0 else { return }
+        for _ in 0..<count {
+            onEscapeSequence?(sequence)
+        }
+    }
+
     private func emitCommittedText(_ committedText: String, source: String) {
         TerminalInputDebugLog.log("proxy.emit source=\(source) text=\(TerminalInputDebugLog.textSummary(committedText))")
         if controlAccessoryArmed {
@@ -1041,8 +1150,10 @@ final class TerminalInputTextView: UITextView {
                 setControlAccessoryArmed(false)
             }
             if let controlSequence = controlSequence(for: committedText) {
+                resetCommittedInputMirrorText()
                 onEscapeSequence?(controlSequence)
             } else {
+                resetCommittedInputMirrorText()
                 onText?(committedText)
             }
         } else if alternateAccessoryArmed {
@@ -1050,8 +1161,10 @@ final class TerminalInputTextView: UITextView {
                 setAlternateAccessoryArmed(false)
             }
             if let alternateSequence = alternateSequence(for: committedText) {
+                resetCommittedInputMirrorText()
                 onEscapeSequence?(alternateSequence)
             } else {
+                resetCommittedInputMirrorText()
                 onText?(committedText)
             }
         } else if commandAccessoryArmed {
@@ -1059,17 +1172,21 @@ final class TerminalInputTextView: UITextView {
                 setCommandAccessoryArmed(false)
             }
             if let commandSequence = commandTextSequence(for: committedText) {
+                resetCommittedInputMirrorText()
                 onEscapeSequence?(commandSequence)
             } else {
+                resetCommittedInputMirrorText()
                 onText?(committedText)
             }
         } else if shiftAccessoryArmed {
             if !shiftAccessorySticky {
                 setShiftAccessoryArmed(false)
             }
+            resetCommittedInputMirrorText()
             onText?(committedText.uppercased())
         } else {
             onText?(committedText)
+            recordCommittedInputMirrorText(committedText)
         }
     }
 

@@ -105,6 +105,29 @@ struct TerminalKeyboardConfigurationTests {
         #expect(view.autocapitalizationType == .none)
     }
 
+    @Test("autocorrection replacements edit already-sent terminal text")
+    func autocorrectionReplacementEditsAlreadySentTerminalText() {
+        let config = TerminalKeyboardConfiguration(defaults: freshDefaults())
+        config.autocompleteEnabled = true
+        let view = TerminalInputTextView(keyboardConfiguration: config)
+        var textEvents: [String] = []
+        var backspaces = 0
+        var escapeSequences: [Data] = []
+        view.onText = { textEvents.append($0) }
+        view.onBackspace = { backspaces += 1 }
+        view.onEscapeSequence = { escapeSequences.append($0) }
+
+        view.insertText("teh ")
+        view.simulateTextChangeForTesting("the ", isComposing: false)
+
+        #expect(textEvents == ["teh ", "he"])
+        #expect(backspaces == 2)
+        #expect(escapeSequences == [
+            Data([0x1B, 0x5B, 0x44]),
+            Data([0x1B, 0x5B, 0x43]),
+        ])
+    }
+
     @Test("a real change posts exactly one notification; a no-op set posts none")
     func togglingPostsChangeNotificationOnlyForRealChanges() async {
         let config = TerminalKeyboardConfiguration(defaults: freshDefaults())
