@@ -65,6 +65,8 @@
 		2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */; };
 		6419A0016419A0016419A001 /* AppDelegate+ShortcutRoutingTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */; };
 		6419A0036419A0036419A003 /* AppDelegate+ShortcutRoutingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */; };
+		2907B1012907B1012907B101 /* AppDelegate+TerminalTextSendSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907B1022907B1022907B102 /* AppDelegate+TerminalTextSendSeams.swift */; };
+		2907B1032907B1032907B103 /* AppDelegate+TerminalTextSendTracing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907B1042907B1042907B104 /* AppDelegate+TerminalTextSendTracing.swift */; };
 		604500100000000000000005 /* AppDelegate+WindowIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000006 /* AppDelegate+WindowIdentity.swift */; };
 		E7B3A0010000000000000001 /* AppDelegate+WorkspaceResolving.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B3A0010000000000000002 /* AppDelegate+WorkspaceResolving.swift */; };
 		A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
@@ -1128,6 +1130,8 @@
 		2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+RecoverableMainWindowRoutes.swift"; sourceTree = "<group>"; };
 		6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ShortcutRoutingTesting.swift"; sourceTree = "<group>"; };
 		6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ShortcutRoutingWindow.swift"; sourceTree = "<group>"; };
+		2907B1022907B1022907B102 /* AppDelegate+TerminalTextSendSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+TerminalTextSendSeams.swift"; sourceTree = "<group>"; };
+		2907B1042907B1042907B104 /* AppDelegate+TerminalTextSendTracing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+TerminalTextSendTracing.swift"; sourceTree = "<group>"; };
 		604500100000000000000006 /* AppDelegate+WindowIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WindowIdentity.swift"; sourceTree = "<group>"; };
 		E7B3A0010000000000000002 /* AppDelegate+WorkspaceResolving.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WorkspaceResolving.swift"; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -2557,6 +2561,8 @@
 				4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */,
 				2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */,
 				2907B0042907B0042907B004 /* AppDelegate+FeedRequestSeams.swift */,
+				2907B1022907B1022907B102 /* AppDelegate+TerminalTextSendSeams.swift */,
+				2907B1042907B1042907B104 /* AppDelegate+TerminalTextSendTracing.swift */,
 				6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */,
 				6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */,
 				6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */,
@@ -3607,6 +3613,8 @@
 				2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */,
 				6419A0016419A0016419A001 /* AppDelegate+ShortcutRoutingTesting.swift in Sources */,
 				6419A0036419A0036419A003 /* AppDelegate+ShortcutRoutingWindow.swift in Sources */,
+				2907B1012907B1012907B101 /* AppDelegate+TerminalTextSendSeams.swift in Sources */,
+				2907B1032907B1032907B103 /* AppDelegate+TerminalTextSendTracing.swift in Sources */,
 				604500100000000000000005 /* AppDelegate+WindowIdentity.swift in Sources */,
 				E7B3A0010000000000000001 /* AppDelegate+WorkspaceResolving.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
