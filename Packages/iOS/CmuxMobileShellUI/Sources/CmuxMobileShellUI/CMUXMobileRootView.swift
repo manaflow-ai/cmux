@@ -62,9 +62,29 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowWorkspaceListLayoutPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.workspaceListLayoutPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    // `WorkspaceListLayoutPreviewView` is `#if DEBUG`-only (a simulator
+    // screenshot fixture), so referencing it directly in `rootContent` breaks the
+    // Release archive ("cannot find ... in scope"). Gate the reference here, the
+    // same way `terminalLayoutPreview` does, so Release compiles to `EmptyView`.
+    @ViewBuilder private var workspaceListLayoutPreview: some View {
+        #if os(iOS) && DEBUG
+        WorkspaceListLayoutPreviewView()
         #else
         EmptyView()
         #endif
@@ -158,6 +178,8 @@ struct CMUXMobileRootView: View {
     private var rootContent: some View {
         if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
+        } else if shouldShowWorkspaceListLayoutPreview {
+            workspaceListLayoutPreview
         } else if shouldShowRestoringSession {
             RestoringSessionView()
         } else if !isAuthenticated {

@@ -215,6 +215,8 @@ extension Workspace {
             return "file_preview"
         case .rightSidebarTool:
             return "right_sidebar_tool"
+        case .customSidebar:
+            return "custom_sidebar"
         case .agentSession:
             return "agent_session"
         case .project:

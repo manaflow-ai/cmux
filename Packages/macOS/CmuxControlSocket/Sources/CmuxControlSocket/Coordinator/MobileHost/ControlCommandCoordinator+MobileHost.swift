@@ -14,13 +14,20 @@ internal import Foundation
 /// the dispatch here does not change them.
 ///
 /// The aliases mirror `processV2Command` exactly: `mobile.workspace.list` (the
-/// bare `workspace.list` stays on the legacy `v2WorkspaceList`), and the
-/// `mobile.terminal.*` verbs each with their bare `terminal.*` alias. The
-/// worker-lane `mobile.attach_ticket.create` and the mobile-data-plane-only
-/// verbs are deliberately not handled here.
+/// bare `workspace.list` stays on the legacy `v2WorkspaceList`), the
+/// `mobile.terminal.*` verbs each with their bare `terminal.*` alias, plus
+/// `mobile.terminal.paste` / `terminal.paste` and the local debug
+/// `chat.sessions.dump`. The worker-lane `mobile.attach_ticket.create` and the
+/// mobile-data-plane-only verbs are NOT handled here: they reach the Mac only
+/// through the mobile data-plane RPC (`TerminalController.mobileHostHandleRPC`),
+/// which dispatches its `v2Mobile*` bodies directly — it speaks
+/// `MobileHostRPCRequest` / `MobileHostRPCResult`, so routing it through this
+/// coordinator (native `ControlCallResult`) would only add a pointless type
+/// round-trip.
 extension ControlCommandCoordinator {
-    /// Dispatches the mobile-host methods this coordinator owns; returns `nil`
-    /// for anything else so the core `handle(_:)` can fall through.
+    /// Dispatches the mobile-host methods the v2 control socket
+    /// (`processV2Command`) routes here; returns `nil` for anything else so the
+    /// core `handle(_:)` can fall through to the legacy app-side dispatcher.
     ///
     /// - Parameter request: The decoded request envelope.
     /// - Returns: The command result, or `nil` if not a mobile-host method.
@@ -42,6 +49,10 @@ extension ControlCommandCoordinator {
             return context?.controlMobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             return context?.controlMobileTerminalMouse(params: request.params)
+        case "mobile.terminal.paste", "terminal.paste":
+            return context?.controlMobileTerminalPaste(params: request.params)
+        case "chat.sessions.dump":
+            return context?.controlMobileChatSessionsDump()
         default:
             return nil
         }

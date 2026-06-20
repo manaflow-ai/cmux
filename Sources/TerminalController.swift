@@ -9,21 +9,17 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
-import CmuxTerminalEngine
-import CmuxTerminalServices
+import CmuxTerminal
 import CmuxSettings
-import CmuxSocketControl
 import CmuxSwiftRenderUI
 import Carbon.HIToolbox
 import CMUXMobileCore
-import CMUXWorkstream
+import CMUXAgentLaunch
 import Foundation
 import Bonsplit
-import CmuxBrowserImport
 import WebKit
 import CmuxSidebar
-import CmuxTerminal
-import CmuxWorkspaceCore
+import CmuxWorkspaces
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
@@ -1131,6 +1127,8 @@ class TerminalController {
             return v2Result(id: request.id, v2CustomSidebarReload(params: request.params))
         case "sidebar.custom.select":
             return v2Result(id: request.id, v2CustomSidebarSelect(params: request.params))
+        case "sidebar.custom.open":
+            return v2Result(id: request.id, v2CustomSidebarOpen(params: request.params))
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
@@ -1570,7 +1568,8 @@ class TerminalController {
             // commands) answer here; everything else falls through to the legacy
             // switch below.
             if let coordinatorV1 = controlCommandCoordinator.handleSidebarV1(command: cmd, args: args)
-                ?? controlCommandCoordinator.handleBrowserPanelV1(command: cmd, args: args) {
+                ?? controlCommandCoordinator.handleBrowserPanelV1(command: cmd, args: args)
+                ?? controlCommandCoordinator.handleDebugV1(command: cmd, args: args) {
                 return coordinatorV1
             }
             switch cmd {
@@ -1675,12 +1674,6 @@ class TerminalController {
         case "send_workspace":
             return sendInputToWorkspace(args)
 
-        case "set_shortcut":
-            return setShortcut(args)
-
-        case "simulate_shortcut":
-            return simulateShortcut(args)
-
         case "simulate_type":
             return simulateType(args)
 
@@ -1722,54 +1715,6 @@ class TerminalController {
 
         case "terminal_drop_overlay_probe":
             return terminalDropOverlayProbe(args)
-
-        case "activate_app":
-            return activateApp()
-
-        case "is_terminal_focused":
-            return isTerminalFocused(args)
-
-        case "read_terminal_text":
-            return readTerminalText(args)
-
-        case "render_stats":
-            return renderStats(args)
-
-        case "layout_debug":
-            return layoutDebug()
-
-        case "bonsplit_underflow_count":
-            return bonsplitUnderflowCount()
-
-        case "reset_bonsplit_underflow_count":
-            return resetBonsplitUnderflowCount()
-
-        case "empty_panel_count":
-            return emptyPanelCount()
-
-        case "reset_empty_panel_count":
-            return resetEmptyPanelCount()
-
-        case "focus_notification":
-            return focusFromNotification(args)
-
-        case "debug_right_sidebar_focus":
-            return debugRightSidebarFocus(args)
-
-        case "flash_count":
-            return flashCount(args)
-
-        case "reset_flash_counts":
-            return resetFlashCounts()
-
-        case "panel_snapshot":
-            return panelSnapshot(args)
-
-        case "panel_snapshot_reset":
-            return panelSnapshotReset(args)
-
-        case "screenshot":
-            return captureScreenshot(args)
 #endif
 
         case "help":
@@ -1845,10 +1790,10 @@ class TerminalController {
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: id, result: v2Capabilities())
-        // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.* aliases)
-        // handled by ControlCommandCoordinator (bodies stay; shared with mobileHostHandleRPC).
-        case "mobile.terminal.paste", "terminal.paste":
-            return v2Result(id: id, self.v2MobileTerminalPaste(params: params))
+        // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
+        // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
+        // handled by ControlCommandCoordinator (bodies stay; shared with
+        // mobileHostHandleRPC).
 
         // system.identify (forwards to the still-shared v2Identify), system.tree,
         // auth.login, and the DEBUG-only mobile.dev_stack_auth.configure handled
@@ -1872,6 +1817,8 @@ class TerminalController {
         // feedback.open handled by ControlCommandCoordinator.
 
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
+        case "sidebar.custom.open":
+            return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
 
 
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
@@ -1995,8 +1942,6 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserInputKeyboard(params: params))
         case "browser.input_touch":
             return v2Result(id: id, self.v2BrowserInputTouch(params: params))
-        case "chat.sessions.dump":
-            return v2Result(id: id, self.v2ChatSessionsDump())
 
         // Markdown/files/projects: markdown.open, file.open (forwards to the
         // still-shared v2FileOpen), and project.* handled by ControlCommandCoordinator.
@@ -2025,6 +1970,7 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "sidebar.custom.open",
             "system.top",
             "system.memory",
             "mobile.host.status",
@@ -3350,119 +3296,6 @@ class TerminalController {
     }
 
     // MARK: - V2 Workspace Methods
-
-
-
-    private nonisolated func v2CustomSidebarValidate(params: [String: Any]) -> V2CallResult {
-        let name = v2CustomSidebarName(params: params)
-        if let name, name.isEmpty {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.sidebar.custom.invalidName",
-                    defaultValue: "Sidebar name must not be empty."
-                ),
-                data: nil
-            )
-        }
-        let report = v2CustomSidebarValidationReport(name: name)
-        return .ok(v2CustomSidebarReportPayload(report))
-    }
-
-    private nonisolated func v2CustomSidebarReload(params: [String: Any]) -> V2CallResult {
-        let name = v2CustomSidebarName(params: params)
-        if let name, name.isEmpty {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.sidebar.custom.invalidName",
-                    defaultValue: "Sidebar name must not be empty."
-                ),
-                data: nil
-            )
-        }
-        let report = v2CustomSidebarValidationReport(name: name)
-        let validNames = report.validNames
-        let reloadNames = report.names
-        if !reloadNames.isEmpty {
-            v2MainSync {
-                NotificationCenter.default.post(
-                    name: .customSidebarReloadRequested,
-                    object: nil,
-                    userInfo: ["names": reloadNames]
-                )
-            }
-        }
-        var payload = v2CustomSidebarReportPayload(report)
-        payload["reloaded_count"] = validNames.count
-        payload["reloaded_names"] = validNames
-        return .ok(payload)
-    }
-
-    private nonisolated func v2CustomSidebarSelect(params: [String: Any]) -> V2CallResult {
-        guard let name = v2CustomSidebarName(params: params), !name.isEmpty else {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.sidebar.custom.selectMissingName",
-                    defaultValue: "Select requires a sidebar name."
-                ),
-                data: nil
-            )
-        }
-
-        let report = v2CustomSidebarValidationReport(name: name)
-        guard let entry = report.entries.first else {
-            return .ok(v2CustomSidebarReportPayload(report))
-        }
-        if let errorMessage = entry.errorMessage {
-            var payload = v2CustomSidebarReportPayload(report)
-            payload["message"] = errorMessage
-            return .ok(payload)
-        }
-
-        let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
-        v2MainSync {
-            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
-            CmuxExtensionSidebarSelection.setProviderId(providerId)
-            NotificationCenter.default.post(
-                name: .customSidebarReloadRequested,
-                object: nil,
-                userInfo: ["names": [name]]
-            )
-        }
-        var payload = v2CustomSidebarReportPayload(report)
-        payload["selected_provider_id"] = providerId
-        payload["selected_name"] = name
-        return .ok(payload)
-    }
-
-    private nonisolated func v2CustomSidebarName(params: [String: Any]) -> String? {
-        guard let raw = params["name"] as? String else { return nil }
-        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private nonisolated func v2CustomSidebarValidationReport(name: String?) -> CustomSidebarValidationReport {
-        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
-        return CustomSidebarValidator().validate(directory: directory, name: name)
-    }
-
-    private nonisolated func v2CustomSidebarReportPayload(_ report: CustomSidebarValidationReport) -> [String: Any] {
-        [
-            "directory": CmuxExtensionSidebarSelection.customSidebarsDirectory.path,
-            "valid_count": report.validCount,
-            "error_count": report.errorCount,
-            "sidebars": report.entries.map { entry in
-                [
-                    "name": entry.name,
-                    "path": entry.fileURL.path,
-                    "kind": entry.kind.rawValue,
-                    "ok": entry.isValid,
-                    "error": v2OrNull(entry.errorMessage)
-                ] as [String: Any]
-            }
-        ]
-    }
 
     @MainActor
 
@@ -9196,33 +9029,14 @@ class TerminalController {
     }
 
     private func v2BrowserStorageType(_ params: [String: Any]) -> String {
-        let type = (v2String(params, "storage") ?? v2String(params, "type") ?? "local").lowercased()
-        return (type == "session") ? "session" : "local"
+        v2BrowserControl.storageType(params: params)
     }
 
     private func v2BrowserStorageGet(params: [String: Any]) -> V2CallResult {
         let storageType = v2BrowserStorageType(params)
         let key = v2String(params, "key")
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let typeLiteral = v2JSONLiteral(storageType)
-            let keyLiteral = key.map(v2JSONLiteral) ?? "null"
-            let script = """
-            (() => {
-              const type = String(\(typeLiteral));
-              const key = \(keyLiteral);
-              const st = type === 'session' ? window.sessionStorage : window.localStorage;
-              if (!st) return { ok: false, error: 'not_available' };
-              if (key == null) {
-                const out = {};
-                for (let i = 0; i < st.length; i++) {
-                  const k = st.key(i);
-                  out[k] = st.getItem(k);
-                }
-                return { ok: true, value: out };
-              }
-              return { ok: true, value: st.getItem(String(key)) };
-            })()
-            """
+            let script = v2BrowserControl.storageGetScript(storageType: storageType, key: key)
             switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -9255,20 +9069,8 @@ class TerminalController {
         }
 
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let typeLiteral = v2JSONLiteral(storageType)
-            let keyLiteral = v2JSONLiteral(key)
             let valueLiteral = v2JSONLiteral(v2NormalizeJSValue(value))
-            let script = """
-            (() => {
-              const type = String(\(typeLiteral));
-              const key = String(\(keyLiteral));
-              const value = \(valueLiteral);
-              const st = type === 'session' ? window.sessionStorage : window.localStorage;
-              if (!st) return { ok: false, error: 'not_available' };
-              st.setItem(key, value == null ? '' : String(value));
-              return { ok: true };
-            })()
-            """
+            let script = v2BrowserControl.storageSetScript(storageType: storageType, key: key, valueLiteral: valueLiteral)
             switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -9293,16 +9095,7 @@ class TerminalController {
     private func v2BrowserStorageClear(params: [String: Any]) -> V2CallResult {
         let storageType = v2BrowserStorageType(params)
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let typeLiteral = v2JSONLiteral(storageType)
-            let script = """
-            (() => {
-              const type = String(\(typeLiteral));
-              const st = type === 'session' ? window.sessionStorage : window.localStorage;
-              if (!st) return { ok: false, error: 'not_available' };
-              st.clear();
-              return { ok: true };
-            })()
-            """
+            let script = v2BrowserControl.storageClearScript(storageType: storageType)
             switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -9875,41 +9668,6 @@ class TerminalController {
     // MARK: - V2 Debug / Test-only Methods
 
 #if DEBUG
-#endif
-
-#if DEBUG
-
-    private func debugRightSidebarFocus(_ args: String) -> String {
-        let modeName = args.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? RightSidebarMode.dock.rawValue
-            : args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let mode = RightSidebarMode(rawValue: modeName) else {
-            return "ERROR: Invalid right sidebar mode: \(modeName)"
-        }
-
-        var revealed = false
-        var focusApplied = false
-        var contextFound = false
-        var stateFound = false
-        var visible = false
-        var activeMode = ""
-
-        let result = AppDelegate.shared?.debugRevealRightSidebarInActiveMainWindow(
-            mode: mode,
-            focusFirstItem: false,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-        )
-        revealed = result?.revealed ?? false
-        focusApplied = result?.focusApplied ?? false
-        contextFound = result?.contextFound ?? false
-        stateFound = result?.stateFound ?? false
-        visible = result?.visible ?? false
-        activeMode = result?.activeMode ?? ""
-
-        let details = "mode=\(mode.rawValue) active=\(activeMode) visible=\(visible ? 1 : 0) " +
-            "context=\(contextFound ? 1 : 0) state=\(stateFound ? 1 : 0) focus=\(focusApplied ? 1 : 0)"
-        return revealed ? "OK: \(details)" : "ERROR: \(details)"
-    }
 #endif
 
 #if DEBUG
@@ -13106,6 +12864,15 @@ class TerminalController {
 
     @MainActor
     func mobileHostHandleRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+        // The mobile data-plane RPC speaks `MobileHostRPCRequest` /
+        // `MobileHostRPCResult` and dispatches directly to the app-side
+        // `v2Mobile*` bodies. It deliberately does NOT route through the v2
+        // control-socket `ControlCommandCoordinator` (whose native result type is
+        // `ControlCallResult`): doing so would force a
+        // `MobileHostRPCRequest → ControlRequest → ControlCallResult →
+        // MobileHostRPCResult` type round-trip with no behavior change. The v2
+        // control socket shares the same bodies through `handleMobileHost`, so the
+        // wire bytes stay identical across both entrypoints without a bridge here.
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
@@ -13173,7 +12940,7 @@ class TerminalController {
     /// caller. The phone only ever routes here for `@manaflow.ai` users on an
     /// active connection, so this exists in Release builds too (the team can
     /// dogfood beta/prod), and only a Mac that runs the watcher acts on it.
-    private func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
+    func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
         // Privilege check at the trust boundary: the mobile data plane only
         // accepts same-account connections, so the caller is this Mac's own Stack
         // account. The service re-enforces the @manaflow.ai gate, but we resolve
@@ -13213,7 +12980,7 @@ class TerminalController {
     }
 
     /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.
-    private func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
+    func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
         guard Self.mobileAllowsWorkspaceAction(rawAction) else {
             return .err(
@@ -13280,7 +13047,7 @@ class TerminalController {
     #endif
 
     @MainActor
-    private func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
+    func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
         let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
         let routeID = v2OptionalTrimmedRawString(params, "route_id")
             ?? v2OptionalTrimmedRawString(params, "routeID")
@@ -13577,7 +13344,7 @@ class TerminalController {
         ])
     }
 
-    private func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {
+    func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }

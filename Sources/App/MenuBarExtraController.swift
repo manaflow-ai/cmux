@@ -104,7 +104,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         taskManagerItem.target = self
         taskManagerItem.action = #selector(taskManagerAction)
         menu.addItem(taskManagerItem)
-
+        menu.addItem(MenuBarProfilingMenuItem.make())
         menu.addItem(notificationListSeparator)
         notificationSectionSeparator.isHidden = true
         menu.addItem(notificationSectionSeparator)
