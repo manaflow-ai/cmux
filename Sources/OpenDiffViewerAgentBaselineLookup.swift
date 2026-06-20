@@ -1,8 +1,14 @@
 import Foundation
+import AppKit
 import CmuxFoundation
 
 extension AppDelegate {
-    func openDiffViewerAgentContextShouldFocus(workspaceId: UUID, surfaceId: UUID, sessionId: String) -> Bool? {
+    func openDiffViewerAgentContextShouldFocus(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        sessionId: String,
+                  originWindowId: UUID?
+    ) -> Bool? {
         for context in mainWindowContexts.values {
             guard let workspace = context.tabManager.tabs.first(where: {
                       $0.id == workspaceId && $0.panels.keys.contains(surfaceId)
@@ -11,7 +17,14 @@ extension AppDelegate {
                   Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) == sessionId else {
                 continue
             }
-            return context.tabManager.selectedWorkspace?.id == workspaceId && workspace.focusedPanelId == surfaceId
+            guard let originWindowId,
+                  context.windowId == originWindowId,
+                  NSApp.isActive,
+                  (context.window?.isKeyWindow == true || context.window?.isMainWindow == true) else {
+                return false
+            }
+            return context.tabManager.selectedWorkspace?.id == workspaceId &&
+                workspace.focusedPanelId == surfaceId
         }
         return nil
     }

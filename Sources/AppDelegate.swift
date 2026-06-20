@@ -6089,6 +6089,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             let storeURL = Self.agentTurnDiffBaselineStoreURL()
             let workspaceId = workspace.id
+            let originWindowId = tabManager.flatMap { manager in
+                mainWindowContexts.values.first { $0.tabManager === manager }?.windowId
+            }
             let taskKey = Self.openDiffViewerAgentContextTaskKey(
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -6112,7 +6115,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     guard let shouldFocus = appDelegate.openDiffViewerAgentContextShouldFocus(
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        sessionId: sessionId
+                        sessionId: sessionId,
+                        originWindowId: originWindowId
                     ) else {
                         return
                     }
