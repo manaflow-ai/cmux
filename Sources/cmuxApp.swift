@@ -1333,22 +1333,6 @@ struct cmuxApp: App {
 #endif
 }
 
-private struct MainWindowBootstrapView: View {
-    var body: some View {
-        Color.clear
-            .frame(width: 1, height: 1)
-            .background(WindowAccessor { window in
-                window.identifier = NSUserInterfaceItemIdentifier("cmux.bootstrap")
-                window.isRestorable = false
-                window.orderOut(nil)
-                Task { @MainActor [weak window] in
-                    window?.orderOut(nil)
-                    window?.close()
-                }
-            })
-    }
-}
-
 
 // The "Debug Window Controls" panel now lives entirely in CmuxAppKitSupportUI
 // (`DebugWindowControlsView` + `DebugWindowControlsWindowController`), presented

@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
