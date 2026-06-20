@@ -1,5 +1,5 @@
 #if os(iOS)
-import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -29,22 +29,26 @@ struct DeviceTreeView: View {
     /// The computer pending a remove confirmation.
     @State private var pendingRemoval: MacComputerSnapshot?
 
-    /// The user's computers as immutable snapshots: controllable hosts (the phone
-    /// never manages itself) enriched with presence, live status, and how many
-    /// aggregated workspaces each contributes.
+    /// The user's computers as immutable snapshots, sourced from the paired-Mac
+    /// backup (`pairedMacs`) — this feature's source of truth, the same set that
+    /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/forgetMac``
+    /// actually removes. (Building from `deviceTreeDevices`, which prefers the team
+    /// registry, would make Remove ineffective: a registry-backed row reappears on
+    /// the next registry load.) Each is enriched with presence, live status, and how
+    /// many aggregated workspaces it contributes.
     private var computers: [MacComputerSnapshot] {
         let connectedID = store.connectedMacDeviceID
         let workspaces = store.workspaces
-        return store.deviceTreeDevices.filter(\.isControllableHost).map { device in
-            let isConnected = device.deviceId == connectedID
-            let presence: DeviceTreePresence? = store.presenceMap.deviceSummary(deviceId: device.deviceId)
+        return store.pairedMacs.map { mac in
+            let isConnected = mac.macDeviceID == connectedID
+            let presence: DeviceTreePresence? = store.presenceMap.deviceSummary(deviceId: mac.macDeviceID)
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
             return MacComputerSnapshot(
-                deviceId: device.deviceId,
-                title: device.title,
-                platform: device.platform,
-                lastSeenAt: device.lastSeenAt,
-                workspaceCount: workspaces.filter { $0.macDeviceID == device.deviceId }.count,
+                deviceId: mac.macDeviceID,
+                title: mac.displayName ?? mac.macDeviceID,
+                platform: "mac",
+                lastSeenAt: mac.lastSeenAt,
+                workspaceCount: workspaces.filter { $0.macDeviceID == mac.macDeviceID }.count,
                 isConnected: isConnected,
                 liveStatus: isConnected ? store.macConnectionStatus : nil,
                 presence: presence

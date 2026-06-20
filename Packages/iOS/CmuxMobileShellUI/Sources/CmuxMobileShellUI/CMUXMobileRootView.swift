@@ -78,6 +78,18 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    /// DEBUG-only wrapper so Release/iOS archives never reference the
+    /// `canImport(UIKit) && DEBUG`-gated `WorkspaceListLayoutPreviewView` type
+    /// directly (Swift type-checks every `rootContent` branch even when
+    /// `shouldShowWorkspaceListLayoutPreview` is statically false in Release).
+    @ViewBuilder private var workspaceListLayoutPreview: some View {
+        #if os(iOS) && DEBUG
+        WorkspaceListLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
     var body: some View {
         rootContent
         .sheet(isPresented: addDeviceSheetBinding) {
@@ -167,7 +179,7 @@ struct CMUXMobileRootView: View {
         if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
-            WorkspaceListLayoutPreviewView()
+            workspaceListLayoutPreview
         } else if shouldShowRestoringSession {
             RestoringSessionView()
         } else if !isAuthenticated {
