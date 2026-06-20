@@ -366,11 +366,19 @@
 		D1FFC0DE000000000000C002 /* DiffCommentStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */; };
 		D1FFC0DE000000000000D002 /* DiffCommentSubmissionPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
+		DCDC1000000000000000B003 /* DockConfigFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B004 /* DockConfigFile.swift */; };
+		DCDC1000000000000000B005 /* DockConfigIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B006 /* DockConfigIdentity.swift */; };
+		DCDC1000000000000000B007 /* DockConfigResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B008 /* DockConfigResolution.swift */; };
+		DCDC1000000000000000B001 /* DockConfigurationLoadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B002 /* DockConfigurationLoadResult.swift */; };
+		DCDC1000000000000000B009 /* DockControlDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B00A /* DockControlDefinition.swift */; };
 		DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
+		DCDC1000000000000000B00B /* DockRemoteBrowserSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B00C /* DockRemoteBrowserSettings.swift */; };
 		DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000A004 /* DockSplitStore+Config.swift */; };
 		DCDC0000000000000000A001 /* DockSplitStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000A002 /* DockSplitStore.swift */; };
+		DCDC1000000000000000B00D /* DockSurfaceKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B00E /* DockSurfaceKind.swift */; };
+		DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B010 /* DockTrustRequest.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
 		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
@@ -1387,11 +1395,19 @@
 		D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffCommentStoreTests.swift; sourceTree = "<group>"; };
 		D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffCommentSubmissionPool.swift; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
+		DCDC1000000000000000B004 /* DockConfigFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigFile.swift; sourceTree = "<group>"; };
+		DCDC1000000000000000B006 /* DockConfigIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigIdentity.swift; sourceTree = "<group>"; };
+		DCDC1000000000000000B008 /* DockConfigResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigResolution.swift; sourceTree = "<group>"; };
+		DCDC1000000000000000B002 /* DockConfigurationLoadResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockConfigurationLoadResult.swift; sourceTree = "<group>"; };
+		DCDC1000000000000000B00A /* DockControlDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockControlDefinition.swift; sourceTree = "<group>"; };
 		DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockControlDefinitionDecodingTests.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockEmptyView.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPanelView.swift; sourceTree = "<group>"; };
+		DCDC1000000000000000B00C /* DockRemoteBrowserSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockRemoteBrowserSettings.swift; sourceTree = "<group>"; };
 		DCDC0000000000000000A004 /* DockSplitStore+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Config.swift"; sourceTree = "<group>"; };
 		DCDC0000000000000000A002 /* DockSplitStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSplitStore.swift; sourceTree = "<group>"; };
+		DCDC1000000000000000B00E /* DockSurfaceKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSurfaceKind.swift; sourceTree = "<group>"; };
+		DCDC1000000000000000B010 /* DockTrustRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTrustRequest.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
@@ -2788,9 +2804,17 @@
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
 				FE0030A3 /* RightSidebarToolPanel.swift */,
+				DCDC1000000000000000B002 /* DockConfigurationLoadResult.swift */,
+				DCDC1000000000000000B004 /* DockConfigFile.swift */,
+				DCDC1000000000000000B006 /* DockConfigIdentity.swift */,
+				DCDC1000000000000000B008 /* DockConfigResolution.swift */,
+				DCDC1000000000000000B00A /* DockControlDefinition.swift */,
 				D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */,
+				DCDC1000000000000000B00C /* DockRemoteBrowserSettings.swift */,
 				DCDC0000000000000000A004 /* DockSplitStore+Config.swift */,
 				DCDC0000000000000000A002 /* DockSplitStore.swift */,
+				DCDC1000000000000000B00E /* DockSurfaceKind.swift */,
+				DCDC1000000000000000B010 /* DockTrustRequest.swift */,
 				D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */,
 				CA52D0010000000000000000 /* Canvas */,
 				CA52F0020000000000000000 /* TerminalController+ControlCanvasContext.swift */,
@@ -3739,10 +3763,18 @@
 				D1FFC0DE000000000000B002 /* DiffCommentsBridge.swift in Sources */,
 				D1FFC0DE000000000000A002 /* DiffCommentStore.swift in Sources */,
 				D1FFC0DE000000000000D002 /* DiffCommentSubmissionPool.swift in Sources */,
+				DCDC1000000000000000B003 /* DockConfigFile.swift in Sources */,
+				DCDC1000000000000000B005 /* DockConfigIdentity.swift in Sources */,
+				DCDC1000000000000000B007 /* DockConfigResolution.swift in Sources */,
+				DCDC1000000000000000B001 /* DockConfigurationLoadResult.swift in Sources */,
+				DCDC1000000000000000B009 /* DockControlDefinition.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
+				DCDC1000000000000000B00B /* DockRemoteBrowserSettings.swift in Sources */,
 				DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */,
 				DCDC0000000000000000A001 /* DockSplitStore.swift in Sources */,
+				DCDC1000000000000000B00D /* DockSurfaceKind.swift in Sources */,
+				DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,

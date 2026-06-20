@@ -7,191 +7,6 @@ import CmuxTerminal
 import Observation
 import SwiftUI
 
-/// The kind of surface a Dock pane hosts. The Dock reuses the main-area panel
-/// system, so it supports the same first-class pane kinds: terminals and
-/// browsers.
-enum DockSurfaceKind: String, Codable, Equatable, Sendable {
-    case terminal
-    case browser
-}
-
-/// Remote-workspace browser settings the Dock forwards to `BrowserPanel`, so
-/// Dock browsers route through the same remote proxy / website-data store as
-/// main-area browser panes instead of navigating locally on a remote/cloud
-/// workspace.
-struct DockRemoteBrowserSettings {
-    let proxyEndpoint: BrowserProxyEndpoint?
-    let bypassRemoteProxy: Bool
-    let isRemoteWorkspace: Bool
-    let remoteWebsiteDataStoreIdentifier: UUID?
-
-    static let local = DockRemoteBrowserSettings(
-        proxyEndpoint: nil,
-        bypassRemoteProxy: false,
-        isRemoteWorkspace: false,
-        remoteWebsiteDataStoreIdentifier: nil
-    )
-}
-
-/// A single Dock control loaded from `dock.json`.
-///
-/// Back-compat: existing terminal-only configs omit `type`/`url` and require
-/// `command`; those decode unchanged as `.terminal` entries. New configs may add
-/// `"type": "browser"` with a `url` to seed a browser pane.
-struct DockControlDefinition: Codable, Equatable, Identifiable {
-    let id: String
-    let title: String
-    let kind: DockSurfaceKind
-    let command: String?
-    let url: String?
-    let cwd: String?
-    let height: Double?
-    let env: [String: String]
-
-    init(
-        id: String,
-        title: String,
-        kind: DockSurfaceKind = .terminal,
-        command: String? = nil,
-        url: String? = nil,
-        cwd: String? = nil,
-        height: Double? = nil,
-        env: [String: String] = [:]
-    ) {
-        self.id = id
-        self.title = title
-        self.kind = kind
-        self.command = command
-        self.url = url
-        self.cwd = cwd
-        self.height = height
-        self.env = env
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case title
-        case type
-        case command
-        case url
-        case cwd
-        case height
-        case env
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let rawID = try container.decode(String.self, forKey: .id)
-        let normalizedID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedID.isEmpty else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .id,
-                in: container,
-                debugDescription: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank.")
-            )
-        }
-
-        let resolvedKind: DockSurfaceKind
-        if let rawType = try container.decodeIfPresent(String.self, forKey: .type)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased(),
-            !rawType.isEmpty {
-            guard let parsed = DockSurfaceKind(rawValue: rawType) else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .type,
-                    in: container,
-                    debugDescription: String(localized: "dock.error.unknownControlType", defaultValue: "Dock control type must be terminal or browser.")
-                )
-            }
-            resolvedKind = parsed
-        } else {
-            resolvedKind = .terminal
-        }
-
-        let rawTitle = try container.decodeIfPresent(String.self, forKey: .title) ?? rawID
-        let normalizedTitle = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let normalizedCommand = try container.decodeIfPresent(String.self, forKey: .command)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedURL = try container.decodeIfPresent(String.self, forKey: .url)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        switch resolvedKind {
-        case .terminal:
-            guard let normalizedCommand, !normalizedCommand.isEmpty else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .command,
-                    in: container,
-                    debugDescription: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
-                )
-            }
-            command = normalizedCommand
-            url = nil
-        case .browser:
-            guard let normalizedURL, !normalizedURL.isEmpty else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .url,
-                    in: container,
-                    debugDescription: String(localized: "dock.error.blankControlURL", defaultValue: "Dock browser control url must not be blank.")
-                )
-            }
-            url = normalizedURL
-            command = nil
-        }
-
-        id = normalizedID
-        title = normalizedTitle.isEmpty ? normalizedID : normalizedTitle
-        kind = resolvedKind
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        height = try container.decodeIfPresent(Double.self, forKey: .height)
-        env = try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(title, forKey: .title)
-        switch kind {
-        case .terminal:
-            // Terminal entries are encoded exactly as the legacy schema (no
-            // `type` key) so existing project-config trust fingerprints stay
-            // stable for unchanged configs.
-            try container.encode(command ?? "", forKey: .command)
-        case .browser:
-            try container.encode(DockSurfaceKind.browser.rawValue, forKey: .type)
-            try container.encode(url ?? "", forKey: .url)
-        }
-        try container.encodeIfPresent(cwd, forKey: .cwd)
-        try container.encodeIfPresent(height, forKey: .height)
-        if !env.isEmpty {
-            try container.encode(env, forKey: .env)
-        }
-    }
-}
-
-struct DockConfigFile: Codable {
-    let controls: [DockControlDefinition]
-}
-
-struct DockConfigResolution {
-    let controls: [DockControlDefinition]
-    let sourceURL: URL?
-    let baseDirectory: String
-    let isProjectSource: Bool
-}
-
-struct DockTrustRequest: Identifiable, Sendable {
-    var id: String { descriptor.fingerprint }
-    let descriptor: CmuxActionTrustDescriptor
-    let configPath: String
-}
-
-struct DockConfigIdentity: Equatable {
-    let sourcePath: String?
-    let baseDirectory: String
-}
-
 /// Hosts the Dock's own Bonsplit tree of `Panel`s — terminals and browsers —
 /// rendered in the right sidebar with the same split machinery as the main
 /// content area. Each workspace owns one instance via `Workspace.dockSplit`.
@@ -217,6 +32,10 @@ final class DockSplitStore: BonsplitDelegate {
     private var surfaceIdToPanelId: [TabID: UUID] = [:]
     private var panelCancellables: [UUID: AnyCancellable] = [:]
     private var hasLoadedConfiguration = false
+    private var configurationLoadTask: Task<Void, Never>?
+    private var configurationIdentityTask: Task<Void, Never>?
+    private var configurationLoadGeneration = 0
+    private var configurationIdentityGeneration = 0
     private var activeConfigURL: URL?
     private var resolvedBaseDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
     /// The resolved config identity last loaded into the Dock tree. Project
@@ -316,8 +135,11 @@ final class DockSplitStore: BonsplitDelegate {
     func setActive(isVisible: Bool, mode: RightSidebarMode) {
         let shouldBeVisible = isVisible && mode == .dock
         if shouldBeVisible {
-            ensureLoaded()
-            reloadIfBaseDirectoryChanged()
+            if hasLoadedConfiguration {
+                reloadIfBaseDirectoryChanged()
+            } else {
+                ensureLoaded()
+            }
         }
         setVisibleInUI(shouldBeVisible)
     }
@@ -327,9 +149,16 @@ final class DockSplitStore: BonsplitDelegate {
     /// Re-seeding replaces the tree, matching the prior Dock lifecycle.
     private func reloadIfBaseDirectoryChanged() {
         guard hasLoadedConfiguration else { return }
-        let current = Self.configIdentity(rootDirectory: baseDirectoryProvider())
-        guard lastLoadedConfigIdentity != current else { return }
-        reload()
+        guard configurationLoadTask == nil else { return }
+        configurationIdentityGeneration += 1
+        let generation = configurationIdentityGeneration
+        let rootDirectory = baseDirectoryProvider()
+        configurationIdentityTask?.cancel()
+        configurationIdentityTask = Task.detached(priority: .utility) { [weak self] in
+            let current = Self.configIdentity(rootDirectory: rootDirectory)
+            guard !Task.isCancelled else { return }
+            await self?.applyConfigurationIdentity(current, generation: generation)
+        }
     }
 
     func setVisibleInUI(_ visible: Bool) {
@@ -348,7 +177,7 @@ final class DockSplitStore: BonsplitDelegate {
     private func ensureLoaded() {
         guard !hasLoadedConfiguration else { return }
         hasLoadedConfiguration = true
-        loadConfiguration()
+        startConfigurationLoad(replacingPanels: false)
     }
 
     func focusFirstControl() -> Bool {
@@ -732,7 +561,7 @@ final class DockSplitStore: BonsplitDelegate {
     func reload() {
         removeAllPanels()
         hasLoadedConfiguration = true
-        loadConfiguration()
+        startConfigurationLoad(replacingPanels: true)
     }
 
     func trustAndReload() {
@@ -754,14 +583,54 @@ final class DockSplitStore: BonsplitDelegate {
         panelCancellables.removeAll()
     }
 
-    private func loadConfiguration() {
+    private func startConfigurationLoad(replacingPanels: Bool) {
+        configurationLoadGeneration += 1
+        let generation = configurationLoadGeneration
+        let rootDirectory = baseDirectoryProvider()
+        configurationIdentityTask?.cancel()
+        configurationLoadTask?.cancel()
+        configurationLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let result = Self.loadConfigurationSnapshot(rootDirectory: rootDirectory)
+            guard !Task.isCancelled else { return }
+            await self?.applyConfigurationLoadResult(
+                result,
+                generation: generation,
+                replacingPanels: replacingPanels
+            )
+        }
+    }
+
+    private func applyConfigurationIdentity(_ current: DockConfigIdentity, generation: Int) {
+        guard generation == configurationIdentityGeneration else { return }
+        configurationIdentityTask = nil
+        guard lastLoadedConfigIdentity != current else { return }
+        reload()
+    }
+
+    private nonisolated static func loadConfigurationSnapshot(rootDirectory: String?) -> DockConfigurationLoadResult {
+        do {
+            return .resolved(try resolve(rootDirectory: rootDirectory))
+        } catch {
+            return .failed(
+                identity: configIdentity(rootDirectory: rootDirectory),
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func applyConfigurationLoadResult(
+        _ result: DockConfigurationLoadResult,
+        generation: Int,
+        replacingPanels: Bool
+    ) {
+        guard generation == configurationLoadGeneration else { return }
+        configurationLoadTask = nil
         errorMessage = nil
         trustRequest = nil
         activeConfigURL = nil
-        let rootDirectory = baseDirectoryProvider()
 
-        do {
-            let resolution = try Self.resolve(rootDirectory: rootDirectory)
+        switch result {
+        case .resolved(let resolution):
             lastLoadedConfigIdentity = Self.configIdentity(for: resolution)
             activeConfigURL = resolution.sourceURL
             resolvedBaseDirectory = resolution.baseDirectory
@@ -771,11 +640,13 @@ final class DockSplitStore: BonsplitDelegate {
                 return
             }
             sourceLabel = Self.sourceLabel(for: resolution)
-            seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
-        } catch {
-            lastLoadedConfigIdentity = Self.configIdentity(rootDirectory: rootDirectory)
+            if replacingPanels || panels.isEmpty {
+                seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
+            }
+        case .failed(let identity, let message):
+            lastLoadedConfigIdentity = identity
             sourceLabel = String(localized: "dock.source.error", defaultValue: "Dock")
-            errorMessage = error.localizedDescription
+            errorMessage = message
         }
     }
 

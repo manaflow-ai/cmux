@@ -4,7 +4,7 @@ import SwiftUI
 extension DockSplitStore {
     // MARK: - Config resolution
 
-    static func resolve(rootDirectory: String?) throws -> DockConfigResolution {
+    nonisolated static func resolve(rootDirectory: String?) throws -> DockConfigResolution {
         if let projectURL = projectConfigURL(rootDirectory: rootDirectory) {
             return try loadConfig(
                 from: projectURL,
@@ -30,7 +30,7 @@ extension DockSplitStore {
         )
     }
 
-    static func configIdentity(rootDirectory: String?) -> DockConfigIdentity {
+    nonisolated static func configIdentity(rootDirectory: String?) -> DockConfigIdentity {
         if let projectURL = projectConfigURL(rootDirectory: rootDirectory) {
             return DockConfigIdentity(
                 sourcePath: canonicalConfigPath(projectURL),
@@ -52,7 +52,7 @@ extension DockSplitStore {
         )
     }
 
-    static func configIdentity(for resolution: DockConfigResolution) -> DockConfigIdentity {
+    nonisolated static func configIdentity(for resolution: DockConfigResolution) -> DockConfigIdentity {
         DockConfigIdentity(
             sourcePath: resolution.sourceURL.map(canonicalConfigPath),
             baseDirectory: resolution.baseDirectory
@@ -113,7 +113,7 @@ extension DockSplitStore {
         )
     }
 
-    private static func loadConfig(
+    nonisolated private static func loadConfig(
         from url: URL,
         baseDirectory: String,
         isProjectSource: Bool
@@ -143,7 +143,7 @@ extension DockSplitStore {
         )
     }
 
-    private static func projectConfigURL(rootDirectory: String?) -> URL? {
+    nonisolated private static func projectConfigURL(rootDirectory: String?) -> URL? {
         guard let rootDirectory = rootDirectory.flatMap(existingDirectory) else { return nil }
         var candidatePath = (rootDirectory as NSString).standardizingPath
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
@@ -164,12 +164,12 @@ extension DockSplitStore {
         }
     }
 
-    private static func projectBaseDirectory(for configURL: URL) -> String {
+    nonisolated private static func projectBaseDirectory(for configURL: URL) -> String {
         let cmuxDirectory = configURL.deletingLastPathComponent()
         return cmuxDirectory.deletingLastPathComponent().path
     }
 
-    private static func globalConfigURL() -> URL {
+    nonisolated private static func globalConfigURL() -> URL {
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1",
            let testPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_DOCK_CONFIG_PATH"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -180,7 +180,7 @@ extension DockSplitStore {
             .appendingPathComponent(".config/cmux/dock.json", isDirectory: false)
     }
 
-    private static func existingDirectory(_ rawPath: String) -> String? {
+    nonisolated private static func existingDirectory(_ rawPath: String) -> String? {
         let expanded = (rawPath as NSString).expandingTildeInPath
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory) else {
@@ -189,17 +189,17 @@ extension DockSplitStore {
         return isDirectory.boolValue ? expanded : (expanded as NSString).deletingLastPathComponent
     }
 
-    private static func canonicalConfigPath(_ url: URL) -> String {
+    nonisolated private static func canonicalConfigPath(_ url: URL) -> String {
         url.standardizedFileURL.path
     }
 
-    private static func canonicalPath(_ path: String) -> String {
+    nonisolated private static func canonicalPath(_ path: String) -> String {
         URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             .standardizedFileURL
             .path
     }
 
-    static func parentDirectoryPath(for path: String) -> String? {
+    nonisolated static func parentDirectoryPath(for path: String) -> String? {
         let normalized = (path as NSString).standardizingPath
         guard normalized != "/" else { return nil }
         let parent = (normalized as NSString).deletingLastPathComponent

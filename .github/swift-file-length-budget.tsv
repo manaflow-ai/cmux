@@ -93,7 +93,6 @@
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift
-927	Sources/DockSplitStore.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
@@ -111,6 +110,7 @@
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 802	Sources/WorkspaceContentView.swift
+798	Sources/DockSplitStore.swift
 797	Sources/ClosedItemHistory.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
