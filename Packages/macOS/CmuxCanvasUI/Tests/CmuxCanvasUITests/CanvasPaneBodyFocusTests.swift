@@ -113,6 +113,39 @@ struct CanvasPaneBodyFocusTests {
         #expect(focusedPanels.isEmpty)
     }
 
+    @Test func sameWindowOverlayAboveCanvasDoesNotFocusUnderlyingPane() throws {
+        let panelA = UUID()
+        let panelB = UUID()
+        var focusedPanels: [UUID] = []
+        let root = makeRoot(panelA: panelA, panelB: panelB) { panelId in
+            focusedPanels.append(panelId)
+        }
+        let host = attachToHost(root)
+        defer {
+            root.teardown()
+            root.removeFromSuperview()
+        }
+
+        let paneID = try #require(root.model.paneID(containing: panelB))
+        let paneView = try #require(root.paneViews[paneID])
+        let bodyPointInRoot = root.convert(
+            CGPoint(x: paneView.contentContainer.bounds.midX, y: paneView.contentContainer.bounds.midY),
+            from: paneView.contentContainer
+        )
+        let overlay = NSView(frame: CGRect(
+            x: bodyPointInRoot.x - 30,
+            y: bodyPointInRoot.y - 30,
+            width: 60,
+            height: 60
+        ))
+        overlay.wantsLayer = true
+        overlay.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        host.addSubview(overlay, positioned: .above, relativeTo: nil)
+
+        #expect(!root.focusPaneBody(fromRootMouseDownAt: bodyPointInRoot, topHitView: overlay))
+        #expect(focusedPanels.isEmpty)
+    }
+
     @Test func descriptorSyncUpdatesMountedContentPresentationState() throws {
         let panelA = UUID()
         let panelB = UUID()
@@ -148,6 +181,34 @@ struct CanvasPaneBodyFocusTests {
         #expect(panelAMount.inactiveOverlayStates.last == true)
         #expect(panelBMount.focusedStates.last == true)
         #expect(panelBMount.inactiveOverlayStates.last == false)
+    }
+
+    @Test func tabSelectionUpdatesNewMountPresentationState() throws {
+        let panelA = UUID()
+        let panelB = UUID()
+        var mountsByPanelId: [UUID: TestMount] = [:]
+        let root = makeRoot(panelA: panelA, panelB: panelB, mountFactory: { panelId in
+            let mount = TestMount()
+            mountsByPanelId[panelId] = mount
+            return mount
+        }) { _ in }
+        attachToHost(root)
+        defer {
+            root.teardown()
+            root.removeFromSuperview()
+        }
+        #expect(root.model.joinPanel(panelB, withPaneContaining: panelA))
+        root.model.selectPanel(panelA)
+        root.reconcilePanes()
+        mountsByPanelId.removeAll()
+
+        let paneID = try #require(root.model.paneID(containing: panelB))
+        let paneView = try #require(root.paneViews[paneID])
+        root.paneView(paneView, didSelectTab: panelB)
+
+        let panelBMount = try #require(mountsByPanelId[panelB])
+        #expect(panelBMount.focusedStates == [false])
+        #expect(panelBMount.inactiveOverlayStates == [true])
     }
 
     @discardableResult

@@ -23,9 +23,27 @@ extension CanvasRootView {
     }
 
     @discardableResult
-    func focusPaneBody(for event: NSEvent, in _: NSWindow) -> Bool {
+    func focusPaneBody(for event: NSEvent, in window: NSWindow) -> Bool {
         let location = convert(event.locationInWindow, from: nil)
-        return focusPaneBody(fromRootMouseDownAt: location)
+        return focusPaneBody(
+            fromRootMouseDownAt: location,
+            topHitView: topHitView(for: event, in: window)
+        )
+    }
+
+    private func topHitView(for event: NSEvent, in window: NSWindow) -> NSView? {
+        guard let contentView = window.contentView else { return nil }
+        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+        return contentView.hitTest(contentPoint)
+    }
+
+    @discardableResult
+    func focusPaneBody(fromRootMouseDownAt point: CGPoint, topHitView: NSView?) -> Bool {
+        guard let topHitView,
+              topHitView === self || topHitView.isDescendant(of: self) else {
+            return false
+        }
+        return focusPaneBody(fromRootMouseDownAt: point)
     }
 
     @discardableResult

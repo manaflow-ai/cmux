@@ -193,6 +193,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         model.selectPanel(panelId)
         if let pane = model.layout.panes.first(where: { $0.id == view.paneID }) {
             reconcileMount(for: pane, in: view)
+            updateMountState(for: pane)
             view.updateChrome(chrome(for: pane))
         }
         callbacks.onFocusPanel(panelId)
