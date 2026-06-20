@@ -2692,6 +2692,7 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitAppearance(
             from: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
+            splitDividerColor: config.resolvedSplitDividerColor,
             tabTitleFontSize: config.surfaceTabBarFontSize
         )
     }
@@ -2727,9 +2728,20 @@ final class Workspace: Identifiable, ObservableObject {
         return false
     }
 
+    private nonisolated static func resolvedSplitDividerColor(
+        backgroundColor: NSColor,
+        splitDividerColor: NSColor?
+    ) -> NSColor {
+        if let splitDividerColor {
+            return splitDividerColor
+        }
+        return GhosttyConfig.defaultSplitDividerColor(for: backgroundColor)
+    }
+
     nonisolated static func bonsplitChromeColors(
         backgroundColor: NSColor,
         backgroundOpacity: Double,
+        splitDividerColor: NSColor? = nil,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
@@ -2738,9 +2750,10 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        let borderHex = WindowChromeColorResolver()
-            .separatorColor(forChromeBackground: backgroundColor)
-            .hexString(includeAlpha: true)
+        let borderHex = resolvedSplitDividerColor(
+            backgroundColor: backgroundColor,
+            splitDividerColor: splitDividerColor
+        ).hexString(includeAlpha: true)
 
         if sharesWindowBackdrop {
             return .init(
@@ -2769,15 +2782,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     nonisolated static func resolvedChromeColors(
         from backgroundColor: NSColor,
+        splitDividerColor: NSColor? = nil,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
         let backgroundHex = backgroundColor.hexString()
-        let borderHex = WindowChromeColorResolver()
-            .separatorColor(forChromeBackground: backgroundColor)
-            .hexString(includeAlpha: true)
+        let borderHex = resolvedSplitDividerColor(
+            backgroundColor: backgroundColor,
+            splitDividerColor: splitDividerColor
+        ).hexString(includeAlpha: true)
 
         if sharesWindowBackdrop {
             return .init(
@@ -2828,6 +2843,7 @@ final class Workspace: Identifiable, ObservableObject {
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double,
+        splitDividerColor: NSColor? = nil,
         tabTitleFontSize: CGFloat = 11
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
@@ -2837,6 +2853,7 @@ final class Workspace: Identifiable, ObservableObject {
         let chromeColors = Self.bonsplitChromeColors(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
+            splitDividerColor: splitDividerColor,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode
         )
@@ -2859,6 +2876,7 @@ final class Workspace: Identifiable, ObservableObject {
         let nextChromeColors = Self.bonsplitChromeColors(
             backgroundColor: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
+            splitDividerColor: config.resolvedSplitDividerColor,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode
         )
@@ -2916,7 +2934,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let nextChromeColors = Self.bonsplitChromeColors(
             backgroundColor: backgroundColor,
-            backgroundOpacity: backgroundOpacity,
+            backgroundOpacity: backgroundOpacity, splitDividerColor: GhosttyConfig.load().splitDividerColor,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode
         )

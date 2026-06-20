@@ -419,6 +419,7 @@ struct BrowserPanelView: View {
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    let activePaneBoundaryColor: NSColor
     let onRequestPanelFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
@@ -513,6 +514,7 @@ struct BrowserPanelView: View {
         isFocused: Bool,
         isVisibleInUI: Bool,
         portalPriority: Int,
+        activePaneBoundaryColor: NSColor,
         onRequestPanelFocus: @escaping () -> Void
     ) {
         self.panel = panel
@@ -520,6 +522,7 @@ struct BrowserPanelView: View {
         self.isFocused = isFocused
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
+        self.activePaneBoundaryColor = activePaneBoundaryColor
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
             for: .light,
@@ -1172,9 +1175,38 @@ struct BrowserPanelView: View {
             webView
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(browserSwiftUIActivePaneBoundaryOverlay)
+        .overlay(browserChromeActivePaneBoundaryOverlay)
         .overlay(browserFindOverlayView)
         .overlay(focusFlashOverlayView)
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var browserSwiftUIActivePaneBoundaryOverlay: some View {
+        if isFocused && isVisibleInUI && !panel.shouldRenderWebView {
+            Rectangle()
+                .strokeBorder(Color(nsColor: activePaneBoundaryColor), lineWidth: 2)
+                .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private var browserChromeActivePaneBoundaryOverlay: some View {
+        if shouldShowBrowserChromeActivePaneBoundary {
+            ActivePaneChromeBoundaryOverlay(
+                color: Color(nsColor: activePaneBoundaryColor),
+                height: addressBarHeight
+            )
+        }
+    }
+
+    private var shouldShowBrowserChromeActivePaneBoundary: Bool {
+        isFocused &&
+            isVisibleInUI &&
+            panel.shouldRenderWebView &&
+            panel.isOmnibarVisible &&
+            addressBarHeight > 0
     }
 
     private var browserPanelLifecycleView: some View {
@@ -1867,6 +1899,8 @@ struct BrowserPanelView: View {
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
                     portalZPriority: portalPriority,
+                    showsActivePaneBoundary: isFocused && isVisibleInUI,
+                    activePaneBoundaryColor: activePaneBoundaryColor,
                     paneDropZone: paneDropZone,
                     searchOverlay: panel.searchState.map { searchState in
                         BrowserPortalSearchOverlayConfiguration(
@@ -5464,6 +5498,8 @@ struct WebViewRepresentable: NSViewRepresentable {
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool
     let portalZPriority: Int
+    var showsActivePaneBoundary: Bool = false
+    var activePaneBoundaryColor: NSColor = .clear
     let paneDropZone: DropZone?
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
@@ -5475,6 +5511,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         var attachGeneration: Int = 0
         var desiredPortalVisibleInUI: Bool = true
         var desiredPortalZPriority: Int = 0
+        var desiredShowsActivePaneBoundary: Bool = false
+        var desiredActivePaneBoundaryColor: NSColor = .clear
         var lastPortalHostId: ObjectIdentifier?
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
     }
@@ -7356,7 +7394,20 @@ struct WebViewRepresentable: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
+        coordinator.desiredShowsActivePaneBoundary = showsActivePaneBoundary
+        coordinator.desiredActivePaneBoundaryColor = activePaneBoundaryColor
         coordinator.attachGeneration += 1
+        let generation = coordinator.attachGeneration
+        let applyLocalInlineActivePaneBoundary = { [weak coordinator] in
+            guard let coordinator,
+                  coordinator.attachGeneration == generation else { return }
+            let shouldShowLocalInlineActivePaneBoundary =
+                coordinator.desiredShowsActivePaneBoundary && !shouldPreserveExternalFullscreenHost
+            slotView.setActivePaneBoundary(
+                visible: shouldShowLocalInlineActivePaneBoundary && !slotView.isHidden,
+                color: coordinator.desiredActivePaneBoundaryColor
+            )
+        }
 
         if panel.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(host),
@@ -7378,6 +7429,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             // Never let that off-window host steal the live page + inspector hierarchy away
             // from the currently visible local host.
             host.setLocalInlineSlotHidden(true)
+            slotView.setActivePaneBoundary(visible: false, color: activePaneBoundaryColor)
             coordinator.lastPortalHostId = nil
             coordinator.lastSynchronizedHostGeometryRevision = 0
 #if DEBUG
@@ -7436,6 +7488,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             } else {
                 slotView.addSubview(webView, positioned: .above, relativeTo: nil)
             }
+            applyLocalInlineActivePaneBoundary()
         }
 
         slotView.isHidden = false
@@ -7443,6 +7496,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             webView,
             in: host.currentHostedWebViewContainer(preferredSlotView: slotView)
         )
+        applyLocalInlineActivePaneBoundary()
         // Local-inline hosting takes ownership of the live WKWebView hierarchy.
         // Drop any stale portal entry once local-inline hosting owns the live
         // WKWebView hierarchy so deferred portal recovery cannot mutate the
@@ -7468,6 +7522,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                         ? "localInline.reconcile.immediate"
                         : "localInline.reconcile.existingHost"
                 )
+                applyLocalInlineActivePaneBoundary()
             }
             host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
             let didRevealDeveloperToolsAfterAttach =
@@ -7515,6 +7570,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                         primaryWebView: webView,
                         reason: "localInline.reconcile.async"
                     )
+                    applyLocalInlineActivePaneBoundary()
                 }
                 host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
                 host.refreshHostedWebKitPresentation(
@@ -7578,8 +7634,12 @@ struct WebViewRepresentable: NSViewRepresentable {
         let hostId = ObjectIdentifier(host)
         let previousVisible = coordinator.desiredPortalVisibleInUI
         let previousZPriority = coordinator.desiredPortalZPriority
+        let previousShowsActivePaneBoundary = coordinator.desiredShowsActivePaneBoundary
+        let previousActivePaneBoundaryColor = coordinator.desiredActivePaneBoundaryColor
         coordinator.desiredPortalVisibleInUI = shouldAttachWebView && isCurrentPaneOwner
         coordinator.desiredPortalZPriority = portalZPriority
+        coordinator.desiredShowsActivePaneBoundary = showsActivePaneBoundary
+        coordinator.desiredActivePaneBoundaryColor = activePaneBoundaryColor
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
         let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
@@ -7657,7 +7717,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView: webView,
                 to: portalAnchorView,
                 visibleInUI: coordinator.desiredPortalVisibleInUI,
-                zPriority: coordinator.desiredPortalZPriority
+                zPriority: coordinator.desiredPortalZPriority,
+                showsActivePaneBoundary: coordinator.desiredShowsActivePaneBoundary,
+                activePaneBoundaryColor: coordinator.desiredActivePaneBoundaryColor
             )
             BrowserWindowPortalRegistry.refresh(
                 webView: webView,
@@ -7693,7 +7755,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                     webView: webView,
                     to: portalAnchorView,
                     visibleInUI: coordinator.desiredPortalVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority
+                    zPriority: coordinator.desiredPortalZPriority,
+                    showsActivePaneBoundary: coordinator.desiredShowsActivePaneBoundary,
+                    activePaneBoundaryColor: coordinator.desiredActivePaneBoundaryColor
                 )
                 BrowserWindowPortalRegistry.refresh(
                     webView: webView,
@@ -7735,7 +7799,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                     webView: webView,
                     to: portalAnchorView,
                     visibleInUI: coordinator.desiredPortalVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority
+                    zPriority: coordinator.desiredPortalZPriority,
+                    showsActivePaneBoundary: coordinator.desiredShowsActivePaneBoundary,
+                    activePaneBoundaryColor: coordinator.desiredActivePaneBoundaryColor
                 )
                 // Force a rendering-state reattach after portal host replacement
                 // (e.g. after a pane split). Without this, WKWebView can freeze
@@ -7747,6 +7813,23 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
                 coordinator.lastPortalHostId = hostId
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+            }
+            let shouldUpdateExistingEntryState =
+                !shouldBindNow &&
+                (
+                    previousVisible != coordinator.desiredPortalVisibleInUI ||
+                    previousZPriority != coordinator.desiredPortalZPriority ||
+                    previousShowsActivePaneBoundary != coordinator.desiredShowsActivePaneBoundary ||
+                    previousActivePaneBoundaryColor != coordinator.desiredActivePaneBoundaryColor
+                )
+            if shouldUpdateExistingEntryState {
+                BrowserWindowPortalRegistry.updateEntryVisibility(
+                    for: webView,
+                    visibleInUI: coordinator.desiredPortalVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority,
+                    showsActivePaneBoundary: coordinator.desiredShowsActivePaneBoundary,
+                    activePaneBoundaryColor: coordinator.desiredActivePaneBoundaryColor
+                )
             }
             BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                 for: webView,
@@ -7766,7 +7849,9 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updateEntryVisibility(
                 for: webView,
                 visibleInUI: coordinator.desiredPortalVisibleInUI,
-                zPriority: coordinator.desiredPortalZPriority
+                zPriority: coordinator.desiredPortalZPriority,
+                showsActivePaneBoundary: coordinator.desiredShowsActivePaneBoundary,
+                activePaneBoundaryColor: coordinator.desiredActivePaneBoundaryColor
             )
         }
 

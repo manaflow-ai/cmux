@@ -1469,6 +1469,7 @@ final class WindowBrowserSlotView: NSView {
     }
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
+    private let activePaneBoundaryOverlayView = BrowserActivePaneBoundaryOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
@@ -1501,7 +1502,13 @@ final class WindowBrowserSlotView: NSView {
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
+        activePaneBoundaryOverlayView.wantsLayer = true
+        activePaneBoundaryOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        activePaneBoundaryOverlayView.layer?.borderWidth = WindowBrowserSlotActivePaneBoundaryMetrics.lineWidth
+        activePaneBoundaryOverlayView.layer?.borderColor = NSColor.clear.cgColor
+        activePaneBoundaryOverlayView.isHidden = true
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
+        addSubview(activePaneBoundaryOverlayView, positioned: .above, relativeTo: nil)
     }
 
     @available(*, unavailable)
@@ -1519,6 +1526,7 @@ final class WindowBrowserSlotView: NSView {
     override func layout() {
         super.layout()
         paneDropTargetView.frame = bounds
+        activePaneBoundaryOverlayView.frame = bounds
         applyResolvedDropZoneOverlay()
         guard !isApplyingHostedInspectorLayout else { return }
         if let previousSize = lastHostedInspectorLayoutBoundsSize,
@@ -1568,6 +1576,16 @@ final class WindowBrowserSlotView: NSView {
 
     func setPaneDropContext(_ context: BrowserPaneDropContext?) {
         paneDropTargetView.dropContext = context
+    }
+
+    func setActivePaneBoundary(visible: Bool, color: NSColor) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        activePaneBoundaryOverlayView.frame = bounds
+        activePaneBoundaryOverlayView.layer?.borderColor = color.cgColor
+        activePaneBoundaryOverlayView.isHidden = !visible
+        CATransaction.commit()
+        bringInteractionLayersToFrontIfNeeded()
     }
 
     func paneDropTargetForDrop(at localPoint: NSPoint) -> BrowserPaneDropTargetView? {
@@ -1971,9 +1989,10 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
-        if view === paneDropTargetView { return 3 }
-        if view === omnibarSuggestionsHostingView { return 2 }
-        if view === searchOverlayHostingView { return 1 }
+        if view === paneDropTargetView { return 4 }
+        if view === omnibarSuggestionsHostingView { return 3 }
+        if view === searchOverlayHostingView { return 2 }
+        if view === activePaneBoundaryOverlayView { return 1 }
         return 0
     }
 
@@ -2063,6 +2082,8 @@ final class WindowBrowserPortal: NSObject {
         var searchOverlay: BrowserPortalSearchOverlayConfiguration?
         var omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
         var paneTopChromeHeight: CGFloat
+        var showsActivePaneBoundary: Bool
+        var activePaneBoundaryColor: NSColor
         var transientRecoveryReason: String?
         var transientRecoveryRetriesRemaining: Int
     }
@@ -2986,11 +3007,30 @@ final class WindowBrowserPortal: NSObject {
     /// Used when a bind is deferred (host not yet in window) so stale portal syncs
     /// do not keep an old anchor visible.
     @discardableResult
-    func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) -> Bool {
-        guard var entry = entriesByWebViewId[webViewId],
-              entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return false }
-        entry.visibleInUI = visibleInUI; entry.zPriority = zPriority
+    func updateEntryVisibility(
+        forWebViewId webViewId: ObjectIdentifier,
+        visibleInUI: Bool,
+        zPriority: Int,
+        showsActivePaneBoundary: Bool? = nil,
+        activePaneBoundaryColor: NSColor? = nil
+    ) -> Bool {
+        guard var entry = entriesByWebViewId[webViewId] else { return false }
+        let nextShowsActivePaneBoundary = showsActivePaneBoundary ?? entry.showsActivePaneBoundary
+        let nextActivePaneBoundaryColor = activePaneBoundaryColor ?? entry.activePaneBoundaryColor
+        let colorChanged = entry.activePaneBoundaryColor != nextActivePaneBoundaryColor
+        guard entry.visibleInUI != visibleInUI ||
+                entry.zPriority != zPriority ||
+                entry.showsActivePaneBoundary != nextShowsActivePaneBoundary ||
+                colorChanged else { return false }
+        entry.visibleInUI = visibleInUI
+        entry.zPriority = zPriority
+        entry.showsActivePaneBoundary = nextShowsActivePaneBoundary
+        entry.activePaneBoundaryColor = nextActivePaneBoundaryColor
         entriesByWebViewId[webViewId] = entry
+        entry.containerView?.setActivePaneBoundary(
+            visible: visibleInUI && nextShowsActivePaneBoundary && entry.containerView?.isHidden == false,
+            color: nextActivePaneBoundaryColor
+        )
         return true
     }
 
@@ -3111,7 +3151,14 @@ final class WindowBrowserPortal: NSObject {
         )
     }
 
-    func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
+    func bind(
+        webView: WKWebView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int = 0,
+        showsActivePaneBoundary: Bool = false,
+        activePaneBoundaryColor: NSColor = .clear
+    ) {
         guard ensureInstalled() else { return }
 
         let webViewId = ObjectIdentifier(webView)
@@ -3131,6 +3178,8 @@ final class WindowBrowserPortal: NSObject {
                 searchOverlay: nil,
                 omnibarSuggestions: nil,
                 paneTopChromeHeight: 0,
+                showsActivePaneBoundary: false,
+                activePaneBoundaryColor: .clear,
                 transientRecoveryReason: nil,
                 transientRecoveryRetriesRemaining: 0
             ),
@@ -3168,6 +3217,8 @@ final class WindowBrowserPortal: NSObject {
             searchOverlay: previousEntry?.searchOverlay,
             omnibarSuggestions: previousEntry?.omnibarSuggestions,
             paneTopChromeHeight: previousEntry?.paneTopChromeHeight ?? 0,
+            showsActivePaneBoundary: showsActivePaneBoundary,
+            activePaneBoundaryColor: activePaneBoundaryColor,
             transientRecoveryReason: previousEntry?.transientRecoveryReason,
             transientRecoveryRetriesRemaining: previousEntry?.transientRecoveryRetriesRemaining ?? 0
         )
@@ -3366,6 +3417,7 @@ final class WindowBrowserPortal: NSObject {
             containerView.setPaneDropContext(nil)
             containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
+            containerView.setActivePaneBoundary(visible: false, color: entry.activePaneBoundaryColor)
             // Tab/workspace visibility changes should hide the portal slot without forcing
             // WebKit through `_exitInWindow`/`_enterInWindow`, which fires visibilitychange
             // and can trigger page reloads. Reserve the full lifecycle notify for cases
@@ -3378,6 +3430,7 @@ final class WindowBrowserPortal: NSObject {
                 )
             }
             containerView.isHidden = true
+            containerView.setActivePaneBoundary(visible: false, color: entry.activePaneBoundaryColor)
         }
         func scheduleTransientDetachRecovery(reason: String) -> Bool {
             guard entry.visibleInUI else { return false }
@@ -3784,6 +3837,10 @@ final class WindowBrowserPortal: NSObject {
         containerView.setOmnibarSuggestions(shouldHide ? nil : entry.omnibarSuggestions)
         containerView.setPaneDropContext(containerView.isHidden ? nil : entry.paneDropContext)
         containerView.setDropZoneOverlay(zone: containerView.isHidden ? nil : entry.dropZone)
+        containerView.setActivePaneBoundary(
+            visible: !containerView.isHidden && entry.showsActivePaneBoundary,
+            color: entry.activePaneBoundaryColor
+        )
         if revealedForDisplay {
             refreshReasons.append("reveal")
         }
@@ -4051,7 +4108,14 @@ enum BrowserWindowPortalRegistry {
         return portal
     }
 
-    static func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
+    static func bind(
+        webView: WKWebView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int = 0,
+        showsActivePaneBoundary: Bool = false,
+        activePaneBoundaryColor: NSColor = .clear
+    ) {
         guard let window = anchorView.window else { return }
 
         let windowId = ObjectIdentifier(window)
@@ -4063,7 +4127,14 @@ enum BrowserWindowPortalRegistry {
             portalsByWindowId[oldWindowId]?.detachWebView(withId: webViewId)
         }
 
-        nextPortal.bind(webView: webView, to: anchorView, visibleInUI: visibleInUI, zPriority: zPriority)
+        nextPortal.bind(
+            webView: webView,
+            to: anchorView,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority,
+            showsActivePaneBoundary: showsActivePaneBoundary,
+            activePaneBoundaryColor: activePaneBoundaryColor
+        )
         webViewToWindowId[webViewId] = windowId
         pruneWebViewMappings(for: windowId, validWebViewIds: nextPortal.webViewIds())
         postRegistryDidChange(for: webView)
@@ -4087,11 +4158,25 @@ enum BrowserWindowPortalRegistry {
 
     /// Update visibleInUI/zPriority on an existing portal entry without rebinding.
     /// Called when a bind is deferred because the new host is temporarily off-window.
-    static func updateEntryVisibility(for webView: WKWebView, visibleInUI: Bool, zPriority: Int) {
+    static func updateEntryVisibility(
+        for webView: WKWebView,
+        visibleInUI: Bool,
+        zPriority: Int,
+        showsActivePaneBoundary: Bool? = nil,
+        activePaneBoundaryColor: NSColor? = nil
+    ) {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
-        if portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority) { postRegistryDidChange(for: webView) }
+        if portal.updateEntryVisibility(
+            forWebViewId: webViewId,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority,
+            showsActivePaneBoundary: showsActivePaneBoundary,
+            activePaneBoundaryColor: activePaneBoundaryColor
+        ) {
+            postRegistryDidChange(for: webView)
+        }
     }
 
     static func isWebView(_ webView: WKWebView, boundTo anchorView: NSView) -> Bool {

@@ -25,6 +25,9 @@ struct PanelContentView: View {
     var body: some View {
         renderedPanel
             .overlay {
+                activePaneBoundaryOverlay
+            }
+            .overlay {
                 paneDropTargetOverlay
             }
     }
@@ -58,6 +61,7 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
+                    activePaneBoundaryColor: appearance.dividerNSColor,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
@@ -131,6 +135,25 @@ struct PanelContentView: View {
                 panelId: panel.id,
                 paneId: paneId
             ))
+        }
+    }
+
+    @ViewBuilder
+    private var activePaneBoundaryOverlay: some View {
+        if shouldShowSwiftUIActivePaneBoundary {
+            Rectangle()
+                .strokeBorder(appearance.dividerColor, lineWidth: 2)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var shouldShowSwiftUIActivePaneBoundary: Bool {
+        guard isFocused && isVisibleInUI else { return false }
+        switch panel.panelType {
+        case .terminal, .browser:
+            return false
+        case .markdown, .filePreview, .rightSidebarTool, .agentSession, .project, .extensionBrowser:
+            return true
         }
     }
 

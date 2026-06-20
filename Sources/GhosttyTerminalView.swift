@@ -7579,6 +7579,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
+    private let activePaneBoundaryOverlayView: GhosttyFlashOverlayView
+    private let activePaneBoundaryLayer: CAShapeLayer
     private let notificationRingOverlayView: GhosttyFlashOverlayView
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
@@ -7832,6 +7834,8 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        activePaneBoundaryOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        activePaneBoundaryLayer = CAShapeLayer()
         notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -7884,6 +7888,18 @@ final class GhosttySurfaceScrollView: NSView {
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
+        activePaneBoundaryOverlayView.wantsLayer = true
+        activePaneBoundaryOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        activePaneBoundaryOverlayView.layer?.masksToBounds = false
+        activePaneBoundaryOverlayView.autoresizingMask = [.width, .height]
+        activePaneBoundaryLayer.fillColor = NSColor.clear.cgColor
+        activePaneBoundaryLayer.lineWidth = GhosttySurfaceActivePaneBoundaryMetrics.lineWidth
+        activePaneBoundaryLayer.lineJoin = .miter
+        activePaneBoundaryLayer.lineCap = .butt
+        activePaneBoundaryLayer.opacity = 0
+        activePaneBoundaryOverlayView.layer?.addSublayer(activePaneBoundaryLayer)
+        activePaneBoundaryOverlayView.isHidden = true
+        addSubview(activePaneBoundaryOverlayView)
         notificationRingOverlayView.wantsLayer = true
         notificationRingOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         notificationRingOverlayView.layer?.masksToBounds = false
@@ -8310,6 +8326,7 @@ final class GhosttySurfaceScrollView: NSView {
             setDropZoneOverlay(zone: pending)
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
+        _ = setFrameIfNeeded(activePaneBoundaryOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
@@ -8322,6 +8339,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
+        updateActivePaneBoundaryPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
         synchronizeScrollView()
@@ -8621,6 +8639,17 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.setDisableActions(true)
         notificationRingOverlayView.isHidden = targetHidden
         notificationRingLayer.opacity = targetOpacity
+        CATransaction.commit()
+    }
+
+    func setActivePaneBoundary(visible: Bool, color: NSColor) {
+        let targetHidden = !visible
+        let targetOpacity: Float = visible ? 1 : 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        activePaneBoundaryLayer.strokeColor = color.cgColor
+        activePaneBoundaryOverlayView.isHidden = targetHidden
+        activePaneBoundaryLayer.opacity = targetOpacity
         CATransaction.commit()
     }
 
@@ -10641,6 +10670,17 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
+    private func updateActivePaneBoundaryPath() {
+        activePaneBoundaryLayer.frame = activePaneBoundaryOverlayView.bounds
+        let inset = GhosttySurfaceActivePaneBoundaryMetrics.inset
+        let bounds = activePaneBoundaryOverlayView.bounds
+        guard bounds.width > inset * 2, bounds.height > inset * 2 else {
+            activePaneBoundaryLayer.path = nil
+            return
+        }
+        activePaneBoundaryLayer.path = CGPath(rect: bounds.insetBy(dx: inset, dy: inset), transform: nil)
+    }
+
     private func updateFlashPath(style: FlashStyle) {
         let inset: CGFloat
         let radius: CGFloat
@@ -11373,6 +11413,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var isVisibleInUI: Bool = true
     var portalZPriority: Int = 0
     var showsInactiveOverlay: Bool = false
+    var showsActivePaneBoundary: Bool = false
+    var activePaneBoundaryColor: NSColor = .clear
     var showsUnreadNotificationRing: Bool = false
     var inactiveOverlayColor: NSColor = .clear
     var inactiveOverlayOpacity: Double = 0
@@ -11464,6 +11506,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
         var desiredIsVisibleInUI: Bool = true
+        var desiredShowsActivePaneBoundary: Bool = false
+        var desiredActivePaneBoundaryColor: NSColor = .clear
         var desiredShowsUnreadNotificationRing: Bool = false
         var desiredPortalZPriority: Int = 0
         var lastBoundHostId: ObjectIdentifier?
@@ -11538,6 +11582,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
             previousDesiredPortalZPriority != portalZPriority
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
+        coordinator.desiredShowsActivePaneBoundary = showsActivePaneBoundary
+        coordinator.desiredActivePaneBoundaryColor = activePaneBoundaryColor
         coordinator.desiredShowsUnreadNotificationRing = showsUnreadNotificationRing
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.hostedView = hostedView
@@ -11589,6 +11635,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 color: inactiveOverlayColor,
                 opacity: CGFloat(inactiveOverlayOpacity),
                 visible: showsInactiveOverlay
+            )
+            hostedView.setActivePaneBoundary(
+                visible: showsActivePaneBoundary,
+                color: activePaneBoundaryColor
             )
             hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
             hostedView.setSearchOverlay(searchState: searchState)
@@ -11656,6 +11706,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
+                hostedView.setActivePaneBoundary(
+                    visible: coordinator.desiredShowsActivePaneBoundary,
+                    color: coordinator.desiredActivePaneBoundaryColor
+                )
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
             }
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
@@ -11693,6 +11747,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     coordinator.lastBoundHostId = hostId
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                     hostedView.setActive(coordinator.desiredIsActive)
+                    hostedView.setActivePaneBoundary(
+                        visible: coordinator.desiredShowsActivePaneBoundary,
+                        color: coordinator.desiredActivePaneBoundaryColor
+                    )
                     hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
                 }
                 Self.synchronizePortalGeometry(
@@ -11797,6 +11855,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.attachGeneration += 1
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false
+        coordinator.desiredShowsActivePaneBoundary = false
+        coordinator.desiredActivePaneBoundaryColor = .clear
         coordinator.desiredShowsUnreadNotificationRing = false
         coordinator.desiredPortalZPriority = 0
         coordinator.lastBoundHostId = nil

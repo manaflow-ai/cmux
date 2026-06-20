@@ -29,10 +29,24 @@ struct TerminalPanelView: View {
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        if let hibernationState = panel.agentHibernationState {
-            hibernationBody(hibernationState)
-        } else {
-            terminalBody
+        Group {
+            if let hibernationState = panel.agentHibernationState {
+                hibernationBody(hibernationState)
+            } else {
+                terminalBody
+            }
+        }
+        .overlay {
+            hibernatedActivePaneBoundaryOverlay
+        }
+    }
+
+    @ViewBuilder
+    private var hibernatedActivePaneBoundaryOverlay: some View {
+        if panel.agentHibernationState != nil && isFocused && isVisibleInUI {
+            Rectangle()
+                .strokeBorder(appearance.dividerColor, lineWidth: 2)
+                .allowsHitTesting(false)
         }
     }
 
@@ -71,6 +85,8 @@ struct TerminalPanelView: View {
                 isVisibleInUI: isVisibleInUI,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
+                showsActivePaneBoundary: isFocused && isVisibleInUI,
+                activePaneBoundaryColor: appearance.dividerNSColor,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
@@ -125,11 +141,32 @@ struct TerminalPanelView: View {
                         panel.preserveTextBoxContentForUnmount(from: view)
                     }
                 )
+                .overlay {
+                    terminalTextBoxActivePaneBoundaryOverlay
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load().fontSize
+        }
+    }
+
+    @ViewBuilder
+    private var terminalTextBoxActivePaneBoundaryOverlay: some View {
+        if panel.isTextBoxActive && isFocused && isVisibleInUI {
+            ZStack {
+                HStack(spacing: 0) {
+                    appearance.dividerColor.frame(width: 2)
+                    Spacer(minLength: 0)
+                    appearance.dividerColor.frame(width: 2)
+                }
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    appearance.dividerColor.frame(height: 2)
+                }
+            }
+            .allowsHitTesting(false)
         }
     }
 }
@@ -253,6 +290,7 @@ private func terminalViewportFormat(_ value: CGFloat) -> String {
 struct PanelAppearance {
     let backgroundColor: NSColor
     let foregroundColor: NSColor
+    let dividerNSColor: NSColor
     let dividerColor: Color
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
@@ -279,13 +317,15 @@ struct PanelAppearance {
             backgroundColor: config.backgroundColor,
             opacity: config.backgroundOpacity
         )
+        let dividerColor = config.resolvedSplitDividerColor
         return PanelAppearance(
             backgroundColor: backgroundColor,
             foregroundColor: cmuxReadableForegroundNSColor(
                 preferred: config.foregroundColor,
                 on: backgroundColor
             ),
-            dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
+            dividerNSColor: dividerColor,
+            dividerColor: Color(nsColor: dividerColor),
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity,
             usesClearContentBackground: shouldUseClearContentBackground(
