@@ -1979,7 +1979,7 @@ final class SharedLiveAgentIndex: ObservableObject {
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
-final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, SurfaceMetadataHosting, WorkspaceTitleHosting {
+final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, SurfaceMetadataHosting, WorkspaceTitleHosting, WorkspaceAppearanceHosting {
     /// The browser-panel creation policy now lives in `CmuxBrowser` as a
     /// top-level `Sendable` value. This nested typealias keeps the existing
     /// unqualified `BrowserPanelCreationPolicy` and `Workspace.BrowserPanelCreationPolicy`
@@ -2093,6 +2093,16 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// `@Published` title vocabulary through ``WorkspaceTitleHosting`` (which
     /// `Workspace` conforms). The methods below forward here byte-identically.
     let titleModel = WorkspaceTitleModel()
+
+    /// The per-workspace appearance sub-model (CmuxWorkspaces): owns the custom
+    /// tab-color and terminal-scrollbar state-transition logic, reaching the
+    /// workspace's `@Published` appearance vocabulary (`customColor`,
+    /// `terminalScrollBarHidden`) plus the two app-coupled effects
+    /// (`WorkspaceTabColorSettings.normalizedHex`, the
+    /// `terminalScrollBarHiddenDidChangeNotification` post) through
+    /// ``WorkspaceAppearanceHosting`` (which `Workspace` conforms). The methods
+    /// below forward here byte-identically.
+    let appearanceModel = WorkspaceAppearanceModel()
 
     /// The surface-lifecycle coordinator (CmuxWorkspaces): owns the pane/index
     /// target resolvers over the live split tree (`paneId(forPanelId:)`,
@@ -3055,6 +3065,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
         surfaceDirectoryMetadata.attach(host: self)
         titleModel.attach(host: self)
+        appearanceModel.attach(host: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
@@ -4293,6 +4304,29 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 #endif
     }
 
+    // MARK: - WorkspaceAppearanceHosting (live seam for WorkspaceAppearanceModel)
+
+    var workspaceAppearanceCustomColor: String? {
+        get { customColor }
+        set { customColor = newValue }
+    }
+
+    var workspaceAppearanceTerminalScrollBarHidden: Bool {
+        get { terminalScrollBarHidden }
+        set { terminalScrollBarHidden = newValue }
+    }
+
+    func workspaceAppearanceNormalizedColorHex(_ hex: String) -> String? {
+        WorkspaceTabColorSettings.normalizedHex(hex)
+    }
+
+    func workspaceAppearancePostTerminalScrollBarHiddenDidChange() {
+        NotificationCenter.default.post(
+            name: Self.terminalScrollBarHiddenDidChangeNotification,
+            object: self
+        )
+    }
+
     // MARK: - Title Management
 
     /// `Workspace.CustomTitleSource`, lifted to ``CmuxWorkspaces/CustomTitleSource``
@@ -4317,20 +4351,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func setCustomColor(_ hex: String?) {
-        if let hex {
-            customColor = WorkspaceTabColorSettings.normalizedHex(hex)
-        } else {
-            customColor = nil
-        }
+        appearanceModel.setCustomColor(hex)
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {
-        guard terminalScrollBarHidden != hidden else { return }
-        terminalScrollBarHidden = hidden
-        NotificationCenter.default.post(
-            name: Self.terminalScrollBarHiddenDidChangeNotification,
-            object: self
-        )
+        appearanceModel.setTerminalScrollBarHidden(hidden)
     }
 
     @discardableResult
