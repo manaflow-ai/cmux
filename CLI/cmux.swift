@@ -22857,8 +22857,11 @@ struct CMUXCLI {
             let workspaceArg = workspaceOpt ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let commandText = (commandOpt ?? respawnRem3.dropFirst(respawnRem3.first == "--" ? 1 : 0).joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
+            // Run the command through a shell so Ghostty's macOS `exec -l <command>`
+            // execs a shell rather than a bare builtin/expression (#6447); keep
+            // tmux_start_command raw for `#{pane_start_command}` / OMX detection.
             var params: [String: Any] = [
-                "command": finalCommand,
+                "command": tmuxShellInvokedStartCommand(finalCommand),
                 "tmux_start_command": finalCommand
             ]
             let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)

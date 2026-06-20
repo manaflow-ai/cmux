@@ -443,11 +443,11 @@ def assert_public_respawn_uses_same_surface_lifecycle(
     respawn_params = state.respawn_params[0]
     if respawn_params.get("surface_id") != SUBAGENT_SURFACE_ID:
         raise AssertionError(f"public respawn targeted wrong surface: {respawn_params!r}")
-    # The public `respawn-pane` CLI is a separate handler from
-    # `__tmux-compat respawn-pane` and does not shell-wrap, so it forwards the
-    # command unchanged.
-    if respawn_params.get("command") != "echo TEST_PUBLIC":
-        raise AssertionError(f"public respawn carried wrong command: {respawn_params!r}")
+    # The public `respawn-pane` CLI reaches the same surface.respawn / Ghostty
+    # `exec -l` path, so it shell-wraps its command just like the
+    # `__tmux-compat respawn-pane` path.
+    if respawn_params.get("command") != login_shell_wrapped("echo TEST_PUBLIC"):
+        raise AssertionError(f"public respawn carried wrong command (login-shell-wrapped): {respawn_params!r}")
     if state.sent_text:
         raise AssertionError(f"public respawn must not send text: {state.sent_text!r}")
 
