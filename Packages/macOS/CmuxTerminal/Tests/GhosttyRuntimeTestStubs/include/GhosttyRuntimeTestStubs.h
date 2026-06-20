@@ -19,8 +19,12 @@ typedef struct {
 bool ghostty_surface_clear_selection(void *surface);
 
 void ghostty_config_diagnostics_count(void);
+void ghostty_config_get(void);
 void ghostty_config_get_diagnostic(void);
+void ghostty_config_load_file(void);
+void ghostty_config_load_string(void);
 void ghostty_string_free(void);
+void ghostty_surface_read_selection(void);
 void ghostty_surface_binding_action(void);
 void ghostty_surface_config_new(void);
 void ghostty_surface_free(void);

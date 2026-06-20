@@ -378,6 +378,22 @@ class GhosttyApp {
     /// forwarders were a stateless static-namespace layer over the single held
     /// instance and added no behavior.
     static let configDiscovery = GhosttyConfigDiscovery()
+    /// Engine-side config-load orchestration drained off this god type into
+    /// `CmuxTerminal`. Owns the `ghostty_config_t` mutation for every cmux
+    /// config layer (default appearance, managed settings, startup preview,
+    /// conditional theme, vsync fallback, keybind overrides, CJK fallback,
+    /// app-support + legacy config files); the C-API config-load methods below
+    /// forward to it. Constructed once over the shared `configDiscovery`.
+    static let configLoader: GhosttyConfigLoader = {
+        #if DEBUG
+        return GhosttyConfigLoader(
+            discovery: configDiscovery,
+            initLog: { message in GhosttyApp.initLog(message) }
+        )
+        #else
+        return GhosttyConfigLoader(discovery: configDiscovery)
+        #endif
+    }()
     private static let fallbackAppearanceConfig = GhosttyConfig()
     private static let initializationLogger = Logger(
         subsystem: releaseBundleIdentifier,
@@ -963,50 +979,30 @@ class GhosttyApp {
         _ contents: String,
         into config: ghostty_config_t,
         prefix: String,
-        logLabel _: String
+        logLabel: String
     ) {
-        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let syntheticPath = "/__cmux_inline__/\(prefix).conf"
-        trimmed.withCString { contents in
-            syntheticPath.withCString { path in
-                ghostty_config_load_string(
-                    config,
-                    contents,
-                    UInt(trimmed.lengthOfBytes(using: .utf8)),
-                    path
-                )
-            }
-        }
+        Self.configLoader.loadInlineGhosttyConfig(
+            contents,
+            into: config,
+            prefix: prefix,
+            logLabel: logLabel
+        )
     }
 
     private func loadCmuxDefaultAppearanceConfig(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
-        if let url = GhosttyConfig.cmuxDefaultThemeConfigURL(preferredColorScheme: preferredColorScheme) {
-            url.path.withCString { path in
-                ghostty_config_load_file(config, path)
-            }
-            return
-        }
-
-        loadInlineGhosttyConfig(
-            GhosttyConfig.cmuxDefaultThemeConfigContents(preferredColorScheme: preferredColorScheme),
-            into: config,
-            prefix: "cmux-default-appearance",
-            logLabel: "default appearance fallback"
+        Self.configLoader.loadCmuxDefaultAppearanceConfig(
+            config,
+            preferredColorScheme: preferredColorScheme
         )
     }
 
     private func loadCmuxManagedTerminalSettingsConfig(_ config: ghostty_config_t) {
-        guard let contents = TerminalManagedGhosttySettings.ghosttyConfigContents() else { return }
-        loadInlineGhosttyConfig(
-            contents,
-            into: config,
-            prefix: "cmux-managed-terminal-settings",
-            logLabel: "managed terminal settings"
+        Self.configLoader.loadCmuxManagedTerminalSettingsConfig(
+            config,
+            contents: TerminalManagedGhosttySettings.ghosttyConfigContents()
         )
     }
 
@@ -1015,22 +1011,10 @@ class GhosttyApp {
         into config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
-        if profile == .freshInstall {
-            loadCmuxDefaultAppearanceConfig(
-                config,
-                preferredColorScheme: preferredColorScheme
-            )
-            return
-        }
-
-        guard let contents = profile.previewConfigContents(
-            preferredColorScheme: preferredColorScheme
-        ) else { return }
-        loadInlineGhosttyConfig(
-            contents,
+        Self.configLoader.loadStartupPreviewProfile(
+            profile,
             into: config,
-            prefix: "cmux-startup-preview",
-            logLabel: "startup appearance preview"
+            preferredColorScheme: preferredColorScheme
         )
     }
 
@@ -1038,15 +1022,9 @@ class GhosttyApp {
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
-        guard let contents = Self.configDiscovery.conditionalThemeOverrideConfigContents(
+        Self.configLoader.loadConditionalThemeOverrideIfNeeded(
+            config,
             preferredColorScheme: preferredColorScheme
-        ) else { return }
-
-        loadInlineGhosttyConfig(
-            contents,
-            into: config,
-            prefix: "cmux-conditional-theme",
-            logLabel: "conditional theme override"
         )
     }
 
@@ -1149,45 +1127,12 @@ class GhosttyApp {
     }
 
     private func loadNoActiveDisplayVsyncFallbackIfNeeded(_ config: ghostty_config_t) {
-        var displayCount: UInt32 = 0
-        let error = CGGetActiveDisplayList(0, nil, &displayCount)
-        guard error == .success, displayCount == 0 else { return }
-
-        loadInlineGhosttyConfig(
-            "window-vsync = false",
-            into: config,
-            prefix: "cmux-no-active-display-vsync-fallback",
-            logLabel: "no active display vsync fallback"
-        )
-#if DEBUG
-        cmuxDebugLog("ghostty.vsync.disable reason=noActiveDisplays")
-#endif
+        Self.configLoader.loadNoActiveDisplayVsyncFallbackIfNeeded(config)
     }
 
     private func loadCmuxOwnedGhosttyKeybindOverrides(_ config: ghostty_config_t) {
-        // cmux owns these split and close shortcuts through KeyboardShortcutSettings.
-        // Remove Ghostty's default fallbacks so remapped or cleared shortcuts
-        // can reach the focused terminal instead of splitting or closing outside
-        // the remappable shortcut layer.
-        loadInlineGhosttyConfig(
-            """
-            keybind = super+d=unbind
-            keybind = super+shift+d=unbind
-            keybind = super+w=unbind
-            keybind = super+alt+w=unbind
-            keybind = super+shift+w=unbind
-            \(Self.numberedWorkspaceGhosttyUnbinds)
-            """,
-            into: config,
-            prefix: "cmux-owned-keybind-overrides",
-            logLabel: "cmux-owned keybind overrides"
-        )
+        Self.configLoader.loadCmuxOwnedGhosttyKeybindOverrides(config)
     }
-
-    /// Inline keybind unbinds for the numbered workspace shortcuts. Forwards to
-    /// ``GhosttyConfigDiscovery``.
-    private static let numberedWorkspaceGhosttyUnbinds: String =
-        GhosttyConfigDiscovery.numberedWorkspaceGhosttyUnbinds
 
     /// When the user has not configured `font-codepoint-map` for CJK ranges
     /// and has not already provided an explicit multi-entry `font-family`
@@ -1202,23 +1147,7 @@ class GhosttyApp {
     ///
     /// See: https://github.com/manaflow-ai/cmux/pull/1017
     private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
-        guard let mappings = Self.configDiscovery.autoInjectedCJKFontMappings() else { return }
-
-        var resolvedFonts: [String: String] = [:]
-        let lines = mappings.map { range, font in
-            let resolvedFont = resolvedFonts[font] ?? {
-                let resolved = Self.configDiscovery.resolvedInjectedCJKFontName(named: font)
-                resolvedFonts[font] = resolved
-                return resolved
-            }()
-            return "font-codepoint-map = \(range)=\(resolvedFont)"
-        }.joined(separator: "\n")
-        loadInlineGhosttyConfig(
-            lines,
-            into: config,
-            prefix: "cmux-cjk-font-fallback",
-            logLabel: "CJK font fallback"
-        )
+        Self.configLoader.loadCJKFontFallbackIfNeeded(config)
     }
 
     static func shouldReloadConfigurationForAppearanceChange(
@@ -1259,88 +1188,15 @@ class GhosttyApp {
     }
 
     private func loadCmuxAppSupportGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
-        #if os(macOS)
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
-        guard let currentBundleIdentifier = Bundle.main.bundleIdentifier,
-              !currentBundleIdentifier.isEmpty else { return }
-        let urls = Self.configDiscovery.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: currentBundleIdentifier,
-            appSupportDirectory: appSupport,
-            fileManager: fm
-        )
-        guard !urls.isEmpty else { return }
-
-        for url in urls {
-            url.path.withCString { path in
-                ghostty_config_load_file(config, path)
-            }
-        }
-
-#if DEBUG
-        cmuxDebugLog(
-            "loaded cmux app support ghostty config from: \(urls.map(\.path).joined(separator: ", "))"
-        )
-        #endif
-        #endif
+        Self.configLoader.loadCmuxAppSupportGhosttyConfigIfNeeded(config)
     }
 
     private func currentCmuxAppSupportThemeValue() -> String? {
-        #if os(macOS)
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let urls = Self.configDiscovery.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: Bundle.main.bundleIdentifier,
-            appSupportDirectory: appSupport,
-            fileManager: fm
-        )
-
-        var lastValue: String?
-        for url in urls {
-            guard let contents = try? String(contentsOf: url, encoding: .utf8),
-                  let value = GhosttyConfig.lastThemeDirective(in: contents) else {
-                continue
-            }
-            lastValue = value
-        }
-        return lastValue
-        #else
-        return nil
-        #endif
+        Self.configLoader.currentCmuxAppSupportThemeValue()
     }
 
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
-        #if os(macOS)
-        // Ghostty 1.3+ prefers `config.ghostty`, but some users still have their real
-        // settings in the legacy `config` file. Use legacy only when `config.ghostty`
-        // is absent or empty, so stale legacy files do not override current config.
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
-        let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let configNew = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        let configLegacy = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-
-        func fileSize(_ url: URL) -> Int? {
-            guard let attrs = try? fm.attributesOfItem(atPath: url.path),
-                  let size = attrs[.size] as? NSNumber else { return nil }
-            return size.intValue
-        }
-
-        guard Self.configDiscovery.shouldLoadLegacyGhosttyConfig(
-            newConfigFileSize: fileSize(configNew),
-            legacyConfigFileSize: fileSize(configLegacy)
-        ) else { return }
-
-        configLegacy.path.withCString { path in
-            ghostty_config_load_file(config, path)
-        }
-
-        #if DEBUG
-        Self.initLog("loaded legacy ghostty config because config.ghostty was empty: \(configLegacy.path)")
-        #endif
-        #endif
+        Self.configLoader.loadLegacyGhosttyConfigIfNeeded(config)
     }
 
     /// Schedule a single tick on the main queue, coalescing multiple wakeups.
