@@ -213,4 +213,158 @@ struct SessionRestoreCoordinatorTests {
 
         #expect(host.appliedDividers.isEmpty)
     }
+
+    // MARK: - Surface resume binding resolution
+
+    /// Stand-in resume binding exposing only the two classification reads the
+    /// resolution consults, with identity so the tests can assert which binding
+    /// the coordinator returned, exactly as the legacy `Workspace` bodies did.
+    private struct FakeBinding: SurfaceResumeBindingResolving, Sendable, Equatable {
+        let id: Int
+        let isProcessDetected: Bool
+        let yieldsToProcessDetected: Bool
+
+        func shouldYieldToDetectedSurfaceResumeBinding(_ detected: FakeBinding) -> Bool {
+            // Reproduces the legacy rule shape (stored yields to a detected
+            // process-detected binding when stored is process-detected or an
+            // agent hook); encoded as a flag here so each case is explicit.
+            detected.isProcessDetected && yieldsToProcessDetected
+        }
+    }
+
+    private func coordinator() -> SessionRestoreCoordinator<CoordinatorLayoutFixture> {
+        SessionRestoreCoordinator<CoordinatorLayoutFixture>()
+    }
+
+    @Test("reconcile: no stored, detected is process-detected → store detected")
+    func reconcileStoresDetectedProcessBinding() {
+        let detected = FakeBinding(id: 1, isProcessDetected: true, yieldsToProcessDetected: false)
+        let action = coordinator().reconcileResumeBinding(stored: FakeBinding?.none, detected: detected)
+        #expect(action == .store(detected))
+    }
+
+    @Test("reconcile: no stored, detected not process-detected → keep")
+    func reconcileKeepsWhenDetectedNotProcess() {
+        let detected = FakeBinding(id: 1, isProcessDetected: false, yieldsToProcessDetected: false)
+        let action = coordinator().reconcileResumeBinding(stored: FakeBinding?.none, detected: detected)
+        #expect(action == .keep)
+    }
+
+    @Test("reconcile: stored process-detected, no detected → remove")
+    func reconcileRemovesStaleProcessBinding() {
+        let stored = FakeBinding(id: 1, isProcessDetected: true, yieldsToProcessDetected: false)
+        let action = coordinator().reconcileResumeBinding(stored: stored, detected: FakeBinding?.none)
+        #expect(action == .remove)
+    }
+
+    @Test("reconcile: stored not process-detected, no detected → keep")
+    func reconcileKeepsManualBindingWhenNoDetection() {
+        let stored = FakeBinding(id: 1, isProcessDetected: false, yieldsToProcessDetected: false)
+        let action = coordinator().reconcileResumeBinding(stored: stored, detected: FakeBinding?.none)
+        #expect(action == .keep)
+    }
+
+    @Test("reconcile: stored yields to detected → store detected")
+    func reconcileStoresWhenStoredYields() {
+        let stored = FakeBinding(id: 1, isProcessDetected: false, yieldsToProcessDetected: true)
+        let detected = FakeBinding(id: 2, isProcessDetected: true, yieldsToProcessDetected: false)
+        let action = coordinator().reconcileResumeBinding(stored: stored, detected: detected)
+        #expect(action == .store(detected))
+    }
+
+    @Test("reconcile: stored does not yield but is process-detected → remove")
+    func reconcileRemovesNonYieldingProcessBinding() {
+        let stored = FakeBinding(id: 1, isProcessDetected: true, yieldsToProcessDetected: false)
+        let detected = FakeBinding(id: 2, isProcessDetected: false, yieldsToProcessDetected: false)
+        let action = coordinator().reconcileResumeBinding(stored: stored, detected: detected)
+        #expect(action == .remove)
+    }
+
+    @Test("reconcile: stored does not yield and is not process-detected → keep")
+    func reconcileKeepsNonYieldingManualBinding() {
+        let stored = FakeBinding(id: 1, isProcessDetected: false, yieldsToProcessDetected: false)
+        let detected = FakeBinding(id: 2, isProcessDetected: false, yieldsToProcessDetected: false)
+        let action = coordinator().reconcileResumeBinding(stored: stored, detected: detected)
+        #expect(action == .keep)
+    }
+
+    @Test("effective: no detection source returns stored verbatim (even process-detected)")
+    func effectiveNoDetectionReturnsStored() {
+        let stored = FakeBinding(id: 1, isProcessDetected: true, yieldsToProcessDetected: false)
+        let result = coordinator().effectiveResumeBinding(
+            stored: stored,
+            detected: FakeBinding?.none,
+            hasDetectionSource: false
+        )
+        #expect(result == stored)
+    }
+
+    @Test("effective: detection source, no stored → detected")
+    func effectiveReturnsDetectedWhenNoStored() {
+        let detected = FakeBinding(id: 2, isProcessDetected: true, yieldsToProcessDetected: false)
+        let result = coordinator().effectiveResumeBinding(
+            stored: FakeBinding?.none,
+            detected: detected,
+            hasDetectionSource: true
+        )
+        #expect(result == detected)
+    }
+
+    @Test("effective: detection source, stored process-detected, no detected → nil")
+    func effectiveDropsStaleProcessBinding() {
+        let stored = FakeBinding(id: 1, isProcessDetected: true, yieldsToProcessDetected: false)
+        let result = coordinator().effectiveResumeBinding(
+            stored: stored,
+            detected: FakeBinding?.none,
+            hasDetectionSource: true
+        )
+        #expect(result == nil)
+    }
+
+    @Test("effective: detection source, stored not process-detected, no detected → stored")
+    func effectiveKeepsManualBindingWhenNoDetected() {
+        let stored = FakeBinding(id: 1, isProcessDetected: false, yieldsToProcessDetected: false)
+        let result = coordinator().effectiveResumeBinding(
+            stored: stored,
+            detected: FakeBinding?.none,
+            hasDetectionSource: true
+        )
+        #expect(result == stored)
+    }
+
+    @Test("effective: stored yields to detected → detected")
+    func effectiveReturnsDetectedWhenStoredYields() {
+        let stored = FakeBinding(id: 1, isProcessDetected: false, yieldsToProcessDetected: true)
+        let detected = FakeBinding(id: 2, isProcessDetected: true, yieldsToProcessDetected: false)
+        let result = coordinator().effectiveResumeBinding(
+            stored: stored,
+            detected: detected,
+            hasDetectionSource: true
+        )
+        #expect(result == detected)
+    }
+
+    @Test("effective: stored does not yield but is process-detected → nil")
+    func effectiveDropsNonYieldingProcessBinding() {
+        let stored = FakeBinding(id: 1, isProcessDetected: true, yieldsToProcessDetected: false)
+        let detected = FakeBinding(id: 2, isProcessDetected: false, yieldsToProcessDetected: false)
+        let result = coordinator().effectiveResumeBinding(
+            stored: stored,
+            detected: detected,
+            hasDetectionSource: true
+        )
+        #expect(result == nil)
+    }
+
+    @Test("effective: stored does not yield and is not process-detected → stored")
+    func effectiveKeepsNonYieldingManualBinding() {
+        let stored = FakeBinding(id: 1, isProcessDetected: false, yieldsToProcessDetected: false)
+        let detected = FakeBinding(id: 2, isProcessDetected: false, yieldsToProcessDetected: false)
+        let result = coordinator().effectiveResumeBinding(
+            stored: stored,
+            detected: detected,
+            hasDetectionSource: true
+        )
+        #expect(result == stored)
+    }
 }

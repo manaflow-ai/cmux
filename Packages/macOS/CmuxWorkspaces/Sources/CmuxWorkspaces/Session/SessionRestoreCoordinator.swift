@@ -154,4 +154,67 @@ public final class SessionRestoreCoordinator<Layout> where Layout: SessionLayout
             return
         }
     }
+
+    // MARK: - Surface resume bindings (stored ↔ process-detected resolution)
+
+    /// Decides how to reconcile one panel's stored resume binding against the
+    /// freshly detected one, byte-faithfully reproducing the per-panel branches
+    /// of the legacy `Workspace.reconcileSurfaceResumeBindings(using:)` loop.
+    ///
+    /// The host iterates its live panels and applies each returned action to its
+    /// own `[UUID: Binding]` map, so the decision logic lives here while the
+    /// live-state read/mutation stays app-side (the map and the panel set are
+    /// `Workspace`-owned live state). `stored` is the panel's current map value
+    /// (may be `nil`); `detected` is the resume index's binding for the panel
+    /// (may be `nil`).
+    public func reconcileResumeBinding<Binding>(
+        stored: Binding?,
+        detected: Binding?
+    ) -> SurfaceResumeBindingReconcileAction<Binding>
+    where Binding: SurfaceResumeBindingResolving & Sendable {
+        guard let stored else {
+            if let detected, detected.isProcessDetected {
+                return .store(detected)
+            }
+            return .keep
+        }
+        guard let detected else {
+            if stored.isProcessDetected {
+                return .remove
+            }
+            return .keep
+        }
+        if stored.shouldYieldToDetectedSurfaceResumeBinding(detected) {
+            return .store(detected)
+        } else if stored.isProcessDetected {
+            return .remove
+        }
+        return .keep
+    }
+
+    /// Resolves the effective resume binding for one panel from its `stored`
+    /// binding and the `detected` binding from the resume index, byte-faithfully
+    /// reproducing the legacy
+    /// `Workspace.effectiveSurfaceResumeBinding(panelId:surfaceResumeBindingIndex:)`.
+    ///
+    /// When the caller has no resume index it passes `hasDetectionSource: false`
+    /// and the stored binding is returned verbatim, matching the legacy early
+    /// return for a `nil` index (which preserved a process-detected stored
+    /// binding, unlike the present-index path that drops it when no detection
+    /// exists).
+    public func effectiveResumeBinding<Binding>(
+        stored: Binding?,
+        detected: Binding?,
+        hasDetectionSource: Bool
+    ) -> Binding?
+    where Binding: SurfaceResumeBindingResolving & Sendable {
+        guard hasDetectionSource else {
+            return stored
+        }
+        guard let stored else { return detected }
+        guard let detected else { return stored.isProcessDetected ? nil : stored }
+        if stored.shouldYieldToDetectedSurfaceResumeBinding(detected) { return detected }
+        if stored.isProcessDetected { return nil }
+        return stored
+    }
 }

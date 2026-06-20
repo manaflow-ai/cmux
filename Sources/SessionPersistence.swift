@@ -491,6 +491,13 @@ extension SurfaceResumeBindingSnapshot: WorkspaceSurfaceResumeBinding {
     }
 }
 
+/// Conforms the persisted binding snapshot to the CmuxWorkspaces resolution
+/// seam so `SessionRestoreCoordinator` can decide stored-vs-process-detected
+/// outcomes without importing this wire type. Both witnesses
+/// (`isProcessDetected`, `shouldYieldToDetectedSurfaceResumeBinding(_:)`) are
+/// already declared on the struct above, so the conformance is satisfied as-is.
+extension SurfaceResumeBindingSnapshot: SurfaceResumeBindingResolving {}
+
 nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
     var version: Int
     var id: String
