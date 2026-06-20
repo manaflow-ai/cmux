@@ -65,6 +65,53 @@ extension CMUXCLI {
         return commandText.isEmpty ? nil : commandText
     }
 
+    /// Shell builtins that cannot be exec'd as a standalone binary, so a command
+    /// starting with one must run through a shell.
+    static let tmuxShellExecBuiltins: Set<String> = [
+        "cd", "exec", "eval", "source", ".", "export", "set", "unset",
+        "alias", "unalias", "pushd", "popd", "umask", "ulimit", ":",
+        "local", "readonly", "let", "trap",
+    ]
+
+    /// Top-level shell control/redirection operators. Their presence (as a
+    /// whitespace-separated token) means the command is a shell expression rather
+    /// than a single program invocation.
+    static let tmuxShellControlOperators: Set<String> = [
+        "&&", "||", ";", ";;", "|", "|&", "&", ">", ">>", "<",
+        "<<", "<<<", "2>", "2>>", "2>&1", ">&", "<&", "&>", "&>>",
+    ]
+
+    /// Whether a tmux shell-command must run through a shell rather than being
+    /// exec'd directly. True when it starts with a shell builtin (e.g. `cd`) or
+    /// contains a top-level control operator (e.g. `&&`).
+    func tmuxCommandRequiresLoginShell(_ command: String) -> Bool {
+        let words = tmuxShellWords(command)
+        guard let first = words.first else { return false }
+        if Self.tmuxShellExecBuiltins.contains(first) { return true }
+        return words.contains { Self.tmuxShellControlOperators.contains($0) }
+    }
+
+    /// Returns a pane start-command that the surface can exec correctly.
+    ///
+    /// cmux hands a respawn/start command to the surface as the pane's process
+    /// command. On macOS, Ghostty execs that command via `exec -l <command>`
+    /// (see ghostty/src/termio/Exec.zig), which only works when `<command>` is a
+    /// single executable (optionally with arguments). A bare shell expression —
+    /// Claude Code agent-team teammates respawn with `cd <dir> && env … <claude> …`
+    /// — makes `exec -l cd …` try to exec the `cd` builtin as a binary; it fails
+    /// and the pane exits before the real command runs, so Claude Code 2.1.183
+    /// teammates never opened a split pane (issue #6447). Such commands are
+    /// rewritten to run through `/bin/zsh -lc`, matching real tmux's `$SHELL -c`
+    /// semantics, so Ghostty execs the shell rather than a builtin/expression.
+    /// Commands that are already a single executable (including the
+    /// `/bin/sh -c "…"` form OMO uses) are returned unchanged so they are not
+    /// needlessly double-wrapped.
+    func tmuxShellInvokedStartCommand(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, tmuxCommandRequiresLoginShell(trimmed) else { return command }
+        return "/bin/zsh -lc \(tmuxShellQuote(trimmed))"
+    }
+
     func tmuxShellWords(_ commandText: String) -> [String] {
         var words: [String] = []
         var current = ""
