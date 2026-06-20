@@ -23,7 +23,16 @@ public final class DebugWindowsCoordinator {
     private weak var decorator: (any WindowDecorating)?
 
     @ObservationIgnored
+    private weak var browserDebugContext: (any BrowserDebugContext)?
+
+    @ObservationIgnored
     private var aboutTitlebarController: AboutTitlebarDebugWindowController?
+
+    @ObservationIgnored
+    private var browserImportHintController: BrowserImportHintDebugWindowController?
+
+    @ObservationIgnored
+    private var browserProfilePopoverController: BrowserProfilePopoverDebugWindowController?
 
     #if DEBUG
     @ObservationIgnored
@@ -54,6 +63,9 @@ public final class DebugWindowsCoordinator {
     ///   - decorator: The window-decoration seam. Held weakly because the
     ///     app-side conformer (`AppDelegate`) is a singleton that also owns this
     ///     coordinator.
+    ///   - browserDebugContext: The browser-debug action seam. Held weakly for the
+    ///     same reason as `decorator`. Backs the import-hint panel's quick-action
+    ///     buttons. `nil` makes those buttons no-ops.
     ///   - debugWindowControlsContentProvider: Builds the content view for the
     ///     "Debug Window Controls" panel (DEBUG only). The panel's SwiftUI content
     ///     is app-coupled (it opens other app-target debug windows and reads
@@ -71,11 +83,13 @@ public final class DebugWindowsCoordinator {
     ///     ``showBackgroundDebug()`` (no panel is presented).
     public init(
         decorator: (any WindowDecorating)?,
+        browserDebugContext: (any BrowserDebugContext)? = nil,
         debugWindowControlsContentProvider: (@MainActor () -> NSView)? = nil,
         menuBarExtraDebugContentProvider: (@MainActor () -> NSView)? = nil,
         backgroundDebugContentProvider: (@MainActor () -> NSView)? = nil
     ) {
         self.decorator = decorator
+        self.browserDebugContext = browserDebugContext
         self.aboutTitlebarStore = AboutTitlebarDebugStore(decorator: decorator)
         #if DEBUG
         self.debugWindowControlsContentProvider = debugWindowControlsContentProvider
@@ -95,6 +109,27 @@ public final class DebugWindowsCoordinator {
             decorator: decorator
         )
         aboutTitlebarController = controller
+        controller.show()
+    }
+
+    /// Presents the Browser Import Hint debug panel, creating its window on first
+    /// use.
+    public func showBrowserImportHintDebug() {
+        let controller = browserImportHintController
+            ?? BrowserImportHintDebugWindowController(
+                decorator: decorator,
+                context: browserDebugContext
+            )
+        browserImportHintController = controller
+        controller.show()
+    }
+
+    /// Presents the Browser Profile Popover debug panel, creating its window on
+    /// first use.
+    public func showBrowserProfilePopoverDebug() {
+        let controller = browserProfilePopoverController
+            ?? BrowserProfilePopoverDebugWindowController(decorator: decorator)
+        browserProfilePopoverController = controller
         controller.show()
     }
 
