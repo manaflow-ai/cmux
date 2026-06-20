@@ -12,6 +12,18 @@ import XCTest
 
 @MainActor
 final class FilePreviewReviewFeedbackTests: XCTestCase {
+    private func quickLookPreviewView(in view: NSView) -> QLPreviewView? {
+        if let previewView = view as? QLPreviewView {
+            return previewView
+        }
+        for subview in view.subviews {
+            if let previewView = quickLookPreviewView(in: subview) {
+                return previewView
+            }
+        }
+        return nil
+    }
+
     func testAppBundleExportsFilePreviewDragType() {
         let declarations = (Bundle(for: AppDelegate.self).object(forInfoDictionaryKey: "UTExportedTypeDeclarations") as? [[String: Any]]) ?? []
         let exported = Set(declarations.compactMap { $0["UTTypeIdentifier"] as? String })
@@ -194,7 +206,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
-        guard let previewView = view as? QLPreviewView else {
+        guard let previewView = quickLookPreviewView(in: view) else {
             return XCTFail("Expected Quick Look to vend a QLPreviewView")
         }
         XCTAssertNotNil(previewView.previewItem)
@@ -223,7 +235,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
-        guard retiredView is QLPreviewView else {
+        guard quickLookPreviewView(in: retiredView) != nil else {
             return XCTFail("Expected Quick Look to vend a QLPreviewView")
         }
 
@@ -235,7 +247,7 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             backgroundColor: .textBackgroundColor,
             drawsBackground: true
         )
-        guard let activePreviewView = activeView as? QLPreviewView else {
+        guard let activePreviewView = quickLookPreviewView(in: activeView) else {
             return XCTFail("Expected Quick Look to vend a QLPreviewView")
         }
         let activeItem = try XCTUnwrap(activePreviewView.previewItem as AnyObject?)
