@@ -149,8 +149,8 @@ public struct AppSection: View {
 
     private func setGlobalFontMagnification(_ percent: Int) {
         let clamped = GlobalFontMagnification.clamp(percent)
-        globalFontMagnification.set(clamped)
-        NotificationCenter.default.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
+        GlobalFontMagnification.setPercent(clamped)
+        globalFontMagnification.acceptCommittedValue(clamped)
     }
 
     @ViewBuilder
