@@ -10,7 +10,7 @@
 11127	Sources/GhosttyTerminalView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8483	Sources/TerminalController.swift
-7988	Sources/Panels/BrowserPanelView.swift
+7989	Sources/Panels/BrowserPanelView.swift
 7303	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6318	cmuxTests/SessionPersistenceTests.swift
@@ -31,7 +31,7 @@
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3397	Sources/CmuxConfig.swift
 3364	cmuxTests/TabManagerSessionSnapshotTests.swift
-3055	Sources/Update/UpdateTitlebarAccessory.swift
+3056	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2638	Sources/KeyboardShortcutSettings.swift
@@ -55,8 +55,8 @@
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
-1686	Sources/cmuxApp.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
+1670	Sources/cmuxApp.swift
 1653	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
@@ -128,8 +128,8 @@
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
+726	Sources/RightSidebarPanelView.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
-725	Sources/RightSidebarPanelView.swift
 722	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift

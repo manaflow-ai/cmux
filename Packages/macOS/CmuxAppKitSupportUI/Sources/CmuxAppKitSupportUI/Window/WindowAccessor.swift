@@ -1,13 +1,28 @@
-import AppKit
-import SwiftUI
+public import AppKit
+public import SwiftUI
 
+/// A zero-size SwiftUI bridge that hands its enclosing `NSWindow` to a callback as
+/// soon as the hosting view is attached to (or moved between) windows.
+///
+/// Place it in a `.background(...)` to reach the AppKit window backing a SwiftUI
+/// scene. The callback fires on the main actor whenever the view's window changes.
+/// `dedupeByWindow` suppresses repeat invocations for the same window unless
+/// `refreshID` changes, so callers can re-run window mutations on a state change
+/// without redundant work for an unchanged window.
 @MainActor
-struct WindowAccessor: NSViewRepresentable {
+public struct WindowAccessor: NSViewRepresentable {
     let onWindow: @MainActor (NSWindow) -> Void
     let dedupeByWindow: Bool
     let refreshID: AnyHashable?
 
-    init(
+    /// Creates a window accessor.
+    /// - Parameters:
+    ///   - dedupeByWindow: When `true` (default), `onWindow` is skipped for a
+    ///     window already seen with the same `refreshID`.
+    ///   - refreshID: An optional token that, when changed, re-permits `onWindow`
+    ///     for an already-seen window.
+    ///   - onWindow: The main-actor callback invoked with the enclosing window.
+    public init(
         dedupeByWindow: Bool = true,
         refreshID: AnyHashable? = nil,
         onWindow: @escaping @MainActor (NSWindow) -> Void
@@ -17,11 +32,11 @@ struct WindowAccessor: NSViewRepresentable {
         self.refreshID = refreshID
     }
 
-    func makeCoordinator() -> Coordinator {
+    public func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> WindowObservingView {
+    public func makeNSView(context: Context) -> WindowObservingView {
         let view = WindowObservingView()
         installWindowHandler(
             on: view,
@@ -30,7 +45,7 @@ struct WindowAccessor: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: WindowObservingView, context: Context) {
+    public func updateNSView(_ nsView: WindowObservingView, context: Context) {
         installWindowHandler(
             on: nsView,
             coordinator: context.coordinator
@@ -59,11 +74,18 @@ struct WindowAccessor: NSViewRepresentable {
 }
 
 extension WindowAccessor {
-    final class Coordinator {
+    /// Tracks the last window/`refreshID` pair so `WindowAccessor` can dedupe
+    /// repeat callbacks for an unchanged window.
+    public final class Coordinator {
         private weak var lastWindow: NSWindow?
         private var lastRefreshID: AnyHashable?
 
-        func shouldInvoke(
+        /// Creates an empty coordinator with no observed window yet.
+        public init() {}
+
+        /// Returns whether `onWindow` should fire for `window`, recording it as the
+        /// most recently seen window/`refreshID` pair.
+        public func shouldInvoke(
             window: NSWindow,
             dedupeByWindow: Bool,
             refreshID: AnyHashable?
@@ -79,18 +101,20 @@ extension WindowAccessor {
     }
 }
 
+/// The `NSView` backing ``WindowAccessor`` that reports its enclosing window as it
+/// is attached to or moved between windows.
 @MainActor
-final class WindowObservingView: NSView {
+public final class WindowObservingView: NSView {
     var onWindow: (@MainActor (NSWindow) -> Void)?
 
-    override func viewWillMove(toWindow newWindow: NSWindow?) {
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if let newWindow {
             onWindow?(newWindow)
         }
     }
 
-    override func viewDidMoveToWindow() {
+    public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let window {
             onWindow?(window)
