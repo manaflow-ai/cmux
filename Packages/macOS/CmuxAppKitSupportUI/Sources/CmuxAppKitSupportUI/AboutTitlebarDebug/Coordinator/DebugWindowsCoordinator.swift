@@ -34,6 +34,18 @@ public final class DebugWindowsCoordinator {
 
     @ObservationIgnored
     private let debugWindowControlsContentProvider: (@MainActor () -> NSView)?
+
+    @ObservationIgnored
+    private var menuBarExtraDebugController: MenuBarExtraDebugWindowController?
+
+    @ObservationIgnored
+    private let menuBarExtraDebugContentProvider: (@MainActor () -> NSView)?
+
+    @ObservationIgnored
+    private var backgroundDebugController: BackgroundDebugWindowController?
+
+    @ObservationIgnored
+    private let backgroundDebugContentProvider: (@MainActor () -> NSView)?
     #endif
 
     /// Creates the coordinator.
@@ -47,16 +59,32 @@ public final class DebugWindowsCoordinator {
     ///     is app-coupled (it opens other app-target debug windows and reads
     ///     app-target settings), so the app target injects it here. `nil` disables
     ///     ``showDebugWindowControls()`` (no panel is presented).
+    ///   - menuBarExtraDebugContentProvider: Builds the content view for the "Menu
+    ///     Bar Extra Debug" panel (DEBUG only). The panel reads the app-target
+    ///     `MenuBarIconDebugSettings` defaults and refreshes the live menu-bar icon,
+    ///     so the app target injects it here. `nil` disables
+    ///     ``showMenuBarExtraDebug()`` (no panel is presented).
+    ///   - backgroundDebugContentProvider: Builds the content view for the
+    ///     "Background Debug" panel (DEBUG only). The panel drives the live
+    ///     main-window glass tint through the app-target window-chrome composition,
+    ///     so the app target injects it here. `nil` disables
+    ///     ``showBackgroundDebug()`` (no panel is presented).
     public init(
         decorator: (any WindowDecorating)?,
-        debugWindowControlsContentProvider: (@MainActor () -> NSView)? = nil
+        debugWindowControlsContentProvider: (@MainActor () -> NSView)? = nil,
+        menuBarExtraDebugContentProvider: (@MainActor () -> NSView)? = nil,
+        backgroundDebugContentProvider: (@MainActor () -> NSView)? = nil
     ) {
         self.decorator = decorator
         self.aboutTitlebarStore = AboutTitlebarDebugStore(decorator: decorator)
         #if DEBUG
         self.debugWindowControlsContentProvider = debugWindowControlsContentProvider
+        self.menuBarExtraDebugContentProvider = menuBarExtraDebugContentProvider
+        self.backgroundDebugContentProvider = backgroundDebugContentProvider
         #else
         _ = debugWindowControlsContentProvider
+        _ = menuBarExtraDebugContentProvider
+        _ = backgroundDebugContentProvider
         #endif
     }
 
@@ -91,6 +119,34 @@ public final class DebugWindowsCoordinator {
                 contentProvider: debugWindowControlsContentProvider
             )
         debugWindowControlsController = controller
+        controller.show()
+    }
+
+    /// Presents the Menu Bar Extra Debug panel, creating its window on first use.
+    ///
+    /// No-op when no content provider was injected at construction.
+    public func showMenuBarExtraDebug() {
+        guard let menuBarExtraDebugContentProvider else { return }
+        let controller = menuBarExtraDebugController
+            ?? MenuBarExtraDebugWindowController(
+                decorator: decorator,
+                contentProvider: menuBarExtraDebugContentProvider
+            )
+        menuBarExtraDebugController = controller
+        controller.show()
+    }
+
+    /// Presents the Background Debug panel, creating its window on first use.
+    ///
+    /// No-op when no content provider was injected at construction.
+    public func showBackgroundDebug() {
+        guard let backgroundDebugContentProvider else { return }
+        let controller = backgroundDebugController
+            ?? BackgroundDebugWindowController(
+                decorator: decorator,
+                contentProvider: backgroundDebugContentProvider
+            )
+        backgroundDebugController = controller
         controller.show()
     }
     #endif

@@ -496,7 +496,7 @@ struct cmuxApp: App {
                 Divider()
                 Menu("Debug Windows") {
                     Button("Background Debug…") {
-                        BackgroundDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showBackgroundDebug()
                     }
                     Button(
                         String(
@@ -556,7 +556,7 @@ struct cmuxApp: App {
                         StartupAppearanceDebugWindowController.shared.show()
                     }
                     Button("Menu Bar Extra Debug…") {
-                        MenuBarExtraDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
                     }
                     Button(
                         String(
@@ -1282,9 +1282,9 @@ struct cmuxApp: App {
         AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
         TitlebarLayoutDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
-        BackgroundDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showBackgroundDebug()
         StartupAppearanceDebugWindowController.shared.show()
-        MenuBarExtraDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
         PDFPreviewChromeDebugWindowController.shared.show()
         FeedPreviewWindowController.shared.show()
         FeedTextEditorDebugWindowController.shared.show()
@@ -1499,7 +1499,7 @@ struct DebugWindowControlsView: View {
                             SidebarDebugWindowController.shared.show()
                         }
                         Button("Background Debug…") {
-                            BackgroundDebugWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showBackgroundDebug()
                         }
                         Button(
                             String(
@@ -1518,7 +1518,7 @@ struct DebugWindowControlsView: View {
                             StartupAppearanceDebugWindowController.shared.show()
                         }
                         Button("Menu Bar Extra Debug…") {
-                            MenuBarExtraDebugWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
                         }
                         Button(
                             String(
@@ -1551,10 +1551,10 @@ struct DebugWindowControlsView: View {
                             AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
                             TitlebarLayoutDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
-                            BackgroundDebugWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showBackgroundDebug()
                             BonsplitTabBarDebugWindowController.shared.show()
                             StartupAppearanceDebugWindowController.shared.show()
-                            MenuBarExtraDebugWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
                             PDFPreviewChromeDebugWindowController.shared.show()
                             TabBarBackdropLabWindowController.shared.show()
                             FeedTextEditorDebugWindowController.shared.show()
@@ -2604,42 +2604,14 @@ private struct SidebarDebugView: View {
 
 // MARK: - Menu Bar Extra Debug Window
 
-private final class MenuBarExtraDebugWindowController: ReleasingWindowController {
-    static let shared = MenuBarExtraDebugWindowController()
-
-    private override init() {
-        super.init()
-    }
-
-    override func makeWindow() -> NSWindow {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 430),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Menu Bar Extra Debug"
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.menubarDebug")
-        window.center()
-        window.contentView = NSHostingView(rootView: MenuBarExtraDebugView())
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-        return window
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func show() {
-        showManagedWindow()
-    }
-}
-
-private struct MenuBarExtraDebugView: View {
+#if DEBUG
+/// SwiftUI content for the Menu Bar Extra Debug panel.
+///
+/// App-coupled (it reads the app-target `MenuBarIconDebugSettings` defaults and
+/// asks the application delegate to refresh the live menu-bar icon), so it stays in
+/// the app target and is injected into ``DebugWindowsCoordinator`` as the
+/// content provider for the package-owned window shell.
+struct MenuBarExtraDebugView: View {
     @AppStorage(MenuBarIconDebugSettings.previewEnabledKey) private var previewEnabled = false
     @AppStorage(MenuBarIconDebugSettings.previewCountKey) private var previewCount = 1
     @AppStorage(MenuBarIconDebugSettings.badgeRectXKey) private var badgeRectX = Double(MenuBarIconDebugSettings.defaultBadgeRect.origin.x)
@@ -2772,6 +2744,7 @@ private struct MenuBarExtraDebugView: View {
         AppDelegate.shared?.refreshMenuBarExtraForDebug()
     }
 }
+#endif
 
 // MARK: - Tab Bar Backdrop Lab Window
 
@@ -3408,42 +3381,14 @@ private struct TabBarBackdropLabTerminalPane: View {
 
 // MARK: - Background Debug Window
 
-private final class BackgroundDebugWindowController: ReleasingWindowController {
-    static let shared = BackgroundDebugWindowController()
-
-    private override init() {
-        super.init()
-    }
-
-    override func makeWindow() -> NSWindow {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Background Debug"
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.backgroundDebug")
-        window.center()
-        window.contentView = NSHostingView(rootView: BackgroundDebugView())
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-        return window
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func show() {
-        showManagedWindow()
-    }
-}
-
-private struct BackgroundDebugView: View {
+#if DEBUG
+/// SwiftUI content for the Background Debug panel.
+///
+/// App-coupled (it drives the live main-window glass tint through the app-target
+/// window-chrome composition), so it stays in the app target and is injected into
+/// ``DebugWindowsCoordinator`` as the content provider for the package-owned window
+/// shell.
+struct BackgroundDebugView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassMaterial") private var bgGlassMaterial = "hudWindow"
@@ -3556,6 +3501,7 @@ private struct BackgroundDebugView: View {
         pasteboard.setString(payload, forType: .string)
     }
 }
+#endif
 
 private final class StartupAppearanceDebugWindowController: ReleasingWindowController {
     static let shared = StartupAppearanceDebugWindowController()
