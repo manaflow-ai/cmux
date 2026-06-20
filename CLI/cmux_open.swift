@@ -131,7 +131,7 @@ enum CMUXDiffViewerLocalization {
 
 extension CMUXCLI {
     private enum DiffViewerLimits {
-        static let repoOptions = 4
+        static let repoOptions = 12
         static let branchBaseOptions = 4
     }
 
@@ -162,6 +162,7 @@ extension CMUXCLI {
         var fontSize: String?
         var cwd: String?
         var branchBase: String?
+        var sessionId: String?
         var source: DiffSource?
         var inputs: [String] = []
     }
@@ -182,6 +183,7 @@ extension CMUXCLI {
     private struct DiffSourceContext {
         var workspaceId: String?
         var surfaceId: String?
+        var sessionId: String?
         var repoRoot: String?
         var branchBaseRef: String?
     }
@@ -838,6 +840,7 @@ extension CMUXCLI {
         var diffSourceContext = DiffSourceContext(
             workspaceId: nil,
             surfaceId: nil,
+            sessionId: parsedArgs.sessionId,
             repoRoot: nil,
             branchBaseRef: parsedArgs.branchBase
         )
@@ -859,6 +862,7 @@ extension CMUXCLI {
                 client: try connectedClient()
             )
             sourceContext.repoRoot = diffSourceContext.repoRoot
+            sourceContext.sessionId = diffSourceContext.sessionId
             sourceContext.branchBaseRef = diffSourceContext.branchBaseRef
             diffSourceContext = sourceContext
             workspaceHandle = sourceContext.workspaceId ?? workspaceHandle
@@ -990,7 +994,7 @@ extension CMUXCLI {
             windowHandle: windowHandle,
             client: client
         )
-        return DiffSourceContext(workspaceId: workspaceId, surfaceId: surfaceId, repoRoot: nil, branchBaseRef: nil)
+        return DiffSourceContext(workspaceId: workspaceId, surfaceId: surfaceId, sessionId: nil, repoRoot: nil, branchBaseRef: nil)
     }
 
     private func canonicalDiffWorkspaceId(
@@ -1174,6 +1178,10 @@ extension CMUXCLI {
                     parsed.surface = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--session", "--agent-session":
+                    parsed.sessionId = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
                 case "--focus":
                     parsed.focus = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
@@ -1228,7 +1236,7 @@ extension CMUXCLI {
                     continue
                 default:
                     if arg.hasPrefix("-"), arg != "-" {
-                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
+                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--session <id>] [--cwd <path>] [--base <ref>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
                     }
                 }
             }
@@ -1451,12 +1459,14 @@ extension CMUXCLI {
                   let surfaceId = normalizedDiffSourceValue(context.surfaceId) else {
                 throw CLIError(message: "cmux diff --last-turn requires a workspace and surface context. Run it from a cmux terminal or pass --workspace and --surface.")
             }
+            let sessionId = normalizedDiffSourceValue(context.sessionId)
             let env = ProcessInfo.processInfo.environment
             let baselineStorePath = CMUXAgentTurnDiffBaselineFile.path(env: env)
             if let record = try latestAgentTurnDiffBaseline(
                 repoRoot: repoRoot,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
+                sessionId: sessionId,
                 env: env
             ) {
                 _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
@@ -2446,6 +2456,7 @@ extension CMUXCLI {
         repoRoot: String,
         workspaceId: String,
         surfaceId: String,
+        sessionId: String?,
         env: [String: String]
     ) throws -> CMUXAgentTurnDiffBaselineRecord? {
         let store = try readAgentTurnDiffBaselineStore(path: CMUXAgentTurnDiffBaselineFile.path(env: env))
@@ -2454,6 +2465,7 @@ extension CMUXCLI {
             standardizedDiffSourcePath(record.repoRoot) == repoRoot
                 && diffScopeIdentifierEquals(record.workspaceId, workspaceId)
                 && diffScopeIdentifierEquals(record.surfaceId, surfaceId)
+                && (sessionId == nil || record.sessionId == sessionId)
         }
         return candidates.max(by: { $0.capturedAt < $1.capturedAt })
     }
@@ -3401,7 +3413,7 @@ extension CMUXCLI {
               let selectedURL = urls[selectedSource] else {
             throw CLIError(message: "Failed to write diff viewer")
         }
-        let repoCandidates = gitDiffViewerRepoOptions(selectedRepoRoot: repoRoot)
+        let repoCandidates = gitDiffViewerRepoOptions(selectedRepoRoot: repoRoot, context: context)
         let repoFileURLsBySource: [DiffSource: [String: URL]] = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
             let fileURLsByRepo = Dictionary(uniqueKeysWithValues: repoCandidates.enumerated().map { index, option in
                 if option.repoRoot == repoRoot, let fileURL = fileURLs[source] {
@@ -3585,6 +3597,7 @@ extension CMUXCLI {
                 let pageContext = DiffSourceContext(
                     workspaceId: selectedContext.workspaceId,
                     surfaceId: selectedContext.surfaceId,
+                    sessionId: selectedContext.sessionId,
                     repoRoot: option.repoRoot,
                     branchBaseRef: source == .branch ? explicitBranchBaseRef : selectedContext.branchBaseRef
                 )
@@ -4080,10 +4093,15 @@ extension CMUXCLI {
         }
     }
 
-    private func gitDiffViewerRepoOptions(selectedRepoRoot: String) -> [DiffViewerRepoOption] {
+    private func gitDiffViewerRepoOptions(
+        selectedRepoRoot: String,
+        context: DiffSourceContext
+    ) -> [DiffViewerRepoOption] {
         let selectedURL = URL(fileURLWithPath: selectedRepoRoot, isDirectory: true).standardizedFileURL
         var candidateURLs: [URL] = [selectedURL]
         let parentURL = selectedURL.deletingLastPathComponent()
+
+        candidateURLs.append(contentsOf: agentTurnDiffBaselineRepoURLs(context: context))
 
         if parentURL.lastPathComponent == "worktrees" {
             let hqURL = parentURL.deletingLastPathComponent()
@@ -4122,6 +4140,32 @@ extension CMUXCLI {
                 label: gitDiffViewerRepoLabel(root, selectedRepoRoot: selectedRepoRoot)
             )
         }
+    }
+
+    private func agentTurnDiffBaselineRepoURLs(context: DiffSourceContext) -> [URL] {
+        guard let workspaceId = normalizedDiffSourceValue(context.workspaceId),
+              let surfaceId = normalizedDiffSourceValue(context.surfaceId),
+              let store = try? readAgentTurnDiffBaselineStore(
+                path: CMUXAgentTurnDiffBaselineFile.path(env: ProcessInfo.processInfo.environment)
+              ) else {
+            return []
+        }
+        let sessionId = normalizedDiffSourceValue(context.sessionId)
+        let matchingRecords = store.records
+            .filter { record in
+                diffScopeIdentifierEquals(record.workspaceId, workspaceId) &&
+                    diffScopeIdentifierEquals(record.surfaceId, surfaceId) &&
+                    (sessionId == nil || record.sessionId == sessionId)
+            }
+            .sorted { $0.capturedAt > $1.capturedAt }
+        var seen: Set<String> = []
+        var urls: [URL] = []
+        for record in matchingRecords {
+            let repoRoot = standardizedDiffSourcePath(record.repoRoot)
+            guard seen.insert(repoRoot).inserted else { continue }
+            urls.append(URL(fileURLWithPath: repoRoot, isDirectory: true).standardizedFileURL)
+        }
+        return urls
     }
 
     private func gitChildRepoURLs(in directoryURL: URL) -> [URL] {
@@ -4474,16 +4518,14 @@ extension CMUXCLI {
             ),
             rootDirectory: rootDirectory
         )
-        FileHandle.standardOutput.write(Data("\(port)\n".utf8))
+        cliWriteStdout(Data("\(port)\n".utf8))
 
         while true {
-            let clientFD = accept(serverFD, nil, nil)
-            if clientFD < 0 {
-                if errno == EINTR {
-                    continue
-                }
-                throw CLIError(message: "Diff viewer server accept failed: \(posixErrorMessage(errno))")
-            }
+            guard let clientFD = try acceptCLISocketNoSIGPIPE(
+                serverFD,
+                acceptFailureMessage: "Diff viewer server accept failed: \(posixErrorMessage(errno))",
+                noSIGPIPEFailureMessage: "Failed to disable SIGPIPE on diff viewer client socket: \(posixErrorMessage(errno))"
+            ) else { continue }
             DispatchQueue.global(qos: .userInitiated).async {
                 self.handleDiffViewerHTTPConnection(
                     fileDescriptor: clientFD,
@@ -6105,6 +6147,7 @@ extension CMUXCLI {
           --last-turn                  Show changes since this surface's last agent-turn baseline
           --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
           --surface <id|ref|index>     Source surface to split from (default: $CMUX_SURFACE_ID)
+          --session <id>               Scope --last-turn to one agent session
           --window <id|ref|index>      Target window
           --cwd, --repo <path>          Git repository or worktree path for git sources
           --base <ref>                  Base ref for --branch (default: origin/HEAD or main)
