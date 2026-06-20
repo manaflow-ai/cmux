@@ -182,6 +182,35 @@ struct DockSocketLifecycleTests {
         }
     }
 
+    @Test("surface.close closes Dock surfaces")
+    @MainActor
+    func surfaceCloseClosesDockSurfaces() throws {
+        try withDockEnabled {
+            try withSocketAppContext { _, workspace, windowId in
+                let createResult = try v2Result(
+                    method: "surface.create",
+                    params: ["placement": "dock", "type": "terminal", "focus": true]
+                )
+                let dockSurfaceIdRaw = try #require(createResult["dock_surface_id"] as? String)
+                let dockSurfaceId = try #require(UUID(uuidString: dockSurfaceIdRaw))
+                #expect(workspace.dockSplit.containsPanel(dockSurfaceId))
+
+                let closeResult = try v2Result(
+                    method: "surface.close",
+                    params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "surface_id": dockSurfaceId.uuidString,
+                    ]
+                )
+
+                #expect(closeResult["window_id"] as? String == windowId.uuidString)
+                #expect(closeResult["workspace_id"] as? String == workspace.id.uuidString)
+                #expect(closeResult["surface_id"] as? String == dockSurfaceId.uuidString)
+                #expect(!workspace.dockSplit.containsPanel(dockSurfaceId))
+            }
+        }
+    }
+
     @Test("Runtime close routes Dock terminals through the Dock lifecycle")
     @MainActor
     func runtimeCloseRoutesDockTerminalsThroughDockLifecycle() throws {

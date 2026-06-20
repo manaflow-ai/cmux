@@ -428,6 +428,16 @@ extension TerminalController {
         guard let surfaceId = surfaceID ?? ws.focusedPanelId else {
             return .noFocusedSurface
         }
+        if ws.containsDockPanel(surfaceId) {
+            guard ws.closeDockPanelAndClearNotifications(surfaceId, force: true) else {
+                return .closeFailed(surfaceId)
+            }
+            return .closed(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: ws.id,
+                surfaceID: surfaceId
+            )
+        }
         guard ws.panels[surfaceId] != nil else {
             return .surfaceNotFound(surfaceId)
         }
