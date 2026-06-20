@@ -2712,11 +2712,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard let self, !Task.isCancelled else { break }
                 // Stop if this subscription was replaced/torn down.
                 guard self.secondaryMacSubscriptions[macID]?.client === client else { break }
-                if event.topic == "workspace.updated",
-                   let previews = await self.fetchSecondaryWorkspaces(on: client, macDeviceID: macID) {
-                    self.workspacesByMac[macID] = MacWorkspaceState(
-                        macDeviceID: macID, displayName: displayName, workspaces: previews, status: .connected
-                    )
+                if event.topic == "workspace.updated" {
+                    // Coalesced, newest-wins refresh: a title/progress churn stream
+                    // collapses to at most one in-flight + one trailing full-list
+                    // scan instead of one scan per event (mirrors the foreground's
+                    // workspaceListRefreshTask coalescing).
+                    self.scheduleSecondaryRefresh(macID: macID, client: client, displayName: displayName)
                 }
             }
             // Stream ended (disconnect / error): tear the entry down so a later
@@ -2724,6 +2725,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self, self.secondaryMacSubscriptions[macID]?.client === client else { return }
             self.secondaryMacSubscriptions[macID] = nil
             await client.disconnect()
+        }
+    }
+
+    /// Coalesced full-list refresh for a secondary Mac driven by
+    /// `workspace.updated` pushes. Leading + trailing: if a refresh is already
+    /// running we only flag a trailing pass, so a hot event stream collapses to
+    /// at most one extra scan after the in-flight one (not one scan, and one
+    /// MainActor aggregate update, per event). Bounded — each fetch completes
+    /// before the next starts, so there is no cancel/restart starvation.
+    private func scheduleSecondaryRefresh(
+        macID: String,
+        client: MobileCoreRPCClient,
+        displayName: String?
+    ) {
+        guard let subscription = secondaryMacSubscriptions[macID],
+              subscription.client === client else { return }
+        guard subscription.refreshTask == nil else {
+            subscription.refreshPending = true
+            return
+        }
+        subscription.refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            repeat {
+                // Clear before the fetch; an event during the await re-sets it and
+                // we loop once more (the trailing refresh).
+                self.secondaryMacSubscriptions[macID]?.refreshPending = false
+                let previews = await self.fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
+                // Bail if the subscription was replaced/torn down across the await.
+                guard let current = self.secondaryMacSubscriptions[macID],
+                      current.client === client else { return }
+                if let previews {
+                    self.workspacesByMac[macID] = MacWorkspaceState(
+                        macDeviceID: macID, displayName: displayName, workspaces: previews, status: .connected
+                    )
+                }
+            } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
+            self.secondaryMacSubscriptions[macID]?.refreshTask = nil
         }
     }
 
@@ -3794,6 +3832,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     clearPairingError()
                     await persistPairedMacFromTicket(ticket)
+                    // Set the foreground Mac id BEFORE applying the list so the
+                    // per-Mac state is keyed to THIS Mac, not the previously-
+                    // foreground Mac (or the anonymous key). Otherwise switching
+                    // from Mac A to Mac B writes B's workspaces under A's key, and
+                    // once the id flips the derived list reads a stale/empty B
+                    // snapshot. Anonymous (empty-id) tickets keep the anonymous key.
+                    if !ticket.macDeviceID.isEmpty {
+                        foregroundMacDeviceID = ticket.macDeviceID
+                    }
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
@@ -3809,7 +3856,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             client: client,
                             generation: generation
                         )
-                        foregroundMacDeviceID = ticket.macDeviceID
                     }
                     // Aggregate the user's other Macs' workspaces in the
                     // background (no-op / off in Release). Best-effort; never
@@ -5741,6 +5787,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// onto the single in-flight pull task rather than stacking duplicate
     /// `mobile.workspace.list` calls. Returns immediately when not connected, so an
     /// offline pull cannot hang the spinner on a transport timeout.
+    /// UI-facing recover action for the workspace list when it is showing an
+    /// offline/disconnected state (pull-to-refresh and the offline status row's
+    /// Reconnect button both call this). Connected: re-sync. Disconnected:
+    /// re-attempt the saved active Mac, so an offline returning user whose auto-
+    /// reconnect failed is never stranded on a list with no way to act.
+    public func reconnectOrRefresh() async {
+        if connectionState == .connected {
+            await refreshWorkspaces()
+        } else {
+            _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+        }
+    }
+
     public func refreshWorkspaces() async {
         guard connectionState == .connected, remoteClient != nil else { return }
         if let inFlight = pullToRefreshTask {
@@ -5937,6 +5996,12 @@ private final class SecondaryMacSubscription {
     /// enable handshake (the server keys its push subscription by this).
     let streamID: String
     var task: Task<Void, Never>?
+    /// Coalesces hot `workspace.updated` streams: the in-flight full-list refetch
+    /// for this Mac, and whether another event arrived while it was running (so a
+    /// burst collapses to one leading + at most one trailing scan instead of one
+    /// scan per event). See ``scheduleSecondaryRefresh``.
+    var refreshTask: Task<Void, Never>?
+    var refreshPending = false
 
     init(macDeviceID: String, client: MobileCoreRPCClient) {
         self.macDeviceID = macDeviceID
@@ -5947,6 +6012,8 @@ private final class SecondaryMacSubscription {
     func cancel() {
         task?.cancel()
         task = nil
+        refreshTask?.cancel()
+        refreshTask = nil
         let client = self.client
         Task { await client.disconnect() }
     }

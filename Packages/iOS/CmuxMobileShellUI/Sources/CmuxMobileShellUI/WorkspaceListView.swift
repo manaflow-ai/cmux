@@ -42,6 +42,8 @@ struct WorkspaceListView: View {
     /// previews), the menu is hidden.
     var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
+    /// Manual reconnect for the offline status row. `nil` in previews.
+    var reconnect: (() -> Void)?
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
@@ -144,7 +146,7 @@ struct WorkspaceListView: View {
         List {
             if connectionStatus != .connected {
                 Section {
-                    MobileMacConnectionStatusRow(host: host, status: connectionStatus)
+                    MobileMacConnectionStatusRow(host: host, status: connectionStatus, reconnect: reconnect)
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                 }

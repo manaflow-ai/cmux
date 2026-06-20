@@ -32,14 +32,26 @@ extension MobileWorkspacePreview {
     }
 
     var avatarGradient: LinearGradient {
+        // Color is keyed to the owning Mac (``MachineAvatarPalette``) so every
+        // workspace on the same machine shares one avatar color in the aggregated
+        // multi-Mac list; the symbol still encodes the per-workspace terminal
+        // count. Keep these visually distinct so adjacent Macs read apart.
         let palettes: [[Color]] = [
             [Color.blue, Color.cyan],
             [Color.green, Color.teal],
             [Color.orange, Color.yellow],
-            [Color.gray, Color.blue],
+            [Color.purple, Color.indigo],
+            [Color.pink, Color.red],
+            [Color.mint, Color.green],
+            [Color.indigo, Color.blue],
+            [Color.brown, Color.orange],
         ]
-        let colors = palettes[abs(stableAvatarSeed) % palettes.count]
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+        let slot = MachineAvatarPalette.slot(
+            machineID: macDeviceID,
+            fallbackID: id.rawValue,
+            slotCount: palettes.count
+        )
+        return LinearGradient(colors: palettes[slot], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     /// The row's trailing slot: the connection problem when there is one,
@@ -95,9 +107,4 @@ extension MobileWorkspacePreview {
     /// `.distantPast` (which buckets to `.none`, an empty trailing slot).
     private var latestActivityDate: Date { lastActivityAt ?? previewAt ?? .distantPast }
 
-    private var stableAvatarSeed: Int {
-        id.rawValue.unicodeScalars.reduce(0) { partialResult, scalar in
-            partialResult + Int(scalar.value)
-        }
-    }
 }

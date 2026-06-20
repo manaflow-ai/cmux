@@ -5526,6 +5526,23 @@
         }
       }
     },
+    "mobile.workspace.reconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続"
+          }
+        }
+      }
+    },
     "mobile.workspace.rename.action": {
       "extractionState": "manual",
       "localizations": {

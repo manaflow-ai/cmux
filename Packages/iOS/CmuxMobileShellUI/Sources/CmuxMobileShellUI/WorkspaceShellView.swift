@@ -85,6 +85,7 @@ struct WorkspaceShellView: View {
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
+                reconnect: reconnectClosure,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
@@ -166,6 +167,7 @@ struct WorkspaceShellView: View {
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
+                reconnect: reconnectClosure,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
@@ -243,7 +245,15 @@ struct WorkspaceShellView: View {
     /// reference) is what crosses into the `List`-hosting view.
     private var refreshWorkspacesClosure: @Sendable () async -> Void {
         let store = store
-        return { await store.refreshWorkspaces() }
+        // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
+        // active Mac instead of no-opping, so the offline list can recover itself.
+        return { await store.reconnectOrRefresh() }
+    }
+
+    /// Manual reconnect for the offline status row's Reconnect button.
+    private var reconnectClosure: () -> Void {
+        let store = store
+        return { Task { await store.reconnectOrRefresh() } }
     }
 
     /// Group collapse/expand closure. Present when the Mac advertises
