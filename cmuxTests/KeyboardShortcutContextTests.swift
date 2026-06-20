@@ -162,6 +162,31 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    func testFindPreviousGroupAndReactGrabDefaultsAreRoutedCollisions() {
+        let shortcut = KeyboardShortcutSettings.Action.findPrevious.defaultShortcut
+
+        XCTAssertEqual(shortcut, KeyboardShortcutSettings.Action.groupSelectedWorkspaces.defaultShortcut)
+        XCTAssertEqual(shortcut, KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut)
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.groupSelectedWorkspaces.conflicts(
+                with: shortcut,
+                proposedAction: .findPrevious,
+                configuredShortcut: shortcut
+            )
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.toggleReactGrab.conflicts(
+                with: shortcut,
+                proposedAction: .findPrevious,
+                configuredShortcut: shortcut
+            )
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.findPrevious.normalizedRecordedShortcutResult(shortcut),
+            .accepted(shortcut)
+        )
+    }
+
     func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
         let focusMode = KeyboardShortcutSettings.Action.toggleBrowserFocusMode
 

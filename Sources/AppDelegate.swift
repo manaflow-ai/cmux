@@ -12911,7 +12911,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
-        if shouldRouteFocusedTerminalGhosttyOwnedShortcut(event) {
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           shouldRouteFocusedTerminalGhosttyOwnedShortcut(event) {
             return false
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }

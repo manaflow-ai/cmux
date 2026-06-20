@@ -14242,7 +14242,7 @@ struct TabItemView: View, Equatable {
             resolvedShiftAnchorIndex: shiftAnchorIndex,
             clickedIndex: index
         )
-        tabManager.selectTab(tab)
+        tabManager.selectTab(tab, restorePanelFocus: !(isCommand || isShift))
         if wasSelected, !isCommand, !isShift {
             tabManager.dismissNotificationOnDirectInteraction(
                 tabId: tab.id,

@@ -385,6 +385,9 @@ public struct KeyboardShortcutsSection: View {
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
         for other in ShortcutAction.allCases where other != action {
+            if allowsRoutedShortcutCollision(action, other) {
+                continue
+            }
             // Two bindings on the same keystroke only collide when some focus
             // state activates both effective `when` clauses AND router priority
             // cannot decide the overlap. Context-disjoint clauses (e.g.
@@ -411,6 +414,20 @@ public struct KeyboardShortcutsSection: View {
             }
         }
         return nil
+    }
+
+    private func allowsRoutedShortcutCollision(_ lhs: ShortcutAction, _ rhs: ShortcutAction) -> Bool {
+        switch (lhs, rhs) {
+        case (.groupSelectedWorkspaces, .findPrevious),
+             (.findPrevious, .groupSelectedWorkspaces),
+             (.groupSelectedWorkspaces, .toggleReactGrab),
+             (.toggleReactGrab, .groupSelectedWorkspaces),
+             (.findPrevious, .toggleReactGrab),
+             (.toggleReactGrab, .findPrevious):
+            return true
+        default:
+            return false
+        }
     }
 
     /// Formats a binding for display, delegating to

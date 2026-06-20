@@ -619,6 +619,9 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
+            if allowsRoutedShortcutCollision(with: proposedAction) {
+                return false
+            }
             // Two bindings on the same keystroke only collide when some focus
             // state activates both AND router priority cannot decide the overlap.
             // A `shortcuts.when` override (or the built-in context default) can
@@ -641,6 +644,20 @@ enum KeyboardShortcutSettings {
                 configuredShortcut,
                 configuredUsesNumberedDigitMatching: usesNumberedDigitMatching
             )
+        }
+
+        private func allowsRoutedShortcutCollision(with other: Action) -> Bool {
+            switch (self, other) {
+            case (.groupSelectedWorkspaces, .findPrevious),
+                 (.findPrevious, .groupSelectedWorkspaces),
+                 (.groupSelectedWorkspaces, .toggleReactGrab),
+                 (.toggleReactGrab, .groupSelectedWorkspaces),
+                 (.findPrevious, .toggleReactGrab),
+                 (.toggleReactGrab, .findPrevious):
+                return true
+            default:
+                return false
+            }
         }
 
         func normalizedRecordedShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {
