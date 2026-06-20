@@ -150,7 +150,7 @@ private final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceR
     }
 }
 
-struct ContentView: View {
+struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
     @EnvironmentObject var tabManager: TabManager
@@ -2706,6 +2706,13 @@ struct ContentView: View {
         )
     }
 
+    /// Builds the switcher entries and fingerprints from a snapshot resolved by
+    /// ``makeSwitcherSnapshot(includeSurfaces:)``. The view conforms to the
+    /// snapshot seam, so the builder reads current live state on each call.
+    private var commandPaletteSwitcherEntryBuilder: CommandPaletteSwitcherEntryBuilder {
+        CommandPaletteSwitcherEntryBuilder(snapshotProvider: self)
+    }
+
     nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
         if query.hasPrefix(Self.commandPaletteCommandsPrefix) {
             return .commands
@@ -2817,7 +2824,7 @@ struct ContentView: View {
         case .commands:
             return commandPaletteCommands(commandsContext: commandsContext ?? commandPaletteCachedCommandsContext())
         case .switcher:
-            return commandPaletteSwitcherEntries(includeSurfaces: includeSurfaces)
+            return commandPaletteSwitcherEntryBuilder.switcherEntries(includeSurfaces: includeSurfaces)
         }
     }
 
@@ -3246,56 +3253,15 @@ struct ContentView: View {
     ) -> Int {
         switch scope {
         case .commands:
-            return commandPaletteCommandsFingerprint(
-                commandsContext: commandsContext ?? commandPaletteCachedCommandsContext()
+            return commandPaletteSwitcherEntryBuilder.commandsFingerprint(
+                commandsContext: commandsContext ?? commandPaletteCachedCommandsContext(),
+                configRevision: cmuxConfigStore.configRevision
             )
         case .switcher:
-            return commandPaletteSwitcherEntriesFingerprint(includeSurfaces: includeSurfaces)
-        }
-    }
-
-    private func commandPaletteCommandsFingerprint(commandsContext: CommandPaletteCommandsContext) -> Int {
-        var hasher = Hasher()
-        hasher.combine(commandsContext.snapshot.fingerprint())
-        hasher.combine(cmuxConfigStore.configRevision)
-        return hasher.finalize()
-    }
-
-    private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
-        let windowContexts = commandPaletteSwitcherWindowContexts()
-        let fingerprintContexts = windowContexts.map { context in
-            CommandPaletteSwitcherFingerprintContext(
-                windowId: context.windowId,
-                windowLabel: context.windowLabel,
-                selectedWorkspaceId: context.selectedWorkspaceId,
-                workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
-                    CommandPaletteSwitcherFingerprintWorkspace(
-                        id: workspace.id,
-                        displayName: workspaceDisplayName(workspace),
-                        metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
-                        surfaces: includeSurfaces
-                            ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
-                                guard let panel = workspace.panels[panelId] else { return nil }
-                                return CommandPaletteSwitcherFingerprintSurface(
-                                    id: panelId,
-                                    displayName: panelDisplayName(
-                                        workspace: workspace,
-                                        panelId: panelId,
-                                        fallback: panel.displayTitle
-                                    ),
-                                    kindLabel: commandPaletteSurfaceKindLabel(for: panel.panelType),
-                                    metadata: commandPaletteSurfaceSearchMetadata(
-                                        for: workspace,
-                                        panelId: panelId
-                                    )
-                                )
-                            }
-                            : []
-                    )
-                }
+            return commandPaletteSwitcherEntryBuilder.switcherEntriesFingerprint(
+                includeSurfaces: includeSurfaces
             )
         }
-        return CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
     }
 
     private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
@@ -3366,99 +3332,35 @@ struct ContentView: View {
         }
     }
 
-    private func commandPaletteSwitcherEntries(includeSurfaces: Bool) -> [CommandPaletteCommand] {
+    /// Builds the switcher snapshot the package's
+    /// ``CommandPaletteSwitcherEntryBuilder`` consumes. This is the irreducible
+    /// live-state seam: it reads `TabManager`/`Workspace`/app-delegate state,
+    /// resolves localized labels (app bundle) and display names, derives the
+    /// searchable metadata, maps each panel type onto a keyword kind, and binds
+    /// the per-row focus actions. The builder owns the resulting command/
+    /// fingerprint structure.
+    func makeSwitcherSnapshot(
+        includeSurfaces: Bool
+    ) -> [CommandPaletteSwitcherSnapshotWindow] {
         let windowContexts = commandPaletteSwitcherWindowContexts()
-        guard !windowContexts.isEmpty else { return [] }
-
-        var entries: [CommandPaletteCommand] = []
-        let estimatedCount = windowContexts.reduce(0) { partial, context in
-            let workspaceCount = context.tabManager.tabs.count
-            guard includeSurfaces else { return partial + workspaceCount }
-            let surfaceCount = context.tabManager.tabs.reduce(0) { count, workspace in
-                count + commandPaletteOrderedSwitcherPanels(for: workspace).count
-            }
-            return partial + workspaceCount + surfaceCount
-        }
-        entries.reserveCapacity(estimatedCount)
-        var nextRank = 0
-
-        for context in windowContexts {
-            let workspaces = commandPaletteOrderedSwitcherWorkspaces(for: context)
-            guard !workspaces.isEmpty else { continue }
-
+        return windowContexts.map { context in
             let windowId = context.windowId
             let windowTabManager = context.tabManager
-            let windowKeywords = commandPaletteWindowKeywords(windowLabel: context.windowLabel)
-            for workspace in workspaces {
-                let workspaceName = workspaceDisplayName(workspace)
-                let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
-                let workspaceKeywords = CommandPaletteSwitcherSearchIndexer(
-                    baseKeywords: [
-                        "workspace",
-                        "switch",
-                        "go",
-                        "open",
-                        workspaceName
-                    ] + windowKeywords,
-                    metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
-                    detail: .workspace
-                ).keywords
+            let workspaces = commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace -> CommandPaletteSwitcherSnapshotWorkspace in
                 let workspaceId = workspace.id
-                entries.append(
-                    CommandPaletteCommand(
-                        id: workspaceCommandId,
-                        rank: nextRank,
-                        title: workspaceName,
-                        subtitle: Self.commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
-                        shortcutHint: nil,
-                        kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
-                        keywords: workspaceKeywords,
-                        dismissOnRun: true,
-                        action: {
-                            focusCommandPaletteSwitcherTarget(
-                                windowId: windowId,
-                                tabManager: windowTabManager,
-                                workspaceId: workspaceId
-                            )
-                        }
-                    )
-                )
-                nextRank += 1
-
-                guard includeSurfaces else { continue }
-
-                for panelId in commandPaletteOrderedSwitcherPanels(for: workspace) {
-                    guard let panel = workspace.panels[panelId] else { continue }
-                    let surfaceName = panelDisplayName(
-                        workspace: workspace,
-                        panelId: panelId,
-                        fallback: panel.displayTitle
-                    )
-                    let surfaceKindLabel = commandPaletteSurfaceKindLabel(for: panel.panelType)
-                    let surfaceCommandId = "switcher.surface.\(panelId.uuidString.lowercased())"
-                    let surfaceKeywords = CommandPaletteSwitcherSearchIndexer(
-                        baseKeywords: [
-                            "surface",
-                            "tab",
-                            "switch",
-                            "go",
-                            "open",
-                            surfaceName,
-                            workspaceName
-                        ] + commandPaletteSurfaceKeywords(for: panel.panelType) + windowKeywords,
-                        metadata: commandPaletteSurfaceSearchMetadata(for: workspace, panelId: panelId),
-                        detail: .surface
-                    ).keywords
-                    entries.append(
-                        CommandPaletteCommand(
-                            id: surfaceCommandId,
-                            rank: nextRank,
-                            title: surfaceName,
-                            subtitle: Self.commandPaletteSwitcherSubtitle(base: workspaceName, windowLabel: context.windowLabel),
-                            shortcutHint: nil,
-                            kindLabel: surfaceKindLabel,
-                            keywords: surfaceKeywords,
-                            dismissOnRun: true,
+                let surfaces: [CommandPaletteSwitcherSnapshotSurface] = includeSurfaces
+                    ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
+                        guard let panel = workspace.panels[panelId] else { return nil }
+                        return CommandPaletteSwitcherSnapshotSurface(
+                            id: panelId,
+                            displayName: panelDisplayName(
+                                workspace: workspace,
+                                panelId: panelId,
+                                fallback: panel.displayTitle
+                            ),
+                            kindLabel: commandPaletteSurfaceKindLabel(for: panel.panelType),
+                            keywordKind: Self.commandPaletteSurfaceKeywordKind(for: panel.panelType),
+                            metadata: commandPaletteSurfaceSearchMetadata(for: workspace, panelId: panelId),
                             action: {
                                 focusCommandPaletteSwitcherSurfaceTarget(
                                     windowId: windowId,
@@ -3468,13 +3370,31 @@ struct ContentView: View {
                                 )
                             }
                         )
-                    )
-                    nextRank += 1
-                }
+                    }
+                    : []
+                return CommandPaletteSwitcherSnapshotWorkspace(
+                    id: workspaceId,
+                    displayName: workspaceDisplayName(workspace),
+                    kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
+                    subtitleBase: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"),
+                    metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
+                    surfaces: surfaces,
+                    action: {
+                        focusCommandPaletteSwitcherTarget(
+                            windowId: windowId,
+                            tabManager: windowTabManager,
+                            workspaceId: workspaceId
+                        )
+                    }
+                )
             }
+            return CommandPaletteSwitcherSnapshotWindow(
+                windowId: windowId,
+                windowLabel: context.windowLabel,
+                selectedWorkspaceId: context.selectedWorkspaceId,
+                workspaces: workspaces
+            )
         }
-
-        return entries
     }
 
     private func commandPaletteSwitcherWindowContexts() -> [CommandPaletteSwitcherWindowContext] {
@@ -3524,16 +3444,6 @@ struct ContentView: View {
             return [fallback]
         }
         return contexts
-    }
-
-    private static func commandPaletteSwitcherSubtitle(base: String, windowLabel: String?) -> String {
-        guard let windowLabel else { return base }
-        return "\(base) • \(windowLabel)"
-    }
-
-    private func commandPaletteWindowKeywords(windowLabel: String?) -> [String] {
-        guard let windowLabel else { return [] }
-        return ["window", windowLabel.lowercased()]
     }
 
     private func commandPaletteOrderedSwitcherWorkspaces(
@@ -3648,24 +3558,24 @@ struct ContentView: View {
         }
     }
 
-    private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
+    private static func commandPaletteSurfaceKeywordKind(for panelType: PanelType) -> CommandPaletteSurfaceKeywordKind {
         switch panelType {
         case .terminal:
-            return ["terminal", "shell", "console"]
+            return .terminal
         case .browser:
-            return ["browser", "web", "page"]
+            return .browser
         case .markdown:
-            return ["markdown", "note", "preview"]
+            return .markdown
         case .filePreview:
-            return ["file", "preview", "text", "pdf", "image", "audio", "video"]
+            return .filePreview
         case .rightSidebarTool:
-            return ["tool", "files", "find", "vault", "sidebar"]
+            return .rightSidebarTool
         case .agentSession:
-            return ["agent", "codex", "claude", "opencode", "react", "solid"]
+            return .agentSession
         case .project:
-            return ["project", "xcode", "build", "settings", "schemes", "targets"]
+            return .project
         case .extensionBrowser:
-            return ["sidebar", "extensions", "extensionkit", "browser"]
+            return .extensionBrowser
         }
     }
 
