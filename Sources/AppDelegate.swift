@@ -764,6 +764,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         )
 
+    /// Routes notification-feed focus/send-text requests into V2 socket commands,
+    /// extracted into `CmuxNotifications`. The router builds the typed JSON-RPC
+    /// lines; the app-side `FeedRequestSocketAdapter` forwards each line to
+    /// `TerminalController.shared.handleSocketLine(_:)` (a singleton the package
+    /// must not import). The `@objc handleFeedRequest*` selector methods stay on
+    /// `AppDelegate` and forward their parsed `userInfo` here.
+    lazy var feedRequestRouter = FeedRequestRouter(socketInvoking: FeedRequestSocketAdapter())
+
     /// OS notification delivery/response coordination, extracted into
     /// `CmuxNotifications`. The app target injects the concrete
     /// `UNUserNotificationCenter`, terminal identifiers from
@@ -7661,58 +7669,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.setString(payload, forType: .string)
     }
 
+    /// Forwards a Feed-layer focus request to the extracted ``FeedRequestRouter``.
+    /// The `@objc` selector signature and `userInfo` parsing stay app-side
+    /// (selectors cannot move into a package, and `userInfo` is `[AnyHashable: Any]`);
+    /// the router builds the V2 socket commands and routes them through the
+    /// in-process handler, byte-identical to the former inline body.
     @objc private func handleFeedRequestFocus(_ notification: Notification) {
         guard let workspaceId = notification.userInfo?["workspaceId"] as? String,
               let surfaceId = notification.userInfo?["surfaceId"] as? String
         else { return }
-
-        // Invoke the existing V2 commands so the Feed-layer focus request
-        // goes through the same code path as a socket-initiated focus.
-        // Serialize through JSON so we reuse the v2 command parser.
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
-        }
-        invoke("workspace.select", ["workspace_id": workspaceId])
-        invoke("surface.focus", ["surface_id": surfaceId])
-        // Flash the terminal's own focus ring (same visual as
-        // cmd+shift+H / Flash Focused Panel) so the user's eye is
-        // pulled to the terminal content the Feed jumped to.
-        invoke("surface.trigger_flash", ["surface_id": surfaceId])
+        feedRequestRouter.routeFocus(workspaceId: workspaceId, surfaceId: surfaceId)
     }
 
+    /// Forwards a Feed-layer send-text request to the extracted ``FeedRequestRouter``.
+    /// See ``handleFeedRequestFocus(_:)`` for why the selector and `userInfo`
+    /// parsing remain app-side. The router appends the terminal-mode CR.
     @objc private func handleFeedRequestSendText(_ notification: Notification) {
         guard let surfaceId = notification.userInfo?["surfaceId"] as? String,
               let text = notification.userInfo?["text"] as? String,
               !text.isEmpty
         else { return }
-
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
-        }
-        // Terminal-mode Return is CR. sendNamedKey "Return" also works
-        // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
-            "surface_id": surfaceId,
-            "text": text + "\r",
-        ])
+        feedRequestRouter.routeSendText(surfaceId: surfaceId, text: text)
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
