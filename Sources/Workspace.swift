@@ -2277,6 +2277,13 @@ final class Workspace: Identifiable, ObservableObject {
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
 
+    /// Aggregate media-device activity across every browser pane in this
+    /// workspace (audio / microphone / camera). Folded by
+    /// ``makeBrowserMediaActivityPublisher()`` and surfaced to the sidebar
+    /// workspace row so a noisy or capturing background pane is discoverable.
+    @Published private(set) var browserMediaActivity = BrowserMediaActivity()
+    private var browserMediaActivityCancellable: AnyCancellable?
+
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels);
     /// stored in the split-layout sub-model.
     var isProgrammaticSplit: Bool {
@@ -3012,6 +3019,15 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
+        // Keep the workspace-level media-activity summary fresh as browser panes
+        // open/close and start/stop using audio, mic, or camera. Drives the
+        // sidebar workspace-row media glyphs.
+        browserMediaActivityCancellable = makeBrowserMediaActivityPublisher()
+            .sink { [weak self] activity in
+                guard let self, self.browserMediaActivity != activity else { return }
+                self.browserMediaActivity = activity
+            }
+
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
 
@@ -3057,6 +3073,7 @@ final class Workspace: Identifiable, ObservableObject {
                 isDirty: browserPanel.isDirty,
                 isLoading: browserPanel.isLoading,
                 isAudioMuted: browserPanel.isMuted,
+                isAudioPlaying: browserPanel.isPlayingAudio,
                 isPinned: false
             ) {
                 surfaceIdToPanelId[tabId] = browserPanel.id
@@ -3532,16 +3549,66 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxWorkspaceFlashToken &+= 1
     }
 
+    /// Folds the live media-device state of every browser pane into a single
+    /// workspace-level summary.
+    private func currentBrowserMediaActivity() -> BrowserMediaActivity {
+        BrowserMediaActivity.aggregating(
+            panels.values.compactMap { $0 as? BrowserPanel }.map { browser in
+                BrowserMediaActivity(
+                    isPlayingAudio: browser.isPlayingAudio,
+                    isUsingMicrophone: browser.isUsingMicrophone,
+                    isUsingCamera: browser.isUsingCamera
+                )
+            }
+        )
+    }
+
+    /// Emits the workspace's aggregate ``BrowserMediaActivity`` whenever the
+    /// panel set changes or any browser pane's audio/mic/camera state flips.
+    ///
+    /// `switchToLatest` rebuilds the inner per-pane combine each time the panel
+    /// set changes, so observers are torn down/re-created automatically as panes
+    /// open and close — no manual per-pane subscription bookkeeping.
+    private func makeBrowserMediaActivityPublisher() -> AnyPublisher<BrowserMediaActivity, Never> {
+        panelsPublisher
+            .map { panels -> AnyPublisher<Void, Never> in
+                let browsers = panels.values.compactMap { $0 as? BrowserPanel }
+                guard !browsers.isEmpty else {
+                    return Just(()).eraseToAnyPublisher()
+                }
+                let triggers: [AnyPublisher<Void, Never>] = browsers.map { browser in
+                    Publishers.CombineLatest3(
+                        browser.$isPlayingAudio,
+                        browser.$isUsingMicrophone,
+                        browser.$isUsingCamera
+                    )
+                    .map { _ in () }
+                    .eraseToAnyPublisher()
+                }
+                return Publishers.MergeMany(triggers).eraseToAnyPublisher()
+            }
+            .switchToLatest()
+            // Hop to main before folding so `currentBrowserMediaActivity()` reads
+            // `panels` and the per-pane `@Published` flags on the main actor.
+            .receive(on: DispatchQueue.main)
+            .compactMap { [weak self] _ in self?.currentBrowserMediaActivity() }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
         let browserTabState = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
         )
         let subscription = browserTabState
-        .combineLatest(browserPanel.$isMuted.removeDuplicates())
+        .combineLatest(
+            browserPanel.$isMuted.removeDuplicates(),
+            browserPanel.$isPlayingAudio.removeDuplicates()
+        )
         .receive(on: DispatchQueue.main)
         .sink { [weak self, weak browserPanel] output in
-            let ((_, _, isLoading, favicon), isMuted) = output
+            let ((_, _, isLoading, favicon), isMuted, isPlayingAudio) = output
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
@@ -3556,14 +3623,17 @@ final class Workspace: Identifiable, ObservableObject {
             let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
             let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
             let mutedUpdate: Bool? = existing.isAudioMuted == isMuted ? nil : isMuted
-            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
+            let audioPlayingUpdate: Bool? = existing.isAudioPlaying == isPlayingAudio ? nil : isPlayingAudio
+            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil
+                || mutedUpdate != nil || audioPlayingUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
                 title: titleUpdate,
                 iconImageData: faviconUpdate,
                 hasCustomTitle: self.panelCustomTitles[browserPanel.id] != nil,
                 isLoading: loadingUpdate,
-                isAudioMuted: mutedUpdate
+                isAudioMuted: mutedUpdate,
+                isAudioPlaying: audioPlayingUpdate
             )
         }
         panelSubscriptions[browserPanel.id] = subscription
@@ -7563,6 +7633,7 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isAudioMuted: browserPanel.isMuted,
+            isAudioPlaying: browserPanel.isPlayingAudio,
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = browserPanel.id
@@ -7670,6 +7741,7 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isAudioMuted: browserPanel.isMuted,
+            isAudioPlaying: browserPanel.isPlayingAudio,
             isPinned: false,
             inPane: paneId
         ) else {
@@ -8933,6 +9005,7 @@ final class Workspace: Identifiable, ObservableObject {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
         }
         let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted ?? false
+        let detachedBrowserPlayingAudio = (detached.panel as? BrowserPanel)?.isPlayingAudio ?? false
 
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
@@ -8943,6 +9016,7 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,
             isAudioMuted: detachedBrowserMuted,
+            isAudioPlaying: detachedBrowserPlayingAudio,
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {

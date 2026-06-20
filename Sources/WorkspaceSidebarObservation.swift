@@ -11,6 +11,34 @@ private struct SidebarPanelObservationState: Equatable {
     }
 }
 
+/// Aggregate "is any browser pane in this workspace using a media device"
+/// summary, folded across every ``BrowserPanel`` in a ``Workspace``. Drives the
+/// Chrome-style media-activity glyphs on the sidebar workspace row.
+struct BrowserMediaActivity: Equatable {
+    /// Any browser pane is producing audible audio (private `_isPlayingAudio`).
+    var isPlayingAudio: Bool = false
+    /// Any browser pane is capturing the microphone.
+    var isUsingMicrophone: Bool = false
+    /// Any browser pane is capturing the camera.
+    var isUsingCamera: Bool = false
+
+    /// Whether any tracked media device is active (used to gate row layout).
+    var isActive: Bool { isPlayingAudio || isUsingMicrophone || isUsingCamera }
+
+    /// Reduces per-pane media activity into the workspace-level summary: a
+    /// device counts as active when *any* pane reports it active. Pure so the
+    /// "any browser pane in the workspace is playing audio" rule is unit-testable
+    /// without standing up a full ``Workspace``/``BrowserPanel`` graph.
+    static func aggregating<S: Sequence>(_ perPane: S) -> BrowserMediaActivity
+    where S.Element == BrowserMediaActivity {
+        perPane.reduce(into: BrowserMediaActivity()) { result, pane in
+            result.isPlayingAudio = result.isPlayingAudio || pane.isPlayingAudio
+            result.isUsingMicrophone = result.isUsingMicrophone || pane.isUsingMicrophone
+            result.isUsingCamera = result.isUsingCamera || pane.isUsingCamera
+        }
+    }
+}
+
 private struct SidebarImmediateObservationState: Equatable {
     let title: String
     let customDescription: String?
@@ -39,6 +67,7 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
+    let browserMediaActivity: BrowserMediaActivity
 }
 
 extension Workspace {
@@ -105,8 +134,8 @@ extension Workspace {
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts)
-            .map { groupedFields, listeningPorts in
+            .combineLatest($listeningPorts, $browserMediaActivity)
+            .map { groupedFields, listeningPorts, browserMediaActivity in
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
@@ -128,7 +157,8 @@ extension Workspace {
                     remoteConnectionState: remoteFields.1,
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
-                    listeningPorts: listeningPorts
+                    listeningPorts: listeningPorts,
+                    browserMediaActivity: browserMediaActivity
                 )
             }
             .removeDuplicates()

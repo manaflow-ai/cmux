@@ -2587,6 +2587,21 @@ final class BrowserPanel: Panel, ObservableObject {
     /// survives WKWebView replacement and can be applied to each new page.
     @Published private(set) var isMuted: Bool = false
 
+    /// Whether the page is currently producing *audible* audio, from WebKit's
+    /// private `_isPlayingAudio` KVO signal. Drives the Chrome-style speaker glyph
+    /// on the browser tab and the sidebar workspace row. Distinct from
+    /// ``isPlayingMedia`` (a DOM keep-alive signal that also counts muted video):
+    /// muting a page clears `isPlayingAudio` but not `isPlayingMedia`.
+    @Published private(set) var isPlayingAudio: Bool = false
+
+    /// Whether the page is actively capturing the microphone (public, KVO-backed
+    /// `WKWebView.microphoneCaptureState`). Nice-to-have media-activity signal.
+    @Published private(set) var isUsingMicrophone: Bool = false
+
+    /// Whether the page is actively capturing the camera (public, KVO-backed
+    /// `WKWebView.cameraCaptureState`). Nice-to-have media-activity signal.
+    @Published private(set) var isUsingCamera: Bool = false
+
     /// Published can go back state
     @Published private(set) var canGoBack: Bool = false
 
@@ -2719,6 +2734,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
+    /// Classic (string key-path) KVO bridge for the private `_isPlayingAudio`
+    /// property, which cannot be observed via the Swift key-path `observe(_:)`.
+    /// Re-created per web-view generation in `setupObservers`; invalidated before
+    /// each web-view release/replace so KVO removal never targets a dead object.
+    private var audioPlaybackObserver: WebViewAudioPlaybackObserver?
     private var activeDownloadCount: Int = 0
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -3014,8 +3034,7 @@ final class BrowserPanel: Panel, ObservableObject {
         loadingGeneration &+= 1
         cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
@@ -4036,8 +4055,7 @@ final class BrowserPanel: Panel, ObservableObject {
         _ = hideDeveloperTools()
         cancelDeveloperToolsRestoreRetry()
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         clearWebContentTerminationRecovery()
         clearBrowserFocusMode(reason: "profileSwitch")
         faviconTask?.cancel()
@@ -4277,6 +4295,22 @@ final class BrowserPanel: Panel, ObservableObject {
         return nil
     }
 
+    /// Tears down every live web-view observer (Swift key-path KVO + the private
+    /// `_isPlayingAudio` bridge + Combine subscriptions) and clears the derived
+    /// media-activity flags. Invoked at each point a web view is released or
+    /// replaced, so KVO removal always targets a still-alive object and a
+    /// discarded/closed pane never shows a stale speaker/mic/camera glyph; the
+    /// next `setupObservers` re-seeds the flags from the fresh web view.
+    private func detachWebViewObservers() {
+        audioPlaybackObserver?.invalidate()
+        audioPlaybackObserver = nil
+        webViewObservers.removeAll()
+        if isPlayingAudio { isPlayingAudio = false }
+        if isUsingMicrophone { isUsingMicrophone = false }
+        if isUsingCamera { isUsingCamera = false }
+        webViewCancellables.removeAll()
+    }
+
     private func setupObservers(for webView: WKWebView) {
         let observedWebViewInstanceID = webViewInstanceID
 
@@ -4378,20 +4412,43 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.append(fullscreenObserver)
 
         let cameraCaptureObserver = webView.observe(\.cameraCaptureState, options: [.new]) { [weak self] webView, _ in
+            let isUsingCamera = webView.cameraCaptureState != .none
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                if self.isUsingCamera != isUsingCamera { self.isUsingCamera = isUsingCamera }
                 self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
             }
         }
         webViewObservers.append(cameraCaptureObserver)
 
         let microphoneCaptureObserver = webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self] webView, _ in
+            let isUsingMicrophone = webView.microphoneCaptureState != .none
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                if self.isUsingMicrophone != isUsingMicrophone { self.isUsingMicrophone = isUsingMicrophone }
                 self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
             }
         }
         webViewObservers.append(microphoneCaptureObserver)
+
+        // Chrome-style "tab is producing sound" indicator via WebKit's private
+        // `_isPlayingAudio` KVO. The bridge re-reads `.initial` so the fresh
+        // web-view's state is reflected immediately; it self-corrects after a
+        // mute toggle (muting drives `_isPlayingAudio` to false).
+        audioPlaybackObserver = WebViewAudioPlaybackObserver(webView: webView) { [weak self] isPlayingAudio in
+            Task { @MainActor in
+                guard let self, self.webViewInstanceID == observedWebViewInstanceID else { return }
+                if self.isPlayingAudio != isPlayingAudio { self.isPlayingAudio = isPlayingAudio }
+            }
+        }
+
+        // The capture observers above fire only on `.new`; seed the freshly
+        // bound web view's current capture state so a pane that rebinds while a
+        // call is live shows the glyph without waiting for the next transition.
+        let initialIsUsingCamera = webView.cameraCaptureState != .none
+        let initialIsUsingMicrophone = webView.microphoneCaptureState != .none
+        if isUsingCamera != initialIsUsingCamera { isUsingCamera = initialIsUsingCamera }
+        if isUsingMicrophone != initialIsUsingMicrophone { isUsingMicrophone = initialIsUsingMicrophone }
 
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
@@ -4601,8 +4658,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 #endif
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         clearBrowserFocusMode(reason: reason)
         faviconTask?.cancel()
         faviconTask = nil
@@ -4814,8 +4870,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         faviconTask?.cancel()
         faviconTask = nil
     }
@@ -5473,8 +5528,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         let webView = webView
         Task { @MainActor in
             BrowserWindowPortalRegistry.detach(webView: webView)
@@ -5619,8 +5673,7 @@ extension BrowserPanel {
         lockedPortalHost = nil
 
         let oldWebView = webView
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         cancelPendingInteractiveBrowserPrompts(reason: "contextReset")
         closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
