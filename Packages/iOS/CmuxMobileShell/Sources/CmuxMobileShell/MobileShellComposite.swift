@@ -228,6 +228,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var machineColorIndex: [String: Int] {
         MobileWorkspaceAggregation.machineColorIndex(statesByMac: workspacesByMac)
     }
+
+    /// The PHONE'S OWN live connection status to each Mac (foreground or live
+    /// secondary subscription), keyed by `macDeviceID`. This is the source of
+    /// truth for "is the phone talking to this Mac right now" — distinct from
+    /// presence (the Mac's heartbeat to the Durable Object), which says whether the
+    /// Mac is online but not whether THIS phone can reach it. The Computers screen
+    /// drives its connection dot from this and shows presence separately, so a
+    /// mismatch (Mac online via presence, but phone not connected) is a visible
+    /// route/tailscale signal. Updates reactively as subscriptions connect/drop.
+    public var macConnectionStatuses: [String: MobileMacConnectionStatus] {
+        var result: [String: MobileMacConnectionStatus] = [:]
+        for (macID, state) in workspacesByMac where !macID.isEmpty {
+            result[macID] = state.status
+        }
+        return result
+    }
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.

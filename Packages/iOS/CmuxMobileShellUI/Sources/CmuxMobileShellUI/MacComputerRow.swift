@@ -6,8 +6,14 @@ import SwiftUI
 
 /// Immutable per-computer snapshot for the Computers screen. Holds no
 /// `@Observable` store, so the row sits safely below the screen's `List`
-/// boundary (see AGENTS.md snapshot-boundary rule). Built from the device
-/// registry / paired-Mac fallback plus presence and the live connection status.
+/// boundary (see AGENTS.md snapshot-boundary rule).
+///
+/// The connection dot is driven by ``connectionStatus`` — the PHONE'S OWN live
+/// connection to this Mac (foreground or live secondary) — NOT by presence.
+/// ``presence`` (the Mac's heartbeat to the Durable Object presence worker) and
+/// ``routeDescription`` are shown as a separate diagnostic line, so a mismatch
+/// (Mac online via presence, but the phone can't connect) is a visible
+/// route/tailscale signal rather than a misleading grey dot.
 struct MacComputerSnapshot: Equatable, Identifiable {
     let deviceId: String
     let title: String
@@ -15,24 +21,26 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// The Mac's distinct color index (matches its workspaces' avatar color in the
     /// list). `nil` falls back to a hash of the device id.
     var colorIndex: Int?
+    /// The PHONE'S live connection to this Mac. `nil` = the phone is not connected
+    /// to it (no foreground/secondary). This drives the connection dot.
+    let connectionStatus: MobileMacConnectionStatus?
+    /// Presence from the Durable Object presence worker (the Mac's own heartbeat),
+    /// shown as diagnostic context, never as the connection dot.
+    let presence: DeviceTreePresence?
+    /// The reachable route the phone would dial (host:port), for diagnostics.
+    let routeDescription: String?
+    /// When the Mac was last seen (paired-store timestamp), for the offline line.
     let lastSeenAt: Date
     /// How many aggregated workspaces this computer currently contributes.
     let workspaceCount: Int
-    /// Whether the live foreground connection currently targets this computer.
-    let isConnected: Bool
-    /// The live connection status, present only for the connected computer.
-    let liveStatus: MobileMacConnectionStatus?
-    /// Live presence (online / offline+lastSeen) from the heartbeat service.
-    let presence: DeviceTreePresence?
 
     var id: String { deviceId }
 }
 
-/// A computer (Mac/host) row on the Computers screen: a machine-colored avatar
-/// (same color the computer's workspaces use in the list), its name, an
-/// online/last-seen status line with workspace count, and a trailing liveness
-/// badge. Remove/management actions are attached by the list via swipe and
-/// context menu, not held in the row.
+/// A computer (Mac/host) row on the Computers screen: a machine-colored avatar,
+/// the Mac's name, a primary line for the PHONE'S connection state + workspace
+/// count, and a diagnostic line for presence + route. The trailing dot reflects
+/// the phone's connection (green = the phone is talking to this Mac now).
 struct MacComputerRow: View {
     let computer: MacComputerSnapshot
 
@@ -47,14 +55,18 @@ struct MacComputerRow: View {
                     .foregroundStyle(.white)
                     .accessibilityHidden(true)
             }
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(computer.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                Text(detailLine)
+                Text(connectionLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text(diagnosticLine)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
@@ -66,33 +78,33 @@ struct MacComputerRow: View {
         .accessibilityIdentifier("MobileComputerRow-\(computer.deviceId)")
     }
 
+    /// The connection dot: green only when the PHONE is actually connected to this
+    /// Mac. Orange while reconnecting, grey when the phone is not connected (even
+    /// if presence says the Mac is online — that's the route/tailscale signal).
     @ViewBuilder
     private var badge: some View {
-        if let liveStatus = computer.liveStatus {
-            Image(systemName: liveStatus.symbolName)
-                .foregroundStyle(liveStatus.tintColor)
-                .accessibilityLabel(liveStatus.label)
-        } else {
-            Image(systemName: "circle.fill")
-                .font(.caption2)
-                .foregroundStyle(isOnline ? Color.green : Color.secondary.opacity(0.5))
-                .accessibilityLabel(isOnline
-                    ? L10n.string("mobile.deviceTree.online", defaultValue: "Online")
-                    : L10n.string("mobile.deviceTree.offline", defaultValue: "Offline"))
+        Image(systemName: "circle.fill")
+            .font(.caption2)
+            .foregroundStyle(dotColor)
+            .accessibilityLabel(connectionPhrase)
+            .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(isConnected ? "connected" : "disconnected")")
+    }
+
+    private var dotColor: Color {
+        switch computer.connectionStatus {
+        case .connected: return .green
+        case .reconnecting: return .orange
+        case .unavailable, nil: return .secondary.opacity(0.5)
         }
     }
+
+    private var isConnected: Bool { computer.connectionStatus == .connected }
 
     private var avatarGradient: LinearGradient {
         if let colorIndex = computer.colorIndex {
             return MachineAvatarColors.gradient(index: colorIndex)
         }
         return MachineAvatarColors.gradient(machineID: computer.deviceId, fallbackID: computer.deviceId)
-    }
-
-    private var isOnline: Bool {
-        if computer.isConnected { return computer.liveStatus == .connected }
-        if case .online = computer.presence { return true }
-        return false
     }
 
     private var platformSymbol: String {
@@ -102,24 +114,42 @@ struct MacComputerRow: View {
         }
     }
 
-    /// "<status> · <N workspaces>" — the liveness phrase followed by the
-    /// computer's contribution to the aggregated list.
-    private var detailLine: String {
+    /// Primary line: the phone's connection to this Mac + workspace count.
+    private var connectionLine: String {
         let count = L10n.terminalCountWorkspaces(computer.workspaceCount)
-        return "\(statusPhrase) · \(count)"
+        return "\(connectionPhrase) · \(count)"
     }
 
-    private var statusPhrase: String {
-        if let liveStatus = computer.liveStatus {
-            return liveStatus.label
+    private var connectionPhrase: String {
+        switch computer.connectionStatus {
+        case .connected:
+            return L10n.string("mobile.deviceTree.connected", defaultValue: "Connected")
+        case .reconnecting:
+            return L10n.string("mobile.deviceTree.reconnecting", defaultValue: "Reconnecting…")
+        case .unavailable, nil:
+            return L10n.string("mobile.computers.notConnected", defaultValue: "Not connected")
         }
+    }
+
+    /// Diagnostic line: presence (the Mac's own heartbeat) + the route the phone
+    /// would dial. Lets the user see "online via presence but phone not connected"
+    /// (a tailscale/route problem) and the exact endpoint.
+    private var diagnosticLine: String {
+        let route = computer.routeDescription ?? L10n.string("mobile.computers.noRoute", defaultValue: "no route")
+        return String(
+            format: L10n.string("mobile.computers.diagnosticFormat", defaultValue: "Presence: %@ · %@"),
+            presencePhrase, route
+        )
+    }
+
+    private var presencePhrase: String {
         switch computer.presence {
         case .online:
             return L10n.string("mobile.deviceTree.online", defaultValue: "Online")
         case .offline(let lastSeenAt):
             return lastSeenLine(max(lastSeenAt, computer.lastSeenAt))
         case nil:
-            return lastSeenLine(computer.lastSeenAt)
+            return L10n.string("mobile.computers.presenceUnknown", defaultValue: "unknown")
         }
     }
 

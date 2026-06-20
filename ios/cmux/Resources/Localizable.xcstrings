@@ -987,6 +987,23 @@
         }
       }
     },
+    "mobile.computers.diagnosticFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presence: %@ · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレゼンス: %@ · %@"
+          }
+        }
+      }
+    },
     "mobile.computers.empty": {
       "extractionState": "manual",
       "localizations": {
@@ -1017,6 +1034,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "アカウントにサインインしている Mac。すべてのコンピュータのワークスペースがメインのリストにまとめて表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.computers.noRoute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no route"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルートなし"
+          }
+        }
+      }
+    },
+    "mobile.computers.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続"
+          }
+        }
+      }
+    },
+    "mobile.computers.presenceUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
           }
         }
       }
@@ -1259,6 +1327,23 @@
         }
       }
     },
+    "mobile.deviceTree.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
+          }
+        }
+      }
+    },
     "mobile.deviceTree.empty": {
       "extractionState": "manual",
       "localizations": {
@@ -1391,6 +1476,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "オンライン"
+          }
+        }
+      }
+    },
+    "mobile.deviceTree.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中…"
           }
         }
       }

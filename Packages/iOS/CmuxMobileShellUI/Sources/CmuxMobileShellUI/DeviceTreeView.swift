@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -37,11 +38,12 @@ struct DeviceTreeView: View {
     /// the next registry load.) Each is enriched with presence, live status, and how
     /// many aggregated workspaces it contributes.
     private var computers: [MacComputerSnapshot] {
-        let connectedID = store.connectedMacDeviceID
         let workspaces = store.workspaces
         let colorIndex = store.machineColorIndex
+        // The PHONE's own per-Mac connection (foreground or live secondary) — the
+        // source of truth for the dot, distinct from presence.
+        let connectionStatuses = store.macConnectionStatuses
         return store.pairedMacs.map { mac in
-            let isConnected = mac.macDeviceID == connectedID
             let presence: DeviceTreePresence? = store.presenceMap.deviceSummary(deviceId: mac.macDeviceID)
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
             return MacComputerSnapshot(
@@ -49,13 +51,27 @@ struct DeviceTreeView: View {
                 title: mac.displayName ?? mac.macDeviceID,
                 platform: "mac",
                 colorIndex: colorIndex[mac.macDeviceID],
+                connectionStatus: connectionStatuses[mac.macDeviceID],
+                presence: presence,
+                routeDescription: Self.routeDescription(for: mac.routes),
                 lastSeenAt: mac.lastSeenAt,
-                workspaceCount: workspaces.filter { $0.macDeviceID == mac.macDeviceID }.count,
-                isConnected: isConnected,
-                liveStatus: isConnected ? store.macConnectionStatus : nil,
-                presence: presence
+                workspaceCount: workspaces.filter { $0.macDeviceID == mac.macDeviceID }.count
             )
         }
+    }
+
+    /// The reachable endpoint (host:port) the phone would dial, for the row's
+    /// diagnostic line: prefer a non-loopback route (the tailscale/LAN one),
+    /// falling back to the first host/port route. `nil` when there is none.
+    private static func routeDescription(for routes: [CmxAttachRoute]) -> String? {
+        func endpoint(_ route: CmxAttachRoute) -> String? {
+            if case let .hostPort(host, port) = route.endpoint { return "\(host):\(port)" }
+            return nil
+        }
+        if let nonLoopback = routes.first(where: { $0.kind != .debugLoopback }), let e = endpoint(nonLoopback) {
+            return e
+        }
+        return routes.lazy.compactMap(endpoint).first
     }
 
     var body: some View {
@@ -106,7 +122,20 @@ struct DeviceTreeView: View {
                 }
             }
             .refreshable { await reload() }
-            .task { await reload() }
+            .task {
+                // This screen is the user's connection-debug view, so while it is
+                // open keep the data live: reload once, then re-aggregate on a short
+                // interval so a Mac whose secondary connection dropped (or just came
+                // online) reconnects quickly and its dot / route / workspace count
+                // refresh. The `.task` is cancelled on dismiss, ending the loop.
+                await reload()
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(4))
+                    if Task.isCancelled { break }
+                    await store.loadPairedMacs()
+                    await store.reconnectOrRefresh()
+                }
+            }
             .confirmationDialog(
                 removeTitle(pendingRemoval),
                 isPresented: removalDialogBinding,
