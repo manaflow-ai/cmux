@@ -559,6 +559,13 @@ class TabManager: ObservableObject {
     /// scaffold, replacing the retired `tabsPublisher` Combine bridge. Held
     /// alongside `uiTestCancellables` and torn down with it.
     private var uiTestWorkspacesObservations: [WorkspacesObservation] = []
+    /// The workspace pinned by the child-exit scaffolds for their lifetime,
+    /// matching the legacy bodies' `let tab = selectedWorkspace` strong capture
+    /// (which stayed valid after the workspace left the open list). Set by
+    /// `pinSelectedWorkspace()` and read by every `ChildExitScaffoldDriving`
+    /// member so panel counts reflect the captured workspace, not a fresh
+    /// `selectedWorkspace` lookup.
+    private var childExitScaffoldPinnedWorkspace: Workspace?
 #endif
 
     // Process-wide cap on concurrent sidebar git snapshot probes, shared by
@@ -4546,496 +4553,21 @@ class TabManager: ObservableObject {
         UITestKeyValueCaptureFile(path: path).merge(updates)
     }
 
+    /// Witness for ``UITestScaffoldRunning``: forwards the child-exit split
+    /// harness to the lifted ``ChildExitSplitScaffoldRunner``, which owns the
+    /// orchestration. `self` supplies the live actions via
+    /// ``ChildExitScaffoldDriving``.
     func runChildExitSplitUITest(_ config: UITestSplitScaffoldPlan.ChildExitSplitConfig) {
-        let path = config.path
-        let requestedIterations = config.requestedIterations
-        let iterations = config.iterations
-
-        let captureFile = UITestKeyValueCaptureFile(path: path)
-        func write(_ updates: [String: String]) {
-            captureFile.merge(updates)
-        }
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Small delay so the initial window/panel has completed first layout.
-            try? await Task.sleep(nanoseconds: 200_000_000)
-
-            guard let tab = self.selectedWorkspace else {
-                write(["setupError": "Missing selected workspace", "done": "1"])
-                return
-            }
-            write([
-                "requestedIterations": String(requestedIterations),
-                "iterations": String(iterations),
-                "workspaceCountBefore": String(self.tabs.count),
-                "panelCountBefore": String(tab.panels.count),
-                "done": "0",
-            ])
-
-            var completedIterations = 0
-            var timedOut = false
-            var closedWorkspace = false
-
-            for i in 1...iterations {
-                guard self.tabs.contains(where: { $0.id == tab.id }) else {
-                    closedWorkspace = true
-                    break
-                }
-
-                guard let leftPanelId = tab.focusedPanelId ?? tab.panels.keys.first else {
-                    write(["setupError": "Missing focused panel before iteration \(i)", "done": "1"])
-                    return
-                }
-
-                // Start each iteration from a deterministic 1x1 workspace.
-                if tab.panels.count > 1 {
-                    for panelId in tab.panels.keys where panelId != leftPanelId {
-                        tab.closePanel(panelId, force: true)
-                    }
-                    let collapsed = await self.waitForWorkspacePanelsCondition(
-                        tab: tab,
-                        timeoutSeconds: 2.0
-                    ) { workspace in
-                        workspace.panels.count == 1
-                    }
-                    if !collapsed {
-                        write(["setupError": "Timed out collapsing workspace before iteration \(i)", "done": "1"])
-                        return
-                    }
-                }
-
-                guard let rightPanel = tab.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
-                    write(["setupError": "Failed to create right split at iteration \(i)", "done": "1"])
-                    return
-                }
-
-                write([
-                    "iteration": String(i),
-                    "leftPanelId": leftPanelId.uuidString,
-                    "rightPanelId": rightPanel.id.uuidString,
-                ])
-
-                tab.focusPanel(rightPanel.id)
-                // Wait for the split terminal surface to be attached before sending exit.
-                // Without this, very early writes can be dropped during initial surface creation.
-                _ = await self.waitForTerminalPanelCondition(
-                    tab: tab,
-                    panelId: rightPanel.id,
-                    timeoutSeconds: 2.0
-                ) { panel in
-                    panel.surface.isViewInWindow && panel.surface.surface != nil
-                }
-                // Use an explicit shell exit command for deterministic child-exit behavior across
-                // startup timing variance; this still exercises the same SHOW_CHILD_EXITED path.
-                rightPanel.sendText("exit\r")
-
-                // Wait for the right panel to close.
-                let closed = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-                    var cancellable: AnyCancellable?
-                    var resolved = false
-
-                    func finish(_ value: Bool) {
-                        guard !resolved else { return }
-                        resolved = true
-                        cancellable?.cancel()
-                        cont.resume(returning: value)
-                    }
-
-                    cancellable = tab.panelsPublisher
-                        .map { $0.count }
-                        .removeDuplicates()
-                        .sink { count in
-                            if count == 1 {
-                                finish(true)
-                            }
-                        }
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-                        finish(false)
-                    }
-                }
-
-                if !closed {
-                    timedOut = true
-                    write(["timedOutIteration": String(i)])
-                    break
-                }
-
-                if !self.tabs.contains(where: { $0.id == tab.id }) {
-                    closedWorkspace = true
-                    write(["closedWorkspaceIteration": String(i)])
-                    break
-                }
-
-                completedIterations = i
-            }
-
-            let workspaceStillOpen = self.tabs.contains(where: { $0.id == tab.id })
-            let effectiveClosedWorkspace = closedWorkspace || !workspaceStillOpen
-
-            write([
-                "workspaceCountAfter": String(self.tabs.count),
-                "panelCountAfter": String(tab.panels.count),
-                "workspaceStillOpen": workspaceStillOpen ? "1" : "0",
-                "closedWorkspace": effectiveClosedWorkspace ? "1" : "0",
-                "timedOut": timedOut ? "1" : "0",
-                "completedIterations": String(completedIterations),
-                "done": "1",
-            ])
-        }
+        ChildExitSplitScaffoldRunner(driver: self).run(config: config)
     }
 
+    /// Witness for ``UITestScaffoldRunning``: forwards the child-exit keyboard
+    /// harness to the lifted ``ChildExitKeyboardScaffoldRunner``, which owns the
+    /// setup orchestration. `self` supplies the live actions via
+    /// ``ChildExitScaffoldDriving``, including the app-side post-`ready`
+    /// resolution machinery.
     func runChildExitKeyboardUITest(_ config: UITestSplitScaffoldPlan.ChildExitKeyboardConfig) {
-        let path = config.path
-        let autoTrigger = config.autoTrigger
-        let strictKeyOnly = config.strictKeyOnly
-        let triggerMode = config.triggerMode
-        let useEarlyCtrlShiftTrigger = config.useEarlyCtrlShiftTrigger
-        let useEarlyCtrlDTrigger = config.useEarlyCtrlDTrigger
-        let useEarlyTrigger = config.useEarlyTrigger
-        let triggerUsesShift = config.triggerUsesShift
-        let layout = config.layout
-        let expectedPanelsAfter = config.expectedPanelsAfter
-
-        let captureFile = UITestKeyValueCaptureFile(path: path)
-        func write(_ updates: [String: String]) {
-            captureFile.merge(updates)
-        }
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(nanoseconds: 200_000_000)
-
-            guard let tab = self.selectedWorkspace else {
-                write(["setupError": "Missing selected workspace", "done": "1"])
-                return
-            }
-            guard let leftPanelId = tab.focusedPanelId else {
-                write(["setupError": "Missing initial focused panel", "done": "1"])
-                return
-            }
-            guard let rightPanel = tab.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
-                write(["setupError": "Failed to create right split", "done": "1"])
-                return
-            }
-
-            var bottomLeftPanelId = ""
-            let topRightPanelId = rightPanel.id.uuidString
-            var bottomRightPanelId = ""
-            var exitPanelId = rightPanel.id
-
-            if layout == "lr_left_vertical" {
-                guard let bottomLeft = tab.newTerminalSplit(from: leftPanelId, orientation: .vertical) else {
-                    write(["setupError": "Failed to create bottom-left split", "done": "1"])
-                    return
-                }
-                bottomLeftPanelId = bottomLeft.id.uuidString
-            } else if layout == "lrtd_close_right_then_exit_top_left" {
-                guard let bottomLeft = tab.newTerminalSplit(from: leftPanelId, orientation: .vertical) else {
-                    write(["setupError": "Failed to create bottom-left split", "done": "1"])
-                    return
-                }
-                guard let bottomRight = tab.newTerminalSplit(from: rightPanel.id, orientation: .vertical) else {
-                    write(["setupError": "Failed to create bottom-right split", "done": "1"])
-                    return
-                }
-                bottomLeftPanelId = bottomLeft.id.uuidString
-                bottomRightPanelId = bottomRight.id.uuidString
-
-                // Repro flow: with a 2x2 (left/right then top/down), close both right panes,
-                // then trigger Ctrl+D in top-left.
-                tab.focusPanel(rightPanel.id)
-                tab.closePanel(rightPanel.id, force: true)
-                tab.focusPanel(bottomRight.id)
-                tab.closePanel(bottomRight.id, force: true)
-                exitPanelId = leftPanelId
-
-                let collapsed = await self.waitForWorkspacePanelsCondition(
-                    tab: tab,
-                    timeoutSeconds: 2.0
-                ) { workspace in
-                    workspace.panels.count == 2
-                }
-                if !collapsed {
-                    write([
-                        "setupError": "Expected 2 panels after closing right column, got \(tab.panels.count)",
-                        "done": "1",
-                    ])
-                    return
-                }
-            } else if layout == "tdlr_close_bottom_then_exit_top_left" {
-                // Alternate repro flow:
-                // 1) split top/down
-                // 2) split left/right for each row (2x2)
-                // 3) close both bottom panes
-                // 4) trigger Ctrl+D in top-left
-                guard let bottomLeft = tab.newTerminalSplit(from: leftPanelId, orientation: .vertical) else {
-                    write(["setupError": "Failed to create bottom-left split", "done": "1"])
-                    return
-                }
-                guard let topRight = tab.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
-                    write(["setupError": "Failed to create top-right split", "done": "1"])
-                    return
-                }
-                guard let bottomRight = tab.newTerminalSplit(from: bottomLeft.id, orientation: .horizontal) else {
-                    write(["setupError": "Failed to create bottom-right split", "done": "1"])
-                    return
-                }
-                bottomLeftPanelId = bottomLeft.id.uuidString
-                bottomRightPanelId = bottomRight.id.uuidString
-
-                // Close every pane except the top row; do it one-by-one and wait for model convergence.
-                let keepPanels: Set<UUID> = [leftPanelId, topRight.id]
-                for panelId in Array(tab.panels.keys) where !keepPanels.contains(panelId) {
-                    tab.focusPanel(panelId)
-                    tab.closePanel(panelId, force: true)
-                    let closed = await self.waitForWorkspacePanelsCondition(
-                        tab: tab,
-                        timeoutSeconds: 1.0
-                    ) { workspace in
-                        workspace.panels[panelId] == nil
-                    }
-                    if !closed {
-                        write([
-                            "setupError": "Failed to close bottom pane \(panelId.uuidString)",
-                            "done": "1",
-                        ])
-                        return
-                    }
-                }
-                exitPanelId = leftPanelId
-
-                let collapsed = await self.waitForWorkspacePanelsCondition(
-                    tab: tab,
-                    timeoutSeconds: 2.0
-                ) { workspace in
-                    workspace.panels.count == 2
-                }
-                if !collapsed {
-                    write([
-                        "setupError": "Expected 2 panels after closing bottom row, got \(tab.panels.count)",
-                        "done": "1",
-                    ])
-                    return
-                }
-            }
-
-            tab.focusPanel(exitPanelId)
-            // Keep child-exit keyboard tests deterministic across user shell configs.
-            // `exec cat` exits on a single Ctrl+D and avoids ignore-eof shell settings.
-            if let exitPanel = tab.terminalPanel(for: exitPanelId) {
-                exitPanel.sendText("exec cat\r")
-            }
-
-            var exitPanelAttachedBeforeCtrlD = false
-            var exitPanelHasSurfaceBeforeCtrlD = false
-            if !useEarlyTrigger {
-                let readiness = await self.waitForTerminalPanelReadyForUITest(
-                    tab: tab,
-                    panelId: exitPanelId
-                )
-                exitPanelAttachedBeforeCtrlD = readiness.attached
-                exitPanelHasSurfaceBeforeCtrlD = readiness.hasSurface
-                if !(readiness.attached && readiness.hasSurface) {
-                    write([
-                        "exitPanelAttachedBeforeCtrlD": readiness.attached ? "1" : "0",
-                        "exitPanelHasSurfaceBeforeCtrlD": readiness.hasSurface ? "1" : "0",
-                        "setupError": "Exit panel not ready for Ctrl+D (not attached or surface nil)",
-                        "done": "1",
-                    ])
-                    return
-                }
-                self.ensureFocusedTerminalFirstResponder()
-            } else if let exitPanel = tab.terminalPanel(for: exitPanelId) {
-                exitPanelAttachedBeforeCtrlD = exitPanel.surface.isViewInWindow
-                exitPanelHasSurfaceBeforeCtrlD = exitPanel.surface.surface != nil
-            }
-
-            let focusedPanelBefore = tab.focusedPanelId?.uuidString ?? ""
-            let firstResponderPanelBefore = tab.panels.compactMap { (panelId, panel) -> UUID? in
-                guard let terminal = panel as? TerminalPanel else { return nil }
-                return terminal.hostedView.isSurfaceViewFirstResponder() ? panelId : nil
-            }.first?.uuidString ?? ""
-
-            write([
-                "workspaceId": tab.id.uuidString,
-                "leftPanelId": leftPanelId.uuidString,
-                "rightPanelId": rightPanel.id.uuidString,
-                "topRightPanelId": topRightPanelId,
-                "bottomLeftPanelId": bottomLeftPanelId,
-                "bottomRightPanelId": bottomRightPanelId,
-                "exitPanelId": exitPanelId.uuidString,
-                "panelCountBeforeCtrlD": String(tab.panels.count),
-                "layout": layout,
-                "expectedPanelsAfter": String(expectedPanelsAfter),
-                "focusedPanelBefore": focusedPanelBefore,
-                "firstResponderPanelBefore": firstResponderPanelBefore,
-                "exitPanelAttachedBeforeCtrlD": exitPanelAttachedBeforeCtrlD ? "1" : "0",
-                "exitPanelHasSurfaceBeforeCtrlD": exitPanelHasSurfaceBeforeCtrlD ? "1" : "0",
-                "ready": "1",
-                "done": "0",
-            ])
-
-            var finished = false
-            var timeoutWork: DispatchWorkItem?
-
-            @MainActor
-            func finish(_ updates: [String: String]) {
-                guard !finished else { return }
-                finished = true
-                timeoutWork?.cancel()
-                write(updates.merging(["done": "1"], uniquingKeysWith: { _, new in new }))
-                self.uiTestCancellables.removeAll()
-                self.uiTestWorkspacesObservations.forEach { $0.cancel() }
-                self.uiTestWorkspacesObservations.removeAll()
-            }
-
-            tab.panelsPublisher
-                .map { $0.count }
-                .removeDuplicates()
-                .sink { [weak self, weak tab] count in
-                    Task { @MainActor in
-                        guard let self, let tab else { return }
-                        if count == expectedPanelsAfter {
-                            // Require the post-exit state to be stable for a short window so
-                            // we catch "close looked correct, then workspace vanished" races.
-                            try? await Task.sleep(nanoseconds: 1_200_000_000)
-                            guard tab.panels.count == expectedPanelsAfter else { return }
-
-                            let firstResponderPanelAfter = tab.panels.compactMap { (panelId, panel) -> UUID? in
-                                guard let terminal = panel as? TerminalPanel else { return nil }
-                                return terminal.hostedView.isSurfaceViewFirstResponder() ? panelId : nil
-                            }.first?.uuidString ?? ""
-
-                            finish([
-                                "workspaceCountAfter": String(self.tabs.count),
-                                "panelCountAfter": String(tab.panels.count),
-                                "closedWorkspace": self.tabs.contains(where: { $0.id == tab.id }) ? "0" : "1",
-                                "focusedPanelAfter": tab.focusedPanelId?.uuidString ?? "",
-                                "firstResponderPanelAfter": firstResponderPanelAfter,
-                            ])
-                        }
-                    }
-                }
-                .store(in: &uiTestCancellables)
-
-            // Observe the `@Observable` workspace list instead of the retired
-            // `tabsPublisher` bridge. The former chain mapped to "tab still
-            // alive" and `.removeDuplicates()`, so it only acted on the
-            // alive→gone transition; `lastAlive` reproduces that dedup. The
-            // bridge's replay delivered the initial `alive=true` (a no-op), so
-            // no explicit initial check is needed.
-            var lastAlive = self.tabs.contains(where: { $0.id == tab.id })
-            uiTestWorkspacesObservations.append(
-                workspaces.observeTabs { [weak self, weak tab] in
-                    guard let self, let tab else { return }
-                    let alive = self.tabs.contains(where: { $0.id == tab.id })
-                    guard alive != lastAlive else { return }
-                    lastAlive = alive
-                    if !alive {
-                        finish([
-                            "workspaceCountAfter": "0",
-                            "panelCountAfter": "0",
-                            "closedWorkspace": "1",
-                        ])
-                    }
-                }
-            )
-
-            let work = DispatchWorkItem {
-                finish([
-                    "workspaceCountAfter": String(self.tabs.count),
-                    "panelCountAfter": String(tab.panels.count),
-                    "closedWorkspace": self.tabs.contains(where: { $0.id == tab.id }) ? "0" : "1",
-                    "timedOut": "1",
-                ])
-            }
-            timeoutWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8.0, execute: work)
-
-            if autoTrigger {
-                Task { @MainActor [weak tab] in
-                    guard let tab else { return }
-                    write(["autoTriggerStarted": "1"])
-
-                    if triggerMode == "runtime_close_callback" {
-                        write(["autoTriggerMode": "runtime_close_callback"])
-                        self.closePanelAfterChildExited(tabId: tab.id, surfaceId: exitPanelId)
-                        return
-                    }
-
-                    let triggerModifiers: NSEvent.ModifierFlags = triggerUsesShift
-                        ? [.control, .shift]
-                        : [.control]
-                    let shouldWaitForSurface = !useEarlyTrigger
-
-                    var attachedBeforeTrigger = false
-                    var hasSurfaceBeforeTrigger = false
-                    if shouldWaitForSurface {
-                        let ready = await self.waitForTerminalPanelCondition(
-                            tab: tab,
-                            panelId: exitPanelId,
-                            timeoutSeconds: 5.0
-                        ) { panel in
-                            attachedBeforeTrigger = panel.surface.isViewInWindow
-                            hasSurfaceBeforeTrigger = panel.surface.surface != nil
-                            return attachedBeforeTrigger && hasSurfaceBeforeTrigger
-                        }
-                        if !ready,
-                           tab.terminalPanel(for: exitPanelId) == nil {
-                            write(["autoTriggerError": "missingExitPanelBeforeTrigger"])
-                            return
-                        }
-                    } else if let panel = tab.terminalPanel(for: exitPanelId) {
-                        attachedBeforeTrigger = panel.surface.isViewInWindow
-                        hasSurfaceBeforeTrigger = panel.surface.surface != nil
-                    }
-                    write([
-                        "exitPanelAttachedBeforeTrigger": attachedBeforeTrigger ? "1" : "0",
-                        "exitPanelHasSurfaceBeforeTrigger": hasSurfaceBeforeTrigger ? "1" : "0",
-                    ])
-                    if shouldWaitForSurface && !(attachedBeforeTrigger && hasSurfaceBeforeTrigger) {
-                        write(["autoTriggerError": "exitPanelNotReadyBeforeTrigger"])
-                        return
-                    }
-
-                    guard let panel = tab.terminalPanel(for: exitPanelId) else {
-                        write(["autoTriggerError": "missingExitPanelAtTrigger"])
-                        return
-                    }
-                    // Exercise the real key path (ghostty_surface_key for Ctrl+D).
-                    if panel.hostedView.sendSyntheticCtrlDForUITest(modifierFlags: triggerModifiers) {
-                        write(["autoTriggerSentCtrlDKey1": "1"])
-                    } else {
-                        write([
-                            "autoTriggerCtrlDKeyUnavailable": "1",
-                            "autoTriggerError": "ctrlDKeyUnavailable",
-                        ])
-                        return
-                    }
-
-                    // In strict mode, never mask routing bugs with fallback writes.
-                    if strictKeyOnly {
-                        let strictModeLabel: String = {
-                            if useEarlyCtrlShiftTrigger { return "strict_early_ctrl_shift_d" }
-                            if useEarlyCtrlDTrigger { return "strict_early_ctrl_d" }
-                            if triggerUsesShift { return "strict_ctrl_shift_d" }
-                            return "strict_ctrl_d"
-                        }()
-                        write(["autoTriggerMode": strictModeLabel])
-                        return
-                    }
-
-                    // Non-strict mode keeps one additional Ctrl+D retry for startup timing variance.
-                    try? await Task.sleep(nanoseconds: 450_000_000)
-                    if tab.panels[exitPanelId] != nil,
-                       panel.hostedView.sendSyntheticCtrlDForUITest(modifierFlags: triggerModifiers) {
-                        write(["autoTriggerSentCtrlDKey2": "1"])
-                    }
-                }
-            }
-        }
+        ChildExitKeyboardScaffoldRunner(driver: self).run(config: config)
     }
 #endif
 }
@@ -5177,6 +4709,339 @@ extension TabManager: SplitCloseRightScaffoldDriving {
             path: config.path,
             config: config
         )
+    }
+}
+
+/// The child-exit driver seam: the live workspace / Bonsplit / Ghostty actions
+/// that `ChildExitSplitScaffoldRunner` / `ChildExitKeyboardScaffoldRunner` (in
+/// `CmuxTestSupport`) sequence. The runners own the harness orchestration; these
+/// witnesses are the irreducible live reads/mutations that cannot cross the
+/// package boundary. The keyboard post-`ready` resolution stays here per the
+/// TabManager decomposition plan because it owns the live Combine cancellable
+/// set, the `@Observable` workspace-list observation, the `DispatchWorkItem`
+/// timeout, and the runtime close callback.
+extension TabManager: ChildExitScaffoldDriving {
+    private var childExitWorkspace: Workspace? { childExitScaffoldPinnedWorkspace }
+
+    func pinSelectedWorkspace() -> UUID? {
+        guard let tab = selectedWorkspace else {
+            childExitScaffoldPinnedWorkspace = nil
+            return nil
+        }
+        childExitScaffoldPinnedWorkspace = tab
+        return tab.id
+    }
+
+    var workspaceCount: Int { tabs.count }
+
+    var pinnedWorkspaceIsAlive: Bool {
+        guard let tab = childExitWorkspace else { return false }
+        return tabs.contains(where: { $0.id == tab.id })
+    }
+
+    var pinnedPanelCount: Int { childExitWorkspace?.panels.count ?? 0 }
+
+    var pinnedFocusedPanelId: UUID? { childExitWorkspace?.focusedPanelId }
+
+    var pinnedFirstPanelId: UUID? { childExitWorkspace?.panels.keys.first }
+
+    func pinnedPanelIds(excluding panelId: UUID) -> [UUID] {
+        guard let tab = childExitWorkspace else { return [] }
+        return tab.panels.keys.filter { $0 != panelId }
+    }
+
+    func closePinnedPanel(_ panelId: UUID) {
+        childExitWorkspace?.closePanel(panelId, force: true)
+    }
+
+    func newRightSplit(from panelId: UUID) -> UUID? {
+        childExitWorkspace?.newTerminalSplit(from: panelId, orientation: .horizontal)?.id
+    }
+
+    func newDownSplit(from panelId: UUID) -> UUID? {
+        childExitWorkspace?.newTerminalSplit(from: panelId, orientation: .vertical)?.id
+    }
+
+    func focusPinnedPanel(_ panelId: UUID) {
+        childExitWorkspace?.focusPanel(panelId)
+    }
+
+    func sendText(_ panelId: UUID, _ text: String) {
+        childExitWorkspace?.terminalPanel(for: panelId)?.sendText(text)
+    }
+
+    func waitForPanelCount(equals count: Int, timeoutSeconds: TimeInterval) async -> Bool {
+        guard let tab = childExitWorkspace else { return false }
+        return await waitForWorkspacePanelsCondition(
+            tab: tab,
+            timeoutSeconds: timeoutSeconds
+        ) { workspace in
+            workspace.panels.count == count
+        }
+    }
+
+    func waitForPanelRemoved(_ panelId: UUID, timeoutSeconds: TimeInterval) async -> Bool {
+        guard let tab = childExitWorkspace else { return false }
+        return await waitForWorkspacePanelsCondition(
+            tab: tab,
+            timeoutSeconds: timeoutSeconds
+        ) { workspace in
+            workspace.panels[panelId] == nil
+        }
+    }
+
+    func waitForPanelAttachedWithSurface(_ panelId: UUID, timeoutSeconds: TimeInterval) async -> Bool {
+        guard let tab = childExitWorkspace else { return false }
+        return await waitForTerminalPanelCondition(
+            tab: tab,
+            panelId: panelId,
+            timeoutSeconds: timeoutSeconds
+        ) { panel in
+            panel.surface.isViewInWindow && panel.surface.surface != nil
+        }
+    }
+
+    func waitForPanelCountToCollapse() async -> Bool {
+        guard let tab = childExitWorkspace else { return false }
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            var cancellable: AnyCancellable?
+            var resolved = false
+
+            func finish(_ value: Bool) {
+                guard !resolved else { return }
+                resolved = true
+                cancellable?.cancel()
+                cont.resume(returning: value)
+            }
+
+            cancellable = tab.panelsPublisher
+                .map { $0.count }
+                .removeDuplicates()
+                .sink { count in
+                    if count == 1 {
+                        finish(true)
+                    }
+                }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+                finish(false)
+            }
+        }
+    }
+
+    func waitForPanelReady(_ panelId: UUID) async -> ChildExitPanelReadiness {
+        guard let tab = childExitWorkspace else {
+            return ChildExitPanelReadiness(attached: false, hasSurface: false, firstResponder: false)
+        }
+        let readiness = await waitForTerminalPanelReadyForUITest(tab: tab, panelId: panelId)
+        return ChildExitPanelReadiness(
+            attached: readiness.attached,
+            hasSurface: readiness.hasSurface,
+            firstResponder: readiness.firstResponder
+        )
+    }
+
+    func panelReadinessSnapshot(_ panelId: UUID) -> ChildExitPanelReadiness? {
+        guard let panel = childExitWorkspace?.terminalPanel(for: panelId) else { return nil }
+        return ChildExitPanelReadiness(
+            attached: panel.surface.isViewInWindow,
+            hasSurface: panel.surface.surface != nil,
+            firstResponder: panel.hostedView.isSurfaceViewFirstResponder()
+        )
+    }
+
+    var pinnedWorkspaceIdString: String { childExitWorkspace?.id.uuidString ?? "" }
+
+    var pinnedFocusedPanelIdString: String {
+        childExitWorkspace?.focusedPanelId?.uuidString ?? ""
+    }
+
+    var pinnedFirstResponderTerminalPanelIdString: String {
+        guard let tab = childExitWorkspace else { return "" }
+        return tab.panels.compactMap { (panelId, panel) -> UUID? in
+            guard let terminal = panel as? TerminalPanel else { return nil }
+            return terminal.hostedView.isSurfaceViewFirstResponder() ? panelId : nil
+        }.first?.uuidString ?? ""
+    }
+
+    func runChildExitKeyboardResolution(
+        exitPanelId: UUID,
+        capturePath: String,
+        config: UITestSplitScaffoldPlan.ChildExitKeyboardConfig
+    ) {
+        guard let tab = childExitWorkspace else { return }
+        let autoTrigger = config.autoTrigger
+        let strictKeyOnly = config.strictKeyOnly
+        let triggerMode = config.triggerMode
+        let useEarlyCtrlShiftTrigger = config.useEarlyCtrlShiftTrigger
+        let useEarlyCtrlDTrigger = config.useEarlyCtrlDTrigger
+        let useEarlyTrigger = config.useEarlyTrigger
+        let triggerUsesShift = config.triggerUsesShift
+        let expectedPanelsAfter = config.expectedPanelsAfter
+
+        let captureFile = UITestKeyValueCaptureFile(path: capturePath)
+        func write(_ updates: [String: String]) {
+            captureFile.merge(updates)
+        }
+
+        var finished = false
+        var timeoutWork: DispatchWorkItem?
+
+        @MainActor
+        func finish(_ updates: [String: String]) {
+            guard !finished else { return }
+            finished = true
+            timeoutWork?.cancel()
+            write(updates.merging(["done": "1"], uniquingKeysWith: { _, new in new }))
+            self.uiTestCancellables.removeAll()
+            self.uiTestWorkspacesObservations.forEach { $0.cancel() }
+            self.uiTestWorkspacesObservations.removeAll()
+        }
+
+        tab.panelsPublisher
+            .map { $0.count }
+            .removeDuplicates()
+            .sink { [weak self, weak tab] count in
+                Task { @MainActor in
+                    guard let self, let tab else { return }
+                    if count == expectedPanelsAfter {
+                        // Require the post-exit state to be stable for a short window so
+                        // we catch "close looked correct, then workspace vanished" races.
+                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                        guard tab.panels.count == expectedPanelsAfter else { return }
+
+                        let firstResponderPanelAfter = tab.panels.compactMap { (panelId, panel) -> UUID? in
+                            guard let terminal = panel as? TerminalPanel else { return nil }
+                            return terminal.hostedView.isSurfaceViewFirstResponder() ? panelId : nil
+                        }.first?.uuidString ?? ""
+
+                        finish([
+                            "workspaceCountAfter": String(self.tabs.count),
+                            "panelCountAfter": String(tab.panels.count),
+                            "closedWorkspace": self.tabs.contains(where: { $0.id == tab.id }) ? "0" : "1",
+                            "focusedPanelAfter": tab.focusedPanelId?.uuidString ?? "",
+                            "firstResponderPanelAfter": firstResponderPanelAfter,
+                        ])
+                    }
+                }
+            }
+            .store(in: &uiTestCancellables)
+
+        // Observe the `@Observable` workspace list instead of the retired
+        // `tabsPublisher` bridge. The former chain mapped to "tab still
+        // alive" and `.removeDuplicates()`, so it only acted on the
+        // alive→gone transition; `lastAlive` reproduces that dedup. The
+        // bridge's replay delivered the initial `alive=true` (a no-op), so
+        // no explicit initial check is needed.
+        var lastAlive = self.tabs.contains(where: { $0.id == tab.id })
+        uiTestWorkspacesObservations.append(
+            workspaces.observeTabs { [weak self, weak tab] in
+                guard let self, let tab else { return }
+                let alive = self.tabs.contains(where: { $0.id == tab.id })
+                guard alive != lastAlive else { return }
+                lastAlive = alive
+                if !alive {
+                    finish([
+                        "workspaceCountAfter": "0",
+                        "panelCountAfter": "0",
+                        "closedWorkspace": "1",
+                    ])
+                }
+            }
+        )
+
+        let work = DispatchWorkItem {
+            finish([
+                "workspaceCountAfter": String(self.tabs.count),
+                "panelCountAfter": String(tab.panels.count),
+                "closedWorkspace": self.tabs.contains(where: { $0.id == tab.id }) ? "0" : "1",
+                "timedOut": "1",
+            ])
+        }
+        timeoutWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0, execute: work)
+
+        if autoTrigger {
+            Task { @MainActor [weak tab] in
+                guard let tab else { return }
+                write(["autoTriggerStarted": "1"])
+
+                if triggerMode == "runtime_close_callback" {
+                    write(["autoTriggerMode": "runtime_close_callback"])
+                    self.closePanelAfterChildExited(tabId: tab.id, surfaceId: exitPanelId)
+                    return
+                }
+
+                let triggerModifiers: NSEvent.ModifierFlags = triggerUsesShift
+                    ? [.control, .shift]
+                    : [.control]
+                let shouldWaitForSurface = !useEarlyTrigger
+
+                var attachedBeforeTrigger = false
+                var hasSurfaceBeforeTrigger = false
+                if shouldWaitForSurface {
+                    let ready = await self.waitForTerminalPanelCondition(
+                        tab: tab,
+                        panelId: exitPanelId,
+                        timeoutSeconds: 5.0
+                    ) { panel in
+                        attachedBeforeTrigger = panel.surface.isViewInWindow
+                        hasSurfaceBeforeTrigger = panel.surface.surface != nil
+                        return attachedBeforeTrigger && hasSurfaceBeforeTrigger
+                    }
+                    if !ready,
+                       tab.terminalPanel(for: exitPanelId) == nil {
+                        write(["autoTriggerError": "missingExitPanelBeforeTrigger"])
+                        return
+                    }
+                } else if let panel = tab.terminalPanel(for: exitPanelId) {
+                    attachedBeforeTrigger = panel.surface.isViewInWindow
+                    hasSurfaceBeforeTrigger = panel.surface.surface != nil
+                }
+                write([
+                    "exitPanelAttachedBeforeTrigger": attachedBeforeTrigger ? "1" : "0",
+                    "exitPanelHasSurfaceBeforeTrigger": hasSurfaceBeforeTrigger ? "1" : "0",
+                ])
+                if shouldWaitForSurface && !(attachedBeforeTrigger && hasSurfaceBeforeTrigger) {
+                    write(["autoTriggerError": "exitPanelNotReadyBeforeTrigger"])
+                    return
+                }
+
+                guard let panel = tab.terminalPanel(for: exitPanelId) else {
+                    write(["autoTriggerError": "missingExitPanelAtTrigger"])
+                    return
+                }
+                // Exercise the real key path (ghostty_surface_key for Ctrl+D).
+                if panel.hostedView.sendSyntheticCtrlDForUITest(modifierFlags: triggerModifiers) {
+                    write(["autoTriggerSentCtrlDKey1": "1"])
+                } else {
+                    write([
+                        "autoTriggerCtrlDKeyUnavailable": "1",
+                        "autoTriggerError": "ctrlDKeyUnavailable",
+                    ])
+                    return
+                }
+
+                // In strict mode, never mask routing bugs with fallback writes.
+                if strictKeyOnly {
+                    let strictModeLabel: String = {
+                        if useEarlyCtrlShiftTrigger { return "strict_early_ctrl_shift_d" }
+                        if useEarlyCtrlDTrigger { return "strict_early_ctrl_d" }
+                        if triggerUsesShift { return "strict_ctrl_shift_d" }
+                        return "strict_ctrl_d"
+                    }()
+                    write(["autoTriggerMode": strictModeLabel])
+                    return
+                }
+
+                // Non-strict mode keeps one additional Ctrl+D retry for startup timing variance.
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                if tab.panels[exitPanelId] != nil,
+                   panel.hostedView.sendSyntheticCtrlDForUITest(modifierFlags: triggerModifiers) {
+                    write(["autoTriggerSentCtrlDKey2": "1"])
+                }
+            }
+        }
     }
 }
 #endif
