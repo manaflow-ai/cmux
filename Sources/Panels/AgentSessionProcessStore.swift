@@ -181,15 +181,24 @@ final class AgentSessionProcessStore {
     }
 
     private func makeReadTask(_ fileHandle: FileHandle, sessionId: String, stream: String) -> Task<Void, Never> {
-        Task.detached(priority: .utility) { [weak self] in
+        let fd = fileHandle.fileDescriptor
+        return Task.detached(priority: .utility) { [weak self] in
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
             while !Task.isCancelled {
-                let data: Data
-                do {
-                    data = try fileHandle.read(upToCount: 64 * 1024) ?? Data()
-                } catch {
-                    data = Data()
+                // `FileHandle.read(upToCount:)` blocks until it accumulates the
+                // full count (or EOF), batching a streaming agent pipe into ~64KB
+                // bursts and defeating token-by-token rendering. A raw read()
+                // returns as soon as any bytes are available, so deltas surface
+                // as the agent produces them.
+                let count = buffer.withUnsafeMutableBytes { raw in
+                    Darwin.read(fd, raw.baseAddress, raw.count)
                 }
-
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    await self?.consumeOutputData(Data(), sessionId: sessionId, stream: stream)
+                    return
+                }
+                let data = count > 0 ? Data(buffer[0 ..< count]) : Data()
                 await self?.consumeOutputData(data, sessionId: sessionId, stream: stream)
                 if data.isEmpty {
                     return
