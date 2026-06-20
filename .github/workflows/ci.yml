@@ -23,6 +23,7 @@ jobs:
       macos: ${{ steps.detect.outputs.macos }}
       web: ${{ steps.detect.outputs.web }}
       go: ${{ steps.detect.outputs.go }}
+      agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -42,6 +43,7 @@ jobs:
               echo "macos=true"
               echo "web=true"
               echo "go=true"
+              echo "agent_session_web=true"
             } >> "$GITHUB_OUTPUT"
           }
 
@@ -817,7 +819,7 @@ jobs:
 
   agent-session-web-resources:
     needs: changes
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    if: ${{ needs.changes.outputs.agent_session_web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     timeout-minutes: 10
     steps:
