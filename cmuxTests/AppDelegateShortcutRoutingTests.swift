@@ -2540,16 +2540,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let digitKeyCodes: [(String, UInt32)] = [
-            ("1", UInt32(kVK_ANSI_1)),
-            ("2", UInt32(kVK_ANSI_2)),
-            ("3", UInt32(kVK_ANSI_3)),
-            ("4", UInt32(kVK_ANSI_4)),
-            ("5", UInt32(kVK_ANSI_5)),
-            ("6", UInt32(kVK_ANSI_6)),
-            ("7", UInt32(kVK_ANSI_7)),
-            ("8", UInt32(kVK_ANSI_8)),
-            ("9", UInt32(kVK_ANSI_9)),
+        let digitKeyCodes: [(String, UInt16)] = [
+            ("1", UInt16(kVK_ANSI_1)),
+            ("2", UInt16(kVK_ANSI_2)),
+            ("3", UInt16(kVK_ANSI_3)),
+            ("4", UInt16(kVK_ANSI_4)),
+            ("5", UInt16(kVK_ANSI_5)),
+            ("6", UInt16(kVK_ANSI_6)),
+            ("7", UInt16(kVK_ANSI_7)),
+            ("8", UInt16(kVK_ANSI_8)),
+            ("9", UInt16(kVK_ANSI_9)),
         ]
 
         for (digit, keyCode) in digitKeyCodes {
@@ -4536,6 +4536,37 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testCmdShiftGFocusedBrowserFindPreviousFallsThroughBeforeReactGrab() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+        XCTAssertNil(harness.panel.searchState)
+
+        withTemporaryShortcut(action: .toggleReactGrab) {
+            guard let event = makeKeyDownEvent(
+                key: "G",
+                modifiers: [.command, .shift],
+                keyCode: 5,
+                windowNumber: harness.window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+Shift+G event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Focused browser Cmd+Shift+G should fall through to browser Find Previous before React Grab"
+            )
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif

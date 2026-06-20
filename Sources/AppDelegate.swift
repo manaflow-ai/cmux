@@ -13649,6 +13649,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleReactGrab) {
+            if let findPreviousResult = handleFindPreviousCollisionBeforeReactGrab(event: event) {
+                return findPreviousResult
+            }
             let didHandle = tabManager?.toggleReactGrabFromCurrentFocus() ?? false
             if didHandle {
                 return true
@@ -15688,6 +15691,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             responder: shortcutResponder,
             owningWebView: owningWebView
         )
+    }
+
+    private func handleFindPreviousCollisionBeforeReactGrab(event: NSEvent) -> Bool? {
+        guard matchConfiguredShortcut(event: event, action: .findPrevious) else {
+            return nil
+        }
+        if shouldLetFocusedBrowserOwnFindShortcut(event) {
+            return false
+        }
+        guard tabManager?.isFindVisible == true else {
+            return nil
+        }
+        restoreFocusedMainPanelFocusForShortcut(event: event)
+        tabManager?.findPrevious()
+        return true
     }
 
     private func browserPanelOwning(_ webView: CmuxWebView) -> BrowserPanel? {
