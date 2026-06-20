@@ -250,8 +250,9 @@ extension TerminalController: ControlNotificationContext {
 
     /// Converts a `TerminalNotification` to the Sendable snapshot, pre-rendering
     /// the ISO-8601 `created_at` and resolving the workspace tab title exactly as
-    /// the legacy `notificationPayload` builder did. The date rendering mirrors
-    /// the (file-private) `TerminalController.notificationCreatedAtString`.
+    /// the legacy `notificationPayload` builder did. The date rendering goes
+    /// through the package's `ControlNotificationFieldFormatter`, the single
+    /// source of truth for the ISO-8601 `created_at` shape.
     private static func controlSnapshot(
         _ notification: TerminalNotification
     ) -> ControlNotificationSnapshot {
@@ -262,18 +263,9 @@ extension TerminalController: ControlNotificationContext {
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
-            createdAtISO8601: notificationCreatedAtISO8601(notification.createdAt),
+            createdAtISO8601: TerminalController.notificationFieldFormatter.createdAtISO8601(notification.createdAt),
             isRead: notification.isRead,
             tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId)
         )
-    }
-
-    /// Byte-identical reproduction of the file-private
-    /// `TerminalController.notificationCreatedAtString`.
-    private static func notificationCreatedAtISO8601(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: date)
     }
 }
