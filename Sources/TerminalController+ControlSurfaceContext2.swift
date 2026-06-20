@@ -302,6 +302,11 @@ extension TerminalController {
             }
         }
 
+        let placement = resolveControlPlacement(inputs.placementRaw)
+        if case .invalid(let raw) = placement {
+            return .invalidPlacement(rawValue: raw)
+        }
+
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return .browserDisabled(surfaceBrowserDisabledOutcome(
@@ -309,11 +314,6 @@ extension TerminalController {
                 url: url,
                 tabManager: tabManager
             ))
-        }
-
-        let placement = resolveControlPlacement(inputs.placementRaw)
-        if case .invalid(let raw) = placement {
-            return .invalidPlacement(rawValue: raw)
         }
 
         guard let ws = resolveSurfaceCreateWorkspace(

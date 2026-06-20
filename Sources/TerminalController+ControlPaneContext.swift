@@ -190,14 +190,13 @@ extension TerminalController: ControlPaneContext {
         if panelType == .agentSession {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
-        let url = inputs.urlRaw.flatMap { URL(string: $0) }
-        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
-            return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
-        }
-
         let placement = resolveControlPlacement(inputs.placementRaw)
         if case .invalid(let raw) = placement {
             return .invalidPlacement(rawValue: raw)
+        }
+        let url = inputs.urlRaw.flatMap { URL(string: $0) }
+        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
         }
 
         let orientation = direction.orientation
