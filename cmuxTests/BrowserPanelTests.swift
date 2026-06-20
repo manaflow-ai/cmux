@@ -633,6 +633,35 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
+    func testSessionRestoreDefersWebKitLoadUntilPanelIsVisible() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/restored"))
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+
+        let originalWebView = panel.webView
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: ["https://example.com/back"],
+            forwardHistoryURLStrings: ["https://example.com/forward"]
+        ))
+
+        XCTAssertTrue(panel.webView === originalWebView)
+        XCTAssertEqual(panel.currentURL, url)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+        XCTAssertTrue(panel.shouldRenderWebViewForSessionSnapshot())
+
+        panel.noteWebViewVisibility(true, reason: "test.visible")
+
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+        XCTAssertEqual(panel.currentURL, url)
+    }
+
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
         let panel = BrowserPanel(
