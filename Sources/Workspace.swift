@@ -2193,6 +2193,13 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// conformance file); the legacy Panel-Operations methods below forward here.
     let splitMoveReorder = SplitMoveReorderCoordinator()
 
+    /// The split-detach coordinator (CmuxPanes): owns the surface detach command
+    /// against the live split tree, driving every workspace-side effect through
+    /// ``SplitDetachHosting`` (conformed below). Holds `splitLayout` for the
+    /// detach-choreography state, so it is constructed in `init`. The legacy
+    /// `detachSurface(panelId:)` method below forwards here.
+    private let splitDetach: SplitDetachCoordinator<DetachedSurfaceTransfer>
+
     /// Legacy Combine bridge for the remaining `workspace.$panels`
     /// subscribers. Driven exclusively from `panelsWillChange(to:)`, so it
     /// emits the new value during willSet and replays the current value on
@@ -3035,12 +3042,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         )
         self.bonsplitController = BonsplitController(configuration: config)
         self.surfaceDirectoryMetadata = WorkspaceSurfaceMetadataModel(registry: surfaceRegistry)
+        self.splitDetach = SplitDetachCoordinator(splitLayout: splitLayout)
         self.agentHibernationCoordinator = AgentHibernationCoordinator(model: agentHibernation)
         agentHibernationCoordinator.attach(host: self)
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         surfaceLifecycle.attach(host: self)
         splitMoveReorder.attach(host: self)
+        splitDetach.attach(host: self)
         sessionRestoreCoordinator.attach(host: self)
         unreadModel.attach(host: self)
         unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
@@ -3436,6 +3445,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     // shared SSH control master that is still serving the moved terminal.
     private var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
     var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
+
+    /// Source panel + pane captured at the start of a ``SplitDetachCoordinator``
+    /// detach turn, before the bonsplit close removes the panel from `panels`, so
+    /// the surface-closed publish can still pass the real panel (legacy
+    /// `detachSurface` captured `sourcePanel`/`sourcePaneId` into locals before
+    /// closing). One slot is safe: a detach turn is fully synchronous (no awaits,
+    /// no nested detach).
+    private var detachSourceCapture: (panelId: UUID, panel: any Panel, paneId: PaneID?)?
 
 #if DEBUG
     private func debugElapsedMs(since start: TimeInterval) -> String {
@@ -8104,53 +8121,57 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
-        guard let sourcePanel = panels[panelId] else { return nil }
-        let sourcePaneId = paneId(forPanelId: panelId)
-        let shouldSkipControlMasterCleanupAfterDetach =
-            activeRemoteTerminalSurfaceIds.contains(panelId)
-            && activeRemoteTerminalSurfaceIds.count == 1
-#if DEBUG
-        let detachStart = ProcessInfo.processInfo.systemUptime
-        cmuxDebugLog(
-            "split.detach.begin ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
-            "tab=\(tabId.uuid.uuidString.prefix(5)) activeDetachTxn=\(activeDetachCloseTransactions) " +
-            "pendingDetached=\(pendingDetachedSurfaces.count)"
-        )
-#endif
+        splitDetach.detachSurface(panelId: panelId)
+    }
 
-        splitLayout.markDetaching(tabId)
+    // MARK: SplitDetachHosting witnesses touching private detach state
+    //
+    // Co-located with the `private` detach state they read/write
+    // (`forceCloseTabIds`, `activeRemoteTerminalSurfaceIds`,
+    // `skipControlMasterCleanupAfterDetachedRemoteTransfer`,
+    // `detachSourceCapture`) so it stays `private` rather than widening to
+    // `internal` for the cross-file conformance. The remaining
+    // ``SplitDetachHosting`` witnesses live in `Workspace+SplitDetachHosting.swift`.
+
+    func insertForceCloseTabId(_ tabId: TabID) {
         forceCloseTabIds.insert(tabId)
-        splitLayout.openDetachCloseTransaction()
-        defer { splitLayout.closeDetachCloseTransaction() }
-        guard bonsplitController.closeTab(tabId) else {
-            splitLayout.cancelDetach(tabId)
-            forceCloseTabIds.remove(tabId)
-#if DEBUG
-            cmuxDebugLog(
-                "split.detach.fail ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
-                "tab=\(tabId.uuid.uuidString.prefix(5)) reason=closeTabRejected elapsedMs=\(debugElapsedMs(since: detachStart))"
-            )
-#endif
-            return nil
-        }
+    }
 
-        var detached = splitLayout.takeDetachedTransfer(tabId)
-        if shouldSkipControlMasterCleanupAfterDetach, let detachedTransfer = detached, detachedTransfer.isRemoteTerminal {
-            skipControlMasterCleanupAfterDetachedRemoteTransfer = true
-            if detachedTransfer.remoteCleanupConfiguration == nil {
-                detached = detachedTransfer.withRemoteCleanupConfiguration(remoteConfiguration)
-            }
-        }
-        publishCmuxSurfaceClosed(panelId, paneId: sourcePaneId, panel: sourcePanel, origin: detached == nil ? "detach_lost" : "detach")
-#if DEBUG
-        cmuxDebugLog(
-            "split.detach.end ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
-            "tab=\(tabId.uuid.uuidString.prefix(5)) transfer=\(detached != nil ? 1 : 0) " +
-            "elapsedMs=\(debugElapsedMs(since: detachStart))"
+    func removeForceCloseTabId(_ tabId: TabID) {
+        forceCloseTabIds.remove(tabId)
+    }
+
+    func isActiveRemoteTerminalSurface(_ panelId: UUID) -> Bool {
+        activeRemoteTerminalSurfaceIds.contains(panelId)
+    }
+
+    var activeRemoteTerminalSurfaceCount: Int {
+        activeRemoteTerminalSurfaceIds.count
+    }
+
+    func markSkipControlMasterCleanupAfterDetachedRemoteTransfer() {
+        skipControlMasterCleanupAfterDetachedRemoteTransfer = true
+    }
+
+    func captureDetachSource(panelId: UUID) -> Bool {
+        guard let sourcePanel = panels[panelId] else { return false }
+        detachSourceCapture = (panelId: panelId, panel: sourcePanel, paneId: paneId(forPanelId: panelId))
+        return true
+    }
+
+    func publishCapturedDetachSource(transferCaptured: Bool) {
+        guard let capture = detachSourceCapture else { return }
+        detachSourceCapture = nil
+        publishCmuxSurfaceClosed(
+            capture.panelId,
+            paneId: capture.paneId,
+            panel: capture.panel,
+            origin: transferCaptured ? "detach" : "detach_lost"
         )
-#endif
-        return detached
+    }
+
+    func discardCapturedDetachSource() {
+        detachSourceCapture = nil
     }
 
     @discardableResult
