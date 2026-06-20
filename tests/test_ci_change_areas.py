@@ -217,6 +217,7 @@ def test_workflow_empty_diff_runs_all_areas() -> None:
 
 
 def test_router_changes_run_everything() -> None:
+    # Mock verification PRs touch this file to prove the router still fails open.
     assert_areas(["scripts/ci/detect_ci_change_areas.py"], macos=True, web=True, go=True)
     assert_areas(["scripts/ci/subprocess.py"], macos=True, web=True, go=True)
     assert_areas(["tests/test_ci_change_areas.py"], macos=True, web=True, go=True)
