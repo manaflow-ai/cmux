@@ -44,7 +44,8 @@ extension MobileTerminalPreview {
             id: ID(rawValue: remote.id),
             name: remote.title,
             isReady: remote.isReady ?? true,
-            isFocused: remote.isFocused
+            isFocused: remote.isFocused,
+            canClose: remote.canClose ?? false
         )
     }
 }

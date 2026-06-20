@@ -12,6 +12,8 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
     private(set) var lastMarker: String?
     /// The params the last routed witness received.
     private(set) var lastParams: [String: JSONValue]?
+    private(set) var closeCalls: [[String: JSONValue]] = []
+    var closeResult: ControlCallResult = .ok(.object(["closed": .bool(true)]))
 
     private func record(_ marker: String, _ params: [String: JSONValue]) -> ControlCallResult {
         lastMarker = marker
@@ -29,6 +31,13 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
 
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult {
         record("terminal.create", params)
+    }
+
+    func controlMobileTerminalClose(params: [String: JSONValue]) -> ControlCallResult {
+        closeCalls.append(params)
+        lastMarker = "terminal.close"
+        lastParams = params
+        return closeResult
     }
 
     func controlMobileTerminalInput(params: [String: JSONValue]) -> ControlCallResult {
@@ -74,6 +83,17 @@ struct ControlCommandCoordinatorMobileHostTests {
     }
 
     // MARK: - handleMobileHost (processV2Command surface)
+
+    @Test(arguments: ["mobile.terminal.close", "terminal.close"])
+    func terminalCloseAliasesRouteThroughMobileHostContext(method: String) {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(request(method, ["surface_id": .string("surface-1")]))
+
+        #expect(result == .ok(.object(["closed": .bool(true)])))
+        #expect(context.lastMarker == "terminal.close")
+        #expect(context.closeCalls.count == 1)
+        #expect(context.closeCalls.first?["surface_id"] == .string("surface-1"))
+    }
 
     @Test func v2SurfaceRoutesPasteAndAliasThroughSeam() {
         let (coordinator, context) = makeCoordinator()

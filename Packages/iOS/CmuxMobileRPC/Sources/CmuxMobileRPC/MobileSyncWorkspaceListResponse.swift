@@ -100,6 +100,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let isFocused: Bool
         /// Whether the terminal surface is ready, if reported.
         public let isReady: Bool?
+        /// Whether the Mac will accept a non-interactive close request for this terminal.
+        public let canClose: Bool?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -107,6 +109,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case currentDirectory = "current_directory"
             case isFocused = "is_focused"
             case isReady = "is_ready"
+            case canClose = "can_close"
         }
     }
 

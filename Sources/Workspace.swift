@@ -2253,6 +2253,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
     /// subscribers; same contract as `panelsPublisher`.
     let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
+    /// Async change stream for observers that project closeability from shell activity.
+    private var panelShellActivityStateObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     /// Mapping from bonsplit TabID to our Panel instances
     var panels: [UUID: any Panel] {
@@ -2484,7 +2486,32 @@ final class Workspace: Identifiable, ObservableObject {
     /// surface-registry sub-model.
     var panelShellActivityStates: [UUID: PanelShellActivityState] {
         get { surfaceRegistry.panelShellActivityStates }
-        set { surfaceRegistry.panelShellActivityStates = newValue }
+        set {
+            let oldValue = surfaceRegistry.panelShellActivityStates
+            surfaceRegistry.panelShellActivityStates = newValue
+            if oldValue != newValue {
+                notifyPanelShellActivityStatesChanged()
+            }
+        }
+    }
+
+    /// Emits whenever `panelShellActivityStates` changes.
+    func panelShellActivityStateChanges() -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID()
+            panelShellActivityStateObservers[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    self?.panelShellActivityStateObservers[id] = nil
+                }
+            }
+        }
+    }
+
+    private func notifyPanelShellActivityStatesChanged() {
+        for continuation in panelShellActivityStateObservers.values {
+            continuation.yield(())
+        }
     }
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
@@ -3438,6 +3465,37 @@ final class Workspace: Identifiable, ObservableObject {
 
         let closed = requestCloseTab(tabId, force: force)
         return closed
+    }
+
+    func canClosePanelWithoutPrompt(panelId: UUID, source: CloseTabCloseSource) -> Bool {
+        guard !isPanelPinned(panelId) else { return false }
+        let closePolicy = CloseTabWarningStore(defaults: .standard)
+        if source == .tabCloseButton, closePolicy.hidesTabCloseButton {
+            return false
+        }
+        if isRemoteTmuxMirror,
+           let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
+           remoteTmuxController.isMirrorWindowTab(workspaceId: id, panelId: panelId) {
+            // Mobile/API close cannot run the live activity query + confirmation
+            // flow that the local tab close button uses for remote tmux windows.
+            return false
+        }
+        return !closePolicy.shouldConfirmClose(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            source: source
+        )
+    }
+
+    @discardableResult
+    func requestNonInteractiveCloseTabRecordingHistoryIfAllowed(
+        _ tabId: TabID,
+        source: CloseTabCloseSource
+    ) -> Bool {
+        guard let panelId = panelIdFromSurfaceId(tabId),
+              canClosePanelWithoutPrompt(panelId: panelId, source: source) else {
+            return false
+        }
+        return requestNonInteractiveCloseTabRecordingHistory(tabId)
     }
 
     /// Non-interactive socket/API close path. Remote-tmux mirror tabs must be

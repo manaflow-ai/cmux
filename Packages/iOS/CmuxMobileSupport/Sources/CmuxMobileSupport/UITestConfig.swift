@@ -79,6 +79,19 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone terminal tab-overview preview is enabled.
+    ///
+    /// `CMUX_UITEST_TERMINAL_OVERVIEW_PREVIEW=1` mounts a connected preview
+    /// shell and opens the tab overview for deterministic simulator screenshots.
+    /// DEBUG-only and ignored in release builds.
+    public static var terminalOverviewPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_OVERVIEW_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a

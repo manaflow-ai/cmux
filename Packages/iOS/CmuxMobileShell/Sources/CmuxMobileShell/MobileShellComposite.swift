@@ -9,7 +9,7 @@ public import Foundation
 import Observation
 internal import OSLog
 
-private let mobileShellLog = Logger(
+nonisolated private let mobileShellLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"
 )
@@ -61,6 +61,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
+    private static let terminalCloseCapability = "terminal.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -197,6 +198,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didSet {
             workspaceTopologyVersion &+= 1
             prunePendingAttachmentsForMissingTerminals()
+            pruneTerminalOverviewPreviewCacheForLiveTerminals()
         }
     }
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
@@ -218,6 +220,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the Mac supports terminal close requests from mobile.
+    public var supportsTerminalCloseActions: Bool { supportedHostCapabilities.contains(Self.terminalCloseCapability) }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
@@ -481,6 +485,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
     let clientID: String
+
+    func runtimeNow() -> Date {
+        runtime?.now() ?? Date()
+    }
+
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
     /// UI surfaces an error rather than silently dropping the report.
@@ -598,6 +607,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    var terminalOverviewPreviewLinesByID: [MobileTerminalPreview.ID: [String]] = [:]
+    var terminalOverviewPreviewUpdatedAtByID: [MobileTerminalPreview.ID: Date] = [:]
+    @ObservationIgnored var terminalCloseRequestGeneration = 0 // Latest close response wins.
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -1138,6 +1150,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
+        supportedHostCapabilities = [Self.terminalCloseCapability]
         connectedHostName = PreviewMobileHost.hostName
         guard isCurrentPairingAttempt(attemptID) else { return }
         connectionState = .connected
@@ -5301,7 +5314,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedWorkspaceID = id
     }
 
-    private func applyRemoteWorkspaceList(
+    func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false
@@ -5528,7 +5541,6 @@ private extension CmxAttachTicket {
             authToken: authToken
         )
     }
-
 }
 
 private extension MobileWorkspacePreview {

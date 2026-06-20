@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import CmuxTerminal
 import Testing
 import CmuxControlSocket
@@ -1380,6 +1380,266 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             return
         }
         XCTAssertEqual(error.code, "surface_unavailable")
+    }
+
+    func testMobileTerminalCloseReturnsRemainingWorkspaceList() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let defaults = UserDefaults.standard
+        let settings = AppCatalogSection()
+        let originalWarnBeforeClosingTab = defaults.object(forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        let originalHideTabCloseButton = defaults.object(forKey: settings.hideTabCloseButton.userDefaultsKey)
+        defaults.set(false, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+        defaults.set(false, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        defaults.set(false, forKey: settings.hideTabCloseButton.userDefaultsKey)
+        defer {
+            restoreUserDefault(originalWarnBeforeClosingTab, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+            restoreUserDefault(originalWarnBeforeClosingTabXButton, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+            restoreUserDefault(originalHideTabCloseButton, forKey: settings.hideTabCloseButton.userDefaultsKey)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
+        let closingPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneID, focus: false))
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close",
+                method: "terminal.close",
+                params: [
+                    "surface_id": closingPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let workspaces = payload["workspaces"] as? [[String: Any]],
+              let workspacePayload = workspaces.first,
+              let terminals = workspacePayload["terminals"] as? [[String: Any]] else {
+            XCTFail("Expected terminal.close to return the refreshed workspace list")
+            return
+        }
+
+        XCTAssertNil(workspace.terminalPanel(for: closingPanel.id))
+        XCTAssertEqual(workspaces.count, 1)
+        XCTAssertEqual(workspacePayload["id"] as? String, workspace.id.uuidString)
+        XCTAssertTrue(terminals.contains { ($0["id"] as? String) == firstPanel.id.uuidString })
+        XCTAssertFalse(terminals.contains { ($0["id"] as? String) == closingPanel.id.uuidString })
+    }
+
+    func testMobileWorkspaceListMarksProtectedTerminalsNotCloseable() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let defaults = UserDefaults.standard
+        let settings = AppCatalogSection()
+        let originalWarnBeforeClosingTab = defaults.object(forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        let originalHideTabCloseButton = defaults.object(forKey: settings.hideTabCloseButton.userDefaultsKey)
+        defaults.set(true, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+        defaults.set(false, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        defaults.set(false, forKey: settings.hideTabCloseButton.userDefaultsKey)
+        defer {
+            restoreUserDefault(originalWarnBeforeClosingTab, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+            restoreUserDefault(originalWarnBeforeClosingTabXButton, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+            restoreUserDefault(originalHideTabCloseButton, forKey: settings.hideTabCloseButton.userDefaultsKey)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
+        let pinnedPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneID, focus: false))
+        let confirmPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneID, focus: false))
+        workspace.setPanelPinned(panelId: pinnedPanel.id, pinned: true)
+        confirmPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        defer {
+            confirmPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+        }
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "workspace-list-closeable",
+                method: "mobile.workspace.list",
+                params: [:],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let workspaces = payload["workspaces"] as? [[String: Any]],
+              let workspacePayload = workspaces.first,
+              let terminals = workspacePayload["terminals"] as? [[String: Any]] else {
+            XCTFail("Expected workspace list response with terminals")
+            return
+        }
+
+        let terminalsByID = Dictionary(uniqueKeysWithValues: terminals.compactMap { terminal -> (String, [String: Any])? in
+            guard let id = terminal["id"] as? String else { return nil }
+            return (id, terminal)
+        })
+        XCTAssertEqual(terminalsByID[firstPanel.id.uuidString]?["can_close"] as? Bool, true)
+        XCTAssertEqual(terminalsByID[pinnedPanel.id.uuidString]?["can_close"] as? Bool, false)
+        XCTAssertEqual(terminalsByID[confirmPanel.id.uuidString]?["can_close"] as? Bool, false)
+    }
+
+    func testMobileWorkspaceListMarksHiddenCloseButtonTerminalsNotCloseable() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let defaults = UserDefaults.standard
+        let settings = AppCatalogSection()
+        let originalHideTabCloseButton = defaults.object(forKey: settings.hideTabCloseButton.userDefaultsKey)
+        defaults.set(true, forKey: settings.hideTabCloseButton.userDefaultsKey)
+        defer {
+            restoreUserDefault(originalHideTabCloseButton, forKey: settings.hideTabCloseButton.userDefaultsKey)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
+        let secondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneID, focus: false))
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "workspace-list-close-hidden",
+                method: "mobile.workspace.list",
+                params: [:],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let workspaces = payload["workspaces"] as? [[String: Any]],
+              let workspacePayload = workspaces.first,
+              let terminals = workspacePayload["terminals"] as? [[String: Any]] else {
+            XCTFail("Expected workspace list response with terminals")
+            return
+        }
+
+        let terminalsByID = Dictionary(uniqueKeysWithValues: terminals.compactMap { terminal -> (String, [String: Any])? in
+            guard let id = terminal["id"] as? String else { return nil }
+            return (id, terminal)
+        })
+        XCTAssertEqual(terminalsByID[firstPanel.id.uuidString]?["can_close"] as? Bool, false)
+        XCTAssertEqual(terminalsByID[secondPanel.id.uuidString]?["can_close"] as? Bool, false)
+    }
+
+    func testMobileTerminalCloseRejectsPinnedTerminal() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
+        let closingPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneID, focus: false))
+        workspace.setPanelPinned(panelId: closingPanel.id, pinned: true)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-pinned",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": closingPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close to reject pinned terminal")
+            return
+        }
+        XCTAssertEqual(error.code, "protected")
+        XCTAssertNotNil(workspace.terminalPanel(for: closingPanel.id))
+    }
+
+    func testMobileTerminalCloseRejectsConfirmationRequiredTerminal() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let defaults = UserDefaults.standard
+        let settings = AppCatalogSection()
+        let originalWarnBeforeClosingTab = defaults.object(forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        let originalHideTabCloseButton = defaults.object(forKey: settings.hideTabCloseButton.userDefaultsKey)
+        defaults.set(true, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+        defaults.set(false, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        defaults.set(false, forKey: settings.hideTabCloseButton.userDefaultsKey)
+        defer {
+            restoreUserDefault(originalWarnBeforeClosingTab, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+            restoreUserDefault(originalWarnBeforeClosingTabXButton, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+            restoreUserDefault(originalHideTabCloseButton, forKey: settings.hideTabCloseButton.userDefaultsKey)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
+        let closingPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneID, focus: false))
+        closingPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        defer {
+            closingPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+        }
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return true
+        }
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-confirmation-required",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": closingPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close to reject confirmation-required terminal")
+            return
+        }
+        XCTAssertEqual(error.code, "protected")
+        XCTAssertEqual(promptCount, 0)
+        XCTAssertNotNil(workspace.terminalPanel(for: closingPanel.id))
+    }
+
+    private func restoreUserDefault(_ value: Any?, forKey key: String) {
+        let defaults = UserDefaults.standard
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     func testMobileHostNetworkStatusDoesNotExposePrivateMetadata() async throws {

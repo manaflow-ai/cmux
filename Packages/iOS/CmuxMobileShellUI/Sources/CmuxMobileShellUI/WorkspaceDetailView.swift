@@ -24,6 +24,9 @@ struct WorkspaceDetailView: View {
     /// `workspace.close.v1` capability, or previews) the close affordance is
     /// hidden from the top-bar menu. Mirrors the workspace list's gating.
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
+    /// Close one terminal in this workspace. When `nil` (older Macs without the
+    /// `terminal.close.v1` capability) tab overview cards hide their close button.
+    let closeTerminal: ((MobileTerminalPreview.ID) -> Void)?
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
@@ -58,6 +61,7 @@ struct WorkspaceDetailView: View {
     /// the agent chat inline in place of the terminal. The toolbar button
     /// flips this; there is no cover and no Done button.
     @State private var isChatMode = false
+    @State private var isTabOverviewPresented = UITestConfig.terminalOverviewPreviewEnabled
     /// The session chat mode was entered on, pinned so a newer session
     /// sorting first cannot swap the conversation out from under the user
     /// mid-read. Cleared when chat mode turns off.
@@ -171,8 +175,12 @@ struct WorkspaceDetailView: View {
                 // Chat toggle stays top-level next to the picker (lets you flip
                 // back to the terminal); New Workspace lives in the picker menu.
                 chatToggleButton
+                terminalOverviewToolbarButton
                 terminalPickerToolbarButton
             }
+        }
+        .fullScreenCover(isPresented: $isTabOverviewPresented) {
+            terminalOverviewCoverContent
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
         .workspaceRenameDialog(
@@ -279,6 +287,7 @@ struct WorkspaceDetailView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
+                terminalOverviewToolbarButton
                 terminalPickerToolbarButton
             }
         }
@@ -287,6 +296,9 @@ struct WorkspaceDetailView: View {
             isPresented: $isConfirmingClose,
             confirm: confirmCloseWorkspaceFromMenu
         )
+        .fullScreenCover(isPresented: $isTabOverviewPresented) {
+            terminalOverviewCoverContent
+        }
         .workspaceRenameDialog(
             isPresented: $isRenamePresented,
             text: $renameText,
@@ -413,6 +425,7 @@ struct WorkspaceDetailView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
+                terminalOverviewToolbarButton
                 terminalPickerToolbarButton
             }
             #else
@@ -426,6 +439,9 @@ struct WorkspaceDetailView: View {
             confirm: confirmCloseWorkspaceFromMenu
         )
         #if canImport(UIKit)
+        .fullScreenCover(isPresented: $isTabOverviewPresented) {
+            terminalOverviewCoverContent
+        }
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
         }
@@ -476,6 +492,34 @@ struct WorkspaceDetailView: View {
         }
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
+    }
+
+    private var terminalOverviewToolbarButton: some View {
+        Button(action: openTabOverviewFromToolbar) {
+            Label(
+                L10n.string("mobile.terminal.overview.title", defaultValue: "All Tabs"),
+                systemImage: "square.grid.2x2"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .foregroundStyle(TerminalPalette.foreground)
+        .accessibilityIdentifier("MobileTerminalOverviewButton")
+    }
+
+    private var terminalOverviewCoverContent: some View {
+        TerminalTabOverviewView(
+            workspaceName: workspace.name,
+            items: terminalOverviewItems,
+            canCloseTabs: closeTerminal != nil,
+            onSelect: selectTerminalFromOverview,
+            onClose: closeTerminalFromOverview,
+            onNewTerminal: createTerminalFromOverview,
+            onDone: { isTabOverviewPresented = false }
+        )
+        .task(id: terminalOverviewRefreshKey) {
+            await store.refreshWorkspaces()
+            await store.refreshTerminalOverviewPreviews(in: workspace.id)
+        }
     }
 
     // The picker is a native SwiftUI `Menu`, which renders as the platform menu
@@ -603,8 +647,10 @@ struct WorkspaceDetailView: View {
 
             #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
-                // DEV-only debug tooling; not shipped, so not localized.
-                Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
+                Label(
+                    L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"),
+                    systemImage: "doc.on.clipboard"
+                )
             }
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
             #endif
@@ -784,6 +830,28 @@ struct WorkspaceDetailView: View {
         createWorkspace()
     }
 
+    private var terminalOverviewItems: [TerminalTabOverviewItem] {
+        workspace.terminals.map { terminal in
+            TerminalTabOverviewItem(
+                id: terminal.id,
+                title: terminal.name,
+                previewLines: store.terminalOverviewPreviewLines(for: terminal.id) ?? [],
+                isSelected: terminal.id == selectedTerminal?.id && activeBrowser == nil,
+                canClose: terminal.canClose
+            )
+        }
+    }
+
+    private var terminalOverviewRefreshKey: String {
+        let terminalIDs = workspace.terminals.map(\.id.rawValue).joined(separator: ",")
+        return "\(workspace.id.rawValue)#\(terminalIDs)#\(store.connectionState == .connected ? 1 : 0)"
+    }
+
+    private func openTabOverviewFromToolbar() {
+        dismissTerminalKeyboardForChrome()
+        isTabOverviewPresented = true
+    }
+
     /// Arms the close-workspace confirmation. The actual close runs only after
     /// the user confirms, matching the workspace list's destructive-action UX.
     private func requestCloseWorkspaceFromMenu() {
@@ -827,11 +895,19 @@ struct WorkspaceDetailView: View {
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        #if canImport(UIKit)
+        exitChatModeForTerminalNavigation()
+        #endif
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
         browserStore.closeBrowser(for: workspace.id.rawValue)
         createTerminal()
+    }
+
+    private func createTerminalFromOverview() {
+        createTerminalFromToolbar()
+        isTabOverviewPresented = false
     }
 
     private func openBrowserFromToolbar() {
@@ -844,6 +920,9 @@ struct WorkspaceDetailView: View {
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
+        #if canImport(UIKit)
+        exitChatModeForTerminalNavigation()
+        #endif
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)
@@ -853,6 +932,25 @@ struct WorkspaceDetailView: View {
         // already selected). A push-notification deep link uses the plain
         // `selectTerminal` path instead and is allowed to autofocus.
         store.selectTerminalFromChrome(terminalID)
+    }
+
+    private func selectTerminalFromOverview(_ terminalID: MobileTerminalPreview.ID) {
+        selectTerminalFromPicker(terminalID)
+        isTabOverviewPresented = false
+    }
+
+    #if canImport(UIKit)
+    private func exitChatModeForTerminalNavigation() {
+        guard isChatMode || pinnedChatSessionID != nil else { return }
+        withAnimation(.snappy(duration: 0.28)) {
+            isChatMode = false
+        }
+        pinnedChatSessionID = nil
+    }
+    #endif
+
+    private func closeTerminalFromOverview(_ terminalID: MobileTerminalPreview.ID) {
+        closeTerminal?(terminalID)
     }
 
     private func dismissTerminalKeyboardForChrome() {

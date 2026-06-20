@@ -1977,11 +1977,13 @@ class TerminalController {
             "mobile.attach_ticket.create",
             "mobile.workspace.list",
             "mobile.terminal.create",
+            "mobile.terminal.close",
             "mobile.terminal.input",
             "mobile.terminal.paste",
             "mobile.terminal.replay",
             "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
             "terminal.create",
+            "terminal.close",
             "terminal.input",
             "terminal.paste",
             "terminal.replay",
@@ -12885,6 +12887,8 @@ class TerminalController {
             result = v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
+        case "mobile.terminal.close", "terminal.close":
+            result = v2MobileTerminalClose(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
@@ -13400,6 +13404,71 @@ class TerminalController {
         )
     }
 
+    func v2MobileTerminalClose(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        let requestedSurfaceID: UUID
+        switch mobileTerminalAliasUUID(params: params) {
+        case .missing, .invalid:
+            return .err(code: "invalid_params", message: "Missing or invalid terminal_id", data: nil)
+        case .conflict:
+            return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
+        case .value(let id):
+            requestedSurfaceID = id
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false),
+              let surfaceId = resolved.surfaceId,
+              surfaceId == requestedSurfaceID,
+              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+        guard mobileTerminalPanels(in: resolved.workspace).count > 1,
+              mobileCloseSurfaceRecordingHistoryIfAllowed(in: resolved.workspace, surfaceId: surfaceId) else {
+            return mobileTerminalCloseProtectedResult(workspace: resolved.workspace, surfaceId: surfaceId)
+        }
+        clearMobileViewportReports(surfaceID: surfaceId, reason: "mobile.terminal.close")
+        var refreshParams = params
+        for key in ["surface_id", "terminal_id", "tab_id"] {
+            refreshParams.removeValue(forKey: key)
+        }
+        return v2MobileWorkspaceList(
+            params: refreshParams,
+            tabManager: resolved.tabManager
+        )
+    }
+
+    private func mobileCloseSurfaceRecordingHistoryIfAllowed(
+        in workspace: Workspace,
+        surfaceId: UUID
+    ) -> Bool {
+        if let tabId = workspace.surfaceIdFromPanelId(surfaceId) {
+            return workspace.requestNonInteractiveCloseTabRecordingHistoryIfAllowed(
+                tabId,
+                source: .tabCloseButton
+            )
+        }
+        guard workspace.canClosePanelWithoutPrompt(panelId: surfaceId, source: .tabCloseButton) else {
+            return false
+        }
+        workspace.markCloseHistoryEligible(panelId: surfaceId)
+        return workspace.closePanel(surfaceId, force: false)
+    }
+
+    private func mobileTerminalCloseProtectedResult(workspace: Workspace, surfaceId: UUID) -> V2CallResult {
+        .err(
+            code: "protected",
+            message: String(
+                localized: "mobile.terminal.closeBlocked.message",
+                defaultValue: "This terminal can't be closed right now."
+            ),
+            data: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceId.uuidString,
+            ]
+        )
+    }
+
     func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
@@ -13851,6 +13920,19 @@ class TerminalController {
                 reason: reason
             )
         }
+    }
+
+    /// Drop every viewport report for a closed surface so no connected device
+    /// keeps stale per-surface resize state after the terminal is gone.
+    private func clearMobileViewportReports(surfaceID: UUID, reason: String) {
+        guard mobileViewportReportsBySurfaceID.removeValue(forKey: surfaceID) != nil else {
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
+            return
+        }
+        mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+        mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
+        terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
     }
 
     /// Drop every viewport report owned by the given client IDs across all
