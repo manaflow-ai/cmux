@@ -46,7 +46,7 @@ nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) ->
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
-class TerminalController {
+class TerminalController: MobileViewportSurfaceLimiting {
     static let shared = TerminalController()
 
     // `internal` (not `private`): the `workspace.remote.pty_*` worker-lane
@@ -100,21 +100,12 @@ class TerminalController {
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
-    private struct MobileViewportReport {
-        var columns: Int
-        var rows: Int
-        var updatedAt: Date
-        /// Sticky reports come from the dedicated `mobile.terminal.viewport`
-        /// RPC and live for the client's connection lifetime (cleared on
-        /// disconnect or surface detach), so an idle paired device keeps its
-        /// viewport border. Non-sticky reports piggyback on `terminal.input`
-        /// and expire on the TTL so a client that only ever typed once does
-        /// not pin the grid forever.
-        var sticky: Bool = false
-    }
-    private static let mobileViewportReportTTL: TimeInterval = 5
-    private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
-    private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
+    /// Owns the shared mobile-terminal viewport state machine (per-surface,
+    /// per-client reported grids + TTL cleanup) drained out of this god class.
+    /// Lazily constructed so the limiter seam can capture `self`; the model holds
+    /// only its own state and drives surface caps through
+    /// ``MobileViewportSurfaceLimiting`` (conformed in an extension on this type).
+    private lazy var mobileViewportReportModel = HostMobileViewportReportModel(limiter: self)
     static var terminalProcessExitedMessage: String {
         String(
             localized: "socket.terminal.processExited",
@@ -6486,26 +6477,12 @@ class TerminalController {
     }
 
     func clearAllMobileViewportReports(reason: String) {
-        guard !mobileViewportReportsBySurfaceID.isEmpty ||
-            !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else {
-            return
-        }
-
-        for timer in mobileViewportReportCleanupTimersBySurfaceID.values {
-            timer.cancel()
-        }
-        let surfaceIDs = Array(mobileViewportReportsBySurfaceID.keys)
-        mobileViewportReportsBySurfaceID.removeAll()
-        mobileViewportReportCleanupTimersBySurfaceID.removeAll()
-
-        for surfaceID in surfaceIDs {
-            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
-        }
+        mobileViewportReportModel.clearAll(reason: reason)
     }
 
     #if DEBUG
     func debugResetMobileViewportReportsForTesting() {
-        clearAllMobileViewportReports(reason: "mobile.viewport.testReset")
+        mobileViewportReportModel.debugResetForTesting()
     }
 
     func debugSetMobileViewportReportForTesting(
@@ -6515,20 +6492,17 @@ class TerminalController {
         rows: Int,
         updatedAt: Date = Date()
     ) {
-        var reports = mobileViewportReportsBySurfaceID[surfaceID] ?? [:]
-        reports[clientID] = MobileViewportReport(
+        mobileViewportReportModel.debugSetReportForTesting(
+            surfaceID: surfaceID,
+            clientID: clientID,
             columns: columns,
             rows: rows,
             updatedAt: updatedAt
         )
-        mobileViewportReportsBySurfaceID[surfaceID] = reports
     }
 
     func debugMobileViewportReportClientIDsForTesting(surfaceID: UUID) -> Set<String>? {
-        guard let reports = mobileViewportReportsBySurfaceID[surfaceID] else {
-            return nil
-        }
-        return Set(reports.keys)
+        mobileViewportReportModel.debugReportClientIDsForTesting(surfaceID: surfaceID)
     }
     #endif
 
@@ -6538,6 +6512,20 @@ class TerminalController {
             return nil
         }
         return workspace.terminalPanel(for: surfaceID)
+    }
+
+    // MARK: - MobileViewportSurfaceLimiting
+
+    func applyMobileViewportLimit(surfaceID: UUID, columns: Int, rows: Int, reason: String) {
+        terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+            columns: columns,
+            rows: rows,
+            reason: reason
+        )
+    }
+
+    func clearMobileViewportLimit(surfaceID: UUID, reason: String) {
+        terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
     }
 
     // Still used by the v1 close-workspace witness (its v2 counterpart moved to
@@ -7096,6 +7084,11 @@ class TerminalController {
         return .ok(payload)
     }
 
+    /// Parse the piggybacked viewport report off a `terminal.input` /
+    /// `terminal.paste` request (or the dedicated viewport RPC when `sticky`) and
+    /// hand the clamped values to ``mobileViewportReportModel``. The `v2*` param
+    /// parsing stays here (shared v2 control-plane substrate); the report state
+    /// machine lives in the model.
     private func applyMobileViewportReport(
         params: [String: Any],
         terminalPanel: TerminalPanel,
@@ -7106,132 +7099,29 @@ class TerminalController {
               let rawRows = v2Int(params, "viewport_rows") else {
             return
         }
-
-        let columns = min(max(rawColumns, 20), 300)
-        let rows = min(max(rawRows, 5), 120)
-        let now = Date()
-        var reports = mobileViewportReportsBySurfaceID[terminalPanel.id] ?? [:]
-        reports = reports.filter { _, report in
-            report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
-        }
-        reports[clientID] = MobileViewportReport(
-            columns: columns,
-            rows: rows,
-            updatedAt: now,
+        mobileViewportReportModel.apply(
+            surfaceID: terminalPanel.id,
+            clientID: clientID,
+            columns: rawColumns,
+            rows: rawRows,
             sticky: sticky
-        )
-        mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
-        scheduleMobileViewportReportCleanup(surfaceID: terminalPanel.id, reports: reports)
-
-        guard let minColumns = reports.values.map(\.columns).min(),
-              let minRows = reports.values.map(\.rows).min() else {
-            return
-        }
-        terminalPanel.surface.applyMobileViewportLimit(
-            columns: minColumns,
-            rows: minRows,
-            reason: "mobile.terminal.input"
         )
     }
 
     /// Remove a single client's viewport report for a surface (dedicated
-    /// `mobile.terminal.viewport` clear, or a disconnect), then recompute the
-    /// remaining min and re-apply or clear the surface's viewport limit so the
-    /// macOS border reflects only the devices still attached.
+    /// `mobile.terminal.viewport` clear, or a disconnect). Forwards to
+    /// ``mobileViewportReportModel``.
     private func clearMobileViewportReport(surfaceID: UUID, clientID: String, reason: String) {
-        guard var reports = mobileViewportReportsBySurfaceID[surfaceID],
-              reports.removeValue(forKey: clientID) != nil else {
-            return
-        }
-        if reports.isEmpty {
-            mobileViewportReportsBySurfaceID[surfaceID] = nil
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
-            return
-        }
-        mobileViewportReportsBySurfaceID[surfaceID] = reports
-        scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
-        if let minColumns = reports.values.map(\.columns).min(),
-           let minRows = reports.values.map(\.rows).min() {
-            terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
-                columns: minColumns,
-                rows: minRows,
-                reason: reason
-            )
-        }
+        mobileViewportReportModel.clear(surfaceID: surfaceID, clientID: clientID, reason: reason)
     }
 
     /// Drop every viewport report owned by the given client IDs across all
     /// surfaces. Called when a mobile connection closes so a disconnected
     /// device stops pinning the grid even though it never sent an explicit
-    /// clear. Sticky reports rely on this signal instead of the TTL.
+    /// clear. Sticky reports rely on this signal instead of the TTL. Forwards to
+    /// ``mobileViewportReportModel``.
     func clearMobileViewportReports(clientIDs: Set<String>, reason: String) {
-        guard !clientIDs.isEmpty else { return }
-        for surfaceID in Array(mobileViewportReportsBySurfaceID.keys) {
-            for clientID in clientIDs {
-                clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: reason)
-            }
-        }
-    }
-
-    private func scheduleMobileViewportReportCleanup(
-        surfaceID: UUID,
-        reports: [String: MobileViewportReport]
-    ) {
-        mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
-        // Sticky reports live for the connection lifetime, so they never drive
-        // a TTL timer; only non-sticky (input-piggyback) reports expire.
-        guard let nextExpiry = reports.values
-            .filter({ !$0.sticky })
-            .map({ $0.updatedAt.addingTimeInterval(Self.mobileViewportReportTTL) })
-            .min() else {
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            return
-        }
-
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        let millisecondsUntilExpiry = max(1, Int((nextExpiry.timeIntervalSinceNow + 1) * 1000))
-        timer.schedule(deadline: .now() + .milliseconds(millisecondsUntilExpiry))
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.pruneMobileViewportReports(surfaceID: surfaceID, reason: "mobile.viewport.reportsExpired")
-            }
-        }
-        mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = timer
-        timer.resume()
-    }
-
-    private func pruneMobileViewportReports(surfaceID: UUID, reason: String) {
-        let now = Date()
-        guard var reports = mobileViewportReportsBySurfaceID[surfaceID] else {
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            return
-        }
-
-        reports = reports.filter { _, report in
-            report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
-        }
-
-        guard !reports.isEmpty else {
-            mobileViewportReportsBySurfaceID[surfaceID] = nil
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
-            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
-            return
-        }
-
-        mobileViewportReportsBySurfaceID[surfaceID] = reports
-        if let minColumns = reports.values.map(\.columns).min(),
-           let minRows = reports.values.map(\.rows).min() {
-            terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
-                columns: minColumns,
-                rows: minRows,
-                reason: reason
-            )
-        }
-        scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
+        mobileViewportReportModel.clear(clientIDs: clientIDs, reason: reason)
     }
 
     func mobileResolveWorkspaceAndSurface(
