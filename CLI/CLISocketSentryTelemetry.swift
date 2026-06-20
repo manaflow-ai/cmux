@@ -14,7 +14,10 @@ enum CLISocketEnvironment {
         let socketPath = normalized(environment["CMUX_SOCKET_PATH"])
         let legacySocketPath = normalized(environment["CMUX_SOCKET"])
         if let socketPath, let legacySocketPath, socketPath != legacySocketPath {
-            throw CLIError(message: "Refusing to choose socket: CMUX_SOCKET_PATH and CMUX_SOCKET differ. Use CMUX_SOCKET_PATH or unset CMUX_SOCKET.")
+            throw CLIError(message: String(
+                localized: "cli.socket.error.conflictingEnvironment",
+                defaultValue: "Refusing to choose socket: CMUX_SOCKET_PATH and CMUX_SOCKET differ. Use CMUX_SOCKET_PATH or unset CMUX_SOCKET."
+            ))
         }
         return socketPath ?? legacySocketPath
     }
