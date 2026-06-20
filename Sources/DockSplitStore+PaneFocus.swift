@@ -34,4 +34,20 @@ extension DockSplitStore {
         }
         bonsplitController.focusPane(rootPane)
     }
+
+    func applyVisibility(to panel: any Panel) {
+        if let terminal = panel as? TerminalPanel {
+            if isVisibleInUI {
+                terminal.hostedView.setVisibleInUI(true)
+                TerminalWindowPortalRegistry.updateEntryVisibility(for: terminal.hostedView, visibleInUI: true)
+            } else {
+                terminal.unfocus()
+                terminal.hostedView.setVisibleInUI(false)
+                TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
+            }
+        } else if !isVisibleInUI, let browser = panel as? BrowserPanel {
+            browser.unfocus()
+            browser.hideBrowserPortalView(source: "dockHidden")
+        }
+    }
 }

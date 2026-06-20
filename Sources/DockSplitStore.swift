@@ -503,18 +503,6 @@ final class DockSplitStore: BonsplitDelegate {
         for panel in panels.values { applyVisibility(to: panel) }
     }
 
-    private func applyVisibility(to panel: any Panel) {
-        guard let terminal = panel as? TerminalPanel else { return }
-        if isVisibleInUI {
-            terminal.hostedView.setVisibleInUI(true)
-            TerminalWindowPortalRegistry.updateEntryVisibility(for: terminal.hostedView, visibleInUI: true)
-        } else {
-            terminal.unfocus()
-            terminal.hostedView.setVisibleInUI(false)
-            TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
-        }
-    }
-
     // MARK: - BonsplitDelegate
 
     /// Closes and removes any panels whose Bonsplit tab is no longer present in
@@ -640,7 +628,7 @@ final class DockSplitStore: BonsplitDelegate {
                 return
             }
             sourceLabel = Self.sourceLabel(for: resolution)
-            let shouldSeed = replacingPanels || panels.isEmpty
+            let shouldSeed = replacingPanels || !hasAppliedConfigurationSeed
             if shouldSeed {
                 seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
             }
