@@ -49,11 +49,15 @@ extension AgentLaunchSanitizer {
             "--allowedTools",
             "--allowed-tools",
             "--betas",
+            "--dangerously-load-development-channels",
             "--disallowedTools",
             "--disallowed-tools",
             "--file",
             "--mcp-config",
             "--tools"
+        ],
+        channelSpecVariadicOptions: [
+            "--dangerously-load-development-channels"
         ],
         nonRestorableCommands: [
             "agents",

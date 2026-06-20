@@ -20,6 +20,12 @@ public enum AgentLaunchSanitizer {
         var valueOptions: Set<String>
         var optionalValueOptions: Set<String> = []; var optionalValueChoices: [String: Set<String>] = [:]; var greedyOptionalValueOptions: Set<String> = []
         var variadicOptions: Set<String> = []
+        // Variadic options whose values are `scheme:name` development-channel
+        // specs (e.g. `server:slack-bus`). Consumption stops at the first token
+        // that is not a valid channel spec, so a trailing startup prompt — even a
+        // single whitespace-free word like `fix` — is left as a positional and
+        // dropped, never swallowed as a channel value.
+        var channelSpecVariadicOptions: Set<String> = []
         var nonRestorableCommands: Set<String>
         var droppedOptions: Set<String>
         var droppedOptionPrefixes: [String] = []
@@ -350,6 +356,14 @@ public enum AgentLaunchSanitizer {
             }
             guard let consumedPromptBoundary = consumePromptBoundaryOption(arg, args: args, index: &index, width: width, policy: policy, result: &result) else { return nil }
             if consumedPromptBoundary { continue }
+            // A channel-spec variadic flag whose first value is not a server:
+            // channel consumes nothing (width 1). Drop the flag rather than emit
+            // it bare — a value-requiring Claude flag with no value would make the
+            // resumed launch fail to parse.
+            if policy.channelSpecVariadicOptions.contains(arg), width == 1 {
+                index += 1
+                continue
+            }
             result.append(contentsOf: args[index..<min(args.count, index + width)])
             index += width
         }
@@ -460,15 +474,37 @@ public enum AgentLaunchSanitizer {
         }
         guard policy.valueOptions.contains(arg), index + 1 < args.count else { return 1 }
         if policy.variadicOptions.contains(arg) {
+            let channelSpecOnly = policy.channelSpecVariadicOptions.contains(arg)
             var end = index + 1
             while end < args.count,
                   !args[end].hasPrefix("-"),
-                  !stopVariadicAtPositionals.contains(args[end]) {
+                  !stopVariadicAtPositionals.contains(args[end]),
+                  !(channelSpecOnly && !looksLikeChannelSpec(args[end])) {
                 end += 1
             }
             return max(1, end - index)
         }
         return 2
+    }
+
+    // Claude Code's --dangerously-load-development-channels takes tagged channel
+    // values: `server:<name>` (e.g. `server:slack-bus`) and
+    // `plugin:<name>@<marketplace>` (e.g. `plugin:foo@local`). The variadic scan
+    // accepts a token only when it carries one of those known tags followed by a
+    // non-empty value, so the channel list ends as soon as a token stops looking
+    // like a channel. A trailing startup prompt — multi-word ("fix the bug"), a
+    // single bare word ("fix"), or a colon-shaped token whose tag is not a known
+    // channel tag ("fix:login") — is left as a positional and dropped rather than
+    // replayed as a bogus channel argument. A future, currently-unknown tag would
+    // conservatively be treated as a boundary (dropped on resume) instead of
+    // risking a prompt replay; the known tags must stay in sync with the CLI.
+    private static let developmentChannelTagPrefixes = ["server:", "plugin:"]
+    private static func looksLikeChannelSpec(_ token: String) -> Bool {
+        guard token.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              let prefix = developmentChannelTagPrefixes.first(where: { token.hasPrefix($0) }) else {
+            return false
+        }
+        return token.count > prefix.count
     }
 
     private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {
