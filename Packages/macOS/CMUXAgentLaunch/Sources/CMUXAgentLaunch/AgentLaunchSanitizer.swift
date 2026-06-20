@@ -172,14 +172,16 @@ public enum AgentLaunchSanitizer {
     /// Whether `option` appears as a real Claude *option* in claude-teams launch
     /// `args`. Unlike restore preservation, this does NOT stop at the first
     /// positional — Claude honors options that follow a positional prompt (e.g.
-    /// `claude "do x" --dangerously-skip-permissions` enables bypass mode) — but it
-    /// still treats tokens after `--`, after a prompt-boundary option (`--tmux`), or
-    /// consumed as another option's value as non-options. Use this for trust-boundary
-    /// opt-in decisions so a flag-shaped token inside the prompt is not promoted to
-    /// an option (it would be after `--tmux`/`--` or a value slot).
+    /// `claude "do x" --dangerously-skip-permissions` enables bypass mode). It reuses
+    /// the launch parser's prompt-boundary handling, so `--tmux classic` (a launch
+    /// mode) is skipped and scanning continues, while a real `--tmux <prompt>`
+    /// payload, a trailing `--`, or a value slot are NOT treated as options. Use this
+    /// for trust-boundary opt-in decisions so a flag-shaped token inside the prompt
+    /// is never promoted to an option.
     public static func claudeTeamsLaunchHasOption(_ option: String, args: [String]) -> Bool {
         let policy = claudeTeamsPolicy
         var index = 0
+        var sink: [String] = []
         while index < args.count {
             let arg = args[index]
             if arg == "--" { return false }
@@ -187,10 +189,15 @@ public enum AgentLaunchSanitizer {
                 index += 1
                 continue
             }
-            let name = arg.firstIndex(of: "=").map { String(arg[..<$0]) } ?? arg
-            if policy.promptBoundaryOptions.contains(name) { return false }
+            let width = optionWidth(args, index: index, policy: policy)
+            guard let consumedBoundary = consumePromptBoundaryOption(
+                arg, args: args, index: &index, width: width, policy: policy, result: &sink
+            ) else {
+                return false
+            }
+            if consumedBoundary { continue }
             if arg == option || arg.hasPrefix(option + "=") { return true }
-            index += max(optionWidth(args, index: index, policy: policy), 1)
+            index += max(width, 1)
         }
         return false
     }

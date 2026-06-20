@@ -26,10 +26,16 @@ struct ClaudeTeamsLaunchOptionTests {
         #expect(hasDangerousSkip(["--dangerously-skip-permissions=true", "do it"]))
     }
 
-    @Test("Does NOT treat a prompt token after --tmux as an opt-in")
+    @Test("Does NOT treat a prompt token after a real --tmux prompt payload as an opt-in")
     func ignoresAfterTmuxBoundary() {
         #expect(!hasDangerousSkip(["--tmux", "explain --dangerously-skip-permissions and continue"]))
-        #expect(!hasDangerousSkip(["--tmux", "p", "--dangerously-skip-permissions"]))
+    }
+
+    @Test("Keeps scanning past the --tmux launch mode (classic), so a later flag is detected")
+    func detectsAfterTmuxMode() {
+        #expect(hasDangerousSkip(["--tmux", "classic", "--dangerously-skip-permissions"]))
+        #expect(hasDangerousSkip(["--tmux=classic", "--dangerously-skip-permissions"]))
+        #expect(hasDangerousSkip(["--tmux", "classic", "make a demo", "--dangerously-skip-permissions"]))
     }
 
     @Test("Does NOT treat a token after -- as an opt-in")
