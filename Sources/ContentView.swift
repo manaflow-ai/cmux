@@ -3597,11 +3597,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         "\(workspaceId.uuidString):\(panelId.uuidString)"
     }
 
-    enum CommandPaletteForkSnapshotAvailability {
-        case unsupported
-        case supportedWithoutProbe
-        case requiresProbe
-    }
+    typealias CommandPaletteForkSnapshotAvailability = CmuxCommandPalette.CommandPaletteForkSnapshotAvailability
 
     static func commandPaletteSnapshotForkAvailability(
         _ snapshot: SessionRestorableAgentSnapshot,
