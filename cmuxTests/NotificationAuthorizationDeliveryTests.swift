@@ -154,7 +154,7 @@ final class NotificationAuthorizationDeliveryTests {
         #expect(localFeedbackNotificationIDs.isEmpty)
     }
 
-    @Test func coldDeniedAuthorizationRefreshKeepsImmediateRecordlessFeedback() async {
+    @Test func coldDeniedAuthorizationRefreshSuppressesRecordlessFeedback() async {
         let store = TerminalNotificationStore.shared
         let originalAuthorizationState = store.authorizationState
         var statusProviderCalls = 0
@@ -192,16 +192,17 @@ final class NotificationAuthorizationDeliveryTests {
             store.setAuthorizationStateForTesting(originalAuthorizationState)
         }
 
+        var authorizationUpdates = store.authorizationStateUpdates().makeAsyncIterator()
         store.scheduleUserNotificationForTesting(notification, effects: effects)
-        await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                continuation.resume()
+        while let state = await authorizationUpdates.next() {
+            if state == .denied {
+                break
             }
         }
 
         #expect(statusProviderCalls == 1)
         #expect(store.authorizationState == .denied)
-        #expect(feedbackTitles == ["Recordless"])
+        #expect(feedbackTitles.isEmpty)
     }
 
     @Test func supersededPhoneDismissFlushesWhenForwardingTurnsOffDuringAuthorizationRefresh() async {
@@ -353,7 +354,7 @@ final class NotificationAuthorizationDeliveryTests {
 
         #expect(statusProviderCalls == 1)
         #expect(pendingStatusCompletions.count == 1)
-        #expect(feedbackTitles == ["Recordless 1", "Recordless 2"])
+        #expect(feedbackTitles.isEmpty)
 
         pendingStatusCompletions[0](.authorized)
         while let state = await authorizationUpdates.next() {

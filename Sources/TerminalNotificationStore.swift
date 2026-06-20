@@ -483,7 +483,7 @@ final class TerminalNotificationStore: ObservableObject {
     private let authorizationStateBroadcaster = TerminalNotificationAuthorizationStateBroadcaster()
     private static let maxPendingFallbackAuthorizationRefreshCompletions = 128
     private var fallbackAuthorizationRefreshInFlight = false
-    private var pendingFallbackAuthorizationRefreshCompletions: [(NotificationAuthorizationState) -> Void] = []
+    private var pendingFallbackAuthorizationRefreshCompletions: [@MainActor (NotificationAuthorizationState) -> Void] = []
     private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
@@ -1859,19 +1859,27 @@ final class TerminalNotificationStore: ObservableObject {
         effects: TerminalNotificationPolicyEffects
     ) {
         let currentAuthorizationState = authorizationState
-        let effectiveEffects = Self.fallbackEffects(
-            effects,
-            authorizationState: currentAuthorizationState
-        )
         if Self.shouldRefreshFallbackAuthorizationState(currentAuthorizationState),
            effects.desktop || effects.sound || effects.command {
-            enqueueFallbackAuthorizationRefresh { _ in }
+            enqueueFallbackAuthorizationRefresh { [weak self] authorizationState in
+                guard let self,
+                      self.notificationPassesCurrentDeliveryGate(notification, effects: effects) else {
+                    return
+                }
+                self.playLocalNotificationFeedback(
+                    title: self.resolvedNotificationTitle(for: notification),
+                    subtitle: notification.subtitle,
+                    body: notification.body,
+                    effects: Self.fallbackEffects(effects, authorizationState: authorizationState)
+                )
+            }
+            return
         }
         playLocalNotificationFeedback(
             title: resolvedNotificationTitle(for: notification),
             subtitle: notification.subtitle,
             body: notification.body,
-            effects: effectiveEffects
+            effects: Self.fallbackEffects(effects, authorizationState: currentAuthorizationState)
         )
     }
 
@@ -1890,7 +1898,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func enqueueFallbackAuthorizationRefresh(
-        _ completion: @escaping (NotificationAuthorizationState) -> Void
+        _ completion: @escaping @MainActor (NotificationAuthorizationState) -> Void
     ) {
         if fallbackAuthorizationRefreshInFlight {
             // Keep the coalesced fan-out bounded if usernoted stalls while a
@@ -1938,7 +1946,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func requestFallbackAuthorizationRefresh(
-        _ completion: @escaping (NotificationAuthorizationState) -> Void
+        _ completion: @escaping @MainActor (NotificationAuthorizationState) -> Void
     ) {
         notificationAuthorizationStatusProvider { [weak self] status in
             Task { @MainActor in
