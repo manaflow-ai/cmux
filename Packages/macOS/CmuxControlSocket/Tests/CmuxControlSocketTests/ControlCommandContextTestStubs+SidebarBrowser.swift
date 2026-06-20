@@ -156,6 +156,26 @@ extension ControlBrowserContext {
     func controlBrowserScreenshot(
         params: [String: JSONValue]
     ) -> ControlBrowserScreenshotResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserConsoleList(
+        params: [String: JSONValue],
+        clear: Bool
+    ) -> ControlBrowserConsoleListResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserErrorsList(
+        params: [String: JSONValue],
+        clear: Bool
+    ) -> ControlBrowserErrorsListResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserStateSave(
+        params: [String: JSONValue],
+        path: String
+    ) -> ControlBrowserStateSaveResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserStateLoad(
+        params: [String: JSONValue],
+        path: String
+    ) -> ControlBrowserStateLoadResolution { .failed(.tabManagerUnavailable) }
 }
 
 extension ControlBrowserPanelContext {

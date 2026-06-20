@@ -264,4 +264,49 @@ public protocol ControlBrowserContext: AnyObject {
     func controlBrowserScreenshot(
         params: [String: JSONValue]
     ) -> ControlBrowserScreenshotResolution
+
+    /// `browser.console.list` / `browser.console.clear` — read (and optionally
+    /// clear) the resolved browser's captured console-log ring. The witness
+    /// resolves the panel through the shared `v2BrowserWithPanel` head, installs
+    /// the telemetry hooks, and evaluates the read/clear script; `clear` is the
+    /// effective flag (the coordinator forces it `true` for
+    /// `browser.console.clear`). The coordinator shapes the identity payload plus
+    /// the `entries` array and `count`.
+    func controlBrowserConsoleList(
+        params: [String: JSONValue],
+        clear: Bool
+    ) -> ControlBrowserConsoleListResolution
+
+    /// `browser.errors.list` — read (and optionally clear) the resolved
+    /// browser's captured uncaught-error ring. The witness resolves the panel,
+    /// installs the telemetry hooks, and evaluates the read/clear script; `clear`
+    /// is the `clear` param. The coordinator shapes the identity payload plus the
+    /// `errors` array and `count`.
+    func controlBrowserErrorsList(
+        params: [String: JSONValue],
+        clear: Bool
+    ) -> ControlBrowserErrorsListResolution
+
+    /// `browser.state.save` — snapshot the resolved browser's URL, cookies,
+    /// `localStorage`/`sessionStorage`, and pinned frame selector to a JSON file.
+    /// `path` is the validated, present `path` param (the coordinator emits the
+    /// `Missing path` error). The witness performs the storage read, cookie read,
+    /// and atomic file write; the coordinator shapes the identity payload plus
+    /// `path`/`cookies`.
+    func controlBrowserStateSave(
+        params: [String: JSONValue],
+        path: String
+    ) -> ControlBrowserStateSaveResolution
+
+    /// `browser.state.load` — restore the resolved browser's frame selector,
+    /// navigation, cookies, and `localStorage`/`sessionStorage` from a JSON state
+    /// file. `path` is the validated, present `path` param (the coordinator emits
+    /// the `Missing path` error). The witness reads + parses the file (its
+    /// read/parse failures precede panel resolution), reproduces the
+    /// `v2BrowserWithPanel` head, and applies the restore; the coordinator shapes
+    /// the identity payload plus `path`/`loaded`.
+    func controlBrowserStateLoad(
+        params: [String: JSONValue],
+        path: String
+    ) -> ControlBrowserStateLoadResolution
 }

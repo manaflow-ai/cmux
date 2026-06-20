@@ -325,7 +325,13 @@ class TerminalController {
 
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
-    private var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
+    // `internal` (not `private`): the browser console/errors/state witnesses in
+    // `TerminalController+ControlBrowserConsoleErrorsStateContext.swift` read and
+    // mutate this per-surface frame-selector cache (state.save reads it,
+    // state.load writes it), matching the cookies/storage cross-file witness
+    // pattern. Still owned here because the worker-lane JS-eval methods read it
+    // through `v2BrowserCurrentFrameSelector`.
+    var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
     private var v2BrowserInitScriptsBySurface: [UUID: [String]] = [:]
     private var v2BrowserInitStylesBySurface: [UUID: [String]] = [:]
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
@@ -1876,16 +1882,10 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserTabSwitch(params: params))
         case "browser.tab.close":
             return v2Result(id: id, self.v2BrowserTabClose(params: params))
-        case "browser.console.list":
-            return v2Result(id: id, self.v2BrowserConsoleList(params: params))
-        case "browser.console.clear":
-            return v2Result(id: id, self.v2BrowserConsoleClear(params: params))
-        case "browser.errors.list":
-            return v2Result(id: id, self.v2BrowserErrorsList(params: params))
-        case "browser.state.save":
-            return v2Result(id: id, self.v2BrowserStateSave(params: params))
-        case "browser.state.load":
-            return v2Result(id: id, self.v2BrowserStateLoad(params: params))
+        // browser.console.list / browser.console.clear / browser.errors.list /
+        // browser.state.save / browser.state.load handled above by
+        // ControlCommandCoordinator (handleBrowserConsoleErrorsState) via the
+        // ControlBrowserContext seam.
         // browser.viewport.set / browser.geolocation.set / browser.offline.set /
         // browser.trace.start / browser.trace.stop / browser.screencast.start /
         // browser.screencast.stop / browser.input_mouse / browser.input_keyboard
@@ -3968,9 +3968,16 @@ class TerminalController {
     /// Sendable stand-in for `WKContentWorld` so nonisolated callers can pick a world without
     /// touching the main-actor-isolated `WKContentWorld.page`/`.defaultClient` statics. The real
     /// world is resolved on the main actor inside `v2RunJavaScript`.
-    private enum V2JSContentWorld: Sendable { case page, isolated }
+    // `internal` (not `private`): named at the `v2RunJavaScript(..., world: .page)`
+    // call sites in the cross-file browser console/errors witnesses
+    // (`TerminalController+ControlBrowserConsoleErrorsStateContext.swift`).
+    enum V2JSContentWorld: Sendable { case page, isolated }
 
-    private nonisolated func v2RunJavaScript(
+    // `internal` (not `private`): the browser console/errors witnesses in
+    // `TerminalController+ControlBrowserConsoleErrorsStateContext.swift` evaluate
+    // the console/error ring read/clear scripts through this synchronous eval,
+    // matching the cookies/storage cross-file witness pattern.
+    nonisolated func v2RunJavaScript(
         _ webView: WKWebView,
         script: String,
         timeout: TimeInterval = 5.0,
@@ -5881,7 +5888,11 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, browserPanel: BrowserPanel) {
+    // `internal` (not `private`): the browser console/errors witnesses in
+    // `TerminalController+ControlBrowserConsoleErrorsStateContext.swift` install
+    // the telemetry hooks before reading the console/error rings, matching the
+    // cookies/storage cross-file witness pattern.
+    func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, browserPanel: BrowserPanel) {
         _ = v2RunJavaScript(
             browserPanel.webView,
             script: BrowserPanel.telemetryHookBootstrapScriptSource,
@@ -6511,7 +6522,11 @@ class TerminalController {
         return .opened(scopeRawValue: scope?.rawValue)
     }
 
-    private func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
+    // `internal` (not `private`): the browser state.save witness in
+    // `TerminalController+ControlBrowserConsoleErrorsStateContext.swift` encodes
+    // each saved cookie as its byte-identical wire dictionary through this helper,
+    // matching the cookies/storage cross-file witness pattern.
+    func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
         var out: [String: Any] = [
             "name": cookie.name,
             "value": cookie.value,
@@ -6781,206 +6796,6 @@ class TerminalController {
                 : .err(code: "internal_error", message: "Failed to close browser tab", data: ["surface_id": targetId.uuidString])
         }
         return result
-    }
-
-    private func v2BrowserConsoleList(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
-            let clear = v2Bool(params, "clear") ?? false
-            let clearLiteral = clear ? "true" : "false"
-            let script = """
-            (() => {
-              const items = Array.isArray(window.__cmuxConsoleLog) ? window.__cmuxConsoleLog.slice() : [];
-              if (\(clearLiteral)) {
-                window.__cmuxConsoleLog = [];
-              }
-              return { ok: true, items };
-            })()
-            """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, world: .page) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                let dict = value as? [String: Any]
-                let items = (dict?["items"] as? [Any]) ?? []
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                    "entries": items.map(v2NormalizeJSValue),
-                    "count": items.count
-                ])
-            }
-        }
-    }
-
-    private func v2BrowserConsoleClear(params: [String: Any]) -> V2CallResult {
-        var withClear = params
-        withClear["clear"] = true
-        return v2BrowserConsoleList(params: withClear)
-    }
-
-    private func v2BrowserErrorsList(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
-            let clear = v2Bool(params, "clear") ?? false
-            let clearLiteral = clear ? "true" : "false"
-            let script = """
-            (() => {
-              const items = Array.isArray(window.__cmuxErrorLog) ? window.__cmuxErrorLog.slice() : [];
-              if (\(clearLiteral)) {
-                window.__cmuxErrorLog = [];
-              }
-              return { ok: true, items };
-            })()
-            """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, world: .page) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                let dict = value as? [String: Any]
-                let items = (dict?["items"] as? [Any]) ?? []
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                    "errors": items.map(v2NormalizeJSValue),
-                    "count": items.count
-                ])
-            }
-        }
-    }
-
-    private func v2BrowserStateSave(params: [String: Any]) -> V2CallResult {
-        guard let path = v2String(params, "path") else {
-            return .err(code: "invalid_params", message: "Missing path", data: nil)
-        }
-
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let storageScript = """
-            (() => {
-              const readStorage = (st) => {
-                const out = {};
-                if (!st) return out;
-                for (let i = 0; i < st.length; i++) {
-                  const k = st.key(i);
-                  out[k] = st.getItem(k);
-                }
-                return out;
-              };
-              return {
-                local: readStorage(window.localStorage),
-                session: readStorage(window.sessionStorage)
-              };
-            })()
-            """
-
-            let storageValue: Any
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: storageScript, timeout: 10.0) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                storageValue = v2NormalizeJSValue(value)
-            }
-
-            let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
-            let cookies = (v2BrowserCookieStoreAll(store) ?? []).map(v2BrowserCookieDict)
-
-            let state: [String: Any] = [
-                "url": browserPanel.currentURL?.absoluteString ?? "",
-                "cookies": cookies,
-                "storage": storageValue,
-                "frame_selector": v2OrNull(v2BrowserFrameSelectorBySurface[surfaceId])
-            ]
-
-            do {
-                let data = try JSONSerialization.data(withJSONObject: state, options: [.prettyPrinted, .sortedKeys])
-                try data.write(to: URL(fileURLWithPath: path), options: .atomic)
-            } catch {
-                return .err(code: "internal_error", message: "Failed to write state file", data: ["path": path, "error": error.localizedDescription])
-            }
-
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "path": path,
-                "cookies": cookies.count
-            ])
-        }
-    }
-
-    private func v2BrowserStateLoad(params: [String: Any]) -> V2CallResult {
-        guard let path = v2String(params, "path") else {
-            return .err(code: "invalid_params", message: "Missing path", data: nil)
-        }
-
-        let url = URL(fileURLWithPath: path)
-        let raw: [String: Any]
-        do {
-            let data = try Data(contentsOf: url)
-            guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return .err(code: "invalid_params", message: "State file must contain a JSON object", data: ["path": path])
-            }
-            raw = obj
-        } catch {
-            return .err(code: "not_found", message: "Failed to read state file", data: ["path": path, "error": error.localizedDescription])
-        }
-
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            if let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty {
-                v2BrowserFrameSelectorBySurface[surfaceId] = frameSelector
-            } else {
-                v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
-            }
-
-            if let urlStr = raw["url"] as? String,
-               !urlStr.isEmpty,
-               let parsed = URL(string: urlStr) {
-                browserPanel.navigate(to: parsed)
-            }
-
-            if let cookieRows = raw["cookies"] as? [[String: Any]] {
-                let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
-                for row in cookieRows {
-                    if let cookie = v2BrowserCookieFromObject(row, fallbackURL: browserPanel.currentURL) {
-                        _ = v2BrowserCookieStoreSet(store, cookie: cookie)
-                    }
-                }
-            }
-
-            if let storage = raw["storage"] as? [String: Any] {
-                let storageLiteral = v2JSONLiteral(storage)
-                let script = """
-                (() => {
-                  const payload = \(storageLiteral);
-                  const apply = (st, data) => {
-                    if (!st || !data || typeof data !== 'object') return;
-                    st.clear();
-                    for (const [k, v] of Object.entries(data)) {
-                      st.setItem(String(k), v == null ? '' : String(v));
-                    }
-                  };
-                  apply(window.localStorage, payload.local);
-                  apply(window.sessionStorage, payload.session);
-                  return true;
-                })()
-                """
-                _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script, timeout: 10.0)
-            }
-
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "path": path,
-                "loaded": true
-            ])
-        }
     }
 
     /// `browser.addinitscript` witness (``ControlBrowserContext``): registers a
