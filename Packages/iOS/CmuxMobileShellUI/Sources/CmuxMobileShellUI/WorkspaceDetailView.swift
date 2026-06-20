@@ -517,6 +517,7 @@ struct WorkspaceDetailView: View {
             onDone: { isTabOverviewPresented = false }
         )
         .task(id: terminalOverviewRefreshKey) {
+            await store.refreshWorkspaces()
             await store.refreshTerminalOverviewPreviews(in: workspace.id)
         }
     }

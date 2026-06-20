@@ -89,8 +89,8 @@
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
+947	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 947	Sources/TerminalNotificationPolicy.swift
-946	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift
