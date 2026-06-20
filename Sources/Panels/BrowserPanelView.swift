@@ -8,6 +8,9 @@ import SwiftUI
 import WebKit
 import AppKit
 import ObjectiveC
+#if DEBUG
+import CmuxTestSupport
+#endif
 
 private var cmuxBrowserPanelNeedsRenderingStateReattachKey: UInt8 = 0
 let browserOmnibarTextFieldIdentifier = NSUserInterfaceItemIdentifier("cmux.browserOmnibarTextField")
