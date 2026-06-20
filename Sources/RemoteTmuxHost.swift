@@ -144,11 +144,16 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     func ensureControlSocketDirectory() throws {
         let path = controlSocketPath
         guard Self.controlSocketPathFitsUnixLimit(path) else {
-            throw RemoteTmuxError.unreachable(
-                "SSH control socket path is too long for a Unix domain socket "
-                    + "(\(path.utf8.count + Self.opensshTransientSuffixLength) > "
-                    + "\(Self.maxUnixSocketPathLength) bytes); home directory path is too long"
+            let boundPathBytes = path.utf8.count + Self.opensshTransientSuffixLength
+            let message = String(
+                format: String(
+                    localized: "remoteTmux.error.controlSocketPathTooLong",
+                    defaultValue: "SSH control socket path is too long for a Unix domain socket (%lld > %lld bytes); home directory path is too long"
+                ),
+                boundPathBytes,
+                Self.maxUnixSocketPathLength
             )
+            throw RemoteTmuxError.unreachable(message)
         }
         let dir = (path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(
