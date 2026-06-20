@@ -118,6 +118,20 @@ def main() -> int:
         except OSError:
             pass
 
+    # Forward a fast, non-interactive Swift crash backtrace into the XCTest
+    # host process (cmux DEV.app). The crash that matters happens in the app
+    # host, not in xcodebuild, and the job-level SWIFT_BACKTRACE only reaches
+    # xcodebuild itself. xcodebuild copies TEST_RUNNER_-prefixed env vars (with
+    # the prefix stripped) into the test host's environment, so this is what
+    # actually makes an app-host crash backtrace cheap instead of an 80s+
+    # symbolicated, interactive hang that eats the CI budget.
+    os.environ.setdefault(
+        "TEST_RUNNER_SWIFT_BACKTRACE",
+        os.environ.get(
+            "SWIFT_BACKTRACE", "interactive=no,timeout=0s,symbolicate=off,color=no"
+        ),
+    )
+
     pid, fd = pty.fork()
     if pid == 0:
         try:

@@ -1,14 +1,12 @@
 import Foundation
 import CmuxCore
 import CmuxBrowser
-import CmuxBrowserImport
 import CmuxSettings
 import Combine
 import CmuxAppKitSupportUI
 import WebKit
 import AppKit
 import Bonsplit
-import CmuxBrowserPanel
 import CmuxTerminalCore
 import Network
 import CFNetwork
