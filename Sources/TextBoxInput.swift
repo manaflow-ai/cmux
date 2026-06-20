@@ -2695,10 +2695,10 @@ struct TextBoxInputContainer: View {
         commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)
     }
 
+    private var textBasePointSize: CGFloat { max(14, terminalFont.pointSize / max(GlobalFontMagnification.scale, 0.01) + 2) }
+
     private var textFont: NSFont {
-        let scale = max(GlobalFontMagnification.scale, 0.01)
-        let terminalBasePointSize = terminalFont.pointSize / scale
-        return GlobalFontMagnification.systemFont(ofSize: max(14, terminalBasePointSize + 2), weight: .regular)
+        GlobalFontMagnification.systemFont(ofSize: textBasePointSize, weight: .regular)
     }
 
     private func heightForLines(_ lines: Int) -> CGFloat {
@@ -2781,7 +2781,7 @@ struct TextBoxInputContainer: View {
                     hasMarkedText: hasMarkedText
                 ) {
                     Text(String(localized: "textbox.placeholder", defaultValue: "Prompt or command"))
-                        .cmuxFont(size: textFont.pointSize)
+                        .cmuxFont(size: textBasePointSize)
                         .foregroundStyle(Color(nsColor: terminalForegroundColor).opacity(0.36))
                         .padding(.leading, TextBoxLayout.textInset.width)
                         .frame(height: clampedHeight, alignment: .center)
