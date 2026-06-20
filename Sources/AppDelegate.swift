@@ -516,12 +516,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     #if DEBUG
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
         decorator: self,
+        browserDebugContext: self,
         debugWindowControlsContentProvider: { NSHostingView(rootView: DebugWindowControlsView()) },
         menuBarExtraDebugContentProvider: { NSHostingView(rootView: MenuBarExtraDebugView()) },
         backgroundDebugContentProvider: { NSHostingView(rootView: BackgroundDebugView()) }
     )
     #else
-    lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
+    lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self, browserDebugContext: self)
     #endif
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
@@ -15021,6 +15022,28 @@ extension AppDelegate {
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}
+
+// Backs the browser-debug panels' quick-action buttons (CmuxAppKitSupportUI).
+// The panels live in the package; these three actions are the irreducible
+// app-coupled live-state reach (Settings window, the live import dialog, and the
+// import-hint debug defaults), inverted behind the `BrowserDebugContext` seam.
+extension AppDelegate: BrowserDebugContext {
+    func presentBrowserPreferences() {
+        Self.presentPreferencesWindow(navigationTarget: .browser)
+    }
+
+    func presentBrowserImportDialog() {
+        // Preserve the original one-runloop deferral so the import dialog is
+        // presented after the debug-button action settles (behavior-faithful move).
+        DispatchQueue.main.async {
+            BrowserDataImportCoordinator.shared.presentImportDialog()
+        }
+    }
+
+    func resetBrowserImportHintDebugState() {
+        BrowserImportHintSettings.reset()
+    }
+}
 
 // MARK: - CmuxWorkspaces session-autosave seam conformance
 
