@@ -166,7 +166,9 @@ actor HangingLaunchTokenProbeAuthClient: AuthClient {
         accessStarted = true
         for waiter in startWaiters { waiter.resume() }
         startWaiters = []
-        await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+        while true {
+            try? await Task.sleep(for: .seconds(3600))
+        }
         return nil
     }
 

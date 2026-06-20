@@ -1,17 +1,71 @@
 import Foundation
 
-/// Internal marker distinguishing "the deadline child fired" from errors the
-/// operation itself threw (including `CancellationError` when the caller's
-/// task is cancelled, which must surface as a cancellation, not a timeout).
-private struct AuthPhaseDeadlineExceeded: Error {}
+private final class AuthPhaseTimeoutState<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, any Error>?
+    private var cancelHandler: (@Sendable () -> Void)?
+    private var finished = false
+
+    func install(_ continuation: CheckedContinuation<T, any Error>) {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func setCancelHandler(_ handler: @escaping @Sendable () -> Void) {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            handler()
+            return
+        }
+        cancelHandler = handler
+        lock.unlock()
+    }
+
+    func resume(returning value: T) {
+        finish { $0.resume(returning: value) }
+    }
+
+    func resume(throwing error: any Error) {
+        finish { $0.resume(throwing: error) }
+    }
+
+    func cancel() {
+        finish { $0.resume(throwing: CancellationError()) }
+    }
+
+    private func finish(_ resume: (CheckedContinuation<T, any Error>) -> Void) {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            return
+        }
+        finished = true
+        let continuation = continuation
+        let cancelHandler = cancelHandler
+        self.continuation = nil
+        self.cancelHandler = nil
+        lock.unlock()
+
+        guard let continuation else { return }
+        cancelHandler?()
+        resume(continuation)
+    }
+}
 
 /// Race `operation` against a `duration` deadline on `clock`.
 ///
-/// Structured: whichever side finishes first cancels the other, and the task
-/// group joins both children before returning, so neither can outlive the
-/// call. The operation must be cancellation-responsive for the bound to be
-/// real (URLSession calls are; the interactive OAuth waits are made so by the
-/// cancellation gates in the vendored Stack SDK).
+/// Whichever side finishes first cancels the other and resumes the caller
+/// immediately. The losing task is not joined, because some Stack SDK calls can
+/// ignore cancellation while parked in network/token refresh code; joining
+/// those calls would keep user-visible restore/sign-in spinners alive after
+/// the deadline had already fired.
 ///
 /// - Parameters:
 ///   - phase: The phase label for timeout diagnostics.
@@ -29,24 +83,33 @@ func withAuthPhaseTimeout<T: Sendable>(
     log: AuthDebugLog,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask {
-            try await operation()
-        }
-        group.addTask {
-            try await clock.sleep(for: duration, tolerance: nil)
-            throw AuthPhaseDeadlineExceeded()
-        }
-        // Cancel the loser on every exit path; the group then joins it.
-        defer { group.cancelAll() }
-        do {
-            guard let first = try await group.next() else {
-                throw AuthError.timedOut
+    try Task.checkCancellation()
+    let state = AuthPhaseTimeoutState<T>()
+    return try await withTaskCancellationHandler {
+        try await withCheckedThrowingContinuation { continuation in
+            state.install(continuation)
+            let operationTask = Task {
+                do {
+                    state.resume(returning: try await operation())
+                } catch {
+                    state.resume(throwing: error)
+                }
             }
-            return first
-        } catch is AuthPhaseDeadlineExceeded {
-            log.log("auth.phase=\(phase.rawValue) timed out after \(duration)")
-            throw AuthError.timedOut
+            let deadlineTask = Task {
+                do {
+                    try await clock.sleep(for: duration, tolerance: nil)
+                } catch {
+                    return
+                }
+                log.log("auth.phase=\(phase.rawValue) timed out after \(duration)")
+                state.resume(throwing: AuthError.timedOut)
+            }
+            state.setCancelHandler {
+                operationTask.cancel()
+                deadlineTask.cancel()
+            }
         }
+    } onCancel: {
+        state.cancel()
     }
 }
