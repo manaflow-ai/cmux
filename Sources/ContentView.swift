@@ -12124,7 +12124,6 @@ struct VerticalTabsSidebar: View {
             notificationStore: notificationStore,
             tab: tab,
             index: index,
-            isActive: tabManager.selectedTabId == tab.id,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount
@@ -12927,7 +12926,6 @@ struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
-        lhs.isActive == rhs.isActive &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
@@ -12956,7 +12954,6 @@ struct TabItemView: View, Equatable {
     @Environment(\.colorScheme) private var colorScheme
     let tab: Tab
     let index: Int
-    let isActive: Bool
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
     let canCloseWorkspace: Bool
@@ -13001,6 +12998,8 @@ struct TabItemView: View, Equatable {
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
+    // Row-local selection projection: selectedTabId changes update only rows whose boolean flips.
+    @State private var observedIsActive: Bool?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
@@ -13059,6 +13058,10 @@ struct TabItemView: View, Equatable {
 
     private var activeTabIndicatorStyle: WorkspaceIndicatorStyle {
         settings.activeTabIndicatorStyle
+    }
+
+    private var isActive: Bool {
+        observedIsActive ?? (tabManager.selectedTabId == tab.id)
     }
 
     private var sidebarSelectionColorHex: String? {
@@ -13711,7 +13714,16 @@ struct TabItemView: View, Equatable {
             )
         }
         .onAppear {
+            updateObservedActiveState(tabManager.selectedTabId == tab.id)
             refreshWorkspaceSnapshot(force: true)
+        }
+        .onReceive(
+            tabManager.selectedTabIdPublisher
+                .map { $0 == tab.id }
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+        ) { isSelected in
+            updateObservedActiveState(isSelected)
         }
         .task(id: workspaceFinderDirectoryOpenRequest) {
             guard let request = workspaceFinderDirectoryOpenRequest else { return }
@@ -13794,6 +13806,11 @@ struct TabItemView: View, Equatable {
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
+    }
+
+    private func updateObservedActiveState(_ isActive: Bool) {
+        guard observedIsActive != isActive else { return }
+        observedIsActive = isActive
     }
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
