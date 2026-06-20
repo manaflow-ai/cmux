@@ -2058,6 +2058,57 @@
         }
       }
     },
+    "mobile.settings.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "mobile.settings.autocomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyboard Autocomplete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーボードの自動補完"
+          }
+        }
+      }
+    },
+    "mobile.settings.autocompleteFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, the keyboard uses system autocomplete, autocorrection, spell-checking, and smart punctuation in the terminal. Autocapitalization stays off for shell commands."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、ターミナルでシステムの自動補完、自動修正、スペルチェック、スマート句読点を使用します。シェルコマンドのため、自動大文字入力はオフのままです。"
+          }
+        }
+      }
+    },
     "mobile.shortcuts.addAction": {
       "extractionState": "manual",
       "localizations": {

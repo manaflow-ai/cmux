@@ -20,9 +20,21 @@ struct TerminalInputAccessoryShiftTests {
     private let backTab = Data([0x1B, 0x5B, 0x5A]) // ESC [ Z
     private let tab = Data([0x09])
 
+    /// Builds an input view backed by an isolated keyboard configuration so the
+    /// accessory-modifier machinery can be exercised without touching the
+    /// app-root settings. The autocomplete preference is irrelevant to these
+    /// tests; the suite-scoped store just keeps the injected dependency from
+    /// reading or mutating `UserDefaults.standard`.
+    private func makeInputView() -> TerminalInputTextView {
+        let suiteName = "cmux.keyboard.shifttest.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let keyboardConfiguration = TerminalKeyboardConfiguration(defaults: defaults)
+        return TerminalInputTextView(keyboardConfiguration: keyboardConfiguration)
+    }
+
     @Test("⇧ armed then Tab sends back-tab (CSI Z)")
     func shiftTabSendsBackTab() {
-        let view = TerminalInputTextView()
+        let view = makeInputView()
         var sequences: [Data] = []
         view.onEscapeSequence = { sequences.append($0) }
 
@@ -34,7 +46,7 @@ struct TerminalInputAccessoryShiftTests {
 
     @Test("a one-shot ⇧ applies to a single key only")
     func shiftIsConsumedAfterOneKey() {
-        let view = TerminalInputTextView()
+        let view = makeInputView()
         var sequences: [Data] = []
         view.onEscapeSequence = { sequences.append($0) }
 
@@ -47,7 +59,7 @@ struct TerminalInputAccessoryShiftTests {
 
     @Test("⇧ armed then a typed character commits uppercased text")
     func shiftUppercasesCommittedText() {
-        let view = TerminalInputTextView()
+        let view = makeInputView()
         var text: [String] = []
         var sequences: [Data] = []
         view.onText = { text.append($0) }
@@ -66,7 +78,7 @@ struct TerminalInputAccessoryShiftTests {
 
     @Test("tapping ⇧ twice toggles it off so the next key is unmodified")
     func tappingShiftTwiceDisarms() {
-        let view = TerminalInputTextView()
+        let view = makeInputView()
         var sequences: [Data] = []
         view.onEscapeSequence = { sequences.append($0) }
 
@@ -79,7 +91,7 @@ struct TerminalInputAccessoryShiftTests {
 
     @Test("a one-shot ⇧ is consumed by Backspace and does not leak to the next key")
     func shiftConsumedByBackspace() {
-        let view = TerminalInputTextView()
+        let view = makeInputView()
         var backspaces = 0
         var text: [String] = []
         view.onBackspace = { backspaces += 1 }
@@ -95,7 +107,7 @@ struct TerminalInputAccessoryShiftTests {
 
     @Test("a one-shot ⇧ is consumed by the arrow nub and does not leak to the next key")
     func shiftConsumedByArrowNub() {
-        let view = TerminalInputTextView()
+        let view = makeInputView()
         var sequences: [Data] = []
         var text: [String] = []
         view.onEscapeSequence = { sequences.append($0) }
@@ -112,7 +124,7 @@ struct TerminalInputAccessoryShiftTests {
 
     @Test("a one-shot ⌥ is applied to the arrow nub before it is consumed")
     func alternateAppliesToArrowNub() {
-        let view = TerminalInputTextView()
+        let view = makeInputView()
         var sequences: [Data] = []
         view.onEscapeSequence = { sequences.append($0) }
 
@@ -128,7 +140,7 @@ struct TerminalInputAccessoryShiftTests {
 
     @Test("a one-shot ⌘ is applied to the arrow nub before it is consumed")
     func commandAppliesToArrowNub() {
-        let view = TerminalInputTextView()
+        let view = makeInputView()
         var sequences: [Data] = []
         view.onEscapeSequence = { sequences.append($0) }
 

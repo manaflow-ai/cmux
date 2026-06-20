@@ -2,6 +2,7 @@
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import CmuxMobileWorkspace
 import SwiftUI
 
@@ -13,6 +14,7 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(TerminalKeyboardConfiguration.self) private var keyboardConfiguration
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
@@ -125,7 +127,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
-                Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
+                Section {
                     Button {
                         showingShortcuts = true
                     } label: {
@@ -135,6 +137,21 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+
+                    Toggle(isOn: autocompleteBinding) {
+                        Label(
+                            L10n.string("mobile.settings.autocomplete", defaultValue: "Keyboard Autocomplete"),
+                            systemImage: "textformat.abc.dottedunderline"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsAutocomplete")
+                } header: {
+                    Text(L10n.string("mobile.settings.terminal", defaultValue: "Terminal"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.autocompleteFooter",
+                        defaultValue: "When on, the keyboard uses system autocomplete, autocorrection, spell-checking, and smart punctuation in the terminal. Autocapitalization stays off for shell commands."
+                    ))
                 }
 
                 #if DEBUG
@@ -286,6 +303,16 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    /// Binding to whether the terminal keyboard's autocomplete and correction
+    /// traits are enabled. Reading the value in `body` (via the binding's
+    /// getter) registers `@Observable` tracking so the toggle reflects changes.
+    private var autocompleteBinding: Binding<Bool> {
+        Binding(
+            get: { keyboardConfiguration.autocompleteEnabled },
+            set: { keyboardConfiguration.autocompleteEnabled = $0 }
+        )
     }
 
     /// Which setup gate to mark as the user's current blocker. Settings is reached

@@ -44,6 +44,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
+            keyboardConfiguration: TerminalKeyboardConfiguration(),
             fontSize: MobileTerminalFontPreference.defaultSize
         )
         // Leave the keyboard down on first appearance; the screenshot harness

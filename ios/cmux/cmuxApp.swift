@@ -74,6 +74,7 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            keyboardConfiguration: Self.root.keyboardConfiguration,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             diagnosticLog: Self.root.diagnosticLog
@@ -86,6 +87,7 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            keyboardConfiguration: Self.root.keyboardConfiguration,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor
         )
