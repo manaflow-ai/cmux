@@ -171,7 +171,7 @@ final class DockSplitStore: BonsplitDelegate {
         removeAllPanels()
     }
 
-    private func ensureLoaded() {
+    func ensureLoaded() {
         guard !hasLoadedConfiguration else { return }
         hasLoadedConfiguration = true
         startConfigurationLoad(replacingPanels: false)
@@ -217,6 +217,7 @@ final class DockSplitStore: BonsplitDelegate {
             preferredProfileID: preferredProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else { return nil }
+        let previousFocus = focus ? nil : focusedDockPaneSelection()
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
             return nil
         }
@@ -224,6 +225,8 @@ final class DockSplitStore: BonsplitDelegate {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(tabId)
             panel.focus()
+        } else {
+            restoreDockPaneSelection(previousFocus)
         }
         return panel.id
     }
@@ -257,6 +260,7 @@ final class DockSplitStore: BonsplitDelegate {
 
         guard let source = resolveSourcePanelId(sourcePanelId), let sourcePaneId = paneId(forPanelId: source) else {
             // Empty tree: place into the root pane rather than splitting.
+            let previousFocus = focus ? nil : focusedDockPaneSelection()
             guard let rootPane = bonsplitController.allPaneIds.first,
                   let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: rootPane, tracksTerminalTitle: true) else {
                 return nil
@@ -265,6 +269,8 @@ final class DockSplitStore: BonsplitDelegate {
                 bonsplitController.focusPane(rootPane)
                 bonsplitController.selectTab(tabId)
                 panel.focus()
+            } else {
+                restoreDockPaneSelection(previousFocus)
             }
             return panel.id
         }
@@ -320,13 +326,6 @@ final class DockSplitStore: BonsplitDelegate {
         return panels[panelId] != nil
     }
     func containsPane(_ paneId: UUID) -> Bool { bonsplitController.allPaneIds.contains(where: { $0.id == paneId }) }
-
-    /// Creates a new surface in the currently focused Dock pane (Dock toolbar "+" menu).
-    func newInFocusedPane(kind: DockSurfaceKind) {
-        ensureLoaded()
-        guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else { return }
-        _ = newSurface(kind: kind, inPane: paneId, focus: true)
-    }
 
     func focusPanel(_ panelId: UUID) {
         guard let paneId = paneId(forPanelId: panelId), let tabId = surfaceId(forPanelId: panelId) else { return }

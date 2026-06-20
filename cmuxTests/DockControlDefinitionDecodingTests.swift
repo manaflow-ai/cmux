@@ -172,4 +172,30 @@ struct DockControlDefinitionDecodingTests {
         #expect(DockSplitStore.parentDirectoryPath(for: "/..") == nil)
         #expect(DockSplitStore.parentDirectoryPath(for: "/Users") == "/")
     }
+
+    @Test("Dock surface creation without focus preserves the selected tab")
+    @MainActor
+    func newSurfaceWithoutFocusPreservesSelectedTab() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let cmuxDirectory = root.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: cmuxDirectory, withIntermediateDirectories: true)
+        let dockConfig = cmuxDirectory.appendingPathComponent("dock.json", isDirectory: false)
+        try #"{"controls":[]}"#.write(to: dockConfig, atomically: true, encoding: .utf8)
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { root.path })
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let firstTabId = try #require(store.bonsplitController.selectedTab(inPane: rootPane)?.id)
+        #expect(store.focusedPanelId == firstPanelId)
+
+        let secondPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
+
+        #expect(secondPanelId != firstPanelId)
+        #expect(store.bonsplitController.selectedTab(inPane: rootPane)?.id == firstTabId)
+        #expect(store.focusedPanelId == firstPanelId)
+    }
 }

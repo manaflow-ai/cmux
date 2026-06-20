@@ -20,6 +20,13 @@ extension DockSplitStore {
         }
     }
 
+    /// Creates a new surface in the currently focused Dock pane (Dock toolbar "+" menu).
+    func newInFocusedPane(kind: DockSurfaceKind) {
+        ensureLoaded()
+        guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else { return }
+        _ = newSurface(kind: kind, inPane: paneId, focus: true)
+    }
+
     func collapseToSingleEmptyPane() {
         guard let rootPane = bonsplitController.allPaneIds.first else { return }
         for paneId in bonsplitController.allPaneIds where paneId != rootPane {
