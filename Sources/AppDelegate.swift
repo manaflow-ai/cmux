@@ -545,7 +545,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 AppWindowChromeComposition().backdropController.updateGlassTint(to: window, color: tintColor)
             }))
         },
-        fileExplorerStyleDebugContentProvider: { NSHostingView(rootView: FileExplorerStyleDebugView()) }
+        fileExplorerStyleDebugContentProvider: {
+            NSHostingView(rootView: FileExplorerStyleDebugView(
+                options: FileExplorerStyle.allCases.map { style in
+                    FileExplorerStyleDebugOption(
+                        rawValue: style.rawValue,
+                        label: style.label,
+                        description: style.fileExplorerStyleDebugDescription,
+                        rowHeight: style.rowHeight,
+                        indentation: style.indentation,
+                        iconSize: style.iconSize
+                    )
+                },
+                notifyStyleDidChange: {
+                    NotificationCenter.default.post(name: .fileExplorerStyleDidChange, object: nil)
+                }
+            ))
+        }
     )
     #else
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(

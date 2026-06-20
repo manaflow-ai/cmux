@@ -55,8 +55,7 @@ import CmuxTerminal
 ///   packages.
 /// - **Accepted DEBUG-lab residue (deferred, not constraint-1):** the
 ///   `#if DEBUG` lab/content views still in this file
-///   (`DebugWindowControlsView`, `TabBarBackdropLabView`, `BackgroundDebugView`,
-///   `StartupAppearanceDebugView`, `FileExplorerStyleDebugView`) are app-coupled
+///   (`DebugWindowControlsView`, `StartupAppearanceDebugView`) are app-coupled
 ///   SwiftUI content injected into the package-owned window shells in
 ///   `CmuxAppKitSupportUI`. They read live app-target state (`GhosttyApp`,
 ///   `Workspace`, `AppDelegate`, app-target settings enums), so they are
@@ -1663,76 +1662,13 @@ struct DebugWindowControlsView: View {
 // `debugWindowsCoordinator.showAbout()`.
 
 // MARK: - File Explorer Style Debug
-
-struct FileExplorerStyleDebugView: View {
-    @AppStorage("fileExplorer.style") private var styleRawValue: Int = 0
-
-    private var currentStyle: FileExplorerStyle {
-        FileExplorerStyle(rawValue: styleRawValue) ?? .liquidGlass
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("File Explorer Style")
-                .font(.headline)
-
-            ForEach(FileExplorerStyle.allCases, id: \.rawValue) { style in
-                HStack(spacing: 8) {
-                    Button(action: {
-                        styleRawValue = style.rawValue
-                        // Post notification so outline view reloads with new style
-                        NotificationCenter.default.post(name: .fileExplorerStyleDidChange, object: nil)
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: styleRawValue == style.rawValue ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(styleRawValue == style.rawValue ? .accentColor : .secondary)
-                                .frame(width: 16)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(style.label)
-                                    .font(.system(size: 13, weight: .medium))
-                                Text(styleDescription(style))
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(styleRawValue == style.rawValue
-                                    ? Color.accentColor.opacity(0.1)
-                                    : Color.clear)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Current: \(currentStyle.label)")
-                    .font(.system(size: 11, weight: .medium))
-                Text("Row: \(Int(currentStyle.rowHeight))pt, Indent: \(Int(currentStyle.indentation))pt, Icon: \(Int(currentStyle.iconSize))pt")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(16)
-        .frame(width: 320)
-    }
-
-    private func styleDescription(_ style: FileExplorerStyle) -> String {
-        switch style {
-        case .liquidGlass: return "Modern macOS, vibrancy, rounded selections"
-        case .highDensity: return "VS Code, compact rows, edge-to-edge"
-        case .terminalStealth: return "Monospace, border selection, desaturated"
-        case .proStudio: return "Logic Pro, chunky rows, pill selection"
-        case .finder: return "Finder sidebar, filled icons, hover tint"
-        }
-    }
-}
+//
+// The File Explorer Style debug panel (`FileExplorerStyleDebugView`) now lives in
+// `CmuxAppKitSupportUI`. `DebugWindowsCoordinator` mounts the package view; the app
+// target snapshots each `FileExplorerStyle` into a `FileExplorerStyleDebugOption`
+// (label/description/metrics) and injects the ordered list plus the
+// `fileExplorerStyleDidChange` notification post through
+// `DebugWindowsCoordinator.fileExplorerStyleDebugContentProvider` (see `AppDelegate`).
 
 // MARK: - Menu Bar Extra Debug Window
 //
