@@ -414,6 +414,70 @@ extension CMUXCLI {
         var titleOverride: String?
         var workspaceId: String?
         var surfaceId: String?
+        /// repoRoot -> (DiffSource.slug -> sibling page FILE NAME, basename only,
+        /// e.g. "diff-<group>-repo-1-branch.html"). Basenames are origin/port
+        /// independent so they survive a server restart; URLs are rebuilt via the
+        /// mapper at regenerate time. Defaults to empty so older session files
+        /// (written before this field existed) still decode.
+        var repoSourceFiles: [String: [String: String]]
+
+        enum CodingKeys: String, CodingKey {
+            case token
+            case groupID
+            case repoRoot
+            case allowedRepoRoots
+            case layout
+            case layoutSource
+            case appearance
+            case titleOverride
+            case workspaceId
+            case surfaceId
+            case repoSourceFiles
+        }
+
+        init(
+            token: String,
+            groupID: String,
+            repoRoot: String,
+            allowedRepoRoots: [String],
+            layout: String,
+            layoutSource: String,
+            appearance: DiffViewerAppearance,
+            titleOverride: String?,
+            workspaceId: String?,
+            surfaceId: String?,
+            repoSourceFiles: [String: [String: String]] = [:]
+        ) {
+            self.token = token
+            self.groupID = groupID
+            self.repoRoot = repoRoot
+            self.allowedRepoRoots = allowedRepoRoots
+            self.layout = layout
+            self.layoutSource = layoutSource
+            self.appearance = appearance
+            self.titleOverride = titleOverride
+            self.workspaceId = workspaceId
+            self.surfaceId = surfaceId
+            self.repoSourceFiles = repoSourceFiles
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            token = try container.decode(String.self, forKey: .token)
+            groupID = try container.decode(String.self, forKey: .groupID)
+            repoRoot = try container.decode(String.self, forKey: .repoRoot)
+            allowedRepoRoots = try container.decode([String].self, forKey: .allowedRepoRoots)
+            layout = try container.decode(String.self, forKey: .layout)
+            layoutSource = try container.decode(String.self, forKey: .layoutSource)
+            appearance = try container.decode(DiffViewerAppearance.self, forKey: .appearance)
+            titleOverride = try container.decodeIfPresent(String.self, forKey: .titleOverride)
+            workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
+            surfaceId = try container.decodeIfPresent(String.self, forKey: .surfaceId)
+            repoSourceFiles = try container.decodeIfPresent(
+                [String: [String: String]].self,
+                forKey: .repoSourceFiles
+            ) ?? [:]
+        }
     }
 
     private struct DiffViewerLabels {
@@ -4194,6 +4258,16 @@ extension CMUXCLI {
         let selectedBranchBase: DiffBranchBase?
         if branchBaseForOptions != nil {
             selectedBranchBase = try? resolvedDiffBranchBase(explicitBranchBaseRef, in: repoRoot)
+            // Invert repoFileURLsBySource ([DiffSource: [repoRoot: URL]]) into
+            // [repoRoot: [DiffSource.slug: basename]] so the regenerate endpoint
+            // can rebuild the source/repo switchers from the already-written
+            // sibling pages. Basenames are origin/port independent.
+            var repoSourceFiles: [String: [String: String]] = [:]
+            for (source, fileURLsByRepo) in repoFileURLsBySource {
+                for (repo, fileURL) in fileURLsByRepo {
+                    repoSourceFiles[repo, default: [:]][source.slug] = fileURL.lastPathComponent
+                }
+            }
             let session = DiffViewerBranchSession(
                 token: mapper.token,
                 groupID: groupID,
@@ -4204,7 +4278,8 @@ extension CMUXCLI {
                 appearance: appearance,
                 titleOverride: titleOverride,
                 workspaceId: selectedContext.workspaceId,
-                surfaceId: selectedContext.surfaceId
+                surfaceId: selectedContext.surfaceId,
+                repoSourceFiles: repoSourceFiles
             )
             try? writeDiffViewerBranchSession(session, rootDirectory: directory)
         } else {
@@ -5070,6 +5145,74 @@ extension CMUXCLI {
         cliWriteStdout(Data((viewerURL.absoluteString + "\n").utf8))
     }
 
+    /// Rebuild the SOURCE and REPO switcher options for a regenerated branch
+    /// pick page from the sibling pages recorded in the session. Without this the
+    /// pick page would render with empty `sourceOptions`/`repoOptions` and the
+    /// React `NavigationSelect` (which hides when <2 options) would drop both
+    /// switchers, stranding the user on the branch source. Older session files
+    /// (no `repoSourceFiles`) fall back to empty options, matching prior behavior.
+    ///
+    /// The `.branch` source URL is overridden to `pickPageURL` (the page being
+    /// generated) so re-selecting "Branch" keeps the currently picked base.
+    private func regeneratedDiffViewerSwitcherOptions(
+        session: DiffViewerBranchSession,
+        repoRoot: String,
+        rootDirectory: URL,
+        mapper: DiffViewerURLMapper,
+        pickPageURL: URL
+    ) -> (sourceOptions: [DiffViewerSourceOption], repoOptions: [DiffViewerSourceOption]) {
+        guard !session.repoSourceFiles.isEmpty else { return ([], []) }
+
+        // Source switcher: one URL per DiffSource that has a recorded sibling
+        // page for this repo. Branch points at the new pick page.
+        var sourceURLs: [DiffSource: URL] = [:]
+        if let filesBySlug = session.repoSourceFiles[repoRoot] {
+            for source in DiffSource.allCases {
+                if source == .branch {
+                    sourceURLs[.branch] = pickPageURL
+                    continue
+                }
+                guard let fileName = filesBySlug[source.slug],
+                      let url = try? mapper.viewerURL(
+                          for: rootDirectory.appendingPathComponent(fileName, isDirectory: false)
+                      ) else {
+                    continue
+                }
+                sourceURLs[source] = url
+            }
+        }
+        let sourceOptions = sourceURLs.isEmpty
+            ? []
+            : diffViewerSourceOptions(selected: .branch, urls: sourceURLs)
+
+        // Repo switcher: one branch-page URL per allowed repo that has one.
+        let candidates = session.allowedRepoRoots.map { repo in
+            DiffViewerRepoOption(
+                repoRoot: repo,
+                label: gitDiffViewerRepoLabel(repo, selectedRepoRoot: repoRoot)
+            )
+        }
+        var repoURLs: [String: URL] = [:]
+        for repo in session.allowedRepoRoots {
+            guard let fileName = session.repoSourceFiles[repo]?[DiffSource.branch.slug],
+                  let url = try? mapper.viewerURL(
+                      for: rootDirectory.appendingPathComponent(fileName, isDirectory: false)
+                  ) else {
+                continue
+            }
+            // For the selected repo, branch resolves to the new pick page so the
+            // repo switcher and source switcher agree on "current".
+            repoURLs[repo] = repo == repoRoot ? pickPageURL : url
+        }
+        let repoOptions = diffViewerRepoOptions(
+            selectedRepoRoot: repoRoot,
+            candidates: candidates,
+            urls: repoURLs
+        )
+
+        return (sourceOptions, repoOptions)
+    }
+
     /// Custom-scheme variant of `regenerateDiffViewerBranchPage`. The embedded
     /// `branchPicker` URLs use the custom scheme (host = token) so the picker
     /// continues to work against the in-app handler rather than a dead HTTP port.
@@ -5112,6 +5255,13 @@ extension CMUXCLI {
 
         let input = try readGitDiffInput(source: .branch, context: context)
         let runtime = diffViewerExecutableURL(for: nil)
+        let switchers = regeneratedDiffViewerSwitcherOptions(
+            session: session,
+            repoRoot: repoRoot,
+            rootDirectory: rootDirectory,
+            mapper: mapper,
+            pickPageURL: viewerURL
+        )
         try writeDiffViewerHTML(
             to: fileURL,
             patch: input.patch,
@@ -5122,8 +5272,8 @@ extension CMUXCLI {
             layout: session.layout,
             layoutSource: session.layoutSource,
             appearance: session.appearance,
-            sourceOptions: [],
-            repoOptions: [],
+            sourceOptions: switchers.sourceOptions,
+            repoOptions: switchers.repoOptions,
             baseOptions: [],
             repoRoot: repoRoot,
             branchBaseRef: context.branchBaseRef,
@@ -5890,6 +6040,13 @@ extension CMUXCLI {
 
         let input = try readGitDiffInput(source: .branch, context: context)
         let runtime = diffViewerExecutableURL(for: nil)
+        let switchers = regeneratedDiffViewerSwitcherOptions(
+            session: session,
+            repoRoot: repoRoot,
+            rootDirectory: rootDirectory,
+            mapper: mapper,
+            pickPageURL: viewerURL
+        )
         try writeDiffViewerHTML(
             to: fileURL,
             patch: input.patch,
@@ -5900,8 +6057,8 @@ extension CMUXCLI {
             layout: session.layout,
             layoutSource: session.layoutSource,
             appearance: session.appearance,
-            sourceOptions: [],
-            repoOptions: [],
+            sourceOptions: switchers.sourceOptions,
+            repoOptions: switchers.repoOptions,
             baseOptions: [],
             repoRoot: repoRoot,
             branchBaseRef: context.branchBaseRef,
