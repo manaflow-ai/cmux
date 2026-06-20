@@ -217,9 +217,7 @@ struct PanelHeaderIconGlyph: View {
 
     var body: some View {
         Image(systemName: systemName)
-            .resizable()
-            .scaledToFit()
-            .frame(width: 13, height: 13)
+            .cmuxSymbolRasterSize(13)
             .frame(width: 20, height: 20, alignment: .center)
             .contentShape(Rectangle())
     }
