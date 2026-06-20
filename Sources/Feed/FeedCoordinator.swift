@@ -464,9 +464,11 @@ extension FeedCoordinator {
     /// The workspace prefers the event's live `workspace_id` (the running
     /// terminal's CMUX_WORKSPACE_ID, a raw UUID) so a stale hook-session map
     /// can't redirect attention to the wrong workspace; it falls back to the
-    /// session store when the event omits a parseable id. The surface comes
-    /// from the session store only when its workspace matches the resolved
-    /// workspace, so a stale entry can't point the panel elsewhere.
+    /// session store when the event omits a parseable id. The surface prefers
+    /// the event's live `surface_id` (CMUX_SURFACE_ID) so the overlay lands on
+    /// the pane the agent actually ran in; it falls back to the session store
+    /// only when that store's workspace matches the resolved workspace, so a
+    /// stale entry can't point the panel elsewhere.
     private static func resolveAttentionTarget(
         event: WorkstreamEvent
     ) -> (workspaceId: UUID, surfaceId: UUID?)? {
@@ -481,13 +483,15 @@ extension FeedCoordinator {
         let eventWorkspaceId = event.workspaceId.flatMap {
             UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        let eventSurfaceId = event.surfaceId.flatMap {
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
 
         guard let workspaceId = eventWorkspaceId ?? sessionMatch?.workspaceId else {
             return nil
         }
-        // Only trust the session store's surface if it belongs to the
-        // workspace we're actually targeting.
-        let surfaceId = (sessionMatch?.workspaceId == workspaceId) ? sessionMatch?.surfaceId : nil
+        let surfaceId = eventSurfaceId
+            ?? ((sessionMatch?.workspaceId == workspaceId) ? sessionMatch?.surfaceId : nil)
         return (workspaceId, surfaceId)
     }
 
