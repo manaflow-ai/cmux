@@ -719,6 +719,51 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testClaudeStreamJSONAccumulatorStreamsPartialMessageEnvelopeDeltas() {
+        var accumulator = ClaudeStreamJSONAccumulator()
+
+        // Real `claude -p --output-format stream-json --include-partial-messages`
+        // wraps every SSE event in a {"type":"stream_event","event":{…}} envelope,
+        // then emits one aggregate top-level `assistant` message with the full text.
+        // The streamed deltas must surface incrementally and the aggregate message
+        // must NOT re-emit the same text. (Shape captured from claude 2.1.183.)
+        expectEqual(
+            accumulator.consumeLine(
+                #"{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","role":"assistant","content":[]}}}"#
+            ),
+            []
+        )
+        expectEqual(
+            accumulator.consumeLine(
+                #"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}"#
+            ),
+            []
+        )
+        expectEqual(
+            accumulator.consumeLine(
+                #"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"al"}}}"#
+            ),
+            ["al"]
+        )
+        expectEqual(
+            accumulator.consumeLine(
+                #"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pha beta gamma"}}}"#
+            ),
+            ["pha beta gamma"]
+        )
+        expectEqual(
+            accumulator.consumeLine(#"{"type":"stream_event","event":{"type":"message_stop"}}"#),
+            []
+        )
+        expectEqual(
+            accumulator.consumeLine(
+                #"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"alpha beta gamma"}]}}"#
+            ),
+            []
+        )
+    }
+
+    @Test
     func testEncodesPromptAsJSONRPCInsteadOfRawStdin() async throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
