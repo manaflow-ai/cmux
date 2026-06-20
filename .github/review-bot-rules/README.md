@@ -23,6 +23,7 @@ Current rules:
 - `swift-concurrent-annotation.md`
 - `swift-expensive-sync-load.md`
 - `swift-file-package-boundaries.md`
+- `swift-hot-event-fanout.md`
 - `swift-logging.md`
 - `swiftui-state-layout.md`
 - `user-facing-errors.md`

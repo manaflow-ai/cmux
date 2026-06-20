@@ -43,6 +43,9 @@ reviews:
     - path: "**/*.swift"
       instructions: |
         Apply `.github/review-bot-rules/swift-expensive-sync-load.md` during review. Flag heavy synchronous loaders (the canonical case is `RestorableAgentSessionIndex.load()`: per-record `sysctl` plus disk reads, 350ms-1.8s) added to or moved onto the main actor or interactive paths (workspace/panel/tab/window close, SwiftUI body, didSet, menu evaluation, socket handlers). Require routing through the off-main cached accessor `SharedLiveAgentIndex.shared`. Pass for the cache's own background loader and explicit cold-cache fallbacks guarded by a nil check.
+    - path: "**/*.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/swift-hot-event-fanout.md` during review. For hot callbacks, publishers, observers, socket handlers, terminal title changes, and SwiftUI list/sidebar row updates, flag per-surface/per-row events that widen into workspace/app sweeps, main-actor scans, or parent-driven lazy-row fanout. Require preserving the event id, routing to one owner, per-key coalescing/dedupe/cancellation for expensive work, or row-local duplicate-filtered observation.
     - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
       instructions: |
         Apply `.github/review-bot-rules/cache-substitution-correctness.md` during review. When the diff replaces a fresh authoritative read with a cached value in a persistence, history, undo, or snapshot path, require explicit handling of cold (never-loaded) and stale (older-than-source) caches, or a documented graceful-degradation rationale. Pass for transient non-persisted UI hints and documented staleness tolerance.
@@ -91,6 +94,10 @@ reviews:
         mode: error
         instructions: |
           For production Swift, TypeScript, JavaScript, shell, and runtime code, fail when the diff violates `.github/review-bot-rules/algorithmic-complexity.md`: nested full-collection scans, per-target rescans for batch actions, repeated sorting/filtering in hot UI/socket/search/process paths, in-memory joins that belong in the data store, or unbenchmarked slower algorithms on paths expected to handle about 1000 workspaces or similar user-owned records. Pass for tiny fixed-size collections, tests and benchmark harnesses, existing debt not worsened, and documented bounds with measurements.
+      - name: "cmux Swift hot event fanout"
+        mode: error
+        instructions: |
+          For production Swift changes, fail when the diff violates `.github/review-bot-rules/swift-hot-event-fanout.md`: a hot per-surface, per-pane, per-session, or per-row event widens into a workspace/app sweep; a hot MainActor callback schedules unbounded filesystem, transcript, process, sort/filter, or collection work without per-key coalescing, in-flight dedupe, cancellation, and bounded retries; or SwiftUI lazy/list rows receive parent-computed volatile global state when row-local duplicate-filtered observation or immutable snapshots would update only the affected rows. Pass for explicit cold refresh/listing paths, tiny fixed-size collections, and benchmark-backed broad work.
       - name: "cmux Swift concurrency"
         mode: error
         instructions: |

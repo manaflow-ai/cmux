@@ -18,6 +18,7 @@ Review production Swift and runtime changes for:
 - Architectural fixes that patch symptoms while leaving bad state representable.
 - User-facing errors, alerts, command output, API error bodies, and recovery copy that expose implementation details.
 - Algorithmic complexity regressions on scalable user-owned collections.
+- Swift hot event fanout where per-surface, per-session, or per-row events widen into workspace/app sweeps, main-actor scans, or parent-driven lazy-row invalidation.
 - Expensive synchronous index/disk/syscall loads (such as `RestorableAgentSessionIndex.load()`) on the main actor or interactive paths instead of the off-main cached accessor.
 - Substituting a cached value for a fresh authoritative read in persistence/history/undo paths without handling cold and stale caches.
 - Local/generated artifacts, dependency checkouts, caches, logs, screenshots, temp folders, and scratch directories that accidentally enter source control.
@@ -53,6 +54,16 @@ Error copy should say what happened in cmux terms, provide concrete user actiona
 For production code over scalable user-owned collections, flag nested full-collection scans, per-target rescans for batch actions, repeated sort/filter/map work in hot UI/socket/search/process paths, in-memory joins that belong in the data store, and unbenchmarked slower algorithms for paths expected to handle about 1000 workspaces or similar records.
 
 Pass for tiny fixed-size collections, tests, benchmark harnesses, existing inefficient code not worsened by the PR, and documented bounds backed by measurements.
+
+## Swift Hot Event Fanout
+
+For production Swift hot paths, preserve the scope of the event that arrived.
+
+Flag terminal title changes, publishers, observers, socket handlers, filesystem/process notifications, SwiftUI list/sidebar row updates, and similar event streams when a per-surface, per-pane, per-session, or per-row event calls a workspace-wide or app-wide sweep. Also flag hot `@MainActor` callbacks that schedule unbounded filesystem, transcript, process, sort/filter, or full collection work without per-key coalescing, in-flight dedupe, cancellation, and bounded retries.
+
+Large lazy/list rows should receive immutable snapshots and closures, or observe row-locally with `removeDuplicates()` on the reduced row value. Do not push parent-computed volatile global state through every row when only the affected row or previous/current selection rows should change.
+
+Pass for explicit cold refresh/listing paths, tiny fixed-size collections, or broad work with a documented bound and benchmark/profiling note.
 
 ## Source Control Artifacts
 
