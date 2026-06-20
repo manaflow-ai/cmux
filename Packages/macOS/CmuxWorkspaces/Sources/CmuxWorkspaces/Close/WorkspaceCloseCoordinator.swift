@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxSettings
 
 /// Computes the pure close-planning half of the window's workspace-close
 /// flows over the window's `WorkspacesModel`: which workspaces are closable in
@@ -29,6 +30,7 @@ public final class WorkspaceCloseCoordinator<Tab: WorkspaceTabRepresenting> {
     private let model: WorkspacesModel<Tab>
     private weak var confirming: (any CloseConfirming)?
     private weak var host: (any WorkspaceCloseHosting<Tab>)?
+    private var closeTabWarning: (any CloseTabWarningReading)?
 
     /// Creates the coordinator over the window's workspace model.
     public init(model: WorkspacesModel<Tab>) {
@@ -39,6 +41,44 @@ public final class WorkspaceCloseCoordinator<Tab: WorkspaceTabRepresenting> {
     /// alert-presenting half the app target owns).
     public func attach(confirming: any CloseConfirming) {
         self.confirming = confirming
+    }
+
+    /// Attaches the close-tab warning settings the confirmation decision routes
+    /// through. The app target supplies the live ``CloseTabWarningReading``
+    /// (its `CloseTabWarningStore`); tests inject a fixed fake.
+    public func attach(closeTabWarning: any CloseTabWarningReading) {
+        self.closeTabWarning = closeTabWarning
+    }
+
+    /// Whether a close request from `source` should present the confirmation
+    /// dialog, given the caller's per-tab `requiresConfirmation` state. Lifts
+    /// the legacy private `TabManager.shouldConfirmClose(requiresConfirmation:source:)`
+    /// one-for-one: a `.workspace` close honours `requiresConfirmation`
+    /// directly, while `.tabClose` / `.tabCloseButton` route through the
+    /// ``CloseTabWarningReading`` policy for the close-shortcut / X-button
+    /// warning toggles.
+    ///
+    /// Returns `requiresConfirmation` unchanged when the warning seam has not
+    /// been attached (only reachable before wiring, where the legacy code never
+    /// asked); the window wires it at construction.
+    public func shouldConfirmClose(
+        requiresConfirmation: Bool,
+        source: CloseConfirmationSource
+    ) -> Bool {
+        switch source {
+        case .workspace:
+            return requiresConfirmation
+        case .tabClose:
+            return closeTabWarning?.shouldConfirmClose(
+                requiresConfirmation: requiresConfirmation,
+                source: .shortcut
+            ) ?? requiresConfirmation
+        case .tabCloseButton:
+            return closeTabWarning?.shouldConfirmClose(
+                requiresConfirmation: requiresConfirmation,
+                source: .tabCloseButton
+            ) ?? requiresConfirmation
+        }
     }
 
     /// Attaches the window-side teardown-effect seam (the `Workspace`/`AppDelegate`
