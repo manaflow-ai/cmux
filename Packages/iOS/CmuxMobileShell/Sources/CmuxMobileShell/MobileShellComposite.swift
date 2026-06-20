@@ -3178,12 +3178,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            !macDeviceID.isEmpty,
            macDeviceID != foregroundMacDeviceID {
             // Only proceed if that Mac actually became the foreground connection.
-            // Selecting a workspace whose Mac never connected would focus a dead
-            // workspace and route terminal input to the wrong (or no) live client;
-            // leave the user on the list (the offline row's Reconnect / the next
-            // aggregation pass recovers it).
+            // The tap already selected this workspace and pushed its detail
+            // synchronously (this runs from the detail's task), so on a failed
+            // switch ROLL BACK the selection — popping the compact stack back to the
+            // list — instead of leaving the user in a workspace whose Mac is not the
+            // live connection (terminal input would route to the wrong client). The
+            // offline row's Reconnect / the next aggregation pass recovers it.
             guard await switchToMac(macDeviceID: macDeviceID) else {
-                mobileShellLog.error("openWorkspace: switch to mac failed, not selecting mac=\(macDeviceID, privacy: .public)")
+                mobileShellLog.error("openWorkspace: switch to mac failed, popping mac=\(macDeviceID, privacy: .public)")
+                if selectedWorkspaceID == id {
+                    setSelectedWorkspaceID(nil)
+                }
                 return
             }
         }
