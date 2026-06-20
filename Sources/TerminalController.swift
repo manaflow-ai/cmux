@@ -6105,189 +6105,34 @@ class TerminalController {
 
     private nonisolated func v2BrowserClick(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "click") { selectorLiteral in
-            """
-            (() => {
-              \(Self.browserInputHelpers)
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              if (el.disabled) return { ok: false, error: 'disabled' };
-              el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              __cmuxClick(el);
-              return { ok: true };
-            })()
-            """
+            v2BrowserControl.clickScript(selectorLiteral: selectorLiteral)
         }
     }
 
     private nonisolated func v2BrowserDblClick(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "dblclick") { selectorLiteral in
-            """
-            (() => {
-              \(Self.browserInputHelpers)
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              if (el.disabled) return { ok: false, error: 'disabled' };
-              el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              __cmuxClick(el);
-              __cmuxClick(el);
-              const c = __cmuxCenter(el);
-              __cmuxMouse(el, 'dblclick', c, 0, 2);
-              return { ok: true };
-            })()
-            """
+            v2BrowserControl.doubleClickScript(selectorLiteral: selectorLiteral)
         }
     }
 
     private nonisolated func v2BrowserHover(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "hover") { selectorLiteral in
-            """
-            (() => {
-              \(Self.browserInputHelpers)
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              __cmuxHover(el);
-              return { ok: true };
-            })()
-            """
+            v2BrowserControl.hoverScript(selectorLiteral: selectorLiteral)
         }
     }
 
     private nonisolated func v2BrowserFocusElement(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "focus") { selectorLiteral in
-            """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              if (typeof el.focus === 'function') el.focus();
-              return { ok: true };
-            })()
-            """
+            v2BrowserControl.focusElementScript(selectorLiteral: selectorLiteral)
         }
     }
-
-    /// JavaScript snippet that sets an input element's value using the native
-    /// prototype setter. Frameworks like React, Vue, and Angular override the
-    /// value property on instances, so a plain `el.value = x` assignment only
-    /// updates the DOM without notifying the framework's internal state.
-    /// Calling the native setter from the prototype bypasses the override and
-    /// triggers the framework's change-detection when followed by an `input`
-    /// event. Walks the prototype chain instead of using instanceof so it
-    /// works with cross-realm elements (iframes) and custom web components.
-    /// Expects `el` and `newValue` to be in scope.
-    private nonisolated static let reactCompatibleSetValue = """
-        let nativeSetter = null;
-        for (let proto = Object.getPrototypeOf(el); proto; proto = Object.getPrototypeOf(proto)) {
-          const desc = Object.getOwnPropertyDescriptor(proto, 'value');
-          if (desc && desc.set) { nativeSetter = desc.set; break; }
-        }
-        if (nativeSetter) {
-          nativeSetter.call(el, newValue);
-        } else {
-          el.value = newValue;
-        }
-    """
-
-    /// Reusable JS that dispatches framework-correct input events. Synthetic (untrusted) events do
-    /// not run native default actions, and many frameworks/libraries listen on the full pointer +
-    /// mouse sequence (not just `click`) or need legacy KeyboardEvent fields (keyCode/which/code).
-    /// These helpers reproduce a real user gesture so React, Vue, Svelte, Angular, Solid, and
-    /// vanilla handlers all fire. Define them once at the top of an injected snippet, then call
-    /// `__cmuxClick(el)`, `__cmuxHover(el)`, `__cmuxSetChecked(el, desired)`, and `__cmuxKey(t,type,key)`.
-    private nonisolated static let browserInputHelpers = """
-    function __cmuxCenter(el){const r=el.getBoundingClientRect();return {x:Math.floor(r.left+Math.min(r.width,r.width/2)),y:Math.floor(r.top+Math.min(r.height,r.height/2))};}
-    function __cmuxPointer(el,type,c,buttons,bubbles){try{el.dispatchEvent(new PointerEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:buttons,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}catch(e){}}
-    function __cmuxMouse(el,type,c,buttons,detail,bubbles){el.dispatchEvent(new MouseEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,button:0,buttons:buttons,detail:detail||0,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}
-    function __cmuxClick(el){const c=__cmuxCenter(el);
-      __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
-      __cmuxPointer(el,'pointerenter',c,0,false);__cmuxMouse(el,'mouseenter',c,0,0,false);
-      __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
-      __cmuxPointer(el,'pointerdown',c,1);__cmuxMouse(el,'mousedown',c,1,1);
-      if(typeof el.focus==='function'){try{el.focus({preventScroll:true});}catch(e){try{el.focus();}catch(e2){}}}
-      __cmuxPointer(el,'pointerup',c,0);__cmuxMouse(el,'mouseup',c,0,1);
-      if(typeof el.click==='function'){el.click();}else{__cmuxMouse(el,'click',c,0,1);}
-    }
-    function __cmuxHover(el){const c=__cmuxCenter(el);
-      __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
-      __cmuxPointer(el,'pointerenter',c,0,false);__cmuxMouse(el,'mouseenter',c,0,0,false);
-      __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
-    }
-    function __cmuxSetChecked(el,desired){
-      // A click event runs the checkbox/radio activation behavior (it TOGGLES a checkbox / SELECTS a
-      // radio) even when dispatched, and is also what React maps onChange to. So the correct way to
-      // reach a target state is to click only when it differs; that fires input + change + (React)
-      // onChange and leaves checked === desired. Setting el.checked directly does not update React's
-      // controlled state and a separate click would toggle it back.
-      if(el.checked===desired) return;
-      // A radio cannot be turned OFF by clicking (clicking a radio only ever selects it). For that
-      // one case set the property directly via the native setter and notify listeners.
-      if(desired===false && el.type==='radio'){
-        let ns=null;
-        for(let p=Object.getPrototypeOf(el);p;p=Object.getPrototypeOf(p)){
-          const d=Object.getOwnPropertyDescriptor(p,'checked'); if(d&&d.set){ns=d.set;break;}
-        }
-        if(ns){ns.call(el,false);}else{el.checked=false;}
-        el.dispatchEvent(new Event('input',{bubbles:true}));
-        el.dispatchEvent(new Event('change',{bubbles:true}));
-        return;
-      }
-      if(typeof el.click==='function'){el.click();}
-      else {const c=__cmuxCenter(el); __cmuxMouse(el,'click',c,0,1);}
-    }
-    function __cmuxKeyMeta(key){
-      const map={Enter:[13,'Enter'],Tab:[9,'Tab'],Backspace:[8,'Backspace'],Delete:[46,'Delete'],Escape:[27,'Escape'],' ':[32,'Space'],ArrowUp:[38,'ArrowUp'],ArrowDown:[40,'ArrowDown'],ArrowLeft:[37,'ArrowLeft'],ArrowRight:[39,'ArrowRight'],Home:[36,'Home'],End:[35,'End'],PageUp:[33,'PageUp'],PageDown:[34,'PageDown']};
-      if(map[key])return {keyCode:map[key][0],code:map[key][1]};
-      if(key&&key.length===1){const u=key.toUpperCase();
-        if(/[A-Z]/.test(u))return {keyCode:u.charCodeAt(0),code:'Key'+u};
-        if(/[0-9]/.test(u))return {keyCode:u.charCodeAt(0),code:'Digit'+u};
-        return {keyCode:key.charCodeAt(0),code:''};}
-      return {keyCode:0,code:key||''};
-    }
-    function __cmuxKey(target,type,key){
-      const meta=__cmuxKeyMeta(key);
-      const ev=new KeyboardEvent(type,{key:key,code:meta.code,location:0,repeat:false,isComposing:false,bubbles:true,cancelable:true,composed:true,view:window});
-      try{Object.defineProperty(ev,'keyCode',{get(){return meta.keyCode;}});}catch(e){}
-      try{Object.defineProperty(ev,'which',{get(){return meta.keyCode;}});}catch(e){}
-      return target.dispatchEvent(ev);
-    }
-    """
 
     private nonisolated func v2BrowserType(params: [String: Any]) -> V2CallResult {
         guard let text = v2String(params, "text") else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
         return v2BrowserSelectorAction(params: params, actionName: "type") { selectorLiteral in
-            let textLiteral = v2JSONLiteral(text)
-            return """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              if (typeof el.focus === 'function') el.focus();
-              const chunk = String(\(textLiteral));
-              if ('value' in el) {
-                const newValue = (el.value || '') + chunk;
-                // beforeinput is cancelable; honor a page that rejects the edit (input masks,
-                // controlled editors) instead of forcing the value and drifting from app state.
-                let proceed = true;
-                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: chunk })); } catch (e) {}
-                if (!proceed) return { ok: false, error: 'input_rejected' };
-                \(Self.reactCompatibleSetValue)
-                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); }
-                catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-              } else {
-                // contenteditable / non-value elements get the same cancelable beforeinput so a rich
-                // editor (ProseMirror, Slate, etc.) that manages its own model can reject the edit
-                // instead of us silently overwriting textContent and drifting from app state.
-                let proceed = true;
-                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: chunk })); } catch (e) {}
-                if (!proceed) return { ok: false, error: 'input_rejected' };
-                el.textContent = (el.textContent || '') + chunk;
-                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); } catch (e) {}
-              }
-              return { ok: true };
-            })()
-            """
+            v2BrowserControl.typeScript(selectorLiteral: selectorLiteral, textLiteral: v2JSONLiteral(text))
         }
     }
 
@@ -6297,36 +6142,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing text/value", data: nil)
         }
         return v2BrowserSelectorAction(params: params, actionName: "fill") { selectorLiteral in
-            let textLiteral = v2JSONLiteral(text)
-            return """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              if (typeof el.focus === 'function') el.focus();
-              const newValue = String(\(textLiteral));
-              if ('value' in el) {
-                // beforeinput is cancelable; honor a page that rejects the edit instead of forcing
-                // the value and drifting from app state.
-                let proceed = true;
-                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
-                if (!proceed) return { ok: false, error: 'input_rejected' };
-                \(Self.reactCompatibleSetValue)
-                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); }
-                catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-              } else {
-                // contenteditable / non-value elements get the same cancelable beforeinput so a rich
-                // editor that manages its own model can reject the edit instead of us silently
-                // overwriting textContent.
-                let proceed = true;
-                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
-                if (!proceed) return { ok: false, error: 'input_rejected' };
-                el.textContent = newValue;
-                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
-              }
-              return { ok: true };
-            })()
-            """
+            v2BrowserControl.fillScript(selectorLiteral: selectorLiteral, textLiteral: v2JSONLiteral(text))
         }
     }
 
@@ -6337,37 +6153,7 @@ class TerminalController {
 
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
-            let keyLiteral = v2JSONLiteral(key)
-            let script = """
-            (() => {
-              \(Self.browserInputHelpers)
-              const target = document.activeElement || document.body || document.documentElement;
-              if (!target) return { ok: false, error: 'not_found' };
-              const k = String(\(keyLiteral));
-              const kdNotPrevented = __cmuxKey(target, 'keydown', k);
-              // keypress historically fires for character-producing keys, which includes Enter and
-              // Space; many pages still bind submit/search to keypress for Enter.
-              let kpNotPrevented = true;
-              if (k.length === 1 || k === 'Enter') { kpNotPrevented = __cmuxKey(target, 'keypress', k); }
-              __cmuxKey(target, 'keyup', k);
-              // Synthetic key events do not run WebKit's native "Enter submits the form" default
-              // action. Mirror real-user behavior, but only when neither keydown nor keypress was
-              // canceled (pages cancel Enter to run their own handling) and the native HTML implicit
-              // submission rules would apply: focus is a single-line text-like field AND the form has
-              // a submit control or exactly one such field.
-              if (k === 'Enter' && kdNotPrevented && kpNotPrevented && target && target.tagName === 'INPUT' && target.form) {
-                const submitTypes = ['text','search','email','url','tel','password','number','date','datetime-local','month','week','time'];
-                if (submitTypes.indexOf((target.type || 'text').toLowerCase()) !== -1) {
-                  const hasSubmit = !!target.form.querySelector('input[type=submit],input[type=image],button[type=submit],button:not([type])');
-                  const textFields = target.form.querySelectorAll('input[type=text],input[type=search],input[type=email],input[type=url],input[type=tel],input[type=password],input[type=number],input[type=date],input[type=datetime-local],input[type=month],input[type=week],input[type=time],input:not([type])');
-                  if (hasSubmit || textFields.length === 1) {
-                    try { if (target.form.requestSubmit) { target.form.requestSubmit(); } else { target.form.submit(); } } catch (e) {}
-                  }
-                }
-              }
-              return { ok: true };
-            })()
-            """
+            let script = v2BrowserControl.pressScript(keyLiteral: v2JSONLiteral(key))
             switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -6390,17 +6176,7 @@ class TerminalController {
         }
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
-            let keyLiteral = v2JSONLiteral(key)
-            let script = """
-            (() => {
-              \(Self.browserInputHelpers)
-              const target = document.activeElement || document.body || document.documentElement;
-              if (!target) return { ok: false, error: 'not_found' };
-              const k = String(\(keyLiteral));
-              __cmuxKey(target, 'keydown', k);
-              return { ok: true };
-            })()
-            """
+            let script = v2BrowserControl.keyDownScript(keyLiteral: v2JSONLiteral(key))
             switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -6423,17 +6199,7 @@ class TerminalController {
         }
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
-            let keyLiteral = v2JSONLiteral(key)
-            let script = """
-            (() => {
-              \(Self.browserInputHelpers)
-              const target = document.activeElement || document.body || document.documentElement;
-              if (!target) return { ok: false, error: 'not_found' };
-              const k = String(\(keyLiteral));
-              __cmuxKey(target, 'keyup', k);
-              return { ok: true };
-            })()
-            """
+            let script = v2BrowserControl.keyUpScript(keyLiteral: v2JSONLiteral(key))
             switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -6452,20 +6218,7 @@ class TerminalController {
 
     private nonisolated func v2BrowserCheck(params: [String: Any], checked: Bool) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: checked ? "check" : "uncheck") { selectorLiteral in
-            """
-            (() => {
-              \(Self.browserInputHelpers)
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              if (!('checked' in el)) return { ok: false, error: 'not_checkable' };
-              if (el.disabled) return { ok: false, error: 'disabled' };
-              el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              if (typeof el.focus === 'function') { try { el.focus({ preventScroll: true }); } catch (e) {} }
-              __cmuxSetChecked(el, \(checked ? "true" : "false"));
-              if (el.checked !== \(checked ? "true" : "false")) return { ok: false, error: 'not_changed' };
-              return { ok: true };
-            })()
-            """
+            v2BrowserControl.setCheckedScript(selectorLiteral: selectorLiteral, checked: checked)
         }
     }
 
@@ -6475,19 +6228,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing value", data: nil)
         }
         return v2BrowserSelectorAction(params: params, actionName: "select") { selectorLiteral in
-            let valueLiteral = v2JSONLiteral(selectedValue)
-            return """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              if (!('value' in el)) return { ok: false, error: 'not_select' };
-              const newValue = String(\(valueLiteral));
-              \(Self.reactCompatibleSetValue)
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-              return { ok: true };
-            })()
-            """
+            v2BrowserControl.selectOptionScript(selectorLiteral: selectorLiteral, valueLiteral: v2JSONLiteral(selectedValue))
         }
     }
 
@@ -6505,22 +6246,9 @@ class TerminalController {
 
             let script: String
             if let selector {
-                let selectorLiteral = v2JSONLiteral(selector)
-                script = """
-                (() => {
-                  const el = document.querySelector(\(selectorLiteral));
-                  if (!el) return { ok: false, error: 'not_found' };
-                  if (typeof el.scrollBy === 'function') {
-                    el.scrollBy({ left: \(dx), top: \(dy), behavior: 'instant' });
-                  } else {
-                    el.scrollLeft += \(dx);
-                    el.scrollTop += \(dy);
-                  }
-                  return { ok: true };
-                })()
-                """
+                script = v2BrowserControl.scrollElementScript(selectorLiteral: v2JSONLiteral(selector), dx: dx, dy: dy)
             } else {
-                script = "window.scrollBy({ left: \(dx), top: \(dy), behavior: 'instant' }); ({ ok: true })"
+                script = v2BrowserControl.scrollWindowScript(dx: dx, dy: dy)
             }
 
             switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
@@ -6557,14 +6285,7 @@ class TerminalController {
 
     private nonisolated func v2BrowserScrollIntoView(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "scroll_into_view") { selectorLiteral in
-            """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-              return { ok: true };
-            })()
-            """
+            v2BrowserControl.scrollIntoViewScript(selectorLiteral: selectorLiteral)
         }
     }
 
