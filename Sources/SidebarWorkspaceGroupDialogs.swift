@@ -136,11 +136,20 @@ func confirmRemoveExtensionWorktree(
         ))
     }
     if safety.hasUnpushedCommits {
-        let unpushed = String(
-            localized: "dialog.removeWorktree.warning.unpushed",
-            defaultValue: "It has %lld commit(s) that aren\u{2019}t on any remote; the branch is kept after removal."
-        )
-        lines.append(String.localizedStringWithFormat(unpushed, safety.unpushedCommitCount))
+        let unpushed: String
+        if safety.unpushedCommitCount == 1 {
+            unpushed = String(
+                localized: "dialog.removeWorktree.warning.unpushed.one",
+                defaultValue: "It has 1 commit that isn\u{2019}t on any remote; the branch is kept after removal."
+            )
+        } else {
+            let format = String(
+                localized: "dialog.removeWorktree.warning.unpushed.other",
+                defaultValue: "It has %lld commits that aren\u{2019}t on any remote; the branch is kept after removal."
+            )
+            unpushed = String.localizedStringWithFormat(format, safety.unpushedCommitCount)
+        }
+        lines.append(unpushed)
     }
     if safety.isClean {
         lines.append(String(

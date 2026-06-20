@@ -210,22 +210,28 @@ enum CmuxExtensionWorktreePrototype {
         return !suppressionEnabled
     }
 
-    /// Pure selection of the workspace ids whose resolved git root is the given
-    /// worktree path. Used to close every workspace tab rooted in a worktree
-    /// when it is removed (the original "+" tab plus any "Open terminal inside"
-    /// tabs). Input order is preserved so callers close tabs deterministically.
+    /// Pure selection of the workspace ids physically inside the given worktree
+    /// path. Used to close every workspace tab rooted in a worktree when it is
+    /// removed (the original "+" tab plus any "Open terminal inside" tabs).
+    ///
+    /// Matching is by containment of each workspace's *live current directory*
+    /// (its actual reported cwd) rather than the asynchronously-derived,
+    /// possibly-stale `extensionSidebarProjectRootPath`, so a destructive
+    /// removal operates on authoritative state. Input order is preserved so
+    /// callers close tabs deterministically.
     static func workspaceIdsRooted(
         inWorktreePath worktreePath: String,
-        workspaces: [(id: UUID, gitRootPath: String?)]
+        workspaces: [(id: UUID, currentDirectory: String?)]
     ) -> [UUID] {
         let target = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL.path
+        let prefix = target + "/"
         return workspaces.compactMap { entry in
-            guard let gitRoot = entry.gitRootPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !gitRoot.isEmpty else {
+            guard let directory = entry.currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !directory.isEmpty else {
                 return nil
             }
-            let standardized = URL(fileURLWithPath: gitRoot, isDirectory: true).standardizedFileURL.path
-            return standardized == target ? entry.id : nil
+            let standardized = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL.path
+            return (standardized == target || standardized.hasPrefix(prefix)) ? entry.id : nil
         }
     }
 
@@ -242,8 +248,10 @@ enum CmuxExtensionWorktreePrototype {
     static func inspectRemovalSafety(worktreePath: String) async throws -> CmuxExtensionWorktreeRemovalSafety {
         try await Task.detached(priority: .userInitiated) {
             let worktree = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL.path
-            let branchResult = await runAllowingFailure(["-C", worktree, "symbolic-ref", "--quiet", "--short", "HEAD"])
-            let branch = branchResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Only trust the branch name on success; stderr is merged into the
+            // same stream, so a detached-HEAD failure would otherwise surface a
+            // "fatal: ..." string as the branch.
+            let branch = await currentBranch(worktreePath: worktree)
 
             let statusOutput = try await runGitTrimmed(
                 ["-C", worktree, "status", "--porcelain"],
@@ -310,8 +318,8 @@ enum CmuxExtensionWorktreePrototype {
                 .standardizedFileURL.path
 
             // Capture the branch before removal so it can be cleaned up after.
-            let branchResult = await runAllowingFailure(["-C", worktree, "symbolic-ref", "--quiet", "--short", "HEAD"])
-            let branch = branchResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Only on probe success — see currentBranch(worktreePath:).
+            let branch = await currentBranch(worktreePath: worktree)
 
             var removeArgs = ["-C", parentRepo, "worktree", "remove"]
             if force { removeArgs.append("--force") }
@@ -423,6 +431,16 @@ enum CmuxExtensionWorktreePrototype {
     ) async throws -> String {
         let data = try await runCapturingOutput("git", arguments, failureDescription: failureDescription)
         return (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Returns the worktree's current branch name, or `""` when HEAD is
+    /// detached or the probe fails. Crucially, the branch is read only on a
+    /// zero exit: `runProcess` merges stderr into stdout, so a failed
+    /// `symbolic-ref` (e.g. detached HEAD prints `fatal: ...`) must not be
+    /// mistaken for a branch named "fatal: ...".
+    private static func currentBranch(worktreePath: String) async -> String {
+        let result = await runAllowingFailure(["-C", worktreePath, "symbolic-ref", "--quiet", "--short", "HEAD"])
+        return result.status == 0 ? result.stdout : ""
     }
 
     /// Runs `git` without throwing, returning the exit status and trimmed

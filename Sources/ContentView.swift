@@ -11802,6 +11802,10 @@ struct VerticalTabsSidebar: View {
                         localized: "sidebar.extension.openTerminalInside.help",
                         defaultValue: "Open terminal inside this worktree"
                     ))
+                    .accessibilityLabel(Text(String(
+                        localized: "sidebar.extension.openTerminalInside.help",
+                        defaultValue: "Open terminal inside this worktree"
+                    )))
                     .accessibilityIdentifier("ExtensionSidebarOpenWorktreeTerminalButton.\(section.id)")
 
                     Button {
@@ -11816,6 +11820,10 @@ struct VerticalTabsSidebar: View {
                         localized: "sidebar.extension.removeWorktree.help",
                         defaultValue: "Remove this worktree"
                     ))
+                    .accessibilityLabel(Text(String(
+                        localized: "sidebar.extension.removeWorktree.help",
+                        defaultValue: "Remove this worktree"
+                    )))
                     .accessibilityIdentifier("ExtensionSidebarRemoveWorktreeButton.\(section.id)")
                 } else if canCreateWorktree {
                     Button {
@@ -11979,12 +11987,15 @@ struct VerticalTabsSidebar: View {
         worktreeName: String,
         force: Bool
     ) async {
-        // Resolve the tabs to close before removal, while their resolved git
-        // roots still point at the worktree.
-        let workspacesToClose = CmuxExtensionWorktreePrototype.workspaceIdsRooted(
+        // Resolve the tabs to close before removal, matching on each tab's live
+        // current directory (its authoritative cwd) rather than the async,
+        // possibly-stale extensionSidebarProjectRootPath. Snapshot the matching
+        // Workspace objects once so closing them stays linear.
+        let idsToClose = Set(CmuxExtensionWorktreePrototype.workspaceIdsRooted(
             inWorktreePath: worktreePath,
-            workspaces: tabManager.tabs.map { (id: $0.id, gitRootPath: $0.extensionSidebarProjectRootPath) }
-        )
+            workspaces: tabManager.tabs.map { (id: $0.id, currentDirectory: $0.currentDirectory) }
+        ))
+        let workspacesToClose = tabManager.tabs.filter { idsToClose.contains($0.id) }
 
         do {
             try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktreePath, force: force)
@@ -12019,8 +12030,7 @@ struct VerticalTabsSidebar: View {
             )
         }
 
-        for workspaceId in workspacesToClose {
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+        for workspace in workspacesToClose {
             tabManager.closeWorkspace(workspace, recordHistory: false)
         }
         refreshExtensionSidebarSnapshot()

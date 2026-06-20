@@ -174,23 +174,26 @@ struct ExtensionWorktreeManagementTests {
 
     // MARK: - Which tabs close on removal
 
-    @Test("only workspaces rooted in the removed worktree are selected to close")
-    func workspaceSelectionMatchesWorktreeRoot() {
+    @Test("workspaces whose cwd is inside the removed worktree are selected to close")
+    func workspaceSelectionMatchesWorktreeContainment() {
         let worktree = "/Users/me/repo/.cmux/worktrees/wt-a"
-        let inWorktree1 = UUID()
-        let inWorktree2 = UUID()
+        let atRoot = UUID()
+        let inSubdir = UUID()
         let elsewhere = UUID()
-        let workspaces: [(id: UUID, gitRootPath: String?)] = [
-            (id: inWorktree1, gitRootPath: worktree),
-            (id: elsewhere, gitRootPath: "/Users/me/repo"),
-            (id: inWorktree2, gitRootPath: worktree + "/"),
-            (id: UUID(), gitRootPath: nil),
+        let siblingPrefix = UUID()
+        let workspaces: [(id: UUID, currentDirectory: String?)] = [
+            (id: atRoot, currentDirectory: worktree),                 // exactly the worktree
+            (id: elsewhere, currentDirectory: "/Users/me/repo"),      // parent repo, not inside
+            (id: inSubdir, currentDirectory: worktree + "/packages/app"), // nested cwd
+            // A sibling whose path merely starts with the name must NOT match.
+            (id: siblingPrefix, currentDirectory: worktree + "-backup"),
+            (id: UUID(), currentDirectory: nil),
         ]
         let ids = CmuxExtensionWorktreePrototype.workspaceIdsRooted(
             inWorktreePath: worktree,
             workspaces: workspaces
         )
-        #expect(ids == [inWorktree1, inWorktree2])
+        #expect(ids == [atRoot, inSubdir])
     }
 
     // MARK: - On-disk removal (real git)
