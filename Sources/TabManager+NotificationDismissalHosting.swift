@@ -25,8 +25,7 @@ extension TabManager: NotificationDismissalHosting {
     // satisfies both seams.
 
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
-        return panelId(forSurfaceOrPanelId: surfaceId, in: workspace)
+        panelIdResolver.panelId(forSurfaceOrPanelId: surfaceId, inWorkspaceId: workspaceId)
     }
 
     func workspaceHasManualPanelUnread(workspaceId: UUID, panelId: UUID) -> Bool {

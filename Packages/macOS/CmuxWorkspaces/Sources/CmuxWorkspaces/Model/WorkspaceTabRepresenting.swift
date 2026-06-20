@@ -31,6 +31,27 @@ public protocol WorkspaceTabRepresenting: AnyObject, Identifiable where ID == UU
     /// whose title currently fronts the window/process title.
     var focusedPanelId: UUID? { get }
 
+    /// Whether `panelId` is a live panel in the workspace (legacy
+    /// `Workspace.panels[panelId] != nil`). The panel-id resolver uses it to
+    /// decide whether an incoming id is already a panel id or a surface id that
+    /// must be mapped through ``panelId(forSurfaceId:)``. Unlabeled to match the
+    /// sibling ``WorkspaceSurfaceTreeReading/panelExists(_:)`` spelling.
+    ///
+    /// Required (no default): a conformer that omits it must fail to compile
+    /// rather than silently report "no panel" to the ``PanelIdResolver``.
+    func panelExists(_ panelId: UUID) -> Bool
+
+    /// Maps a bonsplit surface id to the owning panel id, or `nil` when the
+    /// surface is not in this workspace (legacy
+    /// `Workspace.panelIdFromSurfaceId(TabID(uuid:))`). Takes a raw `UUID` so
+    /// the bonsplit `TabID` wrapping stays inside the app-target conformer and
+    /// the seam carries no bonsplit dependency, matching the sibling
+    /// ``WorkspaceSurfaceTreeReading/panelId(forSurfaceId:)``.
+    ///
+    /// Required (no default): a conformer that omits it must fail to compile
+    /// rather than silently resolve every surface id to `nil`.
+    func panelId(forSurfaceId surfaceId: UUID) -> UUID?
+
     /// The workspace's per-panel process-reported titles
     /// (legacy `Workspace.panelTitles`). The coordinator reads the focused
     /// panel's entry when re-applying the title on focus change.

@@ -31,6 +31,9 @@ private final class CoordinatorStubTab: WorkspaceTabRepresenting {
     var panelTitles: [UUID: String] = [:]
     func updatePanelTitle(panelId: UUID, title: String) -> Bool { false }
     func applyProcessTitle(_ title: String) {}
+    // This fake never participates in panel-id resolution.
+    func panelExists(_ panelId: UUID) -> Bool { false }
+    func panelId(forSurfaceId surfaceId: UUID) -> UUID? { nil }
 }
 
 /// Window-side stand-in: creates stub workspaces on demand, records every
