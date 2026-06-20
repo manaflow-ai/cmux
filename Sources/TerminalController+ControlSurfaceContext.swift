@@ -193,13 +193,7 @@ extension TerminalController: ControlSurfaceContext {
         if ws.panels[surfaceID] != nil {
             ws.focusPanel(surfaceID)
         } else if ws.containsDockPanel(surfaceID) {
-            let preferredWindow = v2ResolveWindowId(tabManager: tabManager)
-                .flatMap { AppDelegate.shared?.mainWindow(for: $0) }
-            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                mode: .dock,
-                focusFirstItem: false,
-                preferredWindow: preferredWindow
-            )
+            revealDockForFocus(tabManager: tabManager)
             ws.dockSplit.focusPanel(surfaceID)
         } else {
             return .surfaceNotFound(surfaceID)

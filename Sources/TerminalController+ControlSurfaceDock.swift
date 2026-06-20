@@ -1,7 +1,19 @@
+import AppKit
 import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
+    @discardableResult
+    func revealDockForFocus(tabManager: TabManager) -> Bool {
+        let preferredWindow = v2ResolveWindowId(tabManager: tabManager)
+            .flatMap { AppDelegate.shared?.mainWindow(for: $0) }
+        return AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            mode: .dock,
+            focusFirstItem: false,
+            preferredWindow: preferredWindow
+        ) ?? false
+    }
+
     /// Creates a surface (tab) in the workspace's right-sidebar Dock. The Dock
     /// hosts terminal and browser surfaces only; agent-session is unsupported.
     func dockSurfaceCreate(
@@ -18,6 +30,9 @@ extension TerminalController {
         }
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
+        if focus {
+            revealDockForFocus(tabManager: tabManager)
+        }
         let newPanelId = dock.newSurface(
             kind: kind,
             inPane: paneId,

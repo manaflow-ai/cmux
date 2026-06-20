@@ -34,6 +34,9 @@ extension TerminalController {
         }
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
+        if focus {
+            revealDockForFocus(tabManager: tabManager)
+        }
         let newPanelId = dock.newSplit(
             kind: kind,
             orientation: orientation,

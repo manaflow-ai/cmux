@@ -22,6 +22,18 @@ extension Workspace {
         _dockSplit?.containsPanel(panelId) ?? false
     }
 
+    @discardableResult
+    func closeDockPanel(_ panelId: UUID, force: Bool = false) -> Bool {
+        _dockSplit?.closePanel(panelId, force: force) ?? false
+    }
+
+    @discardableResult
+    func closeDockPanelAndClearNotifications(_ panelId: UUID, force: Bool = false) -> Bool {
+        guard closeDockPanel(panelId, force: force) else { return false }
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
+        return true
+    }
+
     func openDockBrowserLinkInNewTab(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
         guard let dock = _dockSplit, let paneId = dock.paneId(forPanelId: panel.id) else { return false }
         return dock.newSurface(
@@ -78,6 +90,7 @@ extension DockSplitStore {
         return panel
     }
 
+    @discardableResult
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
         guard let tabId = surfaceId(forPanelId: panelId) else { return false }
         if force { forceCloseDockTabIds.insert(tabId) }
