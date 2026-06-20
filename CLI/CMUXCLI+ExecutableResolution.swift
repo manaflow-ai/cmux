@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -131,11 +132,19 @@ extension CMUXCLI {
         }
     }
 
+    /// Whether the user passed `--dangerously-skip-permissions` as a real Claude
+    /// *option* (not as prompt text). This gates a trust-boundary decision, so it
+    /// must not treat a token that lands in the prompt as an opt-in: a claude-teams
+    /// prompt can legitimately contain `--dangerously-skip-permissions` after a
+    /// prompt-boundary option (`--tmux`), after `--`, or as another option's value.
+    /// Defer to the claude-teams launch parser's option/prompt-boundary rules, which
+    /// match how Claude itself treats those positions (including options that follow
+    /// the prompt positional).
     func claudeTeamsHasDangerousSkipPermissions(commandArgs: [String]) -> Bool {
-        commandArgs.contains { arg in
-            arg == "--dangerously-skip-permissions"
-                || arg.hasPrefix("--dangerously-skip-permissions=")
-        }
+        AgentLaunchSanitizer.claudeTeamsLaunchHasOption(
+            "--dangerously-skip-permissions",
+            args: commandArgs
+        )
     }
 
     /// Environment the lead `claude` is launched with. CLAUDE_CODE_SANDBOXED skips

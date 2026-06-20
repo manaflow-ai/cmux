@@ -168,6 +168,32 @@ public enum AgentLaunchSanitizer {
 
     /// Preserves restorable `claude-teams` `args` with the Teams policy, keeping routing flags while dropping `--tmux` prompt payloads; returns `nil` for unsafe replay shapes.
     public static func preservedClaudeTeamsLaunchArguments(args: [String]) -> [String]? { preserveOptions(args, policy: claudeTeamsPolicy) }
+
+    /// Whether `option` appears as a real Claude *option* in claude-teams launch
+    /// `args`. Unlike restore preservation, this does NOT stop at the first
+    /// positional — Claude honors options that follow a positional prompt (e.g.
+    /// `claude "do x" --dangerously-skip-permissions` enables bypass mode) — but it
+    /// still treats tokens after `--`, after a prompt-boundary option (`--tmux`), or
+    /// consumed as another option's value as non-options. Use this for trust-boundary
+    /// opt-in decisions so a flag-shaped token inside the prompt is not promoted to
+    /// an option (it would be after `--tmux`/`--` or a value slot).
+    public static func claudeTeamsLaunchHasOption(_ option: String, args: [String]) -> Bool {
+        let policy = claudeTeamsPolicy
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" { return false }
+            if !arg.hasPrefix("-") || arg == "-" {
+                index += 1
+                continue
+            }
+            let name = arg.firstIndex(of: "=").map { String(arg[..<$0]) } ?? arg
+            if policy.promptBoundaryOptions.contains(name) { return false }
+            if arg == option || arg.hasPrefix(option + "=") { return true }
+            index += max(optionWidth(args, index: index, policy: policy), 1)
+        }
+        return false
+    }
     public static func preservedCodexForkArguments(args: [String]) -> [String]? {
         var tail = args
         if let forkCommand = codexForkCommand(in: tail) {
