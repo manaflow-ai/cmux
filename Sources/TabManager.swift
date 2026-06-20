@@ -466,6 +466,15 @@ class TabManager: ObservableObject {
     /// gate — and forwards the legacy `openBrowser`/`newBrowserSplit`/
     /// `newBrowserSurface` entry points.
     let browserOpen = BrowserOpenCoordinator()
+    /// Surface-navigation, terminal-split-creation, and split-operation
+    /// orchestration (CmuxPanes). Owns the `selectedWorkspace`/`tabs.first(where:)`
+    /// resolution + the focused-panel/panel-existence guards + the
+    /// `clearSplitZoom`/`newTerminalSplit` creation sequence the legacy
+    /// `TabManager` surface/split entry points inlined; this window conforms to
+    /// ``SurfaceSplitHosting`` (workspace resolution + the app-side Sentry
+    /// breadcrumb and notification-store clear) and each `Workspace` conforms to
+    /// ``SurfaceSplitWorkspaceHandle``.
+    let surfaceSplit = SurfaceSplitCoordinator()
     /// React Grab toggle resolution + orchestration (CmuxBrowser). Stateless;
     /// each call passes the target workspace as a `ReactGrabWorkspaceContext`.
     let reactGrabController = ReactGrabController()
@@ -641,6 +650,7 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.attach(host: self)
         focusedSurface.attach(host: self)
         browserOpen.attach(host: self)
+        surfaceSplit.attach(host: self)
         surfaceMetadata.attach(titleHost: self)
         // Workspace-list/group/selection storage (CmuxWorkspaces). Attached
         // before the first addWorkspace so the property-observer hooks fire
@@ -3358,34 +3368,31 @@ class TabManager: ObservableObject {
 
     /// Select the next surface in the currently focused pane of the selected workspace
     func selectNextSurface() {
-        selectedWorkspace?.selectNextSurface()
+        surfaceSplit.selectNextSurface()
     }
 
     /// Select the previous surface in the currently focused pane of the selected workspace
     func selectPreviousSurface() {
-        selectedWorkspace?.selectPreviousSurface()
+        surfaceSplit.selectPreviousSurface()
     }
 
     /// Select a surface by index in the currently focused pane of the selected workspace
     func selectSurface(at index: Int) {
-        selectedWorkspace?.selectSurface(at: index)
+        surfaceSplit.selectSurface(at: index)
     }
 
     /// Select the last surface in the currently focused pane of the selected workspace
     func selectLastSurface() {
-        selectedWorkspace?.selectLastSurface()
+        surfaceSplit.selectLastSurface()
     }
 
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
-        // Cmd+T should always focus the newly created surface.
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        surfaceSplit.newSurface()
     }
 
     func newSurface(initialInput: String) {
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+        surfaceSplit.newSurface(initialInput: initialInput)
     }
 
     // MARK: - Split Creation
@@ -3393,20 +3400,13 @@ class TabManager: ObservableObject {
     /// Create a new split in the current tab
     @discardableResult
     func createSplit(direction: SplitDirection) -> UUID? {
-        guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }),
-              let focusedPanelId = tab.focusedPanelId else { return nil }
-        return createSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
+        surfaceSplit.createSplit(direction: direction)
     }
 
     /// Create a new split from an explicit source panel.
     @discardableResult
     func createSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
-        guard let tab = tabs.first(where: { $0.id == tabId }),
-              tab.panels[surfaceId] != nil else { return nil }
-        tab.clearSplitZoom()
-        sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
-        return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
+        surfaceSplit.createSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
     }
 
     /// Create a new browser split from the currently focused panel.
@@ -3659,11 +3659,10 @@ class TabManager: ObservableObject {
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil
     ) -> UUID? {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newTerminalSplit(
-            from: surfaceId,
-            orientation: direction.orientation,
-            insertFirst: direction.insertFirst,
+        surfaceSplit.newSplit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            direction: direction,
             focus: focus,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
@@ -3671,60 +3670,33 @@ class TabManager: ObservableObject {
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID
-        )?.id
+        )
     }
 
     /// Move focus in the specified direction
     func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: NavigationDirection) -> Bool {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        tab.moveFocus(direction: direction)
-        return true
+        surfaceSplit.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
     }
 
     /// Resize split - not directly supported by bonsplit, but we can adjust divider positions
     func resizeSplit(tabId: UUID, surfaceId: UUID, direction: ResizeDirection, amount: UInt16) -> Bool {
-        guard amount > 0,
-              let tab = tabs.first(where: { $0.id == tabId }),
-              let paneId = tab.paneId(forPanelId: surfaceId) else { return false }
-
-        let paneUUID = paneId.id
-        guard tab.bonsplitController.allPaneIds.contains(where: { $0.id == paneUUID }) else {
-            return false
-        }
-
-        return paneLayout.resizeSplit(
-            in: tab.bonsplitController.treeSnapshot(),
-            targetPaneId: paneUUID.uuidString,
-            direction: direction,
-            amountPixels: amount,
-            controller: tab.bonsplitController
-        )
+        surfaceSplit.resizeSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, amount: amount)
     }
 
     /// Toggle zoom on a panel.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        return tab.toggleSplitZoom(panelId: surfaceId)
+        surfaceSplit.toggleSplitZoom(tabId: tabId, surfaceId: surfaceId)
     }
 
     /// Toggle zoom for the currently focused panel in the selected workspace.
     @discardableResult
     func toggleFocusedSplitZoom() -> Bool {
-        guard let tab = selectedWorkspace,
-              let focusedPanelId = tab.focusedPanelId else { return false }
-        return tab.toggleSplitZoom(panelId: focusedPanelId)
+        surfaceSplit.toggleFocusedSplitZoom()
     }
 
     /// Close a surface/panel
     func closeSurface(tabId: UUID, surfaceId: UUID) -> Bool {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        // Guard against stale close callbacks (e.g. child-exit can trigger multiple actions).
-        // A stale callback must never affect unrelated panels/workspaces.
-        guard tab.panels[surfaceId] != nil,
-              tab.surfaceIdFromPanelId(surfaceId) != nil else { return false }
-        tab.closePanel(surfaceId)
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tabId, surfaceId: surfaceId)
-        return true
+        surfaceSplit.closeSurface(tabId: tabId, surfaceId: surfaceId)
     }
 
     /// Create a new browser panel in a split. Forwards to the `CmuxBrowser`

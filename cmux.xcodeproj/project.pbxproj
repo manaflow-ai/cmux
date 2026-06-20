@@ -791,6 +791,7 @@
 		E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */; };
 		E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */; };
 		C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */; };
+		E3CF00000000000000000001 /* TabManager+SurfaceSplitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CF00000000000000000002 /* TabManager+SurfaceSplitHosting.swift */; };
 		604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000008 /* TabManager+WindowTitle.swift */; };
 		E3CA00000000000000000001 /* TabManager+WorkspaceCommandHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CA00000000000000000002 /* TabManager+WorkspaceCommandHosting.swift */; };
 		E3CE00000000000000000001 /* TabManager+WorkspaceCreationHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CE00000000000000000002 /* TabManager+WorkspaceCreationHosting.swift */; };
@@ -946,6 +947,7 @@
 		E3B7A4000000000000000D10 /* Workspace+SplitDetachHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */; };
 		E3B7A4000000000000000A10 /* Workspace+SplitMoveReorderHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */; };
 		E3B7A40000000000000005C0 /* Workspace+SurfaceLifecycleHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */; };
+		E3D000000000000000000001 /* Workspace+SurfaceSplitWorkspaceHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D000000000000000000002 /* Workspace+SurfaceSplitWorkspaceHandle.swift */; };
 		E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */; };
@@ -1790,6 +1792,7 @@
 		E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusHistoryHosting.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NotificationDismissalHosting.swift"; sourceTree = "<group>"; };
 		C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SidebarGitHosting.swift"; sourceTree = "<group>"; };
+		E3CF00000000000000000002 /* TabManager+SurfaceSplitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SurfaceSplitHosting.swift"; sourceTree = "<group>"; };
 		604500100000000000000008 /* TabManager+WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WindowTitle.swift"; sourceTree = "<group>"; };
 		E3CA00000000000000000002 /* TabManager+WorkspaceCommandHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCommandHosting.swift"; sourceTree = "<group>"; };
 		E3CE00000000000000000002 /* TabManager+WorkspaceCreationHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCreationHosting.swift"; sourceTree = "<group>"; };
@@ -1945,6 +1948,7 @@
 		E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitDetachHosting.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitMoveReorderHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceLifecycleHosting.swift"; sourceTree = "<group>"; };
+		E3D000000000000000000002 /* Workspace+SurfaceSplitWorkspaceHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceSplitWorkspaceHandle.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceSurfaceTreeReading.swift"; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionDispatcher.swift; sourceTree = "<group>"; };
@@ -2405,6 +2409,8 @@
 				E3CA00000000000000000002 /* TabManager+WorkspaceCommandHosting.swift */,
 				E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */,
 				E3CD00000000000000000002 /* Workspace+BrowserOpenWorkspaceHandle.swift */,
+				E3CF00000000000000000002 /* TabManager+SurfaceSplitHosting.swift */,
+				E3D000000000000000000002 /* Workspace+SurfaceSplitWorkspaceHandle.swift */,
 				E3CB00000000000000000002 /* TabManager+WorkspaceSelectionHosting.swift */,
 				E3CE00000000000000000002 /* TabManager+WorkspaceCreationHosting.swift */,
 				E3B7A40000000000000000F1 /* TabManager+FocusedSurfaceHosting.swift */,
@@ -3993,6 +3999,7 @@
 				E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */,
 				E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */,
 				C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */,
+				E3CF00000000000000000001 /* TabManager+SurfaceSplitHosting.swift in Sources */,
 				604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */,
 				E3CA00000000000000000001 /* TabManager+WorkspaceCommandHosting.swift in Sources */,
 				E3CE00000000000000000001 /* TabManager+WorkspaceCreationHosting.swift in Sources */,
@@ -4118,6 +4125,7 @@
 				E3B7A4000000000000000D10 /* Workspace+SplitDetachHosting.swift in Sources */,
 				E3B7A4000000000000000A10 /* Workspace+SplitMoveReorderHosting.swift in Sources */,
 				E3B7A40000000000000005C0 /* Workspace+SurfaceLifecycleHosting.swift in Sources */,
+				E3D000000000000000000001 /* Workspace+SurfaceSplitWorkspaceHandle.swift in Sources */,
 				E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */,
 				A5001406 /* Workspace.swift in Sources */,
 				7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */,
