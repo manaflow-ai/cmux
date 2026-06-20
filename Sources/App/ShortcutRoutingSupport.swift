@@ -531,7 +531,6 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
 private let ghosttyTerminalOwnedShortcutsBeforeAppShortcut = [
     StoredShortcut(first: ShortcutStroke(key: "k", command: true, shift: false, option: false, control: false)),
     StoredShortcut(first: ShortcutStroke(key: "a", command: true, shift: false, option: false, control: false)),
-    StoredShortcut(first: ShortcutStroke(key: "t", command: true, shift: true, option: false, control: false)),
     StoredShortcut(first: ShortcutStroke(key: "z", command: true, shift: false, option: false, control: false)),
     StoredShortcut(first: ShortcutStroke(key: "z", command: true, shift: true, option: false, control: false)),
     StoredShortcut(first: ShortcutStroke(key: "j", command: true, shift: false, option: false, control: false)),

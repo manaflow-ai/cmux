@@ -6574,7 +6574,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(menuProbe.callCount, 0, "The app menu must not steal Ghostty's Cmd+Shift+G binding")
     }
 
-    func testFocusHistoryShortcutsStayAppOwnedWhenTerminalFocused() {
+    func testAppOwnedShortcutsStayAppOwnedWhenTerminalFocused() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -6605,16 +6605,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Expected terminal surface to own first responder before focus history shortcuts"
         )
 
-        let cases: [(KeyboardShortcutSettings.Action, String, UInt16)] = [
-            (.focusHistoryBack, "[", 33),
-            (.focusHistoryForward, "]", 30),
+        let cases: [(KeyboardShortcutSettings.Action, String, NSEvent.ModifierFlags, UInt16)] = [
+            (.focusHistoryBack, "[", [.command], 33),
+            (.focusHistoryForward, "]", [.command], 30),
+            (.reopenClosedBrowserPanel, "T", [.command, .shift], 17),
         ]
 
-        for (action, key, keyCode) in cases {
+        for (action, key, modifiers, keyCode) in cases {
             withTemporaryShortcut(action: action) {
                 guard let event = makeKeyDownEvent(
                     key: key,
-                    modifiers: [.command],
+                    modifiers: modifiers,
                     keyCode: keyCode,
                     windowNumber: window.windowNumber
                 ) else {
