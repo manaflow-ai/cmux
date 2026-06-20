@@ -25,6 +25,11 @@ let package = Package(
         .package(path: "../CmuxSettings"),
         // Bonsplit drives the Window/ tmux pane-overlay geometry.
         .package(path: "../../../vendor/bonsplit"),
+        // CmuxPanes owns the split-tree geometry recursions
+        // (browserPathToPane/browserCollectPaneNodes/
+        // browserCollectNormalizedPaneBounds/splitIdJoiningPanes) the
+        // SurfaceLifecycle/ resolvers compute over.
+        .package(path: "../CmuxPanes"),
         // CMUXDebugLog backs the Session/ snapshot-restore logging.
         .package(path: "../CMUXDebugLog"),
         // CmuxTestSupport backs FileOpen/ PreferredEditorService UI-test capture.
@@ -41,6 +46,7 @@ let package = Package(
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "Bonsplit", package: "bonsplit"),
+                .product(name: "CmuxPanes", package: "CmuxPanes"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
                 .product(name: "CmuxWindowing", package: "CmuxWindowing"),
@@ -57,6 +63,7 @@ let package = Package(
                 "CmuxWorkspaces",
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "Bonsplit", package: "bonsplit"),
+                .product(name: "CmuxPanes", package: "CmuxPanes"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
                 .product(name: "CmuxWindowing", package: "CmuxWindowing"),
             ],
