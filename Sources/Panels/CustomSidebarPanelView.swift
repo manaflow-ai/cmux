@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar
@@ -14,6 +15,7 @@ struct CustomSidebarPanelView: View {
     let isFocused: Bool
     let isVisibleInUI: Bool
     let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
     let onRequestPanelFocus: () -> Void
 
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
@@ -39,7 +41,8 @@ struct CustomSidebarPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: appearance.backgroundColor))
+        .background(sidebarBackdrop)
+        .environment(\.colorScheme, windowAppearance.sidebarContentColorScheme)
         .background(
             RightSidebarToolFocusAnchor(onViewChange: panel.attachFocusAnchor)
                 .frame(width: 0, height: 0)
@@ -64,6 +67,14 @@ struct CustomSidebarPanelView: View {
         .onDisappear {
             shutdownRenderWorkerClient()
         }
+    }
+
+    private var sidebarBackdrop: some View {
+        ZStack {
+            Color(nsColor: appearance.backgroundColor)
+            WindowBackdropLayer(role: .rightSidebar, snapshot: windowAppearance)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: windowAppearance.sidebarSettings.materialPolicy.cornerRadius, style: .continuous))
     }
 
     private func shutdownRenderWorkerClient() {

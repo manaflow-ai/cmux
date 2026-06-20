@@ -2,6 +2,7 @@ import SwiftUI
 import Foundation
 import Bonsplit
 import AppKit
+import CmuxAppKitSupportUI
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
@@ -14,6 +15,7 @@ struct PanelContentView: View {
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
     let customSidebarTabManager: TabManager?
     let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
@@ -105,6 +107,7 @@ struct PanelContentView: View {
                         isFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         appearance: appearance,
+                        windowAppearance: windowAppearance,
                         onRequestPanelFocus: onRequestPanelFocus
                     )
                 }

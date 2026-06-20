@@ -1803,6 +1803,7 @@ struct ContentView: View {
                         isWorkspaceInputActive: isInputActive,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
+                        windowAppearance: appearance,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
                                 workspaceId: tab.id,
