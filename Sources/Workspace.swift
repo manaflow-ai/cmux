@@ -3301,7 +3301,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
     private var suppressClosedPanelHistory = false
-    private var tabStripCloseTabIds = Set<TabID>(), tabCloseButtonCloseTabIds = Set<TabID>()
+    private enum TabStripCloseSource { case closeButton, middleClick }
+    private var tabStripCloseSources: [TabID: TabStripCloseSource] = [:]
     /// Deterministic tab selection to apply after a tab closes, keyed by closing tab ID.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
     private var postCloseClearSplitZoomTabIds: Set<TabID> = []
@@ -3472,12 +3473,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
     func markTabCloseButtonClose(surfaceId: TabID) {
         explicitUserCloseTabIds.insert(surfaceId)
-        tabStripCloseTabIds.insert(surfaceId)
-        tabCloseButtonCloseTabIds.insert(surfaceId)
+        tabStripCloseSources[surfaceId] = .closeButton
     }
     func markTabStripMiddleClickClose(surfaceId: TabID) {
         markExplicitClose(surfaceId: surfaceId)
-        tabStripCloseTabIds.insert(surfaceId)
+        tabStripCloseSources[surfaceId] = .middleClick
     }
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
         paneTree.surfaceId(forPanelId: panelId)
@@ -11597,9 +11597,10 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        let tabStripClose = tabStripCloseTabIds.remove(tab.id) != nil
-        let tabCloseButtonClose = tabCloseButtonCloseTabIds.remove(tab.id) != nil
-        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabStripClose || tabCloseButtonClose
+        let tabStripCloseSource = tabStripCloseSources.removeValue(forKey: tab.id)
+        let tabStripClose = tabStripCloseSource != nil
+        let tabCloseButtonClose = tabStripCloseSource == .closeButton
+        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabStripClose
 
         // Remote tmux mirror: closing a window tab means "kill that tmux window".
         // Route ANY non-programmatic close (close button, ⌘W, and batch closes
@@ -11749,7 +11750,7 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id, tabStripClose: tabStripClose || tabCloseButtonClose) {
+        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id, tabStripClose: tabStripClose) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
             if tabCloseButtonClose {
@@ -11826,8 +11827,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
-        tabStripCloseTabIds.remove(tabId)
-        tabCloseButtonCloseTabIds.remove(tabId)
+        tabStripCloseSources.removeValue(forKey: tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
