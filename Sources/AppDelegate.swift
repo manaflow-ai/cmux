@@ -1504,6 +1504,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         schemaVersion: SessionSnapshotSchema.currentVersion,
         bundleIdentifier: Bundle.main.bundleIdentifier
     )
+    /// Session-snapshot + primary-window-geometry write coordinator
+    /// (CmuxWorkspaces); composition-root owned. Owns the serial persistence
+    /// queue and sequences the geometry write and the snapshot write into one
+    /// block, exactly as the legacy `persistSessionSnapshot` write block did.
+    /// Reuses the held ``sessionSnapshotStore`` so the snapshot file store has a
+    /// single owner; the persistor value is `Sendable` and the queued write
+    /// block it dispatches captures only `Sendable` values, so it is only
+    /// accessed from the main-actor `persistSessionSnapshot`.
+    private lazy var sessionSnapshotPersistor = SessionSnapshotPersistor(
+        snapshotStore: sessionSnapshotStore,
+        geometryStore: Self.windowGeometryStore,
+        geometryDefaults: .standard,
+        queue: sessionPersistenceQueue
+    )
     /// External-open URL classifier (CmuxWorkspaces); composition-root owned.
     /// The deep-link/services shims forward the pure URL-shaping rules here,
     /// injecting `Bundle.main.bundleURL` and the app-target
@@ -3423,26 +3437,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         persistedGeometryData: Data?,
         synchronously: Bool
     ) {
-        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
-
-        let writeBlock = {
-            if let persistedGeometryData {
-                Self.windowGeometryStore.saveEncoded(persistedGeometryData, defaults: .standard)
-            } else {
-                Self.windowGeometryStore.removeLegacy(defaults: .standard)
-            }
-            if let snapshot {
-                _ = self.sessionSnapshotStore.save(snapshot, fileURL: nil)
-            } else if removeWhenEmpty {
-                self.sessionSnapshotStore.removeSnapshot(fileURL: nil)
-            }
-        }
-
-        if synchronously {
-            writeBlock()
-        } else {
-            sessionPersistenceQueue.async(execute: writeBlock)
-        }
+        sessionSnapshotPersistor.persist(
+            snapshot,
+            removeWhenEmpty: removeWhenEmpty,
+            persistedGeometryData: persistedGeometryData,
+            synchronously: synchronously
+        )
     }
 
     func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
