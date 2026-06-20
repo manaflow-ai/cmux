@@ -9,7 +9,7 @@
 11411	Sources/Panels/BrowserPanel.swift
 11127	Sources/GhosttyTerminalView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-8496	Sources/TerminalController.swift
+8487	Sources/TerminalController.swift
 7988	Sources/Panels/BrowserPanelView.swift
 7303	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
