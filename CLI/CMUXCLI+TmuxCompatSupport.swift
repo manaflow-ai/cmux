@@ -73,22 +73,46 @@ extension CMUXCLI {
         "local", "readonly", "let", "trap",
     ]
 
-    /// Top-level shell control/redirection operators. Their presence (as a
-    /// whitespace-separated token) means the command is a shell expression rather
-    /// than a single program invocation.
-    static let tmuxShellControlOperators: Set<String> = [
-        "&&", "||", ";", ";;", "|", "|&", "&", ">", ">>", "<",
-        "<<", "<<<", "2>", "2>>", "2>&1", ">&", "<&", "&>", "&>>",
+    /// Unquoted shell metacharacters that make a command a shell expression
+    /// (control operators, pipes, redirections, substitutions, multi-line)
+    /// rather than a single program invocation. Detected at the character level
+    /// so operators without surrounding whitespace (`a&&b`, `a;b`) are caught.
+    static let tmuxShellMetacharacters: Set<Character> = [
+        "&", "|", ";", "<", ">", "$", "`", "\n",
     ]
 
     /// Whether a tmux shell-command must run through a shell rather than being
     /// exec'd directly. True when it starts with a shell builtin (e.g. `cd`) or
-    /// contains a top-level control operator (e.g. `&&`).
+    /// contains an unquoted shell metacharacter (e.g. `&&`, `;`, `$`).
     func tmuxCommandRequiresLoginShell(_ command: String) -> Bool {
-        let words = tmuxShellWords(command)
-        guard let first = words.first else { return false }
-        if Self.tmuxShellExecBuiltins.contains(first) { return true }
-        return words.contains { Self.tmuxShellControlOperators.contains($0) }
+        if let first = tmuxShellWords(command).first, Self.tmuxShellExecBuiltins.contains(first) {
+            return true
+        }
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        var escaping = false
+        for character in command {
+            if escaping {
+                escaping = false
+                continue
+            }
+            if character == "\\" && !inSingleQuote {
+                escaping = true
+                continue
+            }
+            if character == "'" && !inDoubleQuote {
+                inSingleQuote.toggle()
+                continue
+            }
+            if character == "\"" && !inSingleQuote {
+                inDoubleQuote.toggle()
+                continue
+            }
+            if !inSingleQuote, !inDoubleQuote, Self.tmuxShellMetacharacters.contains(character) {
+                return true
+            }
+        }
+        return false
     }
 
     /// Returns a pane start-command that the surface can exec correctly.
@@ -101,15 +125,16 @@ extension CMUXCLI {
     /// — makes `exec -l cd …` try to exec the `cd` builtin as a binary; it fails
     /// and the pane exits before the real command runs, so Claude Code 2.1.183
     /// teammates never opened a split pane (issue #6447). Such commands are
-    /// rewritten to run through `/bin/zsh -lc`, matching real tmux's `$SHELL -c`
-    /// semantics, so Ghostty execs the shell rather than a builtin/expression.
+    /// rewritten to run through `${SHELL:-/bin/zsh} -lc` (the user's shell,
+    /// resolved when Ghostty execs the wrapper), matching real tmux's `$SHELL -c`
+    /// semantics so Ghostty execs the shell rather than a builtin/expression.
     /// Commands that are already a single executable (including the
     /// `/bin/sh -c "…"` form OMO uses) are returned unchanged so they are not
     /// needlessly double-wrapped.
     func tmuxShellInvokedStartCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, tmuxCommandRequiresLoginShell(trimmed) else { return command }
-        return "/bin/zsh -lc \(tmuxShellQuote(trimmed))"
+        return "${SHELL:-/bin/zsh} -lc \(tmuxShellQuote(trimmed))"
     }
 
     func tmuxShellWords(_ commandText: String) -> [String] {

@@ -73,18 +73,35 @@ import Testing
         #expect(!result.stderr.contains("already applied"), Comment(rawValue: result.stderr))
     }
 
-    /// Regression for #6447: Claude Code 2.1.183 launches agent-team teammates by
-    /// creating a placeholder pane (`split-window -- cat`) and then running the real
-    /// teammate command via `respawn-pane -k -- "cd <dir> && env … <claude> …"`. cmux
-    /// forwards that command to the surface as the pane's process command. On macOS,
-    /// Ghostty execs the surface command via `exec -l <command>` (ghostty
-    /// src/termio/Exec.zig), which only works for a single executable — a bare shell
-    /// expression like `cd … && … claude` makes it try to exec the `cd` builtin as a
-    /// binary, the pane exits immediately, and the teammate never gets a visible pane
-    /// (it falls back to in-process). The fix runs the command through a login shell so
-    /// Ghostty execs the shell, not the expression. `tmux_start_command` must stay the
-    /// raw command so `#{pane_start_command}` / OMX-HUD detection keep reporting it.
-    @Test func respawnPaneRunsShellCommandThroughLoginShell() throws {
+    private final class CapturedRespawn: @unchecked Sendable {
+        private let lock = NSLock()
+        private var commandValue: String?
+        private var startCommandValue: String?
+
+        func record(command: String?, startCommand: String?) {
+            lock.lock()
+            commandValue = command
+            startCommandValue = startCommand
+            lock.unlock()
+        }
+
+        var command: String? {
+            lock.lock(); defer { lock.unlock() }
+            return commandValue
+        }
+
+        var startCommand: String? {
+            lock.lock(); defer { lock.unlock() }
+            return startCommandValue
+        }
+    }
+
+    /// Drives `__tmux-compat respawn-pane -k -- <command>` against a mock socket
+    /// and returns the `command` / `tmux_start_command` forwarded to
+    /// `surface.respawn`.
+    private func respawnPaneForwardedCommand(
+        _ command: String
+    ) throws -> (command: String, startCommand: String) {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITmuxCompatRemoteSplitBundleToken.self)
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-tmux-compat-respawn-\(UUID().uuidString)", isDirectory: true)
@@ -100,13 +117,13 @@ import Testing
 
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
-        let teammateCommand = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"
+        let captured = CapturedRespawn()
         let state = ServerState()
-        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = Self.jsonObject(line),
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { reqLine in
+            guard let payload = Self.jsonObject(reqLine),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
-                return Self.malformedRequestResponse(raw: line)
+                return Self.malformedRequestResponse(raw: reqLine)
             }
             switch method {
             case "surface.list":
@@ -115,19 +132,9 @@ import Testing
                 ])
             case "surface.respawn":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                let command = params["command"] as? String ?? ""
-                let startCommand = params["tmux_start_command"] as? String ?? ""
-                state.expect(
-                    command.hasPrefix("/bin/zsh -lc "),
-                    "surface.respawn command must run through a login shell so Ghostty `exec -l` execs the shell, got: \(command)"
-                )
-                state.expect(
-                    command.contains(teammateCommand),
-                    "shell-invoked command must carry the original teammate command verbatim, got: \(command)"
-                )
-                state.expect(
-                    startCommand == teammateCommand,
-                    "tmux_start_command must stay the raw command for display/OMX detection, got: \(startCommand)"
+                captured.record(
+                    command: params["command"] as? String,
+                    startCommand: params["tmux_start_command"] as? String
                 )
                 return Self.v2Response(id: id, ok: true, result: [:])
             default:
@@ -137,7 +144,7 @@ import Testing
 
         let result = Self.runProcess(
             executablePath: cliPath,
-            arguments: ["__tmux-compat", "respawn-pane", "-k", "--", teammateCommand],
+            arguments: ["__tmux-compat", "respawn-pane", "-k", "--", command],
             environment: [
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_WORKSPACE_ID": workspaceId,
@@ -152,6 +159,70 @@ import Testing
         #expect(state.errorSnapshot() == [])
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
+        guard let forwarded = captured.command, let startCommand = captured.startCommand else {
+            throw CLITmuxCompatRespawnTestError.noRespawnCommand
+        }
+        return (forwarded, startCommand)
+    }
+
+    /// Regression for #6447: Claude Code 2.1.183 launches agent-team teammates by
+    /// creating a placeholder pane (`split-window -- cat`) and then running the real
+    /// teammate command via `respawn-pane -k -- "cd <dir> && env … <claude> …"`. cmux
+    /// forwards that command to the surface as the pane's process command. On macOS,
+    /// Ghostty execs the surface command via `exec -l <command>` (ghostty
+    /// src/termio/Exec.zig), which only works for a single executable — a bare shell
+    /// expression like `cd … && … claude` makes it try to exec the `cd` builtin as a
+    /// binary, the pane exits immediately, and the teammate never gets a visible pane
+    /// (it falls back to in-process). The fix runs shell-expression commands through a
+    /// login shell so Ghostty execs the shell, not the expression, while leaving
+    /// single-executable commands untouched. `tmux_start_command` stays the raw
+    /// command so `#{pane_start_command}` / OMX-HUD detection keep reporting it.
+    @Test func respawnPaneRunsShellExpressionsThroughLoginShell() throws {
+        let shellPrefix = "${SHELL:-/bin/zsh} -lc "
+
+        // Claude Code teammate command: spaced `cd … && … claude` shell expression.
+        let teammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"
+        let teammateResult = try respawnPaneForwardedCommand(teammate)
+        #expect(
+            teammateResult.command.hasPrefix(shellPrefix),
+            "teammate command must run through a login shell, got: \(teammateResult.command)"
+        )
+        #expect(
+            teammateResult.command.contains(teammate),
+            "shell-invoked command must carry the original command verbatim, got: \(teammateResult.command)"
+        )
+        #expect(
+            teammateResult.startCommand == teammate,
+            "tmux_start_command must stay the raw command for display/OMX detection, got: \(teammateResult.startCommand)"
+        )
+
+        // Operator without surrounding whitespace must still be detected as a shell
+        // expression and wrapped.
+        let noSpaceOperator = try respawnPaneForwardedCommand("echo one;echo two")
+        #expect(
+            noSpaceOperator.command.hasPrefix(shellPrefix),
+            "non-whitespace-separated operator must still be wrapped, got: \(noSpaceOperator.command)"
+        )
+
+        // A single executable (with args) execs directly, so it is forwarded
+        // unchanged rather than needlessly wrapped.
+        let plainExecutable = try respawnPaneForwardedCommand("/opt/claude --resume abc --model sonnet")
+        #expect(
+            plainExecutable.command == "/opt/claude --resume abc --model sonnet",
+            "single executable must be forwarded unchanged, got: \(plainExecutable.command)"
+        )
+
+        // The `/bin/sh -c "…"` form (used by OMO) is already a single executable, so
+        // its inner operators stay quoted and the command is forwarded unchanged.
+        let alreadyShellInvoked = try respawnPaneForwardedCommand("/bin/sh -c \"opencode attach; sleep 1\"")
+        #expect(
+            alreadyShellInvoked.command == "/bin/sh -c \"opencode attach; sleep 1\"",
+            "already-shell-invoked command must not be double-wrapped, got: \(alreadyShellInvoked.command)"
+        )
+    }
+
+    private enum CLITmuxCompatRespawnTestError: Error {
+        case noRespawnCommand
     }
 
     private final class CLITmuxCompatRemoteSplitBundleToken {}
