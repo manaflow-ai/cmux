@@ -22,6 +22,8 @@ let package = Package(
         .package(path: "../CmuxSettings"),
         // CMUXDebugLog backs the ReleasingWindowController close-teardown logging.
         .package(path: "../CMUXDebugLog"),
+        // Bonsplit renders the live tab bars in the Tab Bar Backdrop Lab samples.
+        .package(path: "../../../vendor/bonsplit"),
     ],
     targets: [
         .target(
@@ -32,6 +34,7 @@ let package = Package(
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+                .product(name: "Bonsplit", package: "bonsplit"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

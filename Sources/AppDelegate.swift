@@ -519,7 +519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         aboutPanelStrings: Self.aboutPanelStrings,
         acknowledgmentsStrings: Self.acknowledgmentsStrings,
         browserDebugContext: self,
-        tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView()) },
+        tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView(inputs: AppDelegate.tabBarBackdropLabInputs)) },
         sidebarDebugContentProvider: {
             NSHostingView(rootView: SidebarDebugView(
                 accentColor: { cmuxAccentColor() },
@@ -537,7 +537,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         aboutPanelStrings: Self.aboutPanelStrings,
         acknowledgmentsStrings: Self.acknowledgmentsStrings,
         browserDebugContext: self,
-        tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView()) },
+        tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView(inputs: AppDelegate.tabBarBackdropLabInputs)) },
         sidebarDebugContentProvider: {
             NSHostingView(rootView: SidebarDebugView(
                 accentColor: { cmuxAccentColor() },
@@ -571,6 +571,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AcknowledgmentsStrings(
             windowTitle: String(localized: "about.licenses.windowTitle", defaultValue: "Third-Party Licenses"),
             notFound: String(localized: "about.licenses.notFound", defaultValue: "Licenses file not found.")
+        )
+    }
+    /// Snapshot of the live backdrop tuning the package-owned Tab Bar Backdrop Lab
+    /// previews. Captures the running terminal's default background color/opacity
+    /// (`GhosttyApp.shared`) and the production split-button backdrop config
+    /// (`Workspace`) at the moment the panel content is (re)built, matching the
+    /// timing of the former in-view reads. The lab view itself lives in
+    /// `CmuxAppKitSupportUI` and holds no reference to these app-target types.
+    static var tabBarBackdropLabInputs: TabBarBackdropLabInputs {
+        TabBarBackdropLabInputs(
+            defaultBackgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            defaultBackgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+            productionBackdropSoftness: Workspace.bonsplitSplitButtonBackdropSoftness,
+            productionBackdropEffect: Workspace.bonsplitSplitButtonBackdropEffect(),
+            tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight
         )
     }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
