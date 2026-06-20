@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Bonsplit
 import Testing
 @testable import CmuxWorkspaces
 
@@ -123,5 +124,227 @@ struct SurfaceRegistryModelTests {
 
         #expect(model.surfaceTTYNames == [kept: "/dev/ttys001"])
         #expect(model.panelShellActivityStates == [kept: .commandRunning])
+    }
+}
+
+/// A minimal in-memory ``SurfaceRegistryHosting`` modeling a single pane of
+/// bonsplit tabs plus the panel-id ↔ surface-id mapping and per-panel
+/// display-title / kind, so the lifted title/pin/kind logic can be exercised
+/// without the app target.
+@MainActor
+private final class FakeSurfaceRegistryHost: SurfaceRegistryHosting {
+    let paneId = PaneID()
+    var tabs: [Bonsplit.Tab] = []
+    var panelToSurface: [UUID: TabID] = [:]
+    var displayTitles: [UUID: String] = [:]
+    var kinds: [UUID: String] = [:]
+    var isRemoteTmuxMirror = false
+    var mirrorRenames: [(panelId: UUID, title: String)] = []
+
+    func register(panelId: UUID, displayTitle: String, kind: String, tab: Bonsplit.Tab) {
+        panelToSurface[panelId] = tab.id
+        displayTitles[panelId] = displayTitle
+        kinds[panelId] = kind
+        tabs.append(tab)
+    }
+
+    private func surfaceToPanel(_ surfaceId: TabID) -> UUID? {
+        panelToSurface.first(where: { $0.value == surfaceId })?.key
+    }
+
+    private func updateTab(_ tabId: TabID, _ transform: (Bonsplit.Tab) -> Bonsplit.Tab) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        tabs[index] = transform(tabs[index])
+    }
+
+    func surfaceRegistryPanelExists(_ panelId: UUID) -> Bool { displayTitles[panelId] != nil }
+    func surfaceRegistryPanelDisplayTitle(panelId: UUID) -> String? { displayTitles[panelId] }
+    func surfaceRegistryPanelKind(panelId: UUID) -> String? { kinds[panelId] }
+    func surfaceRegistrySurfaceId(forPanelId panelId: UUID) -> TabID? { panelToSurface[panelId] }
+    func surfaceRegistryPanelId(forSurfaceId surfaceId: TabID) -> UUID? { surfaceToPanel(surfaceId) }
+    func surfaceRegistryPaneId(forPanelId panelId: UUID) -> PaneID? {
+        panelToSurface[panelId] == nil ? nil : paneId
+    }
+    func surfaceRegistryTab(_ tabId: TabID) -> Bonsplit.Tab? { tabs.first(where: { $0.id == tabId }) }
+    func surfaceRegistryTabs(inPane paneId: PaneID) -> [Bonsplit.Tab] {
+        paneId == self.paneId ? tabs : []
+    }
+    func surfaceRegistryReorderTab(_ tabId: TabID, toIndex index: Int) -> Bool {
+        guard let from = tabs.firstIndex(where: { $0.id == tabId }), index >= 0, index < tabs.count else { return false }
+        let tab = tabs.remove(at: from)
+        tabs.insert(tab, at: index)
+        return true
+    }
+    func surfaceRegistryUpdateTab(_ tabId: TabID, title: String, hasCustomTitle: Bool) {
+        updateTab(tabId) { tab in
+            Bonsplit.Tab(id: tab.id, title: title, hasCustomTitle: hasCustomTitle, kind: tab.kind, isPinned: tab.isPinned)
+        }
+    }
+    func surfaceRegistryUpdateTab(_ tabId: TabID, kind: String, isPinned: Bool) {
+        updateTab(tabId) { tab in
+            Bonsplit.Tab(id: tab.id, title: tab.title, hasCustomTitle: tab.hasCustomTitle, kind: kind, isPinned: isPinned)
+        }
+    }
+    func surfaceRegistryUpdateTab(_ tabId: TabID, isPinned: Bool) {
+        updateTab(tabId) { tab in
+            Bonsplit.Tab(id: tab.id, title: tab.title, hasCustomTitle: tab.hasCustomTitle, kind: tab.kind, isPinned: isPinned)
+        }
+    }
+    var surfaceRegistryIsRemoteTmuxMirror: Bool { isRemoteTmuxMirror }
+    func surfaceRegistryHandleMirrorWindowRenamed(panelId: UUID, title: String) {
+        mirrorRenames.append((panelId, title))
+    }
+}
+
+@MainActor
+@Suite("SurfaceRegistryModel title / pin / kind")
+struct SurfaceRegistryModelPanelAccessTests {
+    private struct StubRequest: Equatable { let token: Int }
+
+    private func make() -> (SurfaceRegistryModel<StubRequest>, FakeSurfaceRegistryHost) {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let host = FakeSurfaceRegistryHost()
+        model.attach(host: host)
+        return (model, host)
+    }
+
+    @Test("resolvedPanelTitle prefers a non-empty custom title, else trimmed fallback, else Tab")
+    func resolvedPanelTitleTiers() {
+        let (model, _) = make()
+        let panel = UUID()
+        #expect(model.resolvedPanelTitle(panelId: panel, fallback: "  ") == "Tab")
+        #expect(model.resolvedPanelTitle(panelId: panel, fallback: "  zsh ") == "zsh")
+        model.panelCustomTitles[panel] = "  Custom  "
+        #expect(model.resolvedPanelTitle(panelId: panel, fallback: "zsh") == "Custom")
+        model.panelCustomTitles[panel] = "   "
+        #expect(model.resolvedPanelTitle(panelId: panel, fallback: "zsh") == "zsh")
+    }
+
+    @Test("setPanelCustomTitle: user write lands, updates the tab, and claims ownership over later auto")
+    func setCustomTitleUserThenAuto() {
+        let (model, host) = make()
+        let panel = UUID()
+        host.register(panelId: panel, displayTitle: "zsh", kind: "terminal",
+                      tab: Bonsplit.Tab(id: TabID(), title: "zsh", kind: "terminal"))
+
+        #expect(model.setPanelCustomTitle(panelId: panel, title: "Mine") == true)
+        #expect(model.panelCustomTitles[panel] == "Mine")
+        #expect(model.panelCustomTitleSources[panel] == .user)
+        #expect(host.tabs[0].title == "Mine")
+        #expect(host.tabs[0].hasCustomTitle == true)
+
+        // .auto cannot overwrite a user title.
+        #expect(model.setPanelCustomTitle(panelId: panel, title: "Bot", source: .auto) == false)
+        #expect(model.panelCustomTitles[panel] == "Mine")
+    }
+
+    @Test("setPanelCustomTitle: absent panel rejected; empty clears only when present")
+    func setCustomTitleEdgeCases() {
+        let (model, host) = make()
+        let absent = UUID()
+        #expect(model.setPanelCustomTitle(panelId: absent, title: "X") == false)
+
+        let panel = UUID()
+        host.register(panelId: panel, displayTitle: "zsh", kind: "terminal",
+                      tab: Bonsplit.Tab(id: TabID(), title: "zsh", kind: "terminal"))
+        #expect(model.setPanelCustomTitle(panelId: panel, title: "") == false)
+        model.setPanelCustomTitle(panelId: panel, title: "Set")
+        #expect(model.setPanelCustomTitle(panelId: panel, title: nil) == true)
+        #expect(model.panelCustomTitles[panel] == nil)
+        #expect(model.panelCustomTitleSources[panel] == nil)
+    }
+
+    @Test("setPanelCustomTitle on a remote tmux mirror propagates the rename")
+    func setCustomTitleMirrorRename() {
+        let (model, host) = make()
+        host.isRemoteTmuxMirror = true
+        let panel = UUID()
+        host.register(panelId: panel, displayTitle: "zsh", kind: "terminal",
+                      tab: Bonsplit.Tab(id: TabID(), title: "zsh", kind: "terminal"))
+        model.setPanelCustomTitle(panelId: panel, title: "Remote")
+        #expect(host.mirrorRenames.count == 1)
+        #expect(host.mirrorRenames.first?.panelId == panel)
+        #expect(host.mirrorRenames.first?.title == "Remote")
+    }
+
+    @Test("panelTitle resolves through the host; absent panel returns nil")
+    func panelTitleResolution() {
+        let (model, host) = make()
+        let panel = UUID()
+        host.register(panelId: panel, displayTitle: "zsh", kind: "terminal",
+                      tab: Bonsplit.Tab(id: TabID(), title: "zsh", kind: "terminal"))
+        #expect(model.panelTitle(panelId: panel) == "zsh")
+        model.panelTitles[panel] = "auto-title"
+        #expect(model.panelTitle(panelId: panel) == "auto-title")
+        model.panelCustomTitles[panel] = "Custom"
+        #expect(model.panelTitle(panelId: panel) == "Custom")
+        #expect(model.panelTitle(panelId: UUID()) == nil)
+    }
+
+    @Test("panelKind forwards the host projection")
+    func panelKindForwards() {
+        let (model, host) = make()
+        let panel = UUID()
+        host.register(panelId: panel, displayTitle: "x", kind: "browser",
+                      tab: Bonsplit.Tab(id: TabID(), title: "x", kind: "browser"))
+        #expect(model.panelKind(panelId: panel) == "browser")
+        #expect(model.panelKind(panelId: UUID()) == nil)
+    }
+
+    @Test("setPanelPinned toggles the set, updates the tab, and is a no-op on repeat")
+    func setPinned() {
+        let (model, host) = make()
+        let panel = UUID()
+        host.register(panelId: panel, displayTitle: "x", kind: "terminal",
+                      tab: Bonsplit.Tab(id: TabID(), title: "x", kind: "terminal"))
+        #expect(model.isPanelPinned(panel) == false)
+        model.setPanelPinned(panelId: panel, pinned: true)
+        #expect(model.isPanelPinned(panel) == true)
+        #expect(host.tabs[0].isPinned == true)
+        // Repeat pin is a no-op (guarded by wasPinned != pinned).
+        host.tabs[0] = Bonsplit.Tab(id: host.tabs[0].id, title: "x", kind: "terminal", isPinned: false)
+        model.setPanelPinned(panelId: panel, pinned: true)
+        #expect(host.tabs[0].isPinned == false)
+    }
+
+    @Test("normalizePinnedTabs reorders pinned tabs to the front, preserving relative order")
+    func normalizePinned() {
+        let (model, host) = make()
+        let a = UUID(), b = UUID(), c = UUID()
+        let ta = TabID(), tb = TabID(), tc = TabID()
+        host.register(panelId: a, displayTitle: "a", kind: "terminal", tab: Bonsplit.Tab(id: ta, title: "a"))
+        host.register(panelId: b, displayTitle: "b", kind: "terminal", tab: Bonsplit.Tab(id: tb, title: "b"))
+        host.register(panelId: c, displayTitle: "c", kind: "terminal", tab: Bonsplit.Tab(id: tc, title: "c"))
+        model.pinnedPanelIds = [c]
+        model.normalizePinnedTabs(in: host.paneId)
+        #expect(host.tabs.map(\.id) == [tc, ta, tb])
+    }
+
+    @Test("insertionIndexToRight never lands before the pinned prefix")
+    func insertionIndex() {
+        let (model, host) = make()
+        let a = UUID(), b = UUID(), c = UUID()
+        let ta = TabID(), tb = TabID(), tc = TabID()
+        host.register(panelId: a, displayTitle: "a", kind: "terminal", tab: Bonsplit.Tab(id: ta, title: "a", isPinned: true))
+        host.register(panelId: b, displayTitle: "b", kind: "terminal", tab: Bonsplit.Tab(id: tb, title: "b", isPinned: true))
+        host.register(panelId: c, displayTitle: "c", kind: "terminal", tab: Bonsplit.Tab(id: tc, title: "c"))
+        model.pinnedPanelIds = [a, b]
+        // Anchor is the first pinned tab; raw target (1) is clamped up to the pinned count (2).
+        #expect(model.insertionIndexToRight(of: ta, inPane: host.paneId) == 2)
+        // Anchor missing → tabs.count.
+        #expect(model.insertionIndexToRight(of: TabID(), inPane: host.paneId) == 3)
+    }
+
+    @Test("syncPinnedStateForTab writes kind+pinned, and skips when already in sync")
+    func syncPinnedState() {
+        let (model, host) = make()
+        let panel = UUID()
+        let tabId = TabID()
+        host.register(panelId: panel, displayTitle: "x", kind: "terminal",
+                      tab: Bonsplit.Tab(id: tabId, title: "x", kind: "terminal", isPinned: false))
+        model.pinnedPanelIds = [panel]
+        model.syncPinnedStateForTab(tabId, panelId: panel)
+        #expect(host.tabs[0].isPinned == true)
+        #expect(host.tabs[0].kind == "terminal")
     }
 }
