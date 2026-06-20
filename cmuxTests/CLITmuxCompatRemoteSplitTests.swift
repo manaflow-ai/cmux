@@ -220,6 +220,15 @@ import Testing
             alreadyShellInvoked.command == "/bin/sh -c \"opencode attach; sleep 1\"",
             "already-shell-invoked command must not be double-wrapped, got: \(alreadyShellInvoked.command)"
         )
+
+        // A shell invocation with a trailing operator is still a shell expression
+        // (the `&& …` runs after the inner shell), so it must be wrapped — the
+        // `-c` argument is not the last token.
+        let shellInvocationWithTrailer = try respawnPaneForwardedCommand("/bin/sh -c \"setup\" && echo done")
+        #expect(
+            shellInvocationWithTrailer.command.hasPrefix(shellPrefix),
+            "shell invocation with a trailing operator must be wrapped, got: \(shellInvocationWithTrailer.command)"
+        )
     }
 
     private enum CLITmuxCompatRespawnTestError: Error {

@@ -71,21 +71,39 @@ extension CMUXCLI {
         "sh", "bash", "zsh", "dash", "fish", "ksh", "ash", "mksh", "csh", "tcsh",
     ]
 
-    /// Whether `command` is already a clean shell invocation — a known shell
-    /// followed by a `-c`-style command flag (e.g. OMO's `/bin/sh -c "…"`). In
-    /// that case the shell already interprets the inner command, so cmux must not
-    /// wrap it again. Conservative on purpose: an unrecognized form just gets
-    /// (harmlessly) wrapped, whereas a wrong "skip" could leave a shell
-    /// expression unwrapped, so only a known shell with a c-flag qualifies.
+    /// Whether `command` is *exactly* a clean shell invocation — a known shell,
+    /// optional flags, a `-c`-style command flag, and a single command argument
+    /// that is the **last** token (e.g. OMO's `/bin/sh -c "…"`). Such a command
+    /// already runs its argument through a shell, so cmux must not wrap it again.
+    ///
+    /// The `-c` argument must be the final token: a trailing shell operator
+    /// (`… -c "x" && y`, `… -c "x"; y`) makes the whole thing a shell expression
+    /// that still needs the outer wrapper, so those do not qualify. Conservative
+    /// on purpose — an unrecognized form is harmlessly wrapped; only a genuine
+    /// complete `<shell> … -c <arg>` is skipped.
     func tmuxCommandIsShellInvocation(_ command: String) -> Bool {
         let words = tmuxShellWords(command)
         guard let program = words.first.map({ ($0 as NSString).lastPathComponent }),
               Self.tmuxKnownShellNames.contains(program) else {
             return false
         }
-        return words.dropFirst().contains { word in
-            word.hasPrefix("-") && word.contains("c")
+        var index = 1
+        while index < words.count {
+            let word = words[index]
+            // A non-flag token before the `-c` flag means this is not a bare
+            // `<shell> … -c <arg>` form (e.g. `sh foo`), so it is not a clean
+            // invocation.
+            guard word.hasPrefix("-") else { return false }
+            // The command flag is a short cluster ending in `c` (`-c`, `-lc`, …);
+            // long flags like `--norc` are skipped over, not treated as `-c`.
+            if !word.hasPrefix("--"), word.hasSuffix("c") {
+                // Exactly one argument may follow, and it must be the last token —
+                // nothing (such as a trailing `&&` / `;`) after it.
+                return index == words.count - 2
+            }
+            index += 1
         }
+        return false
     }
 
     /// Returns a pane start-command that the surface can exec correctly.
