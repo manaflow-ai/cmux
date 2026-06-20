@@ -1,4 +1,20 @@
+import CmuxFoundation
 import SwiftUI
+
+enum ShortcutHintAnimation {
+    static let visibility: Animation = .easeOut(duration: 0.12)
+    static let transition: AnyTransition = .opacity
+}
+
+extension View {
+    func shortcutHintTransition() -> some View {
+        transition(ShortcutHintAnimation.transition)
+    }
+
+    func shortcutHintVisibilityAnimation<Value: Equatable>(value: Value) -> some View {
+        animation(ShortcutHintAnimation.visibility, value: value)
+    }
+}
 
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
@@ -42,5 +58,33 @@ struct ShortcutHintPill: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(ShortcutHintPillBackground(emphasis: emphasis))
+    }
+}
+
+/// Standard top-trailing sidebar overlay used by every cmd-hold hint chip
+/// in the sidebar (workspace rows, group headers, etc.) so they share font
+/// size, padding, transition, and emphasis settings. Pass `text == nil` to
+/// render nothing.
+extension View {
+    @ViewBuilder
+    func sidebarShortcutHintOverlay(
+        text: String?,
+        emphasis: Double,
+        offsetX: Double,
+        offsetY: Double,
+        fontSize: CGFloat = 10
+    ) -> some View {
+        overlay(alignment: .topTrailing) {
+            if let text {
+                ShortcutHintPill(text: text, fontSize: fontSize, emphasis: emphasis)
+                    .offset(
+                        x: ShortcutHintDebugSettings.clamped(offsetX),
+                        y: ShortcutHintDebugSettings.clamped(offsetY)
+                    )
+                    .padding(.top, 6)
+                    .padding(.trailing, 10)
+                    .shortcutHintTransition()
+            }
+        }
     }
 }

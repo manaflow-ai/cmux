@@ -1,8 +1,42 @@
+import type { ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
+import { DocsHeading } from "../../components/docs-heading";
+
+function renderRawRich(
+  message: string,
+  renderers: Record<string, (chunks: string, key: number) => ReactNode>
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const tagPattern = /<([A-Za-z][A-Za-z0-9]*)>(.*?)<\/\1>/g;
+  let lastIndex = 0;
+  let key = 0;
+
+  for (const match of message.matchAll(tagPattern)) {
+    const [fullMatch, tagName, chunks] = match;
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      nodes.push(message.slice(lastIndex, index));
+    }
+    const render = renderers[tagName];
+    nodes.push(render ? render(chunks, key) : chunks);
+    key += 1;
+    lastIndex = index + fullMatch.length;
+  }
+
+  if (lastIndex < message.length) {
+    nodes.push(message.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
+function inlineCode(chunks: string, key: number) {
+  return <code key={key}>{chunks}</code>;
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -19,10 +53,10 @@ export default function CustomCommandsPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("fileLocations")}</h2>
+      <DocsHeading level={2} id="file-locations">{t("fileLocations")}</DocsHeading>
       <p>{t("fileLocationsDesc")}</p>
       <ul>
         <li>
@@ -53,7 +87,7 @@ export default function CustomCommandsPage() {
       </Callout>
       <p>{t("liveReload")}</p>
 
-      <h2>{t("schema")}</h2>
+      <DocsHeading level={2} id="schema">{t("schema")}</DocsHeading>
       <p>
         {t.rich("schemaIntro", {
           commands: (chunks) => <code>{chunks}</code>,
@@ -112,7 +146,7 @@ export default function CustomCommandsPage() {
     }
   ]
 }`}</CodeBlock>
-      <h3>{t("nightlyActionRegistry")}</h3>
+      <DocsHeading level={3} id="nightly-action-registry">{t("nightlyActionRegistry")}</DocsHeading>
       <p>
         {t.rich("nightlyActionRegistryDesc", {
           actions: (chunks) => <code>{chunks}</code>,
@@ -133,13 +167,13 @@ export default function CustomCommandsPage() {
         })}
       </p>
       <p>
-        {t.rich("iconsDesc", {
-          buttons: (chunks) => <code>{chunks}</code>,
-          symbolIcon: (chunks) => <code>{chunks}</code>,
-          emojiIcon: (chunks) => <code>{chunks}</code>,
-          imageIcon: (chunks) => <code>{chunks}</code>,
-          scale: (chunks) => <code>{chunks}</code>,
-          defaultScale: (chunks) => <code>{chunks}</code>,
+        {renderRawRich(t.raw("iconsDesc"), {
+          buttons: inlineCode,
+          symbolIcon: inlineCode,
+          emojiIcon: inlineCode,
+          imageIcon: inlineCode,
+          scale: inlineCode,
+          defaultScale: inlineCode,
         })}
       </p>
       <p>
@@ -151,7 +185,136 @@ export default function CustomCommandsPage() {
         })}
       </p>
 
-      <h2>{t("simpleCommands")}</h2>
+      <DocsHeading level={2} id="custom-actions">{t("customActions")}</DocsHeading>
+      <p>
+        {t.rich("customActionsDesc", {
+          actions: (chunks) => <code>{chunks}</code>,
+          commands: (chunks) => <code>{chunks}</code>,
+          palette: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <DocsHeading level={3} id="action-types">{t("actionTypes")}</DocsHeading>
+      <ul>
+        <li><code>&quot;builtin&quot;</code>: {t("actionTypeBuiltin")}</li>
+        <li><code>&quot;command&quot;</code>: {t("actionTypeCommand")}</li>
+        <li><code>&quot;agent&quot;</code>: {t("actionTypeAgent")}</li>
+        <li><code>&quot;workspaceCommand&quot;</code>: {t("actionTypeWorkspaceCommand")}</li>
+      </ul>
+      <DocsHeading level={3} id="action-fields">{t("actionFields")}</DocsHeading>
+      <ul>
+        <li><code>title</code>: {t("actionFieldTitle")}</li>
+        <li><code>subtitle</code> / <code>description</code>: {t("actionFieldSubtitle")}</li>
+        <li><code>keywords</code>: {t("actionFieldKeywords")}</li>
+        <li><code>palette</code>: {t("actionFieldPalette")}</li>
+        <li><code>shortcut</code>: {t("actionFieldShortcut")}</li>
+        <li><code>target</code>: {t("actionFieldTarget")}</li>
+        <li><code>confirm</code>: {t("actionFieldConfirm")}</li>
+      </ul>
+      <DocsHeading level={3} id="command-palette-behavior">{t("commandPaletteBehavior")}</DocsHeading>
+      <p>
+        {t.rich("commandPaletteBehaviorDesc", {
+          palette: (chunks) => <code>{chunks}</code>,
+          commands: (chunks) => <code>{chunks}</code>,
+          newTerminal: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+
+      <DocsHeading level={2} id="new-workspace-button">{t("newWorkspaceButton")}</DocsHeading>
+      <p>
+        {renderRawRich(t.raw("newWorkspaceButtonDesc"), {
+          action: inlineCode,
+          contextMenu: inlineCode,
+          rightClick: inlineCode,
+          separator: inlineCode,
+        })}
+      </p>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "actions": {
+    "worktree-agents": {
+      "type": "workspaceCommand",
+      "title": "Worktree Agents",
+      "commandName": "Worktree Agents",
+      "icon": { "type": "symbol", "name": "folder.badge.plus" }
+    }
+  },
+  "ui": {
+    "newWorkspace": {
+      "action": "worktree-agents",
+      "contextMenu": [
+        { "action": "worktree-agents", "title": "Worktree Agents" },
+        { "type": "separator" },
+        { "action": "cmux.newTerminal", "title": "New Terminal" },
+        { "action": "cmux.newBrowser", "title": "New Browser" }
+      ]
+    }
+  },
+  "commands": [
+    {
+      "name": "Worktree Agents",
+      "description": "Create a fresh Git worktree and start Codex and Claude inside it",
+      "workspace": {
+        "name": "Worktree Agents",
+        "cwd": ".",
+        "layout": {
+          "direction": "horizontal",
+          "split": 0.38,
+          "children": [
+            {
+              "pane": {
+                "surfaces": [
+                  {
+                    "type": "terminal",
+                    "name": "Worktree",
+                    "command": "set -euo pipefail; state=\\"\${TMPDIR:-/tmp}/cmux-worktree-\${CMUX_WORKSPACE_ID:-manual}.dir\\"; rm -f \\"$state\\"; repo=$(git rev-parse --show-toplevel); mkdir -p \\"$repo/../worktrees\\"; slug=agents-$(date +%Y%m%d-%H%M%S); dir=\\"$repo/../worktrees/$slug\\"; git -C \\"$repo\\" worktree add -b \\"$slug\\" \\"$dir\\"; printf \\"%s\\\\n\\" \\"$dir\\" > \\"$state\\"; cd \\"$dir\\"; exec \\"\${SHELL:-/bin/zsh}\\" -l",
+                    "focus": true
+                  }
+                ]
+              }
+            },
+            {
+              "direction": "vertical",
+              "split": 0.5,
+              "children": [
+                {
+                  "pane": {
+                    "surfaces": [
+                      {
+                        "type": "terminal",
+                        "name": "Codex",
+                        "command": "state=\\"\${TMPDIR:-/tmp}/cmux-worktree-\${CMUX_WORKSPACE_ID:-manual}.dir\\"; echo \\"Waiting for worktree...\\"; while [ ! -s \\"$state\\" ]; do sleep 0.2; done; dir=$(cat \\"$state\\"); cd \\"$dir\\"; exec codex --dangerously-bypass-approvals-and-sandbox"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "pane": {
+                    "surfaces": [
+                      {
+                        "type": "terminal",
+                        "name": "Claude",
+                        "command": "state=\\"\${TMPDIR:-/tmp}/cmux-worktree-\${CMUX_WORKSPACE_ID:-manual}.dir\\"; echo \\"Waiting for worktree...\\"; while [ ! -s \\"$state\\" ]; do sleep 0.2; done; dir=$(cat \\"$state\\"); cd \\"$dir\\"; exec claude --dangerously-skip-permissions"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}`}</CodeBlock>
+      <p>
+        {t.rich("newWorkspaceWorktreeNote", {
+          action: (chunks) => <code>{chunks}</code>,
+          commands: (chunks) => <code>{chunks}</code>,
+          worktree: (chunks) => <code>{chunks}</code>,
+          codex: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+
+      <DocsHeading level={2} id="simple-commands">{t("simpleCommands")}</DocsHeading>
       <p>{t("simpleCommandsDesc")}</p>
       <CodeBlock title="cmux.json" lang="json">{`{
   "commands": [
@@ -164,24 +327,23 @@ export default function CustomCommandsPage() {
   ]
 }`}</CodeBlock>
 
-      <h3>{t("simpleCommandFields")}</h3>
+      <DocsHeading level={3} id="simple-command-fields">{t("simpleCommandFields")}</DocsHeading>
       <ul>
-        <li><code>name</code> &mdash; {t("fieldName")}</li>
-        <li><code>description</code> &mdash; {t("fieldDescription")}</li>
-        <li><code>keywords</code> &mdash; {t("fieldKeywords")}</li>
-        <li><code>command</code> &mdash; {t("fieldCommand")}</li>
-        <li><code>confirm</code> &mdash; {t("fieldConfirm")}</li>
+        <li><code>name</code>: {t("fieldName")}</li>
+        <li><code>description</code>: {t("fieldDescription")}</li>
+        <li><code>keywords</code>: {t("fieldKeywords")}</li>
+        <li><code>command</code>: {t("fieldCommand")}</li>
+        <li><code>confirm</code>: {t("fieldConfirm")}</li>
       </ul>
       <p>{t("simpleCommandCwdNote")} <code>{"cd \"$(git rev-parse --show-toplevel)\" &&"}</code> {t("simpleCommandCwdRepoRoot")} <code>{"cd /your/path &&"}</code> {t("simpleCommandCwdCustomPath")}</p>
 
-      <h2>{t("workspaceCommands")}</h2>
+      <DocsHeading level={2} id="workspace-commands">{t("workspaceCommands")}</DocsHeading>
       <p>{t("workspaceCommandsDesc")}</p>
       <CodeBlock title="cmux.json" lang="json">{`{
   "commands": [
     {
       "name": "Dev Environment",
       "keywords": ["dev", "fullstack"],
-      "restart": "confirm",
       "workspace": {
         "name": "Dev",
         "cwd": ".",
@@ -221,57 +383,58 @@ export default function CustomCommandsPage() {
   ]
 }`}</CodeBlock>
 
-      <h3>{t("workspaceFields")}</h3>
+      <DocsHeading level={3} id="workspace-fields">{t("workspaceFields")}</DocsHeading>
       <ul>
-        <li><code>name</code> &mdash; {t("wsFieldName")}</li>
-        <li><code>cwd</code> &mdash; {t("wsFieldCwd")}</li>
-        <li><code>color</code> &mdash; {t("wsFieldColor")}</li>
-        <li><code>layout</code> &mdash; {t("wsFieldLayout")}</li>
+        <li><code>name</code>: {t("wsFieldName")}</li>
+        <li><code>cwd</code>: {t("wsFieldCwd")}</li>
+        <li><code>color</code>: {t("wsFieldColor")}</li>
+        <li><code>layout</code>: {t("wsFieldLayout")}</li>
       </ul>
 
-      <h3>{t("restartBehavior")}</h3>
+      <DocsHeading level={3} id="restart-behavior">{t("restartBehavior")}</DocsHeading>
       <p>{t("restartBehaviorDesc")}</p>
       <ul>
-        <li><code>&quot;ignore&quot;</code> &mdash; {t("restartIgnore")}</li>
-        <li><code>&quot;recreate&quot;</code> &mdash; {t("restartRecreate")}</li>
-        <li><code>&quot;confirm&quot;</code> &mdash; {t("restartConfirm")}</li>
+        <li><code>&quot;new&quot;</code>: {t("restartNew")}</li>
+        <li><code>&quot;ignore&quot;</code>: {t("restartIgnore")}</li>
+        <li><code>&quot;recreate&quot;</code>: {t("restartRecreate")}</li>
+        <li><code>&quot;confirm&quot;</code>: {t("restartConfirm")}</li>
       </ul>
 
-      <h2>{t("layoutTree")}</h2>
+      <DocsHeading level={2} id="layout-tree">{t("layoutTree")}</DocsHeading>
       <p>{t("layoutTreeDesc")}</p>
 
-      <h3>{t("splitNode")}</h3>
+      <DocsHeading level={3} id="split-node">{t("splitNode")}</DocsHeading>
       <p>{t("splitNodeDesc")}</p>
       <ul>
-        <li><code>direction</code> &mdash; <code>&quot;horizontal&quot;</code> {t("or")} <code>&quot;vertical&quot;</code></li>
-        <li><code>split</code> &mdash; {t("splitPosition")}</li>
-        <li><code>children</code> &mdash; {t("splitChildren")}</li>
+        <li><code>direction</code>: <code>&quot;horizontal&quot;</code> {t("or")} <code>&quot;vertical&quot;</code></li>
+        <li><code>split</code>: {t("splitPosition")}</li>
+        <li><code>children</code>: {t("splitChildren")}</li>
       </ul>
 
-      <h3>{t("paneNode")}</h3>
+      <DocsHeading level={3} id="pane-node">{t("paneNode")}</DocsHeading>
       <p>{t("paneNodeDesc")}</p>
 
-      <h2>{t("surfaceDefinition")}</h2>
+      <DocsHeading level={2} id="surface-definition">{t("surfaceDefinition")}</DocsHeading>
       <p>{t("surfaceDefinitionDesc")}</p>
       <ul>
-        <li><code>type</code> &mdash; <code>&quot;terminal&quot;</code> {t("or")} <code>&quot;browser&quot;</code></li>
-        <li><code>name</code> &mdash; {t("surfaceName")}</li>
-        <li><code>command</code> &mdash; {t("surfaceCommand")}</li>
-        <li><code>cwd</code> &mdash; {t("surfaceCwd")}</li>
-        <li><code>env</code> &mdash; {t("surfaceEnv")}</li>
-        <li><code>url</code> &mdash; {t("surfaceUrl")}</li>
-        <li><code>focus</code> &mdash; {t("surfaceFocus")}</li>
+        <li><code>type</code>: <code>&quot;terminal&quot;</code> {t("or")} <code>&quot;browser&quot;</code></li>
+        <li><code>name</code>: {t("surfaceName")}</li>
+        <li><code>command</code>: {t("surfaceCommand")}</li>
+        <li><code>cwd</code>: {t("surfaceCwd")}</li>
+        <li><code>env</code>: {t("surfaceEnv")}</li>
+        <li><code>url</code>: {t("surfaceUrl")}</li>
+        <li><code>focus</code>: {t("surfaceFocus")}</li>
       </ul>
 
-      <h3>{t("cwdResolution")}</h3>
+      <DocsHeading level={3} id="cwd-resolution">{t("cwdResolution")}</DocsHeading>
       <ul>
-        <li><code>.</code> {t("or")} {t("omitted")} &mdash; {t("cwdRelative")}</li>
-        <li><code>./subdir</code> &mdash; {t("cwdSubdir")}</li>
-        <li><code>~/path</code> &mdash; {t("cwdHome")}</li>
-        <li>{t("absolutePath")} &mdash; {t("cwdAbsolute")}</li>
+        <li><code>.</code> {t("or")} {t("omitted")}: {t("cwdRelative")}</li>
+        <li><code>./subdir</code>: {t("cwdSubdir")}</li>
+        <li><code>~/path</code>: {t("cwdHome")}</li>
+        <li>{t("absolutePath")}: {t("cwdAbsolute")}</li>
       </ul>
 
-      <h2>{t("fullExample")}</h2>
+      <DocsHeading level={2} id="full-example">{t("fullExample")}</DocsHeading>
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
     "web-dev": { "type": "workspaceCommand", "commandName": "Web Dev" },
@@ -318,7 +481,6 @@ export default function CustomCommandsPage() {
       "name": "Web Dev",
       "description": "Docs site with live preview",
       "keywords": ["web", "docs", "next", "frontend"],
-      "restart": "confirm",
       "workspace": {
         "name": "Web Dev",
         "cwd": "./web",
@@ -375,7 +537,6 @@ export default function CustomCommandsPage() {
       "name": "Debug Log",
       "description": "Tail the debug event log from the running dev app",
       "keywords": ["log", "debug", "tail", "events"],
-      "restart": "ignore",
       "workspace": {
         "name": "Debug Log",
         "layout": {

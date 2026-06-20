@@ -8,6 +8,8 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private var dataPath = ""
+    private var diagnosticsPath = ""
+    private var launchTag = ""
     private var socketPath = ""
 
     override func setUp() {
@@ -15,8 +17,18 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-goto-split-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
+        diagnosticsPath = "/tmp/cmux-ui-test-goto-split-\(UUID().uuidString).diagnostics.json"
+        try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        launchTag = "ui-bnav-\(UUID().uuidString.prefix(8))"
         socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
         try? FileManager.default.removeItem(atPath: socketPath)
+        try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
+        addTeardownBlock { [dataPath, diagnosticsPath, socketPath] in
+            try? FileManager.default.removeItem(atPath: dataPath)
+            try? FileManager.default.removeItem(atPath: diagnosticsPath)
+            try? FileManager.default.removeItem(atPath: socketPath)
+            try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
+        }
     }
 
     func testCmdCtrlHMovesLeftWhenWebViewFocused() {
@@ -24,7 +36,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         launchAndEnsureForeground(app)
 
         XCTAssertTrue(
@@ -99,7 +111,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_USE_GHOSTTY_CONFIG"] = "1"
         launchAndEnsureForeground(app)
 
@@ -134,7 +146,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testEscapeLeavesOmnibarAndFocusesWebView() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
@@ -178,7 +190,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testEscapeRestoresFocusedPageInputAfterCmdL() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
@@ -326,7 +338,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testCmdLOpensBrowserWhenTerminalFocused() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
@@ -375,7 +387,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testClickingOmnibarFocusesBrowserPane() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
@@ -430,7 +442,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testClickingBrowserDismissesCommandPaletteAndKeepsBrowserFocus() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
@@ -456,7 +468,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return
         }
 
-        // Move focus away from browser to terminal first so Cmd+R opens the rename overlay.
+        // Move focus away from browser to terminal first, then open the command palette.
         app.typeKey("h", modifierFlags: [.command, .control])
         XCTAssertTrue(
             waitForDataMatch(timeout: 5.0) { data in
@@ -465,18 +477,18 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected Cmd+Ctrl+H to move focus to left pane (terminal)"
         )
 
-        let renameField = app.textFields["CommandPaletteRenameField"].firstMatch
-        app.typeKey("r", modifierFlags: [.command])
+        let paletteSearchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        app.typeKey("p", modifierFlags: [.command, .shift])
         XCTAssertTrue(
-            renameField.waitForExistence(timeout: 5.0),
-            "Expected Cmd+R to open the rename command palette while terminal is focused"
+            paletteSearchField.waitForExistence(timeout: 5.0),
+            "Expected Cmd+Shift+P to open the command palette while terminal is focused"
         )
 
         let browserPane = app.otherElements["BrowserPanelContent.\(expectedBrowserPanelId)"].firstMatch
         XCTAssertTrue(browserPane.waitForExistence(timeout: 5.0), "Expected browser pane content for click target")
         browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         XCTAssertTrue(
-            waitForNonExistence(renameField, timeout: 5.0),
+            waitForNonExistence(paletteSearchField, timeout: 5.0),
             "Expected clicking the browser pane to dismiss the command palette"
         )
 
@@ -493,9 +505,47 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testEscapeDismissesCommandPaletteOpenedByCmdShiftP() {
+        let app = XCUIApplication()
+        configureSocketLaunch(app)
+        launchAndEnsureForeground(app)
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), socketReadinessFailureMessage())
+
+        guard let workspace = currentWorkspaceContext() else {
+            XCTFail("Expected current workspace context before opening the command palette")
+            return
+        }
+
+        let paletteSearchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            paletteSearchField.waitForExistence(timeout: 5.0),
+            "Expected Cmd+Shift+P to open the command palette"
+        )
+        XCTAssertNotNil(
+            waitForCommandPaletteSnapshot(
+                windowId: workspace.windowId,
+                mode: "commands",
+                query: ">",
+                timeout: 5.0
+            ),
+            "Expected command palette debug state to report visible commands mode"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            waitForNonExistence(paletteSearchField, timeout: 5.0),
+            "Expected Escape to dismiss the command palette opened by Cmd+Shift+P"
+        )
+        XCTAssertTrue(
+            waitForCommandPaletteVisibility(windowId: workspace.windowId, visible: false, timeout: 5.0),
+            "Expected command palette debug state to report hidden after Escape"
+        )
+    }
+
     func testCmdDSplitsRightWhenWebViewFocused() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
@@ -528,7 +578,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testCmdShiftDSplitsDownWhenWebViewFocused() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
@@ -561,7 +611,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testCmdShiftEnterKeepsBrowserOmnibarHittableAcrossZoomRoundTripWhenWebViewFocused() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
@@ -652,7 +702,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testCmdShiftEnterHidesBrowserPortalWhenTerminalPaneZooms() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
@@ -705,7 +755,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testCmdDSplitsRightWhenOmnibarFocused() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
@@ -746,7 +796,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testCmdShiftDSplitsDownWhenOmnibarFocused() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
@@ -785,6 +835,57 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testTerminalSplitAfterBrowserSplitFocusesCreatedTerminal() {
+        let app = XCUIApplication()
+        configureSocketLaunch(app)
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), socketReadinessFailureMessage())
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2 && data["focusedPanelKind"] == "terminal"
+            },
+            "Expected Cmd+D to create and focus a right terminal split. data=\(String(describing: loadData()))"
+        )
+
+        app.typeKey("d", modifierFlags: [.command, .shift, .option])
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 8.0), "Expected browser omnibar after Cmd+Option+Shift+D")
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["webViewFocusedAfterAddressBarFocus"] == "false" &&
+                    (data["webViewFocusedAfterAddressBarFocusPanelId"]?.isEmpty == false)
+            },
+            "Expected Cmd+Option+Shift+D to create and focus a browser split. data=\(String(describing: loadData()))"
+        )
+
+        app.typeKey("d", modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "down" else { return false }
+                guard let focusedPanelId = data["focusedPanelId"], !focusedPanelId.isEmpty else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 4 && data["focusedPanelKind"] == "terminal"
+            },
+            "Expected Cmd+Shift+D from browser split to create and select a terminal. data=\(String(describing: loadData()))"
+        )
+
+        guard let focusedPanelId = loadData()?["focusedPanelId"], !focusedPanelId.isEmpty else {
+            XCTFail("Missing focusedPanelId after terminal split. data=\(String(describing: loadData()))")
+            return
+        }
+
+        XCTAssertTrue(
+            waitForStableTerminalFirstResponder(panelId: focusedPanelId, stableDuration: 1.0, timeout: 6.0),
+            "Expected newly created terminal to own AppKit first responder. focusedPanelId=\(focusedPanelId) data=\(String(describing: loadData()))"
+        )
+    }
+
     func testCmdOptionPaneSwitchPreservesFindFieldFocus() {
         runFindFocusPersistenceScenario(route: .cmdOptionArrows, useAutofocusRacePage: false)
     }
@@ -797,16 +898,13 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         runFindFocusPersistenceScenario(route: .cmdOptionArrows, useAutofocusRacePage: true)
     }
 
-    func testCmdFFocusesBrowserFindFieldAfterCmdDCmdLNavigation() {
+    func testCmdFOpensBrowserFindAfterCmdDCmdLNavigation() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
-
-        let window = app.windows.firstMatch
-        // On some CI runners the app accepts key events before XCUI exposes the window tree.
-        _ = window.waitForExistence(timeout: 2.0)
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), socketReadinessFailureMessage())
 
         app.typeKey("d", modifierFlags: [.command])
         XCTAssertTrue(
@@ -835,18 +933,18 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
         app.typeKey("f", modifierFlags: [.command])
 
-        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
-        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+        let browserFindField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(browserFindField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
 
         let omnibarValueBeforeFindTyping = (omnibar.value as? String) ?? ""
         app.typeText("needle")
 
         XCTAssertTrue(
             waitForCondition(timeout: 4.0) {
-                ((findField.value as? String) ?? "") == "needle"
+                ((browserFindField.value as? String) ?? "") == "needle"
             },
             "Expected Cmd+F to focus browser find after Cmd+D, Cmd+L, and navigation. " +
-                "findValue=\(String(describing: findField.value)) omnibarValue=\(String(describing: omnibar.value))"
+                "findValue=\(String(describing: browserFindField.value)) omnibarValue=\(String(describing: omnibar.value))"
         )
         let omnibarValueAfterFindTyping = (omnibar.value as? String) ?? ""
         XCTAssertFalse(
@@ -854,20 +952,22 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected typing after Cmd+F to stay out of the omnibar. " +
                 "omnibarValueBefore=\(omnibarValueBeforeFindTyping) " +
                 "omnibarValueAfter=\(String(describing: omnibar.value)) " +
-                "findValue=\(String(describing: findField.value))"
+                "findValue=\(String(describing: browserFindField.value))"
+        )
+
+        XCTAssertFalse(
+            app.textFields["FileExplorerSearchField"].firstMatch.exists,
+            "Expected browser Cmd+F to use browser find rather than right-sidebar Find"
         )
     }
 
-    func testBrowserFindFieldKeepsFocusAfterNewWorkspaceRoundTrip() {
+    func testRightSidebarFindFieldKeepsFocusAfterNewWorkspaceRoundTrip() {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
-
-        let window = app.windows.firstMatch
-        _ = window.waitForExistence(timeout: 2.0)
-        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), socketReadinessFailureMessage())
 
         guard let originalWorkspace = currentWorkspaceContext() else {
             XCTFail("Expected current workspace context before leaving the original workspace")
@@ -901,15 +1001,15 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
         app.typeKey("f", modifierFlags: [.command])
 
-        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
-        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+        let findField = app.textFields["FileExplorerSearchField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected right sidebar file search after Cmd+F")
 
         app.typeText("seed")
         XCTAssertTrue(
             waitForCondition(timeout: 4.0) {
                 ((findField.value as? String) ?? "") == "seed"
             },
-            "Expected browser find field to capture initial typing. value=\(String(describing: findField.value))"
+            "Expected right sidebar file search to capture initial typing. value=\(String(describing: findField.value))"
         )
 
         openCommandPaletteForNewWorkspace(app, windowId: originalWorkspace.windowId)
@@ -918,13 +1018,13 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected to return to the original workspace by identity"
         )
 
-        let restoredFindField = app.textFields["BrowserFindSearchTextField"].firstMatch
-        XCTAssertTrue(restoredFindField.waitForExistence(timeout: 6.0), "Expected browser find field after returning to workspace 1")
+        let restoredFindField = app.textFields["FileExplorerSearchField"].firstMatch
+        XCTAssertTrue(restoredFindField.waitForExistence(timeout: 6.0), "Expected right sidebar file search after returning to workspace 1")
         XCTAssertTrue(
             waitForCondition(timeout: 4.0) {
                 ((restoredFindField.value as? String) ?? "") == "seed"
             },
-            "Expected existing browser find query to persist after returning. value=\(String(describing: restoredFindField.value))"
+            "Expected existing file search query to persist after returning. value=\(String(describing: restoredFindField.value))"
         )
 
         app.typeText("x")
@@ -932,7 +1032,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             waitForCondition(timeout: 4.0) {
                 ((restoredFindField.value as? String) ?? "") == "seedx"
             },
-            "Expected typing after returning from a new workspace to stay in the browser find field. " +
+            "Expected typing after returning from a new workspace to stay in right sidebar file search. " +
                 "findValue=\(String(describing: restoredFindField.value)) omnibarValue=\(String(describing: omnibar.value))"
         )
     }
@@ -966,7 +1066,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     private func runFindFocusPersistenceScenario(route: FindFocusRoute, useAutofocusRacePage: Bool) {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         if route == .cmdCtrlLetters {
@@ -1075,14 +1175,14 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     private func runSplitFindWorkspaceRoundTripScenario(restoredOwner: SplitFindOwner) {
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
 
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 10.0), "Expected main window to exist")
-        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), socketReadinessFailureMessage())
 
         guard let originalWorkspace = currentWorkspaceContext() else {
             XCTFail("Expected current workspace context before leaving workspace 1")
@@ -1256,9 +1356,25 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
-            self.socketCommand("ping") == "PONG"
+        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
+            self.socketCommand("ping") == "PONG" || self.controlSocketDiagnosticsReportReady(self.loadJSON(atPath: self.diagnosticsPath) ?? [:])
         }
+    }
+
+    private func configureSocketLaunch(_ app: XCUIApplication) {
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+    }
+
+    private func socketReadinessFailureMessage() -> String {
+        let diagnostics = loadJSON(atPath: diagnosticsPath) ?? [:]
+        return "Expected control socket at \(socketPath). diagnostics=\(diagnostics)"
     }
 
     private func currentWorkspaceContext() -> WorkspaceContext? {
@@ -1289,7 +1405,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command)
+        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command) ?? controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
     private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
@@ -1298,7 +1414,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) ?? controlSocketJSONViaNetcat(request, socketPath: socketPath)
     }
 
     private func commandPaletteResultRows(from snapshot: [String: Any]) -> [[String: Any]] {
@@ -1334,6 +1450,16 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
         guard let ok = envelope?["ok"] as? Bool, ok else { return nil }
         return envelope?["result"] as? [String: Any]
+    }
+
+    private func waitForCommandPaletteVisibility(
+        windowId: String,
+        visible: Bool,
+        timeout: TimeInterval
+    ) -> Bool {
+        waitForCondition(timeout: timeout) {
+            (self.commandPaletteSnapshot(windowId: windowId)?["visible"] as? Bool) == visible
+        }
     }
 
     private var autofocusRacePageURL: String {
@@ -1382,6 +1508,38 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         }
     }
 
+    private func waitForStableTerminalFirstResponder(
+        panelId: String,
+        stableDuration: TimeInterval,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var stableSince: Date?
+
+        while Date() < deadline {
+            let matches = loadData().map { data in
+                data["focusedPanelId"] == panelId &&
+                    data["focusedPanelKind"] == "terminal" &&
+                    data["firstResponderTerminalPanelId"] == panelId
+            } ?? false
+
+            if matches {
+                if stableSince == nil {
+                    stableSince = Date()
+                }
+                if let stableSince, Date().timeIntervalSince(stableSince) >= stableDuration {
+                    return true
+                }
+            } else {
+                stableSince = nil
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+
+        return false
+    }
+
     private func waitForNonExistence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let predicate = NSPredicate(format: "exists == false")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
@@ -1390,6 +1548,13 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     private func loadData() -> [String: String]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: dataPath)) else {
+            return nil
+        }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+    }
+
+    private func loadJSON(atPath path: String) -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
             return nil
         }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]

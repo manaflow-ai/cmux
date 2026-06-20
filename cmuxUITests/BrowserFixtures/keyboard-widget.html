@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>keyboard-widget</title></head>
+<body>
+<div id="pad" tabindex="0">arrow pad</div>
+<input id="entry" type="text">
+<span id="pad-status">PENDING</span>
+<span id="entry-status">PENDING</span>
+<div id="status">PENDING</div>
+<pre id="event-log"></pre>
+<script>
+  window.__cmuxLog = [];
+  const logEl = document.getElementById('event-log');
+  const statusEl = document.getElementById('status');
+  let seq = 0;
+  function logEvent(ev, target) {
+    window.__cmuxLog.push({
+      seq: ++seq, type: ev.type, target, isTrusted: ev.isTrusted, key: ev.key, code: ev.code
+    });
+    logEl.textContent = JSON.stringify(window.__cmuxLog);
+  }
+
+  let arrows = 0;
+  let entered = false;
+  function check() {
+    if (arrows >= 3) document.getElementById('pad-status').textContent = 'PASS';
+    if (entered) document.getElementById('entry-status').textContent = 'PASS';
+    if (arrows >= 3 && entered) statusEl.textContent = 'PASS';
+  }
+
+  document.getElementById('pad').addEventListener('keydown', (ev) => {
+    logEvent(ev, '#pad');
+    if (ev.key === 'ArrowRight') arrows += 1;
+    check();
+  });
+  document.getElementById('entry').addEventListener('keypress', (ev) => {
+    logEvent(ev, '#entry');
+    if (ev.key === 'Enter') entered = true;
+    check();
+  });
+</script>
+</body>
+</html>

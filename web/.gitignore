@@ -19,6 +19,7 @@
 
 # production
 /build
+/.cmux-cloud-build
 
 # misc
 .DS_Store
@@ -32,6 +33,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.envrc
 
 # vercel
 .vercel

@@ -1,35 +1,46 @@
 import Bonsplit
+import CmuxFoundation
 import Combine
 import CryptoKit
 import Foundation
+import CmuxSettings
+
+extension CodingUserInfoKey {
+    static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
+}
 
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?
+    var notifications: CmuxNotificationConfigDefinition?
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
+    var vault: CmuxVaultConfigDefinition?
+    var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions
-        case ui
-        case newWorkspaceCommand
-        case surfaceTabBarButtons
-        case commands
+        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
     }
 
     init(
         actions: [String: CmuxConfigActionDefinition] = [:],
         ui: CmuxConfigUIDefinition? = nil,
+        notifications: CmuxNotificationConfigDefinition? = nil,
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
-        commands: [CmuxCommandDefinition] = []
+        commands: [CmuxCommandDefinition] = [],
+        vault: CmuxVaultConfigDefinition? = nil,
+        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
     ) {
         self.actions = actions
         self.ui = ui
+        self.notifications = notifications
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
+        self.vault = vault
+        self.workspaceGroups = workspaceGroups
     }
 
     init(from decoder: Decoder) throws {
@@ -43,6 +54,7 @@ struct CmuxConfigFile: Codable, Sendable {
             codingPath: decoder.codingPath + [CodingKeys.actions]
         )
         ui = try container.decodeIfPresent(CmuxConfigUIDefinition.self, forKey: .ui)
+        notifications = try container.decodeIfPresent(CmuxNotificationConfigDefinition.self, forKey: .notifications)
 
         if let rawNewWorkspaceCommand = try container.decodeIfPresent(String.self, forKey: .newWorkspaceCommand) {
             let trimmed = rawNewWorkspaceCommand.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -75,6 +87,11 @@ struct CmuxConfigFile: Codable, Sendable {
             surfaceTabBarButtons = nil
         }
         commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
+        vault = try container.decodeIfPresent(CmuxVaultConfigDefinition.self, forKey: .vault)
+        workspaceGroups = try container.decodeIfPresent(
+            CmuxConfigWorkspaceGroupsDefinition.self,
+            forKey: .workspaceGroups
+        )
     }
 
     private static func normalizedActions(
@@ -82,6 +99,7 @@ struct CmuxConfigFile: Codable, Sendable {
         codingPath: [CodingKey]
     ) throws -> [String: CmuxConfigActionDefinition] {
         var actions: [String: CmuxConfigActionDefinition] = [:]
+        var canonicalIDs: [String: String] = [:]
         for (rawID, action) in decodedActions {
             let id = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
             if id.isEmpty {
@@ -100,6 +118,16 @@ struct CmuxConfigFile: Codable, Sendable {
                     )
                 )
             }
+            let canonicalID = CmuxSurfaceTabBarBuiltInAction(configID: id)?.configID ?? id
+            if let existingID = canonicalIDs[canonicalID] {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: codingPath,
+                        debugDescription: "actions must not contain duplicate aliases for '\(canonicalID)' (found '\(existingID)' and '\(id)')"
+                    )
+                )
+            }
+            canonicalIDs[canonicalID] = id
             actions[id] = action
         }
         return actions
@@ -124,55 +152,176 @@ struct CmuxConfigFile: Codable, Sendable {
     }
 }
 
-enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Hashable {
-    case newTerminal = "cmux.newTerminal"
-    case newBrowser = "cmux.newBrowser"
-    case splitRight = "cmux.splitRight"
-    case splitDown = "cmux.splitDown"
+/// Per-cwd customization for sidebar workspace groups. Keyed by the anchor
+/// workspace's cwd. Keys containing `*` or `?` are matched as fnmatch globs;
+/// otherwise they are path prefixes. Longest match wins. `~` is expanded.
+struct CmuxConfigWorkspaceGroupsDefinition: Codable, Sendable, Equatable {
+    var byCwd: [String: CmuxConfigWorkspaceGroupEntry]?
 
-    init?(configID: String) {
-        switch configID {
-        case "cmux.newTerminal", "newTerminal":
-            self = .newTerminal
-        case "cmux.newBrowser", "newBrowser":
-            self = .newBrowser
-        case "cmux.splitRight", "splitRight":
-            self = .splitRight
-        case "cmux.splitDown", "splitDown":
-            self = .splitDown
-        default:
-            return nil
-        }
+    enum CodingKeys: String, CodingKey {
+        case byCwd
+    }
+}
+
+struct CmuxConfigWorkspaceGroupEntry: Codable, Sendable, Equatable {
+    var color: String?
+    var icon: String?
+    var contextMenu: [CmuxConfigContextMenuItem]?
+    /// Where a newly-created workspace lands inside the group when the user
+    /// clicks the header's `+` button or invokes Cmd-N from a group member.
+    /// Valid values: `"afterCurrent"` (after the current in-group workspace,
+    /// falling back to top), `"top"` (immediately after the anchor), or
+    /// `"end"` (after the last member). When omitted,
+    /// falls back to the global default
+    /// (the stored `workspaceGroups.newWorkspacePlacement` setting).
+    var newWorkspacePlacement: String?
+}
+
+/// Resolved snapshot of a per-cwd workspace group entry, with the JSON key
+/// normalized for matching and any `contextMenu` actions resolved against the
+/// loaded action/command tables.
+struct CmuxResolvedWorkspaceGroupConfig: Sendable, Equatable {
+    let originalKey: String
+    let normalizedKey: String
+    let isGlob: Bool
+    let color: String?
+    let iconSymbol: String?
+    let contextMenuItems: [CmuxResolvedConfigContextMenuItem]
+    /// Parsed override for where the `+` button places its new workspace.
+    /// nil means "fall through to the global default."
+    let newWorkspacePlacement: WorkspaceGroupNewPlacement?
+}
+
+enum CmuxNotificationHooksMode: String, Codable, Sendable, Hashable {
+    case append
+    case replace
+}
+
+struct CmuxNotificationConfigDefinition: Codable, Sendable, Hashable {
+    var hooks: [CmuxNotificationHookDefinition]?
+    var hooksMode: CmuxNotificationHooksMode?
+
+    private enum CodingKeys: String, CodingKey {
+        case hooks
+        case hooksMode
+    }
+}
+
+struct CmuxNotificationHookDefinition: Codable, Sendable, Hashable {
+    static let defaultTimeoutSeconds: TimeInterval = 20
+
+    var id: String
+    var command: String
+    var timeoutSeconds: TimeInterval?
+    var enabled: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case command
+        case timeoutSeconds
+        case enabled
     }
 
-    var configID: String {
-        rawValue
+    init(
+        id: String,
+        command: String,
+        timeoutSeconds: TimeInterval? = nil,
+        enabled: Bool = true
+    ) {
+        self.id = id
+        self.command = command
+        self.timeoutSeconds = timeoutSeconds
+        self.enabled = enabled
     }
 
-    var defaultIcon: String {
-        switch self {
-        case .newTerminal:
-            return "terminal"
-        case .newBrowser:
-            return "globe"
-        case .splitRight:
-            return "square.split.2x1"
-        case .splitDown:
-            return "square.split.1x2"
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedID = try Self.requiredTrimmedString(forKey: .id, in: container)
+        let decodedCommand = try Self.requiredTrimmedString(forKey: .command, in: container)
+        let decodedTimeout = try container.decodeIfPresent(TimeInterval.self, forKey: .timeoutSeconds)
+        if let decodedTimeout, !decodedTimeout.isFinite || decodedTimeout <= 0 {
+            throw DecodingError.dataCorruptedError(
+                forKey: .timeoutSeconds,
+                in: container,
+                debugDescription: "timeoutSeconds must be greater than 0"
+            )
         }
+
+        id = decodedID
+        command = decodedCommand
+        timeoutSeconds = decodedTimeout
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
 
-    var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action {
-        switch self {
-        case .newTerminal:
-            return .newTerminal
-        case .newBrowser:
-            return .newBrowser
-        case .splitRight:
-            return .splitRight
-        case .splitDown:
-            return .splitDown
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(command, forKey: .command)
+        try container.encodeIfPresent(timeoutSeconds, forKey: .timeoutSeconds)
+        try container.encode(enabled, forKey: .enabled)
+    }
+
+    var resolvedTimeoutSeconds: TimeInterval {
+        timeoutSeconds ?? Self.defaultTimeoutSeconds
+    }
+
+    private static func requiredTrimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        let value = try container.decode(String.self, forKey: key)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
         }
+        return value
+    }
+}
+
+struct CmuxResolvedNotificationHook: Sendable, Hashable {
+    let id: String
+    let command: String
+    let timeoutSeconds: TimeInterval
+    let sourcePath: String?
+    let cwd: String
+    let trustDescriptor: CmuxActionTrustDescriptor?
+
+    init(
+        id: String,
+        command: String,
+        timeoutSeconds: TimeInterval,
+        sourcePath: String?,
+        cwd: String,
+        trustDescriptor: CmuxActionTrustDescriptor? = nil
+    ) {
+        self.id = id
+        self.command = command
+        self.timeoutSeconds = timeoutSeconds
+        self.sourcePath = sourcePath
+        self.cwd = cwd
+        self.trustDescriptor = trustDescriptor
+    }
+
+    static func == (lhs: CmuxResolvedNotificationHook, rhs: CmuxResolvedNotificationHook) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.command == rhs.command &&
+            lhs.timeoutSeconds == rhs.timeoutSeconds &&
+            lhs.sourcePath == rhs.sourcePath &&
+            lhs.cwd == rhs.cwd &&
+            lhs.trustDescriptor?.fingerprint == rhs.trustDescriptor?.fingerprint
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(command)
+        hasher.combine(timeoutSeconds)
+        hasher.combine(sourcePath)
+        hasher.combine(cwd)
+        hasher.combine(trustDescriptor?.fingerprint)
     }
 }
 
@@ -680,59 +829,6 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
     }
 }
 
-struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
-    var newWorkspace: CmuxConfigButtonPlacement?
-    var surfaceTabBar: CmuxSurfaceTabBarUIDefinition?
-}
-
-struct CmuxSurfaceTabBarUIDefinition: Codable, Sendable, Hashable {
-    var buttons: [CmuxSurfaceTabBarButton]?
-}
-
-struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
-    var action: String?
-    var icon: CmuxButtonIcon?
-    var tooltip: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case action
-        case icon
-        case tooltip
-    }
-
-    init(action: String? = nil, icon: CmuxButtonIcon? = nil, tooltip: String? = nil) {
-        self.action = action
-        self.icon = icon
-        self.tooltip = tooltip
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        action = try Self.trimmedString(forKey: .action, in: container)
-        icon = try container.decodeIfPresent(CmuxButtonIcon.self, forKey: .icon)
-        tooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
-    }
-
-    private static func trimmedString(
-        forKey key: CodingKeys,
-        in container: KeyedDecodingContainer<CodingKeys>,
-        allowBlankAsNil: Bool = false
-    ) throws -> String? {
-        guard container.contains(key) else { return nil }
-        let raw = try container.decode(String.self, forKey: key)
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            if allowBlankAsNil { return nil }
-            throw DecodingError.dataCorruptedError(
-                forKey: key,
-                in: container,
-                debugDescription: "\(key.stringValue) must not be blank"
-            )
-        }
-        return trimmed
-    }
-}
-
 struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
     var action: CmuxSurfaceTabBarButtonAction?
     var title: String?
@@ -937,7 +1033,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
                 throw DecodingError.dataCorruptedError(
                     forKey: key,
                     in: container,
-                    debugDescription: "shortcut must use modifier+key syntax like 'cmd+shift+t'"
+                    debugDescription: "shortcut must use modifier+key syntax like 'cmd+shift+t' or be empty to unbind"
                 )
             }
             return shortcut
@@ -965,6 +1061,10 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         in container: inout KeyedEncodingContainer<CodingKeys>
     ) throws {
         guard let shortcut else { return }
+        if shortcut.isUnbound {
+            try container.encode("", forKey: key)
+            return
+        }
         if let secondStroke = shortcut.secondStroke {
             try container.encode(
                 [shortcut.firstStroke.configString(), secondStroke.configString()],
@@ -1140,7 +1240,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         let bonsplitAction: BonsplitConfiguration.SplitActionButton.Action = {
             switch action {
             case .builtIn(let builtIn):
-                return builtIn.bonsplitAction
+                return builtIn.bonsplitAction ?? .custom(id)
             case .command, .agent, .workspaceCommand, .actionReference:
                 return .custom(id)
             }
@@ -1292,7 +1392,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             return self
         }
 
-        if let definition = actions[identifier] {
+        let resolvedIdentifier = CmuxSurfaceTabBarBuiltInAction(configID: identifier)?.configID ?? identifier
+        if let definition = actions[resolvedIdentifier] {
             return CmuxSurfaceTabBarButton(
                 id: id,
                 title: title ?? definition.title,
@@ -1450,6 +1551,12 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         let title: String
         let keywords: [String]
         switch builtIn {
+        case .newWorkspace:
+            title = String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
+            keywords = ["create", "new", "workspace"]
+        case .cloudVM:
+            title = String(localized: "command.cloudVM.title", defaultValue: "Start Cloud VM")
+            keywords = ["cloud", "vm", "virtual", "machine", "remote"]
         case .newTerminal:
             title = String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab")
             keywords = ["new", "terminal", "tab", "surface"]
@@ -1576,46 +1683,6 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
                     debugDescription: "Command '\(name)' must define either 'workspace' or 'command'"
                 )
             )
-        }
-    }
-}
-
-enum CmuxRestartBehavior: String, Codable, Sendable {
-    case recreate
-    case ignore
-    case confirm
-}
-
-struct CmuxWorkspaceDefinition: Codable, Sendable {
-    var name: String?
-    var cwd: String?
-    var color: String?
-    var layout: CmuxLayoutNode?
-
-    init(name: String? = nil, cwd: String? = nil, color: String? = nil, layout: CmuxLayoutNode? = nil) {
-        self.name = name
-        self.cwd = cwd
-        self.color = color
-        self.layout = layout
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = try container.decodeIfPresent(String.self, forKey: .name)
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
-        layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
-
-        if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(rawColor) else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .color,
-                    in: container,
-                    debugDescription: "Invalid color \"\(rawColor)\". Expected 6-digit hex format: #RRGGBB"
-                )
-            }
-            color = normalized
-        } else {
-            color = nil
         }
     }
 }
@@ -1750,6 +1817,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
 enum CmuxSurfaceType: String, Codable, Sendable {
     case terminal
     case browser
+    case project
 }
 
 struct CmuxResolvedCommand: Sendable {
@@ -1759,7 +1827,7 @@ struct CmuxResolvedCommand: Sendable {
 
 struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
     enum Kind: String, Sendable {
-        case newWorkspaceActionRequiresWorkspaceCommand
+        case newWorkspaceActionNotFound
         case newWorkspaceCommandNotFound
         case newWorkspaceCommandRequiresWorkspace
         case schemaError
@@ -1797,8 +1865,8 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
 
     var logMessage: String {
         switch kind {
-        case .newWorkspaceActionRequiresWorkspaceCommand:
-            return "\(settingName) must reference a workspaceCommand action"
+        case .newWorkspaceActionNotFound:
+            return "\(settingName) '\(commandName ?? "")' does not match any loaded action"
         case .newWorkspaceCommandNotFound:
             return "\(settingName) '\(commandName ?? "")' does not match any loaded command"
         case .newWorkspaceCommandRequiresWorkspace:
@@ -1811,11 +1879,23 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
 
 @MainActor
 final class CmuxConfigStore: ObservableObject {
+    private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)),
+    ]
+
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
     @Published private(set) var loadedActions: [CmuxResolvedConfigAction] = []
     @Published private(set) var newWorkspaceCommandName: String?
-    @Published private(set) var newWorkspaceAction: CmuxConfigActionDefinition?
+    @Published private(set) var newWorkspaceActionID: String?
+    @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
+    /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
+    /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
+    /// anchor workspace's cwd. Empty when no `workspaceGroups.byCwd` block is
+    /// configured.
+    @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
+    @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
 
@@ -1829,6 +1909,7 @@ final class CmuxConfigStore: ObservableObject {
     private(set) var localConfigPath: String?
     private weak var tabManager: TabManager?
     let globalConfigPath: String
+    private let fileWatchingEnabled: Bool
 
     nonisolated private static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -1850,7 +1931,18 @@ final class CmuxConfigStore: ObservableObject {
         let terminalCommandSourcePaths: [String: String]
     }
 
+    private struct ResolvedContextMenuItems {
+        let items: [CmuxResolvedConfigContextMenuItem]
+        let issues: [CmuxConfigIssue]
+    }
+
     private struct NewWorkspaceCommandResolution {
+        let command: CmuxResolvedCommand?
+        let issue: CmuxConfigIssue?
+    }
+
+    private struct NewWorkspaceActionResolution {
+        let action: CmuxResolvedConfigAction?
         let command: CmuxResolvedCommand?
         let issue: CmuxConfigIssue?
     }
@@ -1858,6 +1950,7 @@ final class CmuxConfigStore: ObservableObject {
     private struct ParsedConfigCacheEntry {
         let fileSize: UInt64
         let modificationDate: Date?
+        let workspaceColorPaletteFingerprint: String
         let config: CmuxConfigFile?
         let issue: CmuxConfigIssue?
     }
@@ -1869,16 +1962,22 @@ final class CmuxConfigStore: ObservableObject {
 
     private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
+    private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
+    // The local config still uses a bespoke DispatchSource watcher because it
+    // performs search-directory *path re-resolution* (not just reload-on-change).
+    // The global config and hook files use CmuxFileWatch.FileWatcher.
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
     private var localConfigSearchDirectory: String?
+    private var hookWatchers: [String: FileWatcher] = [:]
+    private var hookWatchTasks: [String: Task<Void, Never>] = [:]
     private var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
     private var localFallbackDirectoryDescriptor: Int32 = -1
-    private var globalFileWatchSource: DispatchSourceFileSystemObject?
-    private var globalFileDescriptor: Int32 = -1
+    private var globalWatcher: FileWatcher?
+    private var globalWatchTask: Task<Void, Never>?
     private let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")
 
     private static let maxReattachAttempts = 5
@@ -1892,34 +1991,39 @@ final class CmuxConfigStore: ObservableObject {
         return configDirectory
     }
 
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
-        startFileWatchers: Bool = true
+        startFileWatchers: Bool = false
     ) {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
+        self.fileWatchingEnabled = startFileWatchers
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                self.applySurfaceTabBarButtonsToCurrentManager()
-                self.configRevision &+= 1
+                self.loadAll()
             }
             .store(in: &lifetimeCancellables)
         if startFileWatchers {
             if localConfigPath != nil {
                 startLocalFileWatcher()
             }
-            startGlobalFileWatcher()
+            startGlobalWatching()
         }
     }
 
     deinit {
         localFileWatchSource?.cancel()
         localFallbackDirectoryWatchSource?.cancel()
-        globalFileWatchSource?.cancel()
+        hookWatchTasks.values.forEach { $0.cancel() }
+        globalWatchTask?.cancel()
     }
 
     // MARK: - Public API
@@ -1928,7 +2032,7 @@ final class CmuxConfigStore: ObservableObject {
         trackingCancellables.removeAll()
         self.tabManager = tabManager
 
-        tabManager.$selectedTabId
+        tabManager.selectedTabIdPublisher
             .compactMap { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
@@ -1944,7 +2048,7 @@ final class CmuxConfigStore: ObservableObject {
             }
             .store(in: &trackingCancellables)
 
-        tabManager.$tabs
+        tabManager.tabsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.applySurfaceTabBarButtonsToCurrentManager()
@@ -1952,6 +2056,22 @@ final class CmuxConfigStore: ObservableObject {
             .store(in: &trackingCancellables)
 
         updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
+    }
+
+    func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {
+        let globalConfig = parseConfig(at: globalConfigPath).config
+        let localConfigs: [(path: String, config: CmuxConfigFile)]
+        if let directory, !directory.isEmpty {
+            localConfigs = findCmuxConfigHierarchy(startingFrom: directory).compactMap { path in
+                parseConfig(at: path).config.map { (path: path, config: $0) }
+            }
+        } else {
+            localConfigs = []
+        }
+        return resolveNotificationHooks(
+            globalConfig: globalConfig,
+            localConfigs: localConfigs
+        )
     }
 
     private func updateLocalConfigPath(_ directory: String?) {
@@ -1967,7 +2087,7 @@ final class CmuxConfigStore: ObservableObject {
         guard newPath != localConfigPath else { return }
         stopLocalFileWatcher()
         localConfigPath = newPath
-        if newPath != nil {
+        if fileWatchingEnabled, newPath != nil {
             startLocalFileWatcher()
         }
         loadAll()
@@ -2002,14 +2122,36 @@ final class CmuxConfigStore: ObservableObject {
         return nil
     }
 
+    private func findCmuxConfigHierarchy(startingFrom directory: String) -> [String] {
+        var current = directory
+        let fs = FileManager.default
+        var paths: [String] = []
+        while true {
+            let candidates = [
+                ((current as NSString).appendingPathComponent(".cmux") as NSString)
+                    .appendingPathComponent("cmux.json"),
+                (current as NSString).appendingPathComponent("cmux.json")
+            ]
+            if let candidate = candidates.first(where: { fs.fileExists(atPath: $0) }) {
+                paths.append(candidate)
+            }
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current { break }
+            current = parent
+        }
+        return paths.reversed()
+    }
+
     func loadAll() {
         var commands: [CmuxCommandDefinition] = []
         var seenNames = Set<String>()
         var sourcePaths: [String: String] = [:]
         var configuredNewWorkspaceCommandName: String?
         var configuredNewWorkspaceCommandSourcePath: String?
-        var configuredNewWorkspaceAction: CmuxConfigActionDefinition?
+        var configuredNewWorkspaceActionID: String?
         var configuredNewWorkspaceActionSourcePath: String?
+        var configuredNewWorkspaceContextMenu: [CmuxConfigContextMenuItem]?
+        var configuredNewWorkspaceContextMenuSourcePath: String?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
         let localPath = localConfigPath
@@ -2017,6 +2159,10 @@ final class CmuxConfigStore: ObservableObject {
         let globalParseResult = parseConfig(at: globalConfigPath)
         let localConfig = localParseResult?.config
         let globalConfig = globalParseResult.config
+        let localHookPaths = resolvedLocalNotificationHookPaths(fallbackLocalPath: localPath)
+        let localHookParseResults = localHookPaths.map { path in
+            (path: path, result: parseConfig(at: path))
+        }
         var issues = [CmuxConfigIssue]()
         if let issue = localParseResult?.issue {
             issues.append(issue)
@@ -2024,21 +2170,25 @@ final class CmuxConfigStore: ObservableObject {
         if let issue = globalParseResult.issue {
             issues.append(issue)
         }
+        for hookParseResult in localHookParseResults {
+            guard hookParseResult.path != localPath,
+                  let issue = hookParseResult.result.issue else { continue }
+            issues.append(issue)
+        }
         let localActions = localConfig.map { actionEntries(from: $0.actions, sourcePath: localPath) } ?? [:]
         let globalActions = globalConfig.map { actionEntries(from: $0.actions, sourcePath: globalConfigPath) } ?? [:]
-        let localActionLookup = mergedActionEntries(primary: localActions, fallback: globalActions)
 
         // Local config takes precedence
         if let localConfig {
             if let newWorkspaceActionID = localConfig.ui?.newWorkspace?.action {
-                if let action = localActionLookup[newWorkspaceActionID] {
-                    configuredNewWorkspaceAction = action.definition
-                    configuredNewWorkspaceActionSourcePath = action.sourcePath
-                } else {
-                    NSLog("[CmuxConfig] ui.newWorkspace.action '%@' does not match any local or global action", newWorkspaceActionID)
-                }
+                configuredNewWorkspaceActionID = newWorkspaceActionID
+                configuredNewWorkspaceActionSourcePath = localPath
             }
-            if configuredNewWorkspaceAction == nil,
+            if let contextMenu = localConfig.ui?.newWorkspace?.contextMenu {
+                configuredNewWorkspaceContextMenu = contextMenu
+                configuredNewWorkspaceContextMenuSourcePath = localPath
+            }
+            if configuredNewWorkspaceActionID == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
                 configuredNewWorkspaceCommandSourcePath = localPath
@@ -2060,17 +2210,18 @@ final class CmuxConfigStore: ObservableObject {
 
         // Global config fills in the rest
         if let globalConfig {
-            if configuredNewWorkspaceAction == nil,
+            if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
                let newWorkspaceActionID = globalConfig.ui?.newWorkspace?.action {
-                if let action = localActionLookup[newWorkspaceActionID] {
-                    configuredNewWorkspaceAction = action.definition
-                    configuredNewWorkspaceActionSourcePath = action.sourcePath
-                } else {
-                    NSLog("[CmuxConfig] ui.newWorkspace.action '%@' does not match any local or global action", newWorkspaceActionID)
-                }
+                configuredNewWorkspaceActionID = newWorkspaceActionID
+                configuredNewWorkspaceActionSourcePath = globalConfigPath
             }
-            if configuredNewWorkspaceAction == nil,
+            if configuredNewWorkspaceContextMenu == nil,
+               let contextMenu = globalConfig.ui?.newWorkspace?.contextMenu {
+                configuredNewWorkspaceContextMenu = contextMenu
+                configuredNewWorkspaceContextMenuSourcePath = globalConfigPath
+            }
+            if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
                let newWorkspaceCommand = globalConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
@@ -2119,33 +2270,143 @@ final class CmuxConfigStore: ObservableObject {
             commands: commands,
             sourcePaths: sourcePaths
         )
-        let resolvedNewWorkspaceCommand = resolvedConfiguredNewWorkspaceCommand(
-            action: configuredNewWorkspaceAction,
+        let resolvedNewWorkspaceAction = resolvedConfiguredNewWorkspaceAction(
+            actionID: configuredNewWorkspaceActionID,
             actionSourcePath: configuredNewWorkspaceActionSourcePath,
             commandName: configuredNewWorkspaceCommandName,
             commandSourcePath: configuredNewWorkspaceCommandSourcePath,
+            actions: resolvedActionLookup,
             commands: commands,
             sourcePaths: sourcePaths
+        )
+        let resolvedNewWorkspaceContextMenuItems = resolvedConfigContextMenuItems(
+            configuredNewWorkspaceContextMenu ?? Self.defaultNewWorkspaceContextMenu,
+            actions: resolvedActionLookup,
+            commands: commands,
+            sourcePaths: sourcePaths,
+            settingName: "ui.newWorkspace.contextMenu",
+            settingSourcePath: configuredNewWorkspaceContextMenuSourcePath
+        )
+        let resolvedNotificationHooks = resolveNotificationHooks(
+            globalConfig: globalConfig,
+            localConfigs: localHookParseResults.compactMap { entry in
+                entry.result.config.map { (path: entry.path, config: $0) }
+            }
         )
 
         loadedCommands = commands
         loadedActions = resolvedActions
         commandSourcePaths = sourcePaths
         actionLookup = resolvedActionLookup
-        newWorkspaceAction = configuredNewWorkspaceAction
+        newWorkspaceActionID = configuredNewWorkspaceActionID
         newWorkspaceActionSourcePath = configuredNewWorkspaceActionSourcePath
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
+        newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
+        let resolvedGroupConfigs = resolveWorkspaceGroupConfigsFromLayers(
+            localConfig: localConfig,
+            globalConfig: globalConfig,
+            localPath: localPath,
+            globalPath: globalConfigPath,
+            actions: resolvedActionLookup,
+            commands: commands,
+            sourcePaths: sourcePaths,
+            issues: &issues
+        )
+        workspaceGroupConfigs = resolvedGroupConfigs
         surfaceTabBarButtonSourcePath = configuredSurfaceTabBarButtonSourcePath
         surfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
-        resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceCommand.command
-        if let issue = resolvedNewWorkspaceCommand.issue {
+        notificationHooks = resolvedNotificationHooks
+        resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
+        resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
+        if let issue = resolvedNewWorkspaceAction.issue {
             issues.append(issue)
         }
+        issues.append(contentsOf: resolvedNewWorkspaceContextMenuItems.issues)
         configurationIssues = issues
+        if fileWatchingEnabled {
+            updateLocalHookFileWatchers(
+                paths: localHookPaths,
+                primaryLocalPath: localPath
+            )
+        }
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
+    }
+
+    private func resolvedLocalNotificationHookPaths(fallbackLocalPath: String?) -> [String] {
+        if let searchDirectory = localConfigSearchDirectory {
+            var paths = findCmuxConfigHierarchy(startingFrom: searchDirectory)
+            if let fallbackLocalPath, !paths.contains(fallbackLocalPath) {
+                paths.append(fallbackLocalPath)
+            }
+            return paths
+        }
+        return fallbackLocalPath.map { [$0] } ?? []
+    }
+
+    private func resolveNotificationHooks(
+        globalConfig: CmuxConfigFile?,
+        localConfigs: [(path: String, config: CmuxConfigFile)]
+    ) -> [CmuxResolvedNotificationHook] {
+        var hooks: [CmuxResolvedNotificationHook] = []
+        if let globalHooks = globalConfig?.notifications?.hooks {
+            hooks.append(contentsOf: resolvedNotificationHooks(
+                globalHooks,
+                sourcePath: globalConfigPath
+            ))
+        }
+
+        for entry in localConfigs {
+            guard let notifications = entry.config.notifications else { continue }
+            if notifications.hooksMode == .replace {
+                hooks.removeAll()
+            }
+            if let localHooks = notifications.hooks {
+                hooks.append(contentsOf: resolvedNotificationHooks(
+                    localHooks,
+                    sourcePath: entry.path
+                ))
+            }
+        }
+        return hooks
+    }
+
+    private func resolvedNotificationHooks(
+        _ definitions: [CmuxNotificationHookDefinition],
+        sourcePath: String
+    ) -> [CmuxResolvedNotificationHook] {
+        let cwd = CmuxButtonIcon.projectRoot(forConfigPath: sourcePath)
+        let canonicalSourcePath = Self.canonicalPath(sourcePath)
+        let canonicalGlobalConfigPath = Self.canonicalPath(globalConfigPath)
+        let isGlobalHook = canonicalSourcePath == canonicalGlobalConfigPath
+        return definitions.compactMap { definition in
+            guard definition.enabled else { return nil }
+            let trustDescriptor: CmuxActionTrustDescriptor?
+            if isGlobalHook {
+                trustDescriptor = nil
+            } else {
+                trustDescriptor = CmuxActionTrustDescriptor(
+                    actionID: definition.id,
+                    kind: "notificationHook",
+                    command: definition.command,
+                    target: "notificationPolicy",
+                    workspaceCommand: nil,
+                    configPath: canonicalSourcePath,
+                    projectRoot: Self.canonicalPath(cwd),
+                    iconFingerprint: nil
+                )
+            }
+            return CmuxResolvedNotificationHook(
+                id: definition.id,
+                command: definition.command,
+                timeoutSeconds: definition.resolvedTimeoutSeconds,
+                sourcePath: sourcePath,
+                cwd: cwd,
+                trustDescriptor: trustDescriptor
+            )
+        }
     }
 
     private func actionEntries(
@@ -2173,6 +2434,11 @@ final class CmuxConfigStore: ObservableObject {
         return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private func sanitizeConfigText(_ text: String, fallback: String) -> String {
+        let sanitized = sanitizeConfigText(text)
+        return sanitized.isEmpty ? fallback : sanitized
+    }
+
     private func resolvedActionRegistry(
         globalActions: [String: ActionEntry],
         localActions: [String: ActionEntry],
@@ -2187,9 +2453,10 @@ final class CmuxConfigStore: ObservableObject {
 
         func apply(_ entries: [String: ActionEntry]) {
             for (id, entry) in entries {
-                if let existing = registry[id] {
+                let registryID = CmuxSurfaceTabBarBuiltInAction(configID: id)?.configID ?? id
+                if let existing = registry[registryID] {
                     guard let resolved = existing.applying(entry.definition, sourcePath: entry.sourcePath) else { continue }
-                    registry[id] = resolved
+                    registry[registryID] = resolved
                 } else if let resolved = CmuxResolvedConfigAction.fromDefinition(
                     id: id,
                     definition: entry.definition,
@@ -2272,7 +2539,8 @@ final class CmuxConfigStore: ObservableObject {
             return ResolvedSurfaceTabBarButtonEntry(button: button, terminalCommandSourcePath: nil)
         }
 
-        if let entry = actions[identifier] {
+        let resolvedIdentifier = canonicalActionID(identifier)
+        if let entry = actions[resolvedIdentifier] {
             let resolvedButton = CmuxSurfaceTabBarButton(
                 id: button.id,
                 title: button.title ?? entry.title,
@@ -2363,8 +2631,12 @@ final class CmuxConfigStore: ObservableObject {
         resolvedNewWorkspaceCommandCache
     }
 
+    func resolvedNewWorkspaceAction() -> CmuxResolvedConfigAction? {
+        resolvedNewWorkspaceActionCache
+    }
+
     func resolvedAction(id: String) -> CmuxResolvedConfigAction? {
-        actionLookup[id]
+        actionLookup[canonicalActionID(id)]
     }
 
     func paletteCustomActions() -> [CmuxResolvedConfigAction] {
@@ -2388,42 +2660,328 @@ final class CmuxConfigStore: ObservableObject {
         }
     }
 
-    private func resolvedConfiguredNewWorkspaceCommand(
-        action: CmuxConfigActionDefinition?,
+    private func resolvedConfiguredNewWorkspaceAction(
+        actionID: String?,
         actionSourcePath: String?,
         commandName: String?,
         commandSourcePath: String?,
+        actions: [String: CmuxResolvedConfigAction],
         commands: [CmuxCommandDefinition],
         sourcePaths: [String: String]
-    ) -> NewWorkspaceCommandResolution {
-        if let action {
-            guard let actionCommandName = action.action?.workspaceCommandName else {
-                return newWorkspaceResolutionIssue(
-                    kind: .newWorkspaceActionRequiresWorkspaceCommand,
+    ) -> NewWorkspaceActionResolution {
+        if let actionID {
+            let resolvedActionID = canonicalActionID(actionID)
+            guard let action = actions[resolvedActionID] else {
+                let issue = CmuxConfigIssue(
+                    kind: .newWorkspaceActionNotFound,
                     settingName: "ui.newWorkspace.action",
-                    commandName: nil,
+                    commandName: actionID,
                     sourcePath: actionSourcePath
                 )
+                NSLog("[CmuxConfig] %@", issue.logMessage)
+                return NewWorkspaceActionResolution(action: nil, command: nil, issue: issue)
             }
-            return resolvedConfiguredNewWorkspaceCommand(
-                named: actionCommandName,
-                settingName: "ui.newWorkspace.action",
-                settingSourcePath: actionSourcePath,
-                commands: commands,
-                sourcePaths: sourcePaths
-            )
+            if let actionCommandName = action.workspaceCommandName {
+                let commandResolution = resolvedConfiguredNewWorkspaceCommand(
+                    named: actionCommandName,
+                    settingName: "ui.newWorkspace.action",
+                    settingSourcePath: action.actionSourcePath ?? actionSourcePath,
+                    commands: commands,
+                    sourcePaths: sourcePaths
+                )
+                guard commandResolution.issue == nil else {
+                    return NewWorkspaceActionResolution(
+                        action: nil,
+                        command: commandResolution.command,
+                        issue: commandResolution.issue
+                    )
+                }
+                return NewWorkspaceActionResolution(
+                    action: action,
+                    command: commandResolution.command,
+                    issue: nil
+                )
+            }
+            return NewWorkspaceActionResolution(action: action, command: nil, issue: nil)
         }
 
         guard let commandName else {
-            return NewWorkspaceCommandResolution(command: nil, issue: nil)
+            return NewWorkspaceActionResolution(action: nil, command: nil, issue: nil)
         }
-        return resolvedConfiguredNewWorkspaceCommand(
+        let commandResolution = resolvedConfiguredNewWorkspaceCommand(
             named: commandName,
             settingName: "newWorkspaceCommand",
             settingSourcePath: commandSourcePath,
             commands: commands,
             sourcePaths: sourcePaths
         )
+        guard let command = commandResolution.command else {
+            return NewWorkspaceActionResolution(action: nil, command: nil, issue: commandResolution.issue)
+        }
+        return NewWorkspaceActionResolution(
+            action: CmuxResolvedConfigAction(
+                id: command.command.id,
+                title: command.command.name,
+                subtitle: command.command.description
+                    ?? String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"),
+                keywords: command.command.keywords ?? [],
+                palette: false,
+                shortcut: nil,
+                icon: .symbol("rectangle.stack.badge.plus"),
+                tooltip: command.command.description,
+                action: .workspaceCommand(command.command.name),
+                confirm: command.command.confirm,
+                terminalCommandTarget: nil,
+                actionSourcePath: command.sourcePath,
+                iconSourcePath: nil
+            ),
+            command: command,
+            issue: nil
+        )
+    }
+
+    /// Public lookup: given an anchor workspace's cwd, return the best-matching
+    /// resolved group config. Matching uses auto-glob detection (keys with `*`
+    /// or `?` are treated as fnmatch globs, others as path prefixes). Longest
+    /// matching key wins. Returns nil when nothing matches.
+    func resolveWorkspaceGroupConfig(forCwd cwd: String?) -> CmuxResolvedWorkspaceGroupConfig? {
+        guard let cwd, !cwd.isEmpty, !workspaceGroupConfigs.isEmpty else { return nil }
+        let normalizedCwd = Self.normalizeAbsolutePath(cwd)
+        var best: (CmuxResolvedWorkspaceGroupConfig, Int)?
+        for entry in workspaceGroupConfigs {
+            guard Self.cwdEntryMatches(entry, cwd: normalizedCwd) else { continue }
+            let score = entry.normalizedKey.count
+            if best == nil || score > best!.1 {
+                best = (entry, score)
+            }
+        }
+        return best?.0
+    }
+
+    /// Replace a leading `~` with the user's home directory while preserving
+    /// the rest of the pattern (including `*`/`?` glob characters). Unlike
+    /// `normalizeAbsolutePath`, this skips `standardizingPath` so trailing
+    /// glob segments aren't collapsed.
+    private static func expandTildePreservingGlob(_ pattern: String) -> String {
+        let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("~") else { return trimmed }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let suffix = trimmed.dropFirst()
+        return suffix.isEmpty ? home : home + String(suffix)
+    }
+
+    private static func normalizeAbsolutePath(_ path: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "" }
+        if trimmed.hasPrefix("~") {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let suffix = trimmed.dropFirst()
+            return suffix.isEmpty ? home : home + String(suffix)
+        }
+        return (trimmed as NSString).standardizingPath
+    }
+
+    private static func cwdEntryMatches(
+        _ entry: CmuxResolvedWorkspaceGroupConfig,
+        cwd: String
+    ) -> Bool {
+        let key = entry.normalizedKey
+        if entry.isGlob {
+            return fnmatchStyle(pattern: key, candidate: cwd)
+        }
+        if cwd == key { return true }
+        // Root prefix `/` is a documented catch-all; without this branch
+        // any non-root cwd would be tested against "//" and fail. Other
+        // keys append `/` so `/Users/lawrence` doesn't also match
+        // `/Users/lawrence-fork`.
+        if key == "/" {
+            return cwd.hasPrefix("/")
+        }
+        return cwd.hasPrefix(key + "/")
+    }
+
+    /// Minimal fnmatch: `*` matches any run of characters within a path segment
+    /// (and across path separators); `?` matches a single character. Sufficient
+    /// for the byCwd matching contract — full fnmatch features can come later.
+    private static func fnmatchStyle(pattern: String, candidate: String) -> Bool {
+        let p = Array(pattern)
+        let s = Array(candidate)
+        var pi = 0
+        var si = 0
+        var starP = -1
+        var starS = -1
+        while si < s.count {
+            if pi < p.count && (p[pi] == "?" || p[pi] == s[si]) {
+                pi += 1
+                si += 1
+            } else if pi < p.count && p[pi] == "*" {
+                starP = pi
+                starS = si
+                pi += 1
+            } else if starP != -1 {
+                pi = starP + 1
+                starS += 1
+                si = starS
+            } else {
+                return false
+            }
+        }
+        while pi < p.count && p[pi] == "*" { pi += 1 }
+        return pi == p.count
+    }
+
+    private func resolveWorkspaceGroupConfigsFromLayers(
+        localConfig: CmuxConfigFile?,
+        globalConfig: CmuxConfigFile?,
+        localPath: String?,
+        globalPath: String,
+        actions: [String: CmuxResolvedConfigAction],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String],
+        issues: inout [CmuxConfigIssue]
+    ) -> [CmuxResolvedWorkspaceGroupConfig] {
+        var resolved: [String: CmuxResolvedWorkspaceGroupConfig] = [:]
+        if let globalEntries = globalConfig?.workspaceGroups?.byCwd {
+            for (key, entry) in globalEntries {
+                if let r = resolveWorkspaceGroupConfigEntry(
+                    key: key, entry: entry, sourcePath: globalPath,
+                    actions: actions, commands: commands,
+                    sourcePaths: sourcePaths, issues: &issues
+                ) {
+                    resolved[r.normalizedKey] = r
+                }
+            }
+        }
+        if let localEntries = localConfig?.workspaceGroups?.byCwd {
+            for (key, entry) in localEntries {
+                if let r = resolveWorkspaceGroupConfigEntry(
+                    key: key, entry: entry, sourcePath: localPath ?? globalPath,
+                    actions: actions, commands: commands,
+                    sourcePaths: sourcePaths, issues: &issues
+                ) {
+                    resolved[r.normalizedKey] = r // local overrides global
+                }
+            }
+        }
+        return Array(resolved.values).sorted { $0.normalizedKey.count > $1.normalizedKey.count }
+    }
+
+    private func resolveWorkspaceGroupConfigEntry(
+        key: String,
+        entry: CmuxConfigWorkspaceGroupEntry,
+        sourcePath: String,
+        actions: [String: CmuxResolvedConfigAction],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String],
+        issues: inout [CmuxConfigIssue]
+    ) -> CmuxResolvedWorkspaceGroupConfig? {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let isGlob = trimmed.contains("*") || trimmed.contains("?")
+        // Expand `~` in both glob and prefix keys so a key like
+        // `~/projects/*` matches workspace cwds that are already normalized to
+        // absolute paths (`/Users/<you>/projects/foo`). Prefix keys also go
+        // through `standardizingPath` so trailing `/.` and similar are
+        // canonicalized.
+        let normalizedKey = isGlob
+            ? Self.expandTildePreservingGlob(trimmed)
+            : Self.normalizeAbsolutePath(trimmed)
+        let menuResolution = resolvedConfigContextMenuItems(
+            entry.contextMenu,
+            actions: actions,
+            commands: commands,
+            sourcePaths: sourcePaths,
+            settingName: "workspaceGroups.byCwd[\(key)].contextMenu",
+            settingSourcePath: sourcePath
+        )
+        issues.append(contentsOf: menuResolution.issues)
+        return CmuxResolvedWorkspaceGroupConfig(
+            originalKey: trimmed,
+            normalizedKey: normalizedKey,
+            isGlob: isGlob,
+            color: entry.color.map(sanitizeConfigText),
+            iconSymbol: entry.icon.map(sanitizeConfigText),
+            contextMenuItems: menuResolution.items,
+            newWorkspacePlacement: WorkspaceGroupNewPlacement(rawString: entry.newWorkspacePlacement)
+        )
+    }
+
+    private func resolvedConfigContextMenuItems(
+        _ configuredItems: [CmuxConfigContextMenuItem]?,
+        actions: [String: CmuxResolvedConfigAction],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String],
+        settingName: String,
+        settingSourcePath: String?
+    ) -> ResolvedContextMenuItems {
+        guard let configuredItems, !configuredItems.isEmpty else {
+            return ResolvedContextMenuItems(items: [], issues: [])
+        }
+        var resolvedItems: [CmuxResolvedConfigContextMenuItem] = []
+        var issues: [CmuxConfigIssue] = []
+        resolvedItems.reserveCapacity(configuredItems.count)
+
+        for (index, configuredItem) in configuredItems.enumerated() {
+            let itemSettingName = "\(settingName)[\(index)]"
+            switch configuredItem {
+            case .separator:
+                guard !resolvedItems.isEmpty else { continue }
+                if let last = resolvedItems.last, case .separator = last {
+                    continue
+                }
+                resolvedItems.append(.separator(id: "\(settingName).separator.\(index)"))
+            case .action(let item):
+                let resolvedActionID = canonicalActionID(item.action)
+                guard let action = actions[resolvedActionID] else {
+                    let issue = CmuxConfigIssue(
+                        kind: .newWorkspaceActionNotFound,
+                        settingName: itemSettingName,
+                        commandName: item.action,
+                        sourcePath: settingSourcePath
+                    )
+                    NSLog("[CmuxConfig] %@", issue.logMessage)
+                    issues.append(issue)
+                    continue
+                }
+                if let actionCommandName = action.workspaceCommandName {
+                    let commandResolution = resolvedConfiguredNewWorkspaceCommand(
+                        named: actionCommandName,
+                        settingName: itemSettingName,
+                        settingSourcePath: action.actionSourcePath ?? settingSourcePath,
+                        commands: commands,
+                        sourcePaths: sourcePaths
+                    )
+                    if let issue = commandResolution.issue {
+                        issues.append(issue)
+                        continue
+                    }
+                    guard commandResolution.command != nil else {
+                        continue
+                    }
+                }
+                resolvedItems.append(
+                    .action(
+                        CmuxResolvedConfigMenuAction(
+                            id: "\(settingName).\(index).\(action.id)",
+                            title: sanitizeConfigText(item.title ?? action.title, fallback: action.id),
+                            icon: item.icon ?? action.icon,
+                            iconSourcePath: item.icon == nil ? action.iconSourcePath : settingSourcePath,
+                            tooltip: (item.tooltip ?? action.tooltip).map(sanitizeConfigText),
+                            action: action
+                        )
+                    )
+                )
+            }
+        }
+
+        if let last = resolvedItems.last, case .separator = last {
+            resolvedItems.removeLast()
+        }
+        return ResolvedContextMenuItems(items: resolvedItems, issues: issues)
+    }
+
+    private func canonicalActionID(_ id: String) -> String {
+        CmuxSurfaceTabBarBuiltInAction(configID: id)?.configID ?? id
     }
 
     private func resolvedConfiguredNewWorkspaceCommand(
@@ -2512,10 +3070,12 @@ final class CmuxConfigStore: ObservableObject {
         let attributes = try? fileManager.attributesOfItem(atPath: path)
         let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
         let modificationDate = attributes?[.modificationDate] as? Date
+        let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint()
 
         if let cached = parsedConfigCache[path],
            cached.fileSize == fileSize,
-           cached.modificationDate == modificationDate {
+           cached.modificationDate == modificationDate,
+           cached.workspaceColorPaletteFingerprint == paletteFingerprint {
             return ParsedConfigResult(config: cached.config, issue: cached.issue)
         }
 
@@ -2525,16 +3085,34 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue
             )
             return ParsedConfigResult(config: nil, issue: issue)
         }
+        let sanitized: Data
         do {
-            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: data)
+            sanitized = try JSONCParser.preprocess(data: data)
+        } catch {
+            let issue = schemaIssue(path: path, message: "JSONC preprocessing failed: \(schemaErrorMessage(error))")
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
+                config: nil,
+                issue: issue
+            )
+            NSLog("[CmuxConfig] JSONC preprocessing error at %@: %@", path, String(describing: error))
+            return ParsedConfigResult(config: nil, issue: issue)
+        }
+
+        do {
+            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+            parsedConfigCache[path] = ParsedConfigCacheEntry(
+                fileSize: fileSize,
+                modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: config,
                 issue: nil
             )
@@ -2544,6 +3122,7 @@ final class CmuxConfigStore: ObservableObject {
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
+                workspaceColorPaletteFingerprint: paletteFingerprint,
                 config: nil,
                 issue: issue
             )
@@ -2630,6 +3209,44 @@ final class CmuxConfigStore: ObservableObject {
 
         source.resume()
         localFileWatchSource = source
+    }
+
+    private func updateLocalHookFileWatchers(
+        paths: [String],
+        primaryLocalPath: String?
+    ) {
+        let desiredPaths = Set(paths.filter { path in
+            path != primaryLocalPath && FileManager.default.fileExists(atPath: path)
+        })
+        for path in Array(hookWatchers.keys) where !desiredPaths.contains(path) {
+            stopLocalHookFileWatcher(at: path)
+        }
+        for path in desiredPaths where hookWatchers[path] == nil {
+            startLocalHookFileWatcher(at: path)
+        }
+    }
+
+    private func startLocalHookFileWatcher(at path: String) {
+        let watcher = FileWatcher(path: path)
+        hookWatchers[path] = watcher
+        let events = watcher.events
+        hookWatchTasks[path] = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
+                self.loadAll()
+            }
+        }
+    }
+
+    private func stopLocalHookFileWatcher(at path: String) {
+        hookWatchTasks.removeValue(forKey: path)?.cancel()
+        hookWatchers.removeValue(forKey: path)
+    }
+
+    private func stopLocalHookFileWatchers() {
+        hookWatchTasks.values.forEach { $0.cancel() }
+        hookWatchTasks.removeAll()
+        hookWatchers.removeAll()
     }
 
     private func startLocalDirectoryWatcher() {
@@ -2723,6 +3340,7 @@ final class CmuxConfigStore: ObservableObject {
             source.cancel()
             localFileWatchSource = nil
         }
+        stopLocalHookFileWatchers()
         if let source = localFallbackDirectoryWatchSource {
             source.cancel()
             localFallbackDirectoryWatchSource = nil
@@ -2733,102 +3351,31 @@ final class CmuxConfigStore: ObservableObject {
 
     // MARK: - File watching (global)
 
-    private func startGlobalFileWatcher() {
-        let fd = open(globalConfigPath, O_EVTONLY)
-        guard fd >= 0 else {
-            startGlobalDirectoryWatcher()
-            return
-        }
-        globalFileDescriptor = fd
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            if flags.contains(.delete) || flags.contains(.rename) {
-                DispatchQueue.main.async {
-                    self.stopGlobalFileWatcher()
-                    self.loadAll()
-                    self.scheduleGlobalReattach(attempt: 1)
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.loadAll()
-                }
-            }
-        }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        globalFileWatchSource = source
-    }
-
-    private func scheduleGlobalReattach(attempt: Int) {
-        guard attempt <= Self.maxReattachAttempts else {
-            startGlobalDirectoryWatcher()
-            return
-        }
-        watchQueue.asyncAfter(deadline: .now() + Self.reattachDelay) { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                if FileManager.default.fileExists(atPath: self.globalConfigPath) {
-                    self.loadAll()
-                    self.startGlobalFileWatcher()
-                } else {
-                    self.scheduleGlobalReattach(attempt: attempt + 1)
-                }
-            }
-        }
-    }
-
-    private func startGlobalDirectoryWatcher() {
+    /// Watches the global config via ``CmuxFileWatch/FileWatcher``, which handles
+    /// inode reattachment and nearest-existing-ancestor recovery internally; each
+    /// change reloads. Ensures the config directory exists first (the previous
+    /// directory-watcher created it).
+    private func startGlobalWatching() {
+        stopGlobalWatching()
         let dirPath = (globalConfigPath as NSString).deletingLastPathComponent
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: dirPath) {
-            try? fm.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: dirPath) {
+            try? FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
         }
-        let fd = open(dirPath, O_EVTONLY)
-        guard fd >= 0 else { return }
-        globalFileDescriptor = fd
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .link, .rename],
-            queue: watchQueue
-        )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                guard FileManager.default.fileExists(atPath: self.globalConfigPath) else { return }
-                self.stopGlobalFileWatcher()
+        let watcher = FileWatcher(path: globalConfigPath)
+        globalWatcher = watcher
+        let events = watcher.events
+        globalWatchTask = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { break }
                 self.loadAll()
-                self.startGlobalFileWatcher()
             }
         }
-
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        globalFileWatchSource = source
     }
 
-    private func stopGlobalFileWatcher() {
-        if let source = globalFileWatchSource {
-            source.cancel()
-            globalFileWatchSource = nil
-        }
-        globalFileDescriptor = -1
+    private func stopGlobalWatching() {
+        globalWatchTask?.cancel()
+        globalWatchTask = nil
+        globalWatcher = nil
     }
 }
 

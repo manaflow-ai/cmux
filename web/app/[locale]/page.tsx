@@ -6,7 +6,12 @@ import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
 import { SiteHeader } from "./components/site-header";
-import { testimonials, getTestimonialTranslation } from "./testimonials";
+import { BrandLogoLink } from "./components/brand-logo-link";
+import {
+  testimonials,
+  getTestimonialSubtitle,
+  getTestimonialTranslation,
+} from "./testimonials";
 import { Link } from "../../i18n/navigation";
 
 export default function Home() {
@@ -17,6 +22,7 @@ function HomeContent() {
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const tt = useTranslations("testimonials");
+  const tst = useTranslations("testimonialSubtitles");
   const locale = useLocale();
 
   const linkClass =
@@ -29,27 +35,43 @@ function HomeContent() {
       <main className="w-full max-w-2xl mx-auto px-6 py-16 sm:py-24">
         {/* Header */}
         <div className="flex items-center gap-4 mb-10" data-dev="header">
-          <img
-            src="/logo.png"
-            alt="cmux icon"
-            width={48}
-            height={48}
-            className="rounded-xl"
-          />
+          <BrandLogoLink className="shrink-0">
+            <img
+              src="/logo.png"
+              alt="cmux icon"
+              width={48}
+              height={48}
+              className="rounded-xl"
+            />
+          </BrandLogoLink>
           <h1 className="text-2xl font-semibold tracking-tight">cmux</h1>
         </div>
 
         {/* Tagline */}
         <p className="text-lg leading-relaxed mb-3 text-foreground">
-          {t("taglinePrefix")}
-          <TypingTagline />
+          <span className="sr-only">
+            {t("taglinePrefix")}
+            {t("typingCodingAgents")}, {t("typingMultitasking")}
+          </span>
+          <span aria-hidden="true">
+            {t("taglinePrefix")}
+            <TypingTagline />
+          </span>
         </p>
         <p
           className="text-base text-muted"
           data-dev="subtitle"
           style={{ lineHeight: 1.5 }}
         >
-          <Balancer>{t("subtitle")}</Balancer>
+          <Balancer>
+            {t.rich("subtitle", {
+              cliLink: (chunks) => (
+                <Link href="/docs/api" className={linkClass}>
+                  {chunks}
+                </Link>
+              ),
+            })}
+          </Balancer>
         </p>
 
         {/* Download */}
@@ -105,12 +127,12 @@ function HomeContent() {
                 <span className="text-muted">
                   {t.rich("feature.keyboardShortcutsDesc", {
                     link: (chunks) => (
-                      <a
+                      <Link
                         href="/docs/keyboard-shortcuts"
                         className={linkClass}
                       >
                         {chunks}
-                      </a>
+                      </Link>
                     ),
                   })}
                 </span>
@@ -170,14 +192,14 @@ function HomeContent() {
               <p className="text-muted">
                 {t.rich("faqNotificationsA", {
                   cliLink: (chunks) => (
-                    <a href="/docs/notifications" className={linkClass}>
+                    <Link href="/docs/notifications#cli-usage" className={linkClass}>
                       {chunks}
-                    </a>
+                    </Link>
                   ),
                   hooksLink: (chunks) => (
-                    <a href="/docs/notifications" className={linkClass}>
+                    <Link href="/docs/notifications#integration-examples" className={linkClass}>
                       {chunks}
-                    </a>
+                    </Link>
                   ),
                 })}
               </p>
@@ -192,9 +214,9 @@ function HomeContent() {
                     </code>
                   ),
                   link: (chunks) => (
-                    <a href="/docs/keyboard-shortcuts" className={linkClass}>
+                    <Link href="/docs/keyboard-shortcuts" className={linkClass}>
                       {chunks}
-                    </a>
+                    </Link>
                   ),
                 })}
               </p>
@@ -238,6 +260,7 @@ function HomeContent() {
           >
             {testimonials.map((item) => {
               const translation = getTestimonialTranslation(item, locale, tt);
+              const subtitle = getTestimonialSubtitle(item, tst);
               return (
               <li key={item.url}>
                 <span>
@@ -270,13 +293,13 @@ function HomeContent() {
                         alt={item.name}
                         width={16}
                         height={16}
-                        className="rounded-full inline-block"
+                        loading="lazy"
+                        decoding="async"
+                        className="rounded-full inline-block object-cover"
                       />
                     )}
                     {item.name}
-                    {"subtitle" in item && item.subtitle
-                      ? `, ${item.subtitle}`
-                      : ""}
+                    {subtitle ? `, ${subtitle}` : ""}
                   </a>
                 </span>
               </li>

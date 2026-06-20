@@ -1,7 +1,9 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
+import { DocsHeading } from "../../components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -18,22 +20,22 @@ export default function ConceptsPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("hierarchy")}</h2>
+      <DocsHeading level={2} id="hierarchy">{t("hierarchy")}</DocsHeading>
       <CodeBlock lang="text">{`Window
   └── Workspace (sidebar entry)
         └── Pane (split region)
               └── Surface (tab within pane)
                     └── Panel (terminal or browser content)`}</CodeBlock>
 
-      <h3>{t("windowTitle")}</h3>
+      <DocsHeading level={3} id="window-title">{t("windowTitle")}</DocsHeading>
       <p>
         {t("windowDesc", { shortcut: "⌘⇧N" })}
       </p>
 
-      <h3>{t("workspaceTitle")}</h3>
+      <DocsHeading level={3} id="workspace-title">{t("workspaceTitle")}</DocsHeading>
       <p>{t("workspaceDesc")}</p>
       <p>{t("workspaceNote")}</p>
 
@@ -79,7 +81,7 @@ export default function ConceptsPage() {
         </strong>
       </p>
 
-      <h3>{t("paneTitle")}</h3>
+      <DocsHeading level={3} id="pane-title">{t("paneTitle")}</DocsHeading>
       <p>
         {t("paneDesc", {
           right: "⌘D",
@@ -89,7 +91,7 @@ export default function ConceptsPage() {
       </p>
       <p>{t("paneNote")}</p>
 
-      <h3>{t("surfaceTitle")}</h3>
+      <DocsHeading level={3} id="surface-title">{t("surfaceTitle")}</DocsHeading>
       <p>
         {t("surfaceDesc", {
           new: "⌘T",
@@ -100,7 +102,7 @@ export default function ConceptsPage() {
       </p>
       <p>{t("surfaceNote")}</p>
 
-      <h3>{t("panelTitle")}</h3>
+      <DocsHeading level={3} id="panel-title">{t("panelTitle")}</DocsHeading>
       <p>{t("panelDesc")}</p>
       <ul>
         <li>
@@ -112,7 +114,13 @@ export default function ConceptsPage() {
       </ul>
       <p>{t("panelNote")}</p>
 
-      <h2>{t("visualExample")}</h2>
+      <DocsHeading level={2} id="workspace-groups">{t("workspaceGroups")}</DocsHeading>
+      <p>{t("workspaceGroupsDesc")}</p>
+      <p>
+        <Link href="/docs/workspace-groups">{t("workspaceGroupsLink")}</Link>
+      </p>
+
+      <DocsHeading level={2} id="visual-example">{t("visualExample")}</DocsHeading>
       <CodeBlock variant="ascii">{`┌──────────────────────────────────────────────────────┐
 │ ┌──────────┐ ┌─────────────────────────────────────┐ │
 │ │ Sidebar  │ │ Workspace "dev"                     │ │
@@ -135,7 +143,7 @@ export default function ConceptsPage() {
         <li>{t("visualItem5")}</li>
       </ul>
 
-      <h2>{t("summary")}</h2>
+      <DocsHeading level={2} id="summary">{t("summary")}</DocsHeading>
       <table>
         <thead>
           <tr>
