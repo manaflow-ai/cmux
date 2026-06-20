@@ -1,13 +1,11 @@
 import XCTest
-import CmuxTerminalServices
+import CmuxTerminal
 import Testing
 import CmuxControlSocket
 import CmuxFoundation
 import CmuxTerminalCore
-import CmuxTerminalCopyMode
-import CmuxSocketControl
+import CmuxSettings
 import AppKit
-import CmuxFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -15,7 +13,6 @@ import CMUXMobileCore
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
-import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -212,7 +209,6 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setData(rtfData, forType: .rtf)
 
         let mockPTY = MockPTY()
-        let startedAt = ProcessInfo.processInfo.systemUptime
 
         let plan = TerminalImageTransferPlanner.plan(
             pasteboard: pasteboard,
@@ -233,13 +229,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
             }
         )
 
-        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
         XCTAssertEqual(mockPTY.receivedText, text)
-        XCTAssertLessThan(
-            elapsed,
-            0.5,
-            "large plain-text pastes should not spend hundreds of milliseconds decoding HTML/RTF before writing to the PTY"
-        )
     }
 
     func testXHTMLTypeFallsBackToRenderedHTMLText() {

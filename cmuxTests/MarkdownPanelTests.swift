@@ -1013,22 +1013,11 @@ final class MarkdownPanelTests: XCTestCase {
         let copiedHTTPButton = try XCTUnwrap(copiedHTTPButtonState as? [String: Any])
         XCTAssertEqual(copiedHTTPButton["text"] as? String, expectedCopiedButton)
         XCTAssertEqual(copiedHTTPButton["copied"] as? String, "1")
-        try await Task.sleep(nanoseconds: 1_300_000_000)
-        let restoredHTTPButtonState = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var img = document.querySelector('img[alt="HTTP remote"]');
-              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
-              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
-              var button = placeholder && placeholder.querySelectorAll('button')[0];
-              return {
-                text: button ? button.textContent : '',
-                copied: button ? button.getAttribute('data-copied') : ''
-              };
-            })();
-            """
+        let restoredHTTPButton = try await waitForRemoteImageButtonRevert(
+            alt: "HTTP remote",
+            expectedText: expectedCopyURLButton,
+            in: webView
         )
-        let restoredHTTPButton = try XCTUnwrap(restoredHTTPButtonState as? [String: Any])
         XCTAssertEqual(restoredHTTPButton["text"] as? String, expectedCopyURLButton)
         XCTAssertNil(restoredHTTPButton["copied"] as? String)
         let openedHTTPImageURL = try await webView.evaluateJavaScript(
@@ -1444,6 +1433,49 @@ final class MarkdownPanelTests: XCTestCase {
             code: 1,
             userInfo: [
                 NSLocalizedDescriptionKey: "Timed out waiting for markdown image to load. Last snapshot: \(lastSnapshot)"
+            ]
+        )
+    }
+
+    private func waitForRemoteImageButtonRevert(
+        alt: String,
+        expectedText: String,
+        in webView: WKWebView
+    ) async throws -> [String: Any] {
+        // The "Copied" label reverts to "Copy image URL" via a JS setTimeout in the
+        // markdown viewer shell, which runs in a separate WebKit process. Poll the real
+        // DOM transition instead of racing a fixed sleep against that timer.
+        let deadline = Date().addingTimeInterval(8)
+        var lastSnapshot: [String: Any] = [:]
+
+        while Date() < deadline {
+            let result = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  var img = document.querySelector('img[alt="\(alt)"]');
+                  var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+                  var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+                  var button = placeholder && placeholder.querySelectorAll('button')[0];
+                  return {
+                    text: button ? button.textContent : '',
+                    copied: button ? button.getAttribute('data-copied') : ''
+                  };
+                })();
+                """
+            )
+            lastSnapshot = try XCTUnwrap(result as? [String: Any])
+            if lastSnapshot["text"] as? String == expectedText,
+               lastSnapshot["copied"] == nil || lastSnapshot["copied"] is NSNull {
+                return lastSnapshot
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        throw NSError(
+            domain: "MarkdownPanelTests",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for remote image button to revert to \(expectedText). Last snapshot: \(lastSnapshot)"
             ]
         )
     }

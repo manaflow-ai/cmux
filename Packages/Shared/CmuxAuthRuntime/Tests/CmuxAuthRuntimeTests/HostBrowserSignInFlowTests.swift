@@ -19,7 +19,8 @@ import Testing
     private func makeHarness(
         user: CMUXAuthUser? = nil,
         browserAttemptTimeout: TimeInterval = 5 * 60,
-        slowSignInThreshold: TimeInterval = 30
+        slowSignInThreshold: TimeInterval = 30,
+        clock: (any Clock<Duration>)? = nil
     ) -> Harness {
         let store = FakeKeyValueStore()
         // The fake client reads and clears the SAME token store the flow
@@ -46,6 +47,7 @@ import Testing
             callbackRouter: AuthCallbackRouter(),
             makeSignInURL: { URL(string: "https://example.test/handler/sign-in?cmux_auth_state=\($0)")! },
             callbackScheme: { "cmux-dev" },
+            clock: clock ?? ContinuousClock(),
             browserAttemptTimeout: browserAttemptTimeout,
             slowSignInThreshold: slowSignInThreshold
         )
@@ -71,6 +73,18 @@ import Testing
         // The attempt task runs on the same main actor; yielding lets it reach
         // the browser-session continuation deterministically.
         while factory.sessions.count < count {
+            await Task.yield()
+        }
+    }
+
+    /// Yield to the main actor until `condition` holds. The work that flips the
+    /// condition (e.g. the attempt-timeout task resuming after the virtual clock
+    /// advances) runs on this same actor, so plain `Task.yield()` drains it with
+    /// no wall-clock dependence. Loops forever rather than failing on its own;
+    /// a stuck test surfaces as the suite-level timeout, matching the existing
+    /// `waitForSession` / `while harness.flow.isSigningIn` helpers in this file.
+    private func wait(until condition: @MainActor () -> Bool) async {
+        while !condition() {
             await Task.yield()
         }
     }
@@ -187,50 +201,59 @@ import Testing
     }
 
     @Test func abandonedBrowserAttemptTimesOut() async throws {
-        let harness = makeHarness(browserAttemptTimeout: 0.01)
+        // Drive the abandoned-attempt timeout off a virtual clock so the result
+        // does not depend on a real-timer task being scheduled within a fixed
+        // wall-clock window. beginSignIn parks two sleepers on this clock: the
+        // attempt timeout (1s here) and the slow-sign-in hint (30s default).
+        let clock = ManualTestClock()
+        let harness = makeHarness(browserAttemptTimeout: 1, clock: clock)
 
         harness.flow.beginSignIn()
         await waitForSession(harness.factory)
+        await clock.waitUntilSleepers(count: 2)
 
-        try await Task.sleep(for: .milliseconds(50))
+        // Advance past the attempt timeout but well under the 30s slow-hint
+        // threshold, so only the abandoned-attempt timeout fires.
+        clock.advance(by: .seconds(1))
 
+        await wait { harness.flow.isSigningIn == false }
         #expect(harness.factory.sessions[0].cancelled)
         #expect(harness.flow.isSigningIn == false)
         #expect(harness.coordinator.isAuthenticated == false)
     }
 
-    @Test func slowSignInSurfacesBrowserFallback() async throws {
+    @Test func slowSignInSurfacesBrowserFallback() async {
         // A popup that never delivers a callback models the issue #6015 hang:
         // ASWebAuthenticationSession opens its Safari window but the hosted
         // page never redirects to cmux://auth-callback, so the user is left
         // staring at a dead window. Past the slow threshold the flow must flip
         // `signInIsSlow` so the account UI can offer the "open in your default
         // browser" fallback instead of an indefinite spinner.
-        let harness = makeHarness(slowSignInThreshold: 0.05)
+        // Drive the slow-sign-in deadline off a virtual clock so the result does
+        // not depend on a real-timer task being scheduled within a fixed
+        // wall-clock window. beginSignIn parks two sleepers on this clock: the
+        // attempt timeout (default 5min) and the slow-sign-in hint (1s here).
+        let clock = ManualTestClock()
+        let harness = makeHarness(slowSignInThreshold: 1, clock: clock)
         #expect(harness.flow.signInIsSlow == false)
 
         harness.flow.beginSignIn()
         await waitForSession(harness.factory)
+        await clock.waitUntilSleepers(count: 2)
 
-        var becameSlow = false
-        for _ in 0..<200 {
-            if harness.flow.signInIsSlow { becameSlow = true; break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(becameSlow)
+        // Advance past the slow-sign-in threshold but well under the 5min
+        // attempt timeout, so only the slow-sign-in hint fires.
+        clock.advance(by: .seconds(1))
+
+        await wait { harness.flow.signInIsSlow }
+        #expect(harness.flow.signInIsSlow)
 
         // Resolving the attempt clears the slow flag so a later sign-in starts
         // from a clean slate.
         harness.factory.sessions[0].cancel()
-        var clearedSlow = false
-        for _ in 0..<200 {
-            if harness.flow.signInIsSlow == false, harness.flow.isSigningIn == false {
-                clearedSlow = true
-                break
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(clearedSlow)
+        await wait { harness.flow.signInIsSlow == false && harness.flow.isSigningIn == false }
+        #expect(!harness.flow.signInIsSlow)
+        #expect(!harness.flow.isSigningIn)
     }
 
     @Test func activeAttemptSignInURLCarriesActiveAttemptState() async {
@@ -330,8 +353,15 @@ import Testing
     }
 
     @Test func attemptTimeoutDoesNotCancelValidationAfterCallbackArrives() async throws {
+        // Drive the abandoned-attempt timeout off a virtual clock so the result
+        // depends on the timeout deadline actually elapsing, not on a real timer
+        // racing a fixed wall-clock window. The callback arrives first and the
+        // validation parks inside the user fetch; advancing past the 1s attempt
+        // timeout while validation is parked must NOT cancel that validation
+        // (the callback path already cancelled the timeout before parking).
+        let clock = ManualTestClock()
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHarness(user: user, browserAttemptTimeout: 0.01)
+        let harness = makeHarness(user: user, browserAttemptTimeout: 1, clock: clock)
         await harness.client.closeUserGate()
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
@@ -341,7 +371,11 @@ import Testing
             await Task.yield()
         }
 
-        try await Task.sleep(for: .milliseconds(50))
+        // Past the 1s attempt timeout, but well under both the 30s slow-hint
+        // threshold and the 60s caller deadline, so only the abandoned-attempt
+        // timeout could fire. The callback already cancelled it, so this is a
+        // no-op for the parked validation.
+        clock.advance(by: .seconds(1))
         await harness.client.openUserGate()
 
         #expect(await attempt.value)
