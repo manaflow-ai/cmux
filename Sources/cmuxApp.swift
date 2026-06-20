@@ -593,7 +593,7 @@ struct cmuxApp: App {
                             defaultValue: "Startup Appearance Debug…"
                         )
                     ) {
-                        StartupAppearanceDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showStartupAppearanceDebug()
                     }
                     Button("Menu Bar Extra Debug…") {
                         AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
@@ -1323,7 +1323,7 @@ struct cmuxApp: App {
         TitlebarLayoutDebugWindowController.shared.show()
         AppDelegate.shared?.debugWindowsCoordinator.showSidebarDebug()
         AppDelegate.shared?.debugWindowsCoordinator.showBackgroundDebug()
-        StartupAppearanceDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showStartupAppearanceDebug()
         AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
         PDFPreviewChromeDebugWindowController.shared.show()
         FeedPreviewWindowController.shared.show()
@@ -1439,7 +1439,7 @@ struct DebugWindowControlsView: View {
                                 defaultValue: "Startup Appearance Debug…"
                             )
                         ) {
-                            StartupAppearanceDebugWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showStartupAppearanceDebug()
                         }
                         Button("Menu Bar Extra Debug…") {
                             AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
@@ -1477,7 +1477,7 @@ struct DebugWindowControlsView: View {
                             AppDelegate.shared?.debugWindowsCoordinator.showSidebarDebug()
                             AppDelegate.shared?.debugWindowsCoordinator.showBackgroundDebug()
                             BonsplitTabBarDebugWindowController.shared.show()
-                            StartupAppearanceDebugWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showStartupAppearanceDebug()
                             AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
                             PDFPreviewChromeDebugWindowController.shared.show()
                             AppDelegate.shared?.debugWindowsCoordinator.showTabBarBackdropLab()
@@ -1693,44 +1693,15 @@ struct DebugWindowControlsView: View {
 // main-window lookup plus the window-chrome composition) through
 // `DebugWindowsCoordinator.backgroundDebugContentProvider` (see `AppDelegate`).
 
-private final class StartupAppearanceDebugWindowController: ReleasingWindowController {
-    static let shared = StartupAppearanceDebugWindowController()
-
-    private override init() {
-        super.init()
-    }
-
-    override func makeWindow() -> NSWindow {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 500),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = String(
-            localized: "debug.startupAppearance.window.title",
-            defaultValue: "Startup Appearance Debug"
-        )
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.startupAppearanceDebug")
-        window.center()
-        window.contentView = NSHostingView(rootView: StartupAppearanceDebugView())
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-        return window
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func show() {
-        showManagedWindow()
-    }
-}
-
+// The "Startup Appearance Debug" panel's window/lifecycle shell now lives in
+// `CmuxAppKitSupportUI` (`StartupAppearanceDebugWindowController`), presented via
+// `AppDelegate.shared?.debugWindowsCoordinator.showStartupAppearanceDebug()`. The
+// SwiftUI content (`StartupAppearanceDebugView`) remains in the app target because
+// it drives the live Ghostty startup-appearance preview state, reloads the running
+// app's configuration, and reads the app-target `AppearanceSettings`/`GhosttyConfig`;
+// it is injected into the package controller as the panel's content view, with the
+// localized window title resolved app-side and passed through.
+#if DEBUG
 private enum StartupAppearancePreviewMode: String, CaseIterable, Identifiable {
     case stored
     case light
@@ -1759,7 +1730,7 @@ private enum StartupAppearancePreviewMode: String, CaseIterable, Identifiable {
     }
 }
 
-private struct StartupAppearanceDebugView: View {
+struct StartupAppearanceDebugView: View {
     @State private var selectedProfile = GhosttyStartupAppearancePreviewState.profile
     @State private var selectedAppearance = StartupAppearancePreviewMode.stored
     @State private var lastAppliedProfile = GhosttyStartupAppearancePreviewState.profile
@@ -1992,6 +1963,7 @@ private struct StartupAppearanceDebugView: View {
         pasteboard.setString(config, forType: .string)
     }
 }
+#endif
 
 // `BuildFlavor` now lives in `CmuxFoundation` (pure `Sendable` value type). This
 // typealias keeps the app-target spelling `BuildFlavor` byte-identical at every

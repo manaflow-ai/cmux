@@ -85,6 +85,15 @@ public final class DebugWindowsCoordinator {
 
     @ObservationIgnored
     private let fileExplorerStyleDebugContentProvider: (@MainActor () -> NSView)?
+
+    @ObservationIgnored
+    private var startupAppearanceDebugController: StartupAppearanceDebugWindowController?
+
+    @ObservationIgnored
+    private let startupAppearanceDebugWindowTitle: String?
+
+    @ObservationIgnored
+    private let startupAppearanceDebugContentProvider: (@MainActor () -> NSView)?
     #endif
 
     /// Creates the coordinator.
@@ -132,6 +141,15 @@ public final class DebugWindowsCoordinator {
     ///     `fileExplorerStyleDidChange` notification, so the app target injects it
     ///     here. `nil` disables ``showFileExplorerStyleDebug()`` (no panel is
     ///     presented).
+    ///   - startupAppearanceDebugWindowTitle: The localized title for the "Startup
+    ///     Appearance Debug" panel (DEBUG only), resolved app-side against the app
+    ///     bundle's catalog so non-English translations are preserved.
+    ///   - startupAppearanceDebugContentProvider: Builds the content view for the
+    ///     "Startup Appearance Debug" panel (DEBUG only). The panel drives the live
+    ///     Ghostty startup-appearance preview state, reloads the running app's
+    ///     configuration, and reads the app-target `AppearanceSettings`/`GhosttyConfig`,
+    ///     so the app target injects it here. `nil` (or a `nil` title) disables
+    ///     ``showStartupAppearanceDebug()`` (no panel is presented).
     public init(
         decorator: (any WindowDecorating)?,
         aboutPanelStrings: AboutPanelStrings,
@@ -142,7 +160,9 @@ public final class DebugWindowsCoordinator {
         debugWindowControlsContentProvider: (@MainActor () -> NSView)? = nil,
         menuBarExtraDebugRefresh: (@MainActor () -> Void)? = nil,
         backgroundDebugContentProvider: (@MainActor () -> NSView)? = nil,
-        fileExplorerStyleDebugContentProvider: (@MainActor () -> NSView)? = nil
+        fileExplorerStyleDebugContentProvider: (@MainActor () -> NSView)? = nil,
+        startupAppearanceDebugWindowTitle: String? = nil,
+        startupAppearanceDebugContentProvider: (@MainActor () -> NSView)? = nil
     ) {
         self.decorator = decorator
         self.aboutPanelStrings = aboutPanelStrings
@@ -156,11 +176,15 @@ public final class DebugWindowsCoordinator {
         self.menuBarExtraDebugRefresh = menuBarExtraDebugRefresh
         self.backgroundDebugContentProvider = backgroundDebugContentProvider
         self.fileExplorerStyleDebugContentProvider = fileExplorerStyleDebugContentProvider
+        self.startupAppearanceDebugWindowTitle = startupAppearanceDebugWindowTitle
+        self.startupAppearanceDebugContentProvider = startupAppearanceDebugContentProvider
         #else
         _ = debugWindowControlsContentProvider
         _ = menuBarExtraDebugRefresh
         _ = backgroundDebugContentProvider
         _ = fileExplorerStyleDebugContentProvider
+        _ = startupAppearanceDebugWindowTitle
+        _ = startupAppearanceDebugContentProvider
         #endif
     }
 
@@ -315,6 +339,26 @@ public final class DebugWindowsCoordinator {
                 contentProvider: fileExplorerStyleDebugContentProvider
             )
         fileExplorerStyleDebugController = controller
+        controller.show()
+    }
+
+    /// Presents the Startup Appearance debug panel, creating its window on first
+    /// use.
+    ///
+    /// No-op when no content provider (or no localized window title) was injected
+    /// at construction.
+    public func showStartupAppearanceDebug() {
+        guard
+            let startupAppearanceDebugContentProvider,
+            let startupAppearanceDebugWindowTitle
+        else { return }
+        let controller = startupAppearanceDebugController
+            ?? StartupAppearanceDebugWindowController(
+                decorator: decorator,
+                windowTitle: startupAppearanceDebugWindowTitle,
+                contentProvider: startupAppearanceDebugContentProvider
+            )
+        startupAppearanceDebugController = controller
         controller.show()
     }
     #endif
