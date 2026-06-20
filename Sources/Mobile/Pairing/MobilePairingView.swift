@@ -234,7 +234,7 @@ struct MobilePairingView: View {
     private var slowSignInFallback: some View {
         VStack(spacing: 8) {
             Text(String(
-                localized: "settings.account.signIn.slowHint",
+                localized: "mobile.pairing.signIn.slowHint",
                 defaultValue: "The system sign-in window may stop responding. If nothing happens, open sign-in in your default browser instead."
             ))
             .font(.caption)
@@ -247,7 +247,7 @@ struct MobilePairingView: View {
                 NSWorkspace.shared.open(url)
             } label: {
                 Text(String(
-                    localized: "settings.account.signIn.openInBrowser",
+                    localized: "mobile.pairing.signIn.openInBrowser",
                     defaultValue: "Open in Browser"
                 ))
             }
