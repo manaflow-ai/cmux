@@ -35,6 +35,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// every non-alphanumeric character to `-`, so distinct destinations can
     /// collapse to the same slug — uniqueness comes from ``connectionHash``,
     /// never from the slug alone.
+    ///
     var slug: String {
         let lowered = destination.lowercased()
         let mapped = lowered.map { ch -> Character in
@@ -68,16 +69,32 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
 
     /// The SSH ControlMaster socket path shared by every operation against this host.
     ///
-    /// Kept short (well under the AF_UNIX 104-byte limit) and namespaced under
-    /// `~/.cmux/ssh/`. The filename combines the lossy human-readable ``slug``
-    /// with the collision-resistant ``connectionHash`` of the exact connection
-    /// identity (destination + port + identity file), so two distinct endpoints
-    /// never collide on one socket (which would otherwise route commands —
-    /// including the destructive `kill-session` — to the wrong host through a
-    /// shared master).
+    /// Namespaced under `~/.cmux/ssh/`. The filename combines the lossy
+    /// human-readable ``slug`` with the collision-resistant ``connectionHash`` of
+    /// the exact connection identity (destination + port + identity file), so two
+    /// distinct endpoints never collide on one socket (which would otherwise route
+    /// commands — including the destructive `kill-session` — to the wrong host
+    /// through a shared master).
+    ///
     var controlSocketPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/.cmux/ssh/tmux-\(slug)-\(connectionHash).sock"
+        return Self.controlSocketPath(homeDirectory: home, slug: slug, connectionHash: connectionHash)
+    }
+
+    /// macOS caps an AF_UNIX `sun_path` at 104 bytes (including the NUL
+    /// terminator), so the usable path length is 103 bytes.
+    static let maxUnixSocketPathLength = 103
+
+    /// Bytes OpenSSH appends to `ControlPath` for its transient pre-rename bind
+    /// socket: a `.` plus 16 random characters (see `mux.c`). The bound path must
+    /// fit the AF_UNIX limit, not just the final renamed `ControlPath`.
+    static let opensshTransientSuffixLength = 17
+
+    /// Builds the control socket path for a given home directory. Factored out
+    /// (and home-dir injectable) so the length budget is unit-testable
+    /// independent of the running machine's home directory.
+    static func controlSocketPath(homeDirectory: String, slug: String, connectionHash: String) -> String {
+        return "\(homeDirectory)/.cmux/ssh/tmux-\(slug)-\(connectionHash).sock"
     }
 
     /// Ensures the directory that holds the control socket exists.
