@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — 멀티태스킹을 위해 만든 터미널",
+    "title": "cmux — 멀티태스킹을 위해 만든 프로그래머블 터미널",
     "description": "Ghostty 기반 네이티브 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환. 세로 탭, 알림 링, 분할 패널, 소켓 API 지원.",
     "ogDescription": "AI 코딩 에이전트를 위한 네이티브 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환."
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "다음을 위해 만들어진 터미널: ",
     "typingCodingAgents": "코딩 에이전트",
     "typingMultitasking": "멀티태스킹",
+    "typingProgrammability": "프로그래밍 가능성",
     "subtitle": "Ghostty 기반 네이티브 macOS 앱. 세로 탭, 에이전트가 주의를 필요로 할 때 알림 링, 분할 패널, 프로그래밍을 위한 <cliLink>CLI</cliLink>를 제공합니다.",
     "features": "기능",
     "faq": "FAQ",

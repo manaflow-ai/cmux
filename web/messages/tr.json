@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — Çoklu görev için tasarlanmış terminal",
+    "title": "cmux — Çoklu görev için tasarlanmış programlanabilir terminal",
     "description": "Ghostty üzerine kurulu yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır. Dikey sekmeler, bildirim halkaları, bölünmüş paneller ve bir soket API.",
     "ogDescription": "AI kodlama ajanları için yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır."
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
     "typingCodingAgents": "kodlama ajanları",
     "typingMultitasking": "çoklu görev",
+    "typingProgrammability": "programlanabilirlik",
     "subtitle": "Ghostty üzerine kurulu yerel macOS uygulaması. Dikey sekmeler, ajanlar dikkat istediğinde bildirim halkaları, bölünmüş paneller ve programlanabilirlik için <cliLink>CLI</cliLink>.",
     "features": "Özellikler",
     "faq": "SSS",

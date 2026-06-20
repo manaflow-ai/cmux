@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — マルチタスクのために作られたターミナル",
+    "title": "cmux — マルチタスクのために作られたプログラマブルなターミナル",
     "description": "Ghosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
     "ogDescription": "AIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "次のために作られたターミナル：",
     "typingCodingAgents": "コーディングエージェント",
     "typingMultitasking": "マルチタスク",
+    "typingProgrammability": "プログラマビリティ",
     "subtitle": "GhosttyベースのネイティブmacOSアプリ。縦タブ、エージェントが注意を必要とするときの通知リング、分割ペイン、プログラマビリティのための<cliLink>CLI</cliLink>を搭載。",
     "features": "機能",
     "faq": "FAQ",

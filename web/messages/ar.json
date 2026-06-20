@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — المحطة الطرفية المصممة لتعدد المهام",
+    "title": "cmux — المحطة الطرفية القابلة للبرمجة المصممة لتعدد المهام",
     "description": "محطة طرفية أصلية لنظام macOS مبنية على Ghostty. تعمل مع Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وأي أداة CLI. علامات تبويب عمودية، حلقات إشعارات، أجزاء مقسمة، وواجهة برمجة مقابس.",
     "ogDescription": "محطة طرفية أصلية لنظام macOS لوكلاء البرمجة بالذكاء الاصطناعي. تعمل مع Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وأي أداة CLI."
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "الطرفية المصممة لـ",
     "typingCodingAgents": "وكلاء البرمجة",
     "typingMultitasking": "تعدد المهام",
+    "typingProgrammability": "القابلية للبرمجة",
     "subtitle": "تطبيق macOS أصلي مبني على Ghostty. علامات تبويب عمودية، حلقات إشعار عندما يحتاج الوكلاء انتباهك، ألواح مقسمة، و<cliLink>CLI</cliLink> للبرمجة.",
     "features": "الميزات",
     "faq": "الأسئلة الشائعة",

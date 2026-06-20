@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — 专为多任务打造的终端",
+    "title": "cmux — 专为多任务打造的可编程终端",
     "description": "基于 Ghostty 的原生 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直标签页、通知环、分割面板和 socket API。",
     "ogDescription": "面向 AI 编程 agent 的原生 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。"
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "开源终端，专为 ",
     "typingCodingAgents": "编程 agent",
     "typingMultitasking": "多任务",
+    "typingProgrammability": "可编程性",
     "subtitle": "基于 Ghostty 构建的原生 macOS 终端应用。开源免费。支持垂直标签页、agent 需要关注时的通知提醒环、分屏面板，以及用于可编程性的 <cliLink>CLI</cliLink>。",
     "features": "功能特性",
     "faq": "常见问题",

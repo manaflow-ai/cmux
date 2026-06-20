@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — เทอร์มินัลที่สร้างมาเพื่อมัลติทาสกิ้ง",
+    "title": "cmux — เทอร์มินัลที่ตั้งโปรแกรมได้ที่สร้างมาเพื่อมัลติทาสกิ้ง",
     "description": "เทอร์มินัล macOS ดั้งเดิมที่สร้างบน Ghostty รองรับ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider และเครื่องมือ CLI ใดก็ได้ แท็บแนวตั้ง วงแหวนการแจ้งเตือน แผงแบ่ง และ socket API",
     "ogDescription": "เทอร์มินัล macOS ดั้งเดิมสำหรับเอเจนต์เขียนโค้ด AI รองรับ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider และเครื่องมือ CLI ใดก็ได้"
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "เทอร์มินัลที่สร้างมาเพื่อ",
     "typingCodingAgents": "เอเจนต์เขียนโค้ด",
     "typingMultitasking": "มัลติทาสกิ้ง",
+    "typingProgrammability": "ความสามารถในการตั้งโปรแกรม",
     "subtitle": "แอป macOS เนทีฟที่สร้างบน Ghostty แท็บแนวตั้ง, วงแหวนแจ้งเตือนเมื่อ agent ต้องการความสนใจ, แยกหน้าจอ และ <cliLink>CLI</cliLink> สำหรับการเขียนโปรแกรม",
     "features": "ฟีเจอร์",
     "faq": "คำถามที่พบบ่อย",

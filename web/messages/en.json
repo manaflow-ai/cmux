@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — The terminal built for multitasking",
+    "title": "cmux — The programmable terminal built for multitasking",
     "description": "Native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
     "ogDescription": "Native macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "The terminal built for ",
     "typingCodingAgents": "coding agents",
     "typingMultitasking": "multitasking",
+    "typingProgrammability": "programmability",
     "subtitle": "Native macOS app built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
     "features": "Features",
     "faq": "FAQ",
@@ -1789,7 +1790,7 @@
     "title": "Wall of Love",
     "description": "What people are saying about cmux.",
     "metaTitle": "Wall of Love — cmux",
-    "metaDescription": "What people are saying about cmux, the terminal built for multitasking."
+    "metaDescription": "What people are saying about cmux, the programmable terminal built for multitasking."
   },
   "testimonials": {
     "mitchellh": "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",

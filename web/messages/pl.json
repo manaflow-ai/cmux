@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — Terminal stworzony do wielozadaniowości",
+    "title": "cmux — Programowalny terminal stworzony do wielozadaniowości",
     "description": "Natywny terminal macOS oparty na Ghostty. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI. Pionowe karty, pierścienie powiadomień, podzielone panele i API gniazd.",
     "ogDescription": "Natywny terminal macOS dla agentów kodowania AI. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI."
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "Terminal stworzony dla ",
     "typingCodingAgents": "agentów kodowania",
     "typingMultitasking": "multitaskingu",
+    "typingProgrammability": "programowalności",
     "subtitle": "Natywna aplikacja macOS zbudowana na Ghostty. Pionowe karty, pierścienie powiadomień gdy agenci potrzebują uwagi, dzielone panele i <cliLink>CLI</cliLink> do programowania.",
     "features": "Funkcje",
     "faq": "FAQ",
