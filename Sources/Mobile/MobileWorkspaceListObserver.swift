@@ -22,6 +22,7 @@ final class MobileWorkspaceListObserver {
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
     private var groupsCancellable: AnyCancellable?
+    private var closePolicyCancellable: AnyCancellable?
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
@@ -84,6 +85,18 @@ final class MobileWorkspaceListObserver {
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
             }
+        // The mobile payload exposes per-terminal `can_close`, which depends on
+        // close-warning preferences stored in UserDefaults. Preferences can
+        // change without touching the TabManager/workspace graph, so observe
+        // defaults and let the summary hash decide whether the payload changed.
+        closePolicyCancellable = NotificationCenter.default.publisher(
+            for: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard
+        )
+        .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+        .sink { [weak self] _ in
+            self?.emitIfNeeded(force: false)
+        }
         // Last-activity preview lines come from the notification store, which is
         // not part of the TabManager graph. A new notification (or a cleared one)
         // changes a row's preview + relative time without touching the tab set,
@@ -177,6 +190,10 @@ final class MobileWorkspaceListObserver {
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
                 workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
+                // Pinning an individual terminal controls the mobile terminal
+                // `can_close` affordance. A panel pin toggle does not otherwise
+                // change the terminal set, title, or directory.
+                workspace.$pinnedPanelIds.map { _ in () }.eraseToAnyPublisher(),
                 // Group membership is iOS-facing (the phone nests members under
                 // their group header). Moving a workspace into or out of a group
                 // mutates only this workspace's `groupId`; it need not change the
@@ -271,10 +288,24 @@ final class MobileWorkspaceListObserver {
             // Spatial order is significant: hash the ordered id sequence so a
             // reorder of the same panel set changes the hash.
             let panelIDs = workspace.orderedPanelIds
+            let terminalPanelIDs = panelIDs.filter { workspace.terminalPanel(for: $0) != nil }
+            let terminalCount = terminalPanelIDs.count
             hasher.combine(panelIDs)
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.panelDirectories[id])
+            }
+            // `mobileWorkspacePayload` emits `can_close` per terminal. Fold in
+            // the same shared closeability helper so pin/unpin, close-warning
+            // preferences, and remote-tmux mirror policy invalidate the phone's
+            // stale close controls.
+            hasher.combine(terminalPanelIDs.count)
+            for id in terminalPanelIDs {
+                hasher.combine(id)
+                hasher.combine(terminalCount > 1 && workspace.canClosePanelWithoutPrompt(
+                    panelId: id,
+                    source: .tabCloseButton
+                ))
             }
             hasher.combine(workspace.currentDirectory)
             // Hash every panelDirectories entry (including ids not yet in
