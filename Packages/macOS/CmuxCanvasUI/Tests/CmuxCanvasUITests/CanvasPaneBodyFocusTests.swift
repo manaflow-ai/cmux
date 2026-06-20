@@ -183,7 +183,7 @@ struct CanvasPaneBodyFocusTests {
         #expect(panelBMount.inactiveOverlayStates.last == false)
     }
 
-    @Test func tabSelectionUpdatesNewMountPresentationState() throws {
+    @Test func tabSelectionWaitsForFreshDescriptorBeforeUpdatingMountPresentation() throws {
         let panelA = UUID()
         let panelB = UUID()
         var mountsByPanelId: [UUID: TestMount] = [:]
@@ -207,8 +207,20 @@ struct CanvasPaneBodyFocusTests {
         root.paneView(paneView, didSelectTab: panelB)
 
         let panelBMount = try #require(mountsByPanelId[panelB])
-        #expect(panelBMount.focusedStates == [false])
-        #expect(panelBMount.inactiveOverlayStates == [true])
+        #expect(panelBMount.focusedStates.isEmpty)
+        #expect(panelBMount.inactiveOverlayStates.isEmpty)
+
+        root.sync(
+            descriptors: [
+                descriptor(id: panelA, title: "A", focused: false),
+                descriptor(id: panelB, title: "B", focused: true),
+            ],
+            focusedPanelId: panelB,
+            isWorkspaceVisible: true
+        )
+
+        #expect(panelBMount.focusedStates == [true])
+        #expect(panelBMount.inactiveOverlayStates == [false])
     }
 
     @discardableResult
