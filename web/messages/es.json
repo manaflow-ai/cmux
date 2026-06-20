@@ -774,6 +774,7 @@
         },
         "terminal": {
           "copyOnSelect": "Copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección, incluidas las selecciones de palabras y líneas con doble y triple clic.",
+          "scrollSpeed": "Multiplicador aplicado a los desplazamientos de la rueda de desplazamiento y del panel táctil en el terminal. Los valores más altos desplazan más rápido y los más bajos, más lento.",
           "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
           "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
         },

@@ -84,6 +84,7 @@ Environment:
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
+| `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
 | `identify` | Print server identity and caller context. |
 | `list-windows` | List windows. |
@@ -197,6 +198,14 @@ VM subcommands:
 | `vm ssh-info` | Print SSH connection info. |
 | `vm ssh-attach` | Internal attach helper. |
 | `vm exec` | Run a shell command inside a VM. |
+
+Remotes subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `remotes list`, `remotes ls` | List the team's registered remotes (name, deviceId, routes, tag, last seen). Supports `--json`. |
+| `remotes add <name>` | Register or update a remote with one or more `--route <host:port>`. Supports `--tag` and `--json`. Idempotent on `<name>` (re-adding updates routes). The host must be a Tailscale address the phone can authenticate to (CGNAT `100.64.x.x`-`100.127.x.x` or `*.ts.net`); loopback, plain LAN IPs, and bare hostnames are rejected. |
+| `remotes remove <name-or-deviceId>` | Remove a remote you registered. Aliases `rm`, `delete`. Supports `--json`. |
 
 Theme subcommands:
 
@@ -354,6 +363,15 @@ Right sidebar commands:
 | `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
 | `--no-focus` | Only valid with `set`; switches mode without moving focus. |
 
+Custom sidebar commands:
+
+| Command | Contract |
+| --- | --- |
+| `sidebar validate [name]` | Validate all custom sidebars, or one named sidebar, under `~/.config/cmux/sidebars`. |
+| `sidebar reload [name]` | Validate all custom sidebars, then request a reload for every valid one. |
+| `sidebar select <name>` | Validate and activate one custom sidebar in the sidebar picker. |
+| `sidebar open <name>` | Validate and open one custom sidebar as a normal Bonsplit pane tab, preferring the right-side split from the focused surface. |
+
 Docs topics:
 
 | Command | Contract |
@@ -437,6 +455,8 @@ the expected text without connecting to a cmux socket.
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
 - `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
+- `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
+- `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
 - `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`

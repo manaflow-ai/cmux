@@ -774,6 +774,7 @@
         },
         "terminal": {
           "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil.",
+          "scrollSpeed": "Terminalde fare tekerleği ve dokunmatik yüzey kaydırma değerlerine uygulanan çarpan. Yüksek değerler daha hızlı, düşük değerler daha yavaş kaydırır.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },

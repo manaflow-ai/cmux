@@ -774,6 +774,7 @@
         },
         "terminal": {
           "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic.",
+          "scrollSpeed": "Moltiplicatore applicato agli spostamenti della rotellina di scorrimento e del trackpad nel terminale. Valori più alti scorrono più velocemente, valori più bassi più lentamente.",
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
           "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
         },

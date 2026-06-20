@@ -1,6 +1,5 @@
 import AppKit
 import CmuxFoundation
-import CmuxTerminalEngine
 import CmuxTerminal
 
 @MainActor
@@ -118,7 +117,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed, .dock:
+        case .sessions, .feed, .dock, .customSidebar:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -651,7 +650,7 @@ final class MainWindowFocusController {
             return .outline
         case .find:
             return .searchField
-        case .sessions:
+        case .sessions, .customSidebar:
             return .host
         case .feed:
             return focusFirstItem ? .firstItem : .host
@@ -669,8 +668,8 @@ final class MainWindowFocusController {
             return fileExplorerHost?.focusOutline() == true
         case .find:
             return fileSearchHost?.focusSearchField() == true
-        case .sessions:
-            return false
+        case .sessions, .customSidebar:
+            return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
         case .feed:
             if target == .firstItem {
                 feedHost?.focusFirstItemFromCoordinator()

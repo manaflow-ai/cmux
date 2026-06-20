@@ -2,7 +2,7 @@ import CoreGraphics
 import CmuxCore
 import Foundation
 import Bonsplit
-import CmuxSession
+import CmuxWorkspaces
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -362,6 +362,29 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
     }
 
+    func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
+        guard isAgentHookBinding else { return self }
+        let normalizedCwd = Self.normalized(workingDirectory)
+        let retargetedCommand = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+            in: command,
+            previousWorkingDirectory: cwd,
+            workingDirectory: normalizedCwd
+        )
+        return SurfaceResumeBindingSnapshot(
+            name: name,
+            kind: kind,
+            command: retargetedCommand,
+            cwd: normalizedCwd,
+            checkpointId: checkpointId,
+            source: source,
+            environment: environment,
+            autoResume: autoResume,
+            approvalPolicy: approvalPolicy,
+            approvalRecordId: approvalRecordId,
+            updatedAt: updatedAt
+        )
+    }
+
     static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
 
     var startupInput: String? {
@@ -482,6 +505,12 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     private static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+extension SurfaceResumeBindingSnapshot: WorkspaceSurfaceResumeBinding {
+    var requiresPromptApproval: Bool {
+        approvalPolicy == .prompt
     }
 }
 
@@ -1421,6 +1450,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     }
 }
 
+extension SessionTerminalPanelSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {}
+
 struct SessionAgentHibernationSnapshot: Codable, Sendable {
     var hibernatedAt: TimeInterval
     var lastActivityAt: TimeInterval
@@ -1592,11 +1623,9 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
-
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
-
 struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     var mode: RightSidebarMode?
 
@@ -1614,7 +1643,7 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
         self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
     }
 }
-
+struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1720,9 +1749,12 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
+    var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
 }
+
+extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
 enum SessionSplitOrientation: String, Codable, Sendable {
     case horizontal
@@ -1849,6 +1881,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// with a `nil` default so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
 }
+
+extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID

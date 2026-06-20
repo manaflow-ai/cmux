@@ -28,13 +28,8 @@ export interface VersionMedia {
 export const changelogMedia: Record<string, VersionMedia> = {
   "0.64.16": {
     title:
-      "Freeform 2D Canvas, AI Auto-Naming, Per-Workspace Env Vars, Left/Right Option as Alt",
+      "AI Auto-Naming, Per-Workspace Env Vars, Left/Right Option as Alt",
     features: [
-      {
-        title: "Freeform 2D Canvas Layout",
-        description:
-          "Arrange a workspace's panes anywhere on a zoomable 2D canvas instead of a fixed split grid, with a polished minimap for navigation.",
-      },
       {
         title: "AI Auto-Naming for Workspaces and Tabs",
         description:

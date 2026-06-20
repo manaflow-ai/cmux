@@ -774,6 +774,7 @@
         },
         "terminal": {
           "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。",
+          "scrollSpeed": "应用于终端滚轮和触控板滚动量的倍数。值越大滚动越快，值越小滚动越慢。",
           "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
           "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
         },

@@ -774,6 +774,7 @@
         },
         "terminal": {
           "copyOnSelect": "Kopiert ausgewählten Terminaltext in die Systemzwischenablage, sobald die Auswahl bestätigt wird, einschließlich Wort- und Zeilenauswahl per Doppel- und Dreifachklick.",
+          "scrollSpeed": "Multiplikator für die Scroll-Werte von Mausrad und Trackpad im Terminal. Höhere Werte scrollen schneller, niedrigere Werte langsamer.",
           "showTextBoxOnNewTerminals": "Zeigt die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",
           "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
         },

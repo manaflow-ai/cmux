@@ -1,6 +1,8 @@
 import XCTest
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxWorkspaces
 import SwiftUI
 
 #if canImport(cmux_DEV)
@@ -53,12 +55,21 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             backgroundBlur: .macosGlassClear
         )
 
-        XCTAssertTrue(snapshot.shouldUseTransparentHosting(glassEffectAvailable: true))
-        XCTAssertTrue(snapshot.windowGlassSettings.shouldApply(glassEffectAvailable: true))
+        XCTAssertTrue(snapshot.shouldUseTransparentHosting(
+            glassEffectAvailable: true,
+            windowBackgroundPolicy: WindowBackgroundComposition.policy
+        ))
+        XCTAssertTrue(snapshot.windowGlassSettings.shouldApply(
+            glassEffectAvailable: true,
+            windowBackgroundPolicy: WindowBackgroundComposition.policy
+        ))
         XCTAssertEqual(snapshot.windowGlassSettings.style, .clear)
         XCTAssertEqual(snapshot.windowGlassSettings.tintColor.hexString(includeAlpha: true), "#272822FF")
         assertClearBackdrop(snapshot.policy(for: .windowRoot))
-        XCTAssertEqual(snapshot.backdropPlan(glassEffectAvailable: true).hostingPhase, .windowGlass)
+        XCTAssertEqual(snapshot.backdropPlan(
+            glassEffectAvailable: true,
+            windowBackgroundPolicy: WindowBackgroundComposition.policy
+        ).hostingPhase, .windowGlass)
     }
 
     func testTranslucentTerminalWithSidebarTintKeepsRootBackdropOwner() {
@@ -68,7 +79,10 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             sidebarTintHexDark: "#FF0000",
             sidebarTintOpacity: 0.4
         )
-        let plan = snapshot.backdropPlan(glassEffectAvailable: false)
+        let plan = snapshot.backdropPlan(
+            glassEffectAvailable: false,
+            windowBackgroundPolicy: WindowBackgroundComposition.policy
+        )
 
         XCTAssertEqual(plan.hostingPhase, .transparentRootBackdrop)
         XCTAssertTrue(plan.usesTransparentWindow)
@@ -90,7 +104,10 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
         XCTAssertEqual(snapshot.compositedTerminalBackgroundColor.alphaComponent, 1, accuracy: 0.0001)
 
-        let plan = snapshot.backdropPlan(glassEffectAvailable: false)
+        let plan = snapshot.backdropPlan(
+            glassEffectAvailable: false,
+            windowBackgroundPolicy: WindowBackgroundComposition.policy
+        )
         XCTAssertEqual(plan.hostingPhase, .transparentRootBackdrop)
         XCTAssertTrue(plan.usesTransparentWindow)
     }
@@ -110,8 +127,14 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            red.backdropPlan(glassEffectAvailable: false).appKitMutationID,
-            blue.backdropPlan(glassEffectAvailable: false).appKitMutationID
+            red.backdropPlan(
+                glassEffectAvailable: false,
+                windowBackgroundPolicy: WindowBackgroundComposition.policy
+            ).appKitMutationID,
+            blue.backdropPlan(
+                glassEffectAvailable: false,
+                windowBackgroundPolicy: WindowBackgroundComposition.policy
+            ).appKitMutationID
         )
     }
 
@@ -208,7 +231,10 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
 
     func testOpaqueTerminalUsesOpaqueWindowFill() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: false, backgroundOpacity: 1.0)
-        let plan = snapshot.backdropPlan(glassEffectAvailable: false)
+        let plan = snapshot.backdropPlan(
+            glassEffectAvailable: false,
+            windowBackgroundPolicy: WindowBackgroundComposition.policy
+        )
 
         XCTAssertEqual(plan.hostingPhase, .opaqueWindowFill)
         XCTAssertFalse(plan.usesTransparentWindow)
@@ -222,7 +248,10 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             sidebarBlendMode: SidebarBlendModeOption.behindWindow.rawValue,
             bgGlassEnabled: true
         )
-        let plan = snapshot.backdropPlan(glassEffectAvailable: true)
+        let plan = snapshot.backdropPlan(
+            glassEffectAvailable: true,
+            windowBackgroundPolicy: WindowBackgroundComposition.policy
+        )
 
         XCTAssertEqual(plan.hostingPhase, .windowGlass)
         XCTAssertTrue(plan.usesTransparentWindow)

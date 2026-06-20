@@ -3,7 +3,7 @@ import Foundation
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
-import CmuxSocketControl
+import CmuxSettings
 import struct CmuxSettings.AgentIntegrationSettingsStore
 
 // The app-side conformances and bridges injected into the CmuxTerminal
@@ -167,6 +167,8 @@ extension TerminalSurface {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        manualIO: Bool = false,
+        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         self.init(
@@ -182,6 +184,8 @@ extension TerminalSurface {
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
+            manualIO: manualIO,
+            manualInputHandler: manualInputHandler,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
         )

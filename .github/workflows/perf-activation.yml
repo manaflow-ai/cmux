@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       runner:
-        description: macOS runner (auto follows the MACOS_RUNNER_15 repo variable, then warp)
+        description: macOS runner (PRs use Depot for GUI activation; manual auto follows MACOS_RUNNER_15, then warp)
         required: false
         default: auto
         type: choice
@@ -19,31 +19,130 @@ on:
           - blacksmith-6vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
           - warp-macos-15-arm64-6x
-          - warp-macos-26-arm64-6x
+          - depot-macos-latest
+          - depot-macos-14
       workspace_count:
         description: Fixture workspace count
         required: false
         default: "12"
       heavy_scrollback_lines:
-        description: Lines per terminal in the selected heavy workspace
+        description: Max lines per terminal in the selected heavy workspace before target scaling
         required: false
         default: "2400"
       other_scrollback_lines:
-        description: Lines per terminal in other workspaces
+        description: Max lines per terminal in other workspaces before target scaling
         required: false
         default: "1400"
+      scrollback_target_chars:
+        description: Target real scrollback chars before the timed snapshot, 0 disables scaling
+        required: false
+        default: "1500000"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  activation-session:
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}
+  activation_changes:
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    timeout-minutes: 5
+    outputs:
+      macos: ${{ steps.detect.outputs.macos }}
+      web: ${{ steps.detect.outputs.web }}
+      go: ${{ steps.detect.outputs.go }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect CI change areas
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          emit_all_areas() {
+            echo "macos=true" >> "$GITHUB_OUTPUT"
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          }
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if ! MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" \
+              || ! git diff --name-only "$MERGE_BASE" "$HEAD_SHA" > /tmp/cmux-activation-changed-files.txt; then
+              echo "Could not compute PR diff; running activation benchmark." >&2
+              emit_all_areas
+              exit 0
+            fi
+
+            if [ ! -s /tmp/cmux-activation-changed-files.txt ]; then
+              echo "PR diff is empty; running activation benchmark."
+              emit_all_areas
+              exit 0
+            fi
+
+            # This guard runs before the PR-editable Python detector. Workflow
+            # and detector edits must fail open to the benchmark.
+            if grep -Eq '^(\.github/workflows/[^/]+\.ya?ml|scripts/ci/[^/]+\.py|tests/test_ci_change_areas\.py)$' /tmp/cmux-activation-changed-files.txt; then
+              echo "CI router changed; running activation benchmark."
+              emit_all_areas
+              exit 0
+            fi
+
+            python3 scripts/ci/detect_ci_change_areas.py \
+              --event-name "$EVENT_NAME" \
+              --files-from /tmp/cmux-activation-changed-files.txt
+            exit 0
+          fi
+
+          python3 scripts/ci/detect_ci_change_areas.py \
+            --event-name "$EVENT_NAME" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA"
+
+  activation-session-benchmark:
+    needs: activation_changes
+    if: ${{ needs.activation_changes.outputs.macos == 'true' }}
+    runs-on: ${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}
     timeout-minutes: 45
     env:
       PERF_TAG: perf-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
+      - name: Validate Depot runner identity
+        if: ${{ startsWith(github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner), 'depot-macos-') }}
+        env:
+          REQUESTED_RUNNER: ${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          echo "Requested runner: $REQUESTED_RUNNER"
+          case "$RUNNER_CONTEXT_NAME" in
+            depot-*)
+              echo "Resolved runner matches depot-*? yes"
+              ;;
+            *)
+              echo "Resolved runner matches depot-*? no"
+              echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose an explicit runner."
+              exit 1
+              ;;
+          esac
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -94,8 +193,11 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-
+          key: spm-${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ github.event_name == 'pull_request' && 'depot-macos-latest' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner) }}-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Resolve Swift packages
         run: |
@@ -126,34 +228,79 @@ jobs:
             ./scripts/reload.sh --tag "$PERF_TAG"
 
       - name: Run activation session benchmark
+        env:
+          WORKSPACE_COUNT_INPUT: ${{ inputs.workspace_count || '12' }}
+          HEAVY_SCROLLBACK_LINES_INPUT: ${{ inputs.heavy_scrollback_lines || '2400' }}
+          OTHER_SCROLLBACK_LINES_INPUT: ${{ inputs.other_scrollback_lines || '1400' }}
+          SCROLLBACK_TARGET_CHARS_INPUT: ${{ inputs.scrollback_target_chars || '1500000' }}
         run: |
           set -euo pipefail
-          mkdir -p perf-results
-          python3 scripts/perf-activation-session.py \
-            --tag "$PERF_TAG" \
-            --workspace-count "${{ inputs.workspace_count || '12' }}" \
-            --heavy-scrollback-lines "${{ inputs.heavy_scrollback_lines || '2400' }}" \
-            --other-scrollback-lines "${{ inputs.other_scrollback_lines || '1400' }}" \
-            --synthetic-scrollback-fallback \
-            --output perf-results/activation-session.json \
-            --junit perf-results/activation-session.junit.xml
+          validate_non_negative_integer() {
+            local name="$1"
+            local value="$2"
+            case "$value" in
+              ''|*[!0-9]*)
+                echo "Invalid $name: must be a non-negative integer" >&2
+                exit 1
+                ;;
+            esac
+          }
+          validate_non_negative_integer workspace_count "$WORKSPACE_COUNT_INPUT"
+          validate_non_negative_integer heavy_scrollback_lines "$HEAVY_SCROLLBACK_LINES_INPUT"
+          validate_non_negative_integer other_scrollback_lines "$OTHER_SCROLLBACK_LINES_INPUT"
+          validate_non_negative_integer scrollback_target_chars "$SCROLLBACK_TARGET_CHARS_INPUT"
+          RESULTS_DIR="$PWD/perf-results"
+          mkdir -p "$RESULTS_DIR"
+          chmod 0777 "$RESULTS_DIR"
+
+          APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
+          BENCHMARK_CMD=(
+            python3 scripts/perf-activation-session.py
+            --tag "$PERF_TAG"
+            --app-path "$APP_PATH"
+            --workspace-count "$WORKSPACE_COUNT_INPUT"
+            --heavy-scrollback-lines "$HEAVY_SCROLLBACK_LINES_INPUT"
+            --other-scrollback-lines "$OTHER_SCROLLBACK_LINES_INPUT"
+            --scrollback-target-chars "$SCROLLBACK_TARGET_CHARS_INPUT"
+            --synthetic-scrollback-fallback
+            --output "$RESULTS_DIR/activation-session.json"
+            --junit "$RESULTS_DIR/activation-session.junit.xml"
+          )
+
+          CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null)" && sudo -n true 2>/dev/null; then
+            CONSOLE_HOME="$( (dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
+            if [ -z "$CONSOLE_HOME" ]; then
+              CONSOLE_HOME="$HOME"
+            fi
+            sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+              env PATH="$PATH" DEVELOPER_DIR="${DEVELOPER_DIR:-}" HOME="$CONSOLE_HOME" GITHUB_WORKSPACE="$PWD" \
+              bash -c 'cd "$GITHUB_WORKSPACE" && "$@"' bash "${BENCHMARK_CMD[@]}"
+          else
+            echo "::warning::Passwordless sudo unavailable; running activation benchmark in current bootstrap" >&2
+            "${BENCHMARK_CMD[@]}"
+          fi
 
       - name: Run Cmd-Tab activation benchmark
         run: |
           set -euo pipefail
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
-          # The GitHub Actions runner process runs in launchd's system
-          # bootstrap, not the console user's Aqua session, so windows
-          # created by apps launched via NSWorkspace.openApplication do
-          # not show up in CGWindowListCopyWindowInfo([.optionOnScreenOnly]).
-          # Re-enter the Aqua session via launchctl asuser before running
-          # the bench so visibility polling sees real on-screen windows.
-          CONSOLE_USER="$(stat -f %Su /dev/console)"
-          CONSOLE_UID="$(id -u "$CONSOLE_USER")"
-          sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
-            env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" \
-            bash -c "cd '$PWD' && swift scripts/bench-window-visibility.swift '$APP_PATH' 'com.cmuxterm.app.debug.$PERF_TAG' 30 --cmd-tab-activation --cg-visibility" \
-            > perf-results/cmd-tab-activation.txt
+          BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")"
+          # Prefer the console user's Aqua bootstrap when passwordless sudo is
+          # available. Some self-hosted runners deliberately omit sudo; on
+          # those, run in the current bootstrap and let the benchmark fail if it
+          # cannot produce a real CG-visible app window.
+          CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null)" && sudo -n true 2>/dev/null; then
+            sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
+              env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" APP_PATH="$APP_PATH" BUNDLE_ID="$BUNDLE_ID" GITHUB_WORKSPACE="$PWD" \
+              bash -c 'cd "$GITHUB_WORKSPACE" && swift scripts/bench-window-visibility.swift "$APP_PATH" "$BUNDLE_ID" 30 --cmd-tab-activation --cg-visibility' \
+              > perf-results/cmd-tab-activation.txt
+          else
+            echo "::warning::Passwordless sudo unavailable; running Cmd-Tab benchmark in current bootstrap" >&2
+            swift scripts/bench-window-visibility.swift "$APP_PATH" "$BUNDLE_ID" 30 --cmd-tab-activation --cg-visibility \
+              > perf-results/cmd-tab-activation.txt
+          fi
           cat perf-results/cmd-tab-activation.txt
 
       - name: Write benchmark summary
@@ -182,6 +329,8 @@ jobs:
           if real_capture:
             print(f"- Real scrollback capture polling: {real_capture.get('attempts')} attempts over {real_capture.get('wait_ms')} ms at {real_capture.get('refresh_rate_hz')} Hz")
             print(f"- Added CI time from capture polling: {real_capture.get('retry_overhead_ms')} ms measured, {int(real_capture.get('timeout_s') or 0)} s worst case")
+          if fixture.get("scrollback_target_chars") is not None:
+            print(f"- Scrollback seed target: {fixture.get('scrollback_target_chars')} chars, estimated {fixture.get('scrollback_effective_estimated_chars')} chars after scaling from {fixture.get('scrollback_requested_estimated_chars')}")
           synthetic_seed = fixture.get("synthetic_scrollback_fallback")
           if synthetic_seed:
             print(f"- Synthetic scrollback fallback: {synthetic_seed.get('scrollback_chars')} chars across {synthetic_seed.get('terminals')} terminals ({fixture.get('synthetic_scrollback_fallback_reason')})")
@@ -219,3 +368,47 @@ jobs:
         run: |
           pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
           rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
+
+  activation-session:
+    needs:
+      - activation_changes
+      - activation-session-benchmark
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    timeout-minutes: 5
+    steps:
+      - name: Check activation benchmark routing
+        env:
+          ACTIVATION_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["ACTIVATION_NEEDS"])
+          changes = needs["activation_changes"]
+          benchmark = needs["activation-session-benchmark"]
+          macos = changes.get("outputs", {}).get("macos")
+
+          if changes["result"] != "success":
+              print(f"changes: {changes['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          if macos == "true" and benchmark["result"] != "success":
+              print(
+                  f"Activation benchmark was required but did not pass: {benchmark['result']}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          if macos != "true" and benchmark["result"] not in {"success", "skipped"}:
+              print(
+                  f"Activation benchmark had unexpected result for macos={macos}: {benchmark['result']}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print(f"changes.macos={macos}")
+          print(f"activation-session-benchmark={benchmark['result']}")
+          PY

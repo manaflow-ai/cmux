@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxCanvasUI
 import CmuxSettingsUI
 
@@ -18,6 +19,7 @@ struct WorkspaceCanvasHostView: View {
     let isWorkspaceInputActive: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
     @Environment(\.settingsRuntime) private var settingsRuntime
 
     var body: some View {
@@ -51,6 +53,7 @@ struct WorkspaceCanvasHostView: View {
                             isWorkspaceVisible: isWorkspaceVisible,
                             portalPriority: portalPriority,
                             appearance: appearance,
+                            windowAppearance: windowAppearance,
                             settingsRuntime: settingsRuntime
                         ),
                         panelId: panelId,
@@ -71,6 +74,7 @@ struct WorkspaceCanvasHostView: View {
         case .markdown: return "doc.richtext"
         case .filePreview: return "doc.text.magnifyingglass"
         case .rightSidebarTool: return "sidebar.right"
+        case .customSidebar: return "wand.and.stars"
         case .agentSession: return "sparkles"
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
@@ -84,6 +88,7 @@ struct WorkspaceCanvasHostView: View {
         isWorkspaceVisible: Bool,
         portalPriority: Int,
         appearance: PanelAppearance,
+        windowAppearance: WindowAppearanceSnapshot,
         settingsRuntime: SettingsRuntime?
     ) -> CanvasPaneContent {
         if let terminalPanel = panel as? TerminalPanel {
@@ -99,6 +104,8 @@ struct WorkspaceCanvasHostView: View {
             isVisibleInUI: isWorkspaceVisible,
             portalPriority: portalPriority,
             appearance: appearance,
+            windowAppearance: windowAppearance,
+            customSidebarTabManager: workspace?.owningTabManager,
             onRequestPanelFocus: { [weak workspace] in
                 workspace?.focusPanel(panel.id)
             }
@@ -129,6 +136,14 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
             commandScrollHintText: String(
                 localized: "canvas.commandScrollHint",
                 defaultValue: "Command+scroll pans the canvas from anywhere"
+            ),
+            minimapAccessibilityLabel: String(
+                localized: "canvas.minimap.accessibilityLabel",
+                defaultValue: "Canvas minimap"
+            ),
+            minimapAccessibilityHelp: String(
+                localized: "canvas.minimap.accessibilityHelp",
+                defaultValue: "Click or drag to move the canvas viewport"
             ),
             callbacks: CanvasHostCallbacks(
                 onFocusPanel: { [weak workspace] panelId in
