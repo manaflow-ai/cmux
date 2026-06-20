@@ -9608,6 +9608,40 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
 }
 
 
+/// Attaches the worktree management context menu (Open Terminal Inside / Remove
+/// Worktree) to a Project Worktrees sidebar row, but only when the row's
+/// workspace is rooted in a cmux-managed worktree. Non-worktree rows are left
+/// untouched so they don't show an empty context menu. Receives only value
+/// snapshots and action closures — never a store — to stay snapshot-safe.
+private struct ExtensionSidebarWorktreeRowContextMenu: ViewModifier {
+    let worktree: CmuxExtensionWorktreeIdentity?
+    let onOpenTerminal: (String) -> Void
+    let onRemove: (String) -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let worktree {
+            content.contextMenu {
+                Button(String(
+                    localized: "sidebar.extension.openTerminalInside",
+                    defaultValue: "Open Terminal Inside"
+                )) {
+                    onOpenTerminal(worktree.worktreePath)
+                }
+                Button(
+                    String(localized: "sidebar.extension.removeWorktree", defaultValue: "Remove Worktree\u{2026}"),
+                    role: .destructive
+                ) {
+                    onRemove(worktree.worktreePath)
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+
 enum CmuxExtensionSidebarSelection {
     static let defaultsKey = "cmuxExtensionSidebar.providerId"
     static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
@@ -11720,7 +11754,12 @@ struct VerticalTabsSidebar: View {
         now: Date
     ) -> some View {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
-        let canCreateWorktree = section.treeSection.projectRootPath != nil
+        let worktreeIdentity = CmuxExtensionWorktreePrototype.managedWorktreeIdentity(
+            gitRootPath: section.treeSection.projectRootPath
+        )
+        // A managed worktree section manages an existing worktree (remove / open
+        // terminal inside); a plain project section offers worktree creation.
+        let canCreateWorktree = worktreeIdentity == nil && section.treeSection.projectRootPath != nil
         let selectedWorkspaceId = tabManager.selectedTabId
         let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
 
@@ -11750,7 +11789,35 @@ struct VerticalTabsSidebar: View {
 
                 Spacer(minLength: 0)
 
-                if canCreateWorktree {
+                if let worktreeIdentity {
+                    Button {
+                        openTerminalInExtensionWorktree(worktreePath: worktreeIdentity.worktreePath)
+                    } label: {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 11, weight: .regular))
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .safeHelp(String(
+                        localized: "sidebar.extension.openTerminalInside.help",
+                        defaultValue: "Open terminal inside this worktree"
+                    ))
+                    .accessibilityIdentifier("ExtensionSidebarOpenWorktreeTerminalButton.\(section.id)")
+
+                    Button {
+                        requestRemoveExtensionWorktree(worktreePath: worktreeIdentity.worktreePath)
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11, weight: .regular))
+                            .frame(width: 18, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .safeHelp(String(
+                        localized: "sidebar.extension.removeWorktree.help",
+                        defaultValue: "Remove this worktree"
+                    ))
+                    .accessibilityIdentifier("ExtensionSidebarRemoveWorktreeButton.\(section.id)")
+                } else if canCreateWorktree {
                     Button {
                         createExtensionWorktreeWorkspace(for: section.treeSection)
                     } label: {
@@ -11771,15 +11838,24 @@ struct VerticalTabsSidebar: View {
             if !isCollapsed {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(section.rows) { row in
+                        let rowSnapshot = workspaceSnapshotsById[row.workspaceId]
+                        let rowWorktree = CmuxExtensionWorktreePrototype.managedWorktreeIdentity(
+                            gitRootPath: rowSnapshot?.projectRootPath
+                        )
                         CmuxExtensionSidebarWorkspaceRowView(
                             row: row,
-                            workspace: workspaceSnapshotsById[row.workspaceId],
+                            workspace: rowSnapshot,
                             providerId: providerId,
                             relativeNow: now,
                             isSelected: row.workspaceId == selectedWorkspaceId,
                             onSelect: selectExtensionSidebarWorkspace,
                             onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
                         )
+                        .modifier(ExtensionSidebarWorktreeRowContextMenu(
+                            worktree: rowWorktree,
+                            onOpenTerminal: { openTerminalInExtensionWorktree(worktreePath: $0) },
+                            onRemove: { requestRemoveExtensionWorktree(worktreePath: $0) }
+                        ))
                         .id(row.id)
                         .accessibilityIdentifier("extensionSidebar.workspace.\(row.workspaceId.uuidString)")
                     }
@@ -11838,6 +11914,116 @@ struct VerticalTabsSidebar: View {
             }
             extensionSidebarWorktreeCreationInFlightSectionIds.remove(section.id)
         }
+    }
+
+    /// Opens a new terminal workspace rooted at an existing worktree path. The
+    /// workspace's main process is the interactive login shell (no one-shot
+    /// command), so the tab stays alive — matching `cmux new-workspace --cwd`.
+    private func openTerminalInExtensionWorktree(worktreePath: String) {
+        let args = CmuxExtensionWorktreePrototype.openTerminalArgs(worktreePath: worktreePath)
+        tabManager.addWorkspace(
+            title: args.title,
+            workingDirectory: args.workingDirectory,
+            inheritWorkingDirectory: args.inheritWorkingDirectory,
+            select: true,
+            eagerLoadTerminal: false
+        )
+    }
+
+    /// Removes a worktree from the Project Worktrees sidebar. Inspects for
+    /// unsaved/unpushed work, confirms (unless suppressed and clean), removes
+    /// the worktree on disk, and closes every workspace tab rooted in it.
+    private func requestRemoveExtensionWorktree(worktreePath: String) {
+        Task { @MainActor in
+            let safety: CmuxExtensionWorktreeRemovalSafety
+            do {
+                safety = try await CmuxExtensionWorktreePrototype.inspectRemovalSafety(worktreePath: worktreePath)
+            } catch {
+                // If inspection fails the worktree's state is unknown: mark it
+                // so removal always confirms (never suppressible) and never
+                // force-removes — git still refuses a dirty tree without force.
+                safety = CmuxExtensionWorktreeRemovalSafety(
+                    hasUncommittedChanges: false,
+                    unpushedCommitCount: 0,
+                    branchName: nil,
+                    inspectionFailed: true
+                )
+            }
+
+            let settings = UserDefaultsSettingsClient(defaults: .standard)
+            let catalog = SettingCatalog()
+            let suppressed = settings.value(for: catalog.sidebar.worktreeRemovalSuppressed)
+            let worktreeName = URL(fileURLWithPath: worktreePath, isDirectory: true).lastPathComponent
+
+            if CmuxExtensionWorktreePrototype.removalRequiresConfirmation(
+                safety: safety,
+                suppressionEnabled: suppressed
+            ) {
+                let decision = confirmRemoveExtensionWorktree(worktreeName: worktreeName, safety: safety)
+                guard decision.confirmed else { return }
+                if decision.suppressFuturePrompts {
+                    settings.set(true, for: catalog.sidebar.worktreeRemovalSuppressed)
+                }
+            }
+
+            await performRemoveExtensionWorktree(
+                worktreePath: worktreePath,
+                worktreeName: worktreeName,
+                force: safety.requiresForce
+            )
+        }
+    }
+
+    private func performRemoveExtensionWorktree(
+        worktreePath: String,
+        worktreeName: String,
+        force: Bool
+    ) async {
+        // Resolve the tabs to close before removal, while their resolved git
+        // roots still point at the worktree.
+        let workspacesToClose = CmuxExtensionWorktreePrototype.workspaceIdsRooted(
+            inWorktreePath: worktreePath,
+            workspaces: tabManager.tabs.map { (id: $0.id, gitRootPath: $0.extensionSidebarProjectRootPath) }
+        )
+
+        do {
+            try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktreePath, force: force)
+        } catch {
+            NSSound.beep()
+#if DEBUG
+            cmuxDebugLog("extensionSidebar.worktree.remove.failed path=\(worktreePath) error=\(error.localizedDescription)")
+#endif
+            let details = (error as NSError).userInfo["CmuxExtensionWorktreePrototypeDetails"] as? String
+            presentExtensionWorktreeRemovalFailure(
+                worktreeName: worktreeName,
+                message: details?.nilIfEmpty ?? error.localizedDescription
+            )
+            return
+        }
+
+        // `closeWorkspace` refuses to close the last workspace in a window. If
+        // every remaining tab is rooted in the removed worktree, spawn a live
+        // replacement (rooted at the parent repo) first so no tab is left
+        // stranded over the now-deleted directory.
+        if CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(
+            totalWorkspaceCount: tabManager.tabs.count,
+            closingCount: workspacesToClose.count
+        ) {
+            let parentRepo = CmuxExtensionWorktreePrototype
+                .managedWorktreeIdentity(gitRootPath: worktreePath)?.parentRepoPath
+            tabManager.addWorkspace(
+                workingDirectory: parentRepo,
+                inheritWorkingDirectory: parentRepo == nil,
+                select: true,
+                eagerLoadTerminal: false
+            )
+        }
+
+        for workspaceId in workspacesToClose {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+            tabManager.closeWorkspace(workspace, recordHistory: false)
+        }
+        refreshExtensionSidebarSnapshot()
     }
 
     private func workspaceScrollContent(
