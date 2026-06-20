@@ -35,12 +35,6 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
-private struct WorkspaceGroupNewWorkspaceTarget {
-    let groupId: UUID
-    let referenceWorkspaceId: UUID
-    let placement: WorkspaceGroupNewPlacement
-}
-
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -1262,6 +1256,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduler.attach(host: self)
         return scheduler
     }()
+
+    /// Cross-window new-workspace / new-browser / cloud-VM action routing
+    /// (CmuxWorkspaces); composition-root owned. Owns the routing decision logic
+    /// (window selection, gate ordering, in-group placement resolution, the
+    /// close-initial-workspace condition); every app effect inverts back through
+    /// ``WorkspaceCreationActionHosting`` (witnesses in
+    /// `AppDelegate+WorkspaceCreationActionHosting.swift`). `AppDelegate` keeps
+    /// the thin public action entrypoints (which build the opaque
+    /// ``WorkspaceCreationActionSelector``) and the NSMenu presentation app-side.
+    lazy var workspaceCreationActions = WorkspaceCreationActionCoordinator(host: self)
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
@@ -1383,7 +1387,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .joined(separator: " | ")
     }
 
-    private func logWorkspaceCreationRouting(
+    // Relaxed from `private` to `internal` so the `WorkspaceCreationActionHosting`
+    // witnesses (AppDelegate+WorkspaceCreationActionHosting.swift) can emit the
+    // fallback-new-window breadcrumb; DEBUG-only, like the original.
+    func logWorkspaceCreationRouting(
         phase: String,
         source: String,
         reason: String,
@@ -4763,7 +4770,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return removed
     }
 
-    private func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
+    // Relaxed from `private` to `internal` so the `WorkspaceCreationActionHosting`
+    // witnesses in AppDelegate+WorkspaceCreationActionHosting.swift can reach it.
+    func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
         let contextKeys = mainWindowContexts.compactMap { key, value in
             value === context ? key : nil
         }
@@ -5901,16 +5910,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// Creates a new terminal-initial workspace, routing to the right window.
+    /// Thin forward to ``WorkspaceCreationActionCoordinator`` (CmuxWorkspaces),
+    /// which owns the routing decision logic; the app inputs cross as the opaque
+    /// ``WorkspaceCreationActionSelector``.
     @discardableResult
     func performNewWorkspaceAction(
         tabManager preferredTabManager: TabManager? = nil,
         event: NSEvent? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
-        performNewWorkspaceCreationAction(
-            initialSurface: .terminal,
-            preferredTabManager: preferredTabManager,
-            event: event,
+        workspaceCreationActions.performNewWorkspaceAction(
+            selector: WorkspaceCreationActionSelector(
+                preferredTabManager: preferredTabManager,
+                event: event,
+                preferredWindow: nil
+            ),
             debugSource: debugSource
         )
     }
@@ -5918,159 +5933,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Creates a new workspace whose initial surface is a browser pane in its
     /// default new-tab state with the address bar focused. Shares the window
     /// routing, placement, and naming semantics of `performNewWorkspaceAction`.
+    /// Thin forward to ``WorkspaceCreationActionCoordinator`` (CmuxWorkspaces).
     @discardableResult
     func performNewBrowserWorkspaceAction(
         tabManager preferredTabManager: TabManager? = nil,
         event: NSEvent? = nil,
         debugSource: String = "newBrowserWorkspace"
     ) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled() else {
-#if DEBUG
-            cmuxDebugLog("newBrowserWorkspace.blocked_browser_disabled source=\(debugSource)")
-#endif
-            NSSound.beep()
-            return false
-        }
-        return performNewWorkspaceCreationAction(
-            initialSurface: .browser,
-            preferredTabManager: preferredTabManager,
-            event: event,
+        workspaceCreationActions.performNewBrowserWorkspaceAction(
+            selector: WorkspaceCreationActionSelector(
+                preferredTabManager: preferredTabManager,
+                event: event,
+                preferredWindow: nil
+            ),
             debugSource: debugSource
         )
-    }
-
-    private func performNewWorkspaceCreationAction(
-        initialSurface: NewWorkspaceInitialSurface,
-        preferredTabManager: TabManager?,
-        event: NSEvent?,
-        debugSource: String
-    ) -> Bool {
-        let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-        let livePreferredContext: MainWindowContext? = {
-            guard let preferredContext else { return nil }
-            guard resolvedWindow(for: preferredContext) != nil else {
-                discardOrphanedMainWindowContext(preferredContext)
-                return nil
-            }
-            return preferredContext
-        }()
-
-        if mainWindowContexts.isEmpty && livePreferredContext == nil {
-#if DEBUG
-            logWorkspaceCreationRouting(
-                phase: "fallback_new_window",
-                source: debugSource,
-                reason: "no_main_windows",
-                event: event,
-                chosenContext: nil
-            )
-#endif
-            let windowId = createMainWindow()
-            if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
-                let initialWorkspace = context.tabManager.selectedWorkspace
-                switch initialSurface {
-                case .terminal:
-                    _ = executeConfiguredNewWorkspaceActionIfAvailable(
-                        in: context,
-                        debugSource: debugSource,
-                        replacingInitialWorkspace: initialWorkspace
-                    )
-                case .browser:
-                    // The fresh window boots with a terminal workspace; add the
-                    // browser workspace and close that initial one so the
-                    // action's result matches the no-window case for terminals.
-                    let workspace = context.tabManager.addWorkspace(initialSurface: .browser)
-                    closeInitialWorkspaceIfNeeded(
-                        initialWorkspaceId: initialWorkspace?.id,
-                        in: context
-                    )
-                    focusInitialBrowserAddressBar(in: workspace)
-                }
-            }
-            return true
-        }
-
-        let context = livePreferredContext
-            ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
-
-        // In a dedicated remote-tmux window, a new workspace means "create a new
-        // tmux session on that host" — route it to the remote and mirror it into
-        // this window instead of creating a local workspace.
-        if let context,
-           remoteTmuxController.handleRemoteWindowNewWorkspaceRequested(windowId: context.windowId) {
-            return true
-        }
-
-        let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
-        // The configured new-workspace action is the user's override for the
-        // plain New Workspace behavior; the browser variant keeps its own
-        // fixed semantics and skips it.
-        if initialSurface == .terminal,
-           let context,
-           executeConfiguredNewWorkspaceActionIfAvailable(
-               in: context,
-               debugSource: debugSource,
-               workspaceGroupTarget: workspaceGroupTarget
-           ) {
-            return true
-        }
-
-        if let context, let workspaceGroupTarget {
-            guard let workspace = context.tabManager.createWorkspaceInGroup(
-                groupId: workspaceGroupTarget.groupId,
-                placement: workspaceGroupTarget.placement,
-                referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId,
-                initialSurface: initialSurface
-            ) else {
-                return false
-            }
-            if initialSurface == .browser {
-                focusInitialBrowserAddressBar(in: workspace)
-            }
-            return true
-        }
-
-        if let preferredTabManager,
-           preferredContext == nil || livePreferredContext != nil {
-            let workspace = preferredTabManager.addWorkspace(initialSurface: initialSurface)
-            if initialSurface == .browser {
-                focusInitialBrowserAddressBar(in: workspace)
-            }
-            return true
-        }
-
-        if let workspace = addWorkspaceInPreferredMainWindow(
-            initialSurface: initialSurface,
-            event: event,
-            debugSource: debugSource
-        ) {
-            if initialSurface == .browser {
-                focusInitialBrowserAddressBar(in: workspace)
-            }
-        } else {
-#if DEBUG
-            logWorkspaceCreationRouting(
-                phase: "fallback_new_window",
-                source: debugSource,
-                reason: "workspace_creation_returned_nil",
-                event: event,
-                chosenContext: nil
-            )
-#endif
-            openNewMainWindow(nil)
-        }
-        return true
-    }
-
-    /// Routes first focus of a freshly created browser-initial workspace into
-    /// the address bar so the user can type a URL immediately.
-    private func focusInitialBrowserAddressBar(in workspace: Workspace) {
-        guard let browserPanel = workspace.focusedSurfaceId.flatMap({ workspace.browserPanel(for: $0) })
-            ?? workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
-            return
-        }
-        workspace.focusPanel(browserPanel.id)
-        focusBrowserAddressBar(in: browserPanel)
     }
 
     @discardableResult
@@ -6078,35 +5955,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager preferredTabManager: TabManager? = nil,
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM",
-        onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
+        onCompletion: ((CloudVMActionCompletion) -> Void)? = nil
     ) -> Bool {
-        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
-            ?? preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
-        guard let context else {
-            NSSound.beep()
-            return false
-        }
-        let socketPath = TerminalController.shared.activeSocketPath(
-            preferredPath: SocketControlSettings.socketPath()
-        )
-        return CloudVMActionLauncher.shared.start(
-            socketPath: socketPath,
-            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+        workspaceCreationActions.performCloudVMAction(
+            selector: WorkspaceCreationActionSelector(
+                preferredTabManager: preferredTabManager,
+                event: nil,
+                preferredWindow: preferredWindow
+            ),
+            debugSource: debugSource,
             onCompletion: onCompletion
         )
     }
 
-    private func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
+    // Relaxed from `private` to `internal` so the `WorkspaceCreationActionHosting`
+    // witnesses in AppDelegate+WorkspaceCreationActionHosting.swift can reach it.
+    func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
         mainWindowContexts.values.first(where: { $0.tabManager === tabManager })
     }
 
-    private func executeConfiguredNewWorkspaceActionIfAvailable(
-        in context: MainWindowContext,
+    /// Witness for ``WorkspaceCreationActionHosting/executeConfiguredNewWorkspaceActionIfAvailable(in:debugSource:replacingInitialWorkspaceId:target:)``.
+    /// The configured-action machinery (config-store read, the in-group
+    /// async-join observer, the `executeConfiguredCmuxAction` dispatch) is
+    /// irreducibly app-coupled, so this stays app-side; the coordinator decides
+    /// whether/where to invoke it. Resolves the `WindowID` token back to its
+    /// live `MainWindowContext` via the kept live-state seam.
+    func executeConfiguredNewWorkspaceActionIfAvailable(
+        in windowToken: WindowID,
         debugSource: String,
-        replacingInitialWorkspace initialWorkspace: Workspace? = nil,
-        workspaceGroupTarget: WorkspaceGroupNewWorkspaceTarget? = nil
+        replacingInitialWorkspaceId initialWorkspaceId: UUID?,
+        target workspaceGroupTarget: WorkspaceGroupNewWorkspaceTarget?
     ) -> Bool {
+        guard let context = mainWindowContexts.values.first(where: {
+            WindowID($0.windowId) == windowToken
+        }) else {
+            return false
+        }
         guard let cmuxConfigStore = windowConfigStores.model(for: WindowID(context.windowId)),
               let action = cmuxConfigStore.resolvedNewWorkspaceAction() else {
             return false
@@ -6121,7 +6005,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "action=\(action.id) windowId=\(String(context.windowId.uuidString.prefix(8)))"
         )
 #endif
-        let initialWorkspaceId = initialWorkspace?.id
         if let workspaceGroupTarget,
            case .builtIn(.newWorkspace) = action.action {
             return context.tabManager.createWorkspaceInGroup(
@@ -6160,13 +6043,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
             if action.workspaceCommandName != nil {
-                self?.closeInitialWorkspaceIfNeeded(
+                self?.workspaceCreationActions.closeInitialWorkspaceIfNeeded(
                     initialWorkspaceId: initialWorkspaceId,
-                    in: context
+                    in: context.map { WindowID($0.windowId) }
                 )
             }
         }
-        let onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = workspaceGroupTarget == nil ? nil : { [weak context] completion in
+        let onCloudVMCompletion: ((CloudVMActionCompletion) -> Void)? = workspaceGroupTarget == nil ? nil : { [weak context] completion in
             guard let context, let asyncObserverId else { return }
             ConfiguredGroupActionAsyncWorkspaceObserver.finishPending(
                 tabManager: context.tabManager,
@@ -6181,38 +6064,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             onExecuted: onExecuted,
             onCloudVMCompletion: onCloudVMCompletion
         )
-    }
-
-    private func workspaceGroupNewWorkspaceTarget(in context: MainWindowContext) -> WorkspaceGroupNewWorkspaceTarget? {
-        let tabManager = context.tabManager
-        guard let selectedWorkspaceId = tabManager.selectedTabId,
-              let selectedWorkspace = tabManager.tabs.first(where: { $0.id == selectedWorkspaceId }),
-              let groupId = selectedWorkspace.groupId,
-              let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
-            return nil
-        }
-        let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
-        let configured = windowConfigStores.model(for: WindowID(context.windowId))?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
-        return WorkspaceGroupNewWorkspaceTarget(
-            groupId: groupId,
-            referenceWorkspaceId: selectedWorkspaceId,
-            placement: configured
-                ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
-        )
-    }
-
-    private func closeInitialWorkspaceIfNeeded(
-        initialWorkspaceId: UUID?,
-        in context: MainWindowContext?
-    ) {
-        guard let initialWorkspaceId,
-              let context,
-              context.tabManager.tabs.count > 1,
-              let initialWorkspace = context.tabManager.tabs.first(where: { $0.id == initialWorkspaceId }),
-              context.tabManager.selectedWorkspace?.id != initialWorkspaceId else {
-            return
-        }
-        context.tabManager.closeWorkspace(initialWorkspace, recordHistory: false)
     }
 
     @discardableResult
@@ -6652,7 +6503,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return workspace
     }
 
-    private func preferredMainWindowContextForWorkspaceCreation(
+    // Relaxed from `private` to `internal` so the `WorkspaceCreationActionHosting`
+    // witnesses in AppDelegate+WorkspaceCreationActionHosting.swift can reach it.
+    func preferredMainWindowContextForWorkspaceCreation(
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
     ) -> MainWindowContext? {
@@ -10116,7 +9969,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )?.id
     }
 
-    private func focusBrowserAddressBar(in panel: BrowserPanel) {
+    // Relaxed from `private` to `internal` so the `WorkspaceCreationActionHosting`
+    // witnesses in AppDelegate+WorkspaceCreationActionHosting.swift can reach it.
+    func focusBrowserAddressBar(in panel: BrowserPanel) {
 #if DEBUG
         let requestId = panel.requestAddressBarFocus(selectionIntent: .selectAll)
         cmuxDebugLog(
@@ -11151,7 +11006,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager.selectedTabId = previousSelectedId
             }
         }
-        let onCloudVMCompletion: (CloudVMActionLauncher.Completion) -> Void = { [weak tabManager] completion in
+        let onCloudVMCompletion: (CloudVMActionCompletion) -> Void = { [weak tabManager] completion in
             guard let tabManager, let asyncObserverId else { return }
             ConfiguredGroupActionAsyncWorkspaceObserver.finishPending(
                 tabManager: tabManager,
@@ -11187,7 +11042,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context: MainWindowContext,
         preferredWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil,
-        onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
+        onCloudVMCompletion: ((CloudVMActionCompletion) -> Void)? = nil
     ) -> Bool {
         switch action.action {
         case .builtIn(let builtIn):
