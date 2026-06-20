@@ -221,6 +221,8 @@ final class NotificationAuthorizationDeliveryTests {
         )
         var pendingStatusCompletions: [(UNAuthorizationStatus) -> Void] = []
         var dismissedPayloads: [[String]] = []
+        var scheduledRequestIDs: [String] = []
+        var scheduleContinuation: CheckedContinuation<Void, Never>?
 
         func restore(_ value: Any?, forKey key: String) {
             if let value {
@@ -243,11 +245,20 @@ final class NotificationAuthorizationDeliveryTests {
         store.configureNotificationDismissHandlerForTesting { ids, _ in
             dismissedPayloads.append(ids)
         }
+        store.configureUserNotificationSchedulerForTesting { request, completion in
+            scheduledRequestIDs.append(request.identifier)
+            completion(nil)
+            scheduleContinuation?.resume()
+            scheduleContinuation = nil
+        }
+        store.configureNotificationCommandRunnerForTesting { _, _, _ in }
         defer {
             store.replaceNotificationsForTesting(originalNotifications)
             store.resetNotificationAuthorizationStatusProviderForTesting()
             store.resetPhoneForwardHandlerForTesting()
             store.resetNotificationDismissHandlerForTesting()
+            store.resetUserNotificationSchedulerForTesting()
+            store.resetNotificationCommandRunnerForTesting()
             store.setAuthorizationStateForTesting(originalAuthorizationState)
             AppFocusState.overrideIsFocused = originalAppFocusOverride
             restore(originalForwardEnabled, forKey: PhonePushSettings.forwardEnabledKey)
@@ -267,13 +278,17 @@ final class NotificationAuthorizationDeliveryTests {
 
         #expect(pendingStatusCompletions.count == 1)
         defaults.set(false, forKey: PhonePushSettings.forwardEnabledKey)
-        pendingStatusCompletions[0](.authorized)
+        await withCheckedContinuation { continuation in
+            scheduleContinuation = continuation
+            pendingStatusCompletions[0](.authorized)
+        }
         while let state = await authorizationUpdates.next() {
             if state == .authorized {
                 break
             }
         }
 
+        #expect(scheduledRequestIDs.count == 1)
         #expect(dismissedPayloads == [[old.id.uuidString]])
     }
 
