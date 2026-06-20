@@ -22,6 +22,9 @@ let package = Package(
         .package(path: "../CmuxSettings"),
         // CMUXDebugLog backs the ReleasingWindowController close-teardown logging.
         .package(path: "../CMUXDebugLog"),
+        // GhosttyStartupAppearancePreviewProfile/State back the Startup Appearance
+        // Debug panel's profile selection and synthetic preview config contents.
+        .package(path: "../CmuxTerminalCore"),
         // Bonsplit renders the live tab bars in the Tab Bar Backdrop Lab samples.
         .package(path: "../../../vendor/bonsplit"),
     ],
@@ -34,6 +37,7 @@ let package = Package(
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+                .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "Bonsplit", package: "bonsplit"),
             ],
             swiftSettings: [

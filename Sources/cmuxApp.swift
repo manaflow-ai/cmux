@@ -53,13 +53,13 @@ import CmuxTerminal
 ///   forward to package coordinators (`CmuxWorkspaces` workspace/focus-history
 ///   commands, the closed-item history model); their logic already lives in the
 ///   packages.
-/// - **Accepted DEBUG-lab residue (deferred, not constraint-1):** the
-///   `#if DEBUG` lab/content view still in this file
-///   (`StartupAppearanceDebugView`) is app-coupled SwiftUI content injected into
-///   the package-owned window shell in `CmuxAppKitSupportUI`. It reads live
-///   app-target state (`GhosttyApp`, `AppearanceSettings`, `GhosttyConfig`), so it
-///   is documented residue pending the dedicated content-inversion slice; it is
-///   not part of the irreducible composition-root shape.
+/// - **DEBUG-lab content fully inverted:** the Startup Appearance debug panel's
+///   SwiftUI content (`StartupAppearanceDebugView`) now lives in
+///   `CmuxAppKitSupportUI`; its app couplings invert behind the
+///   `StartupAppearanceReloading` seam (conformed app-side by
+///   `StartupAppearanceDebugReloader`) with localized strings resolved app-side
+///   (`AppDelegate.startupAppearanceDebugStrings`). No `#if DEBUG` content view
+///   remains in this file.
 /// - **Root anchors:** the `BuildFlavor` typealias (the value type lives in
 ///   `CmuxFoundation`) and the file-scope `telemetrySettings` constant (the one
 ///   process-wide `TelemetrySettingsStore`, read via the
@@ -1383,277 +1383,18 @@ struct cmuxApp: App {
 // main-window lookup plus the window-chrome composition) through
 // `DebugWindowsCoordinator.backgroundDebugContentProvider` (see `AppDelegate`).
 
-// The "Startup Appearance Debug" panel's window/lifecycle shell now lives in
-// `CmuxAppKitSupportUI` (`StartupAppearanceDebugWindowController`), presented via
+// The "Startup Appearance Debug" panel (window shell AND SwiftUI content) now
+// lives in `CmuxAppKitSupportUI` (`StartupAppearanceDebugWindowController` +
+// `StartupAppearanceDebugView`), presented via
 // `AppDelegate.shared?.debugWindowsCoordinator.showStartupAppearanceDebug()`. The
-// SwiftUI content (`StartupAppearanceDebugView`) remains in the app target because
-// it drives the live Ghostty startup-appearance preview state, reloads the running
-// app's configuration, and reads the app-target `AppearanceSettings`/`GhosttyConfig`;
-// it is injected into the package controller as the panel's content view, with the
-// localized window title resolved app-side and passed through.
-#if DEBUG
-private enum StartupAppearancePreviewMode: String, CaseIterable, Identifiable {
-    case stored
-    case light
-    case dark
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .stored:
-            return String(
-                localized: "debug.startupAppearance.mode.stored",
-                defaultValue: "Stored App Setting"
-            )
-        case .light:
-            return String(
-                localized: "debug.startupAppearance.mode.light",
-                defaultValue: "Force Light"
-            )
-        case .dark:
-            return String(
-                localized: "debug.startupAppearance.mode.dark",
-                defaultValue: "Force Dark"
-            )
-        }
-    }
-}
-
-struct StartupAppearanceDebugView: View {
-    @State private var selectedProfile = GhosttyStartupAppearancePreviewState.profile
-    @State private var selectedAppearance = StartupAppearancePreviewMode.stored
-    @State private var lastAppliedProfile = GhosttyStartupAppearancePreviewState.profile
-    @State private var lastAppliedAppearance = StartupAppearancePreviewMode.stored
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(
-                    String(
-                        localized: "debug.startupAppearance.window.title",
-                        defaultValue: "Startup Appearance Debug"
-                    )
-                )
-                    .font(.headline)
-
-                GroupBox(
-                    String(
-                        localized: "debug.startupAppearance.preview.heading",
-                        defaultValue: "Preview"
-                    )
-                ) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Picker(
-                            String(
-                                localized: "debug.startupAppearance.startupConfig.label",
-                                defaultValue: "Startup config"
-                            ),
-                            selection: $selectedProfile
-                        ) {
-                            ForEach(GhosttyStartupAppearancePreviewProfile.allCases) { profile in
-                                Text(profile.displayName).tag(profile)
-                            }
-                        }
-                        .pickerStyle(.menu)
-
-                        Text(selectedProfile.detail)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Picker(
-                            String(
-                                localized: "debug.startupAppearance.appearance.label",
-                                defaultValue: "Appearance"
-                            ),
-                            selection: $selectedAppearance
-                        ) {
-                            ForEach(StartupAppearancePreviewMode.allCases) { mode in
-                                Text(mode.displayName).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        HStack(spacing: 12) {
-                            Button(
-                                String(
-                                    localized: "debug.startupAppearance.applyPreview.button",
-                                    defaultValue: "Apply Preview"
-                                )
-                            ) {
-                                applyPreview()
-                            }
-                            .keyboardShortcut(.defaultAction)
-
-                            Button(
-                                String(
-                                    localized: "debug.startupAppearance.restoreRealStartup.button",
-                                    defaultValue: "Restore Real Startup"
-                                )
-                            ) {
-                                restoreRealStartup()
-                            }
-                        }
-                    }
-                    .padding(.top, 2)
-                }
-
-                GroupBox(
-                    String(
-                        localized: "debug.startupAppearance.selectedConfig.heading",
-                        defaultValue: "Selected Config"
-                    )
-                ) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ScrollView {
-                            Text(selectedConfigText)
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .topLeading)
-                                .padding(8)
-                        }
-                        .frame(minHeight: 92, maxHeight: 150)
-                        .background(Color(nsColor: .textBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-
-                        Button(
-                            String(
-                                localized: "debug.startupAppearance.copySelectedConfig.button",
-                                defaultValue: "Copy Selected Config"
-                            )
-                        ) {
-                            copySelectedConfig()
-                        }
-                        .disabled(selectedPreviewConfigText == nil)
-                    }
-                    .padding(.top, 2)
-                }
-
-                GroupBox(
-                    String(
-                        localized: "debug.startupAppearance.applied.heading",
-                        defaultValue: "Applied"
-                    )
-                ) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 4) {
-                            Text(
-                                String(
-                                    localized: "debug.startupAppearance.applied.configLabel",
-                                    defaultValue: "Config:"
-                                )
-                            )
-                            Text(lastAppliedProfile.displayName)
-                        }
-                        HStack(spacing: 4) {
-                            Text(
-                                String(
-                                    localized: "debug.startupAppearance.applied.appearanceLabel",
-                                    defaultValue: "Appearance:"
-                                )
-                            )
-                            Text(lastAppliedAppearance.displayName)
-                        }
-                        Text(
-                            String(
-                                localized: "debug.startupAppearance.applied.help",
-                                defaultValue: "Reloads the running app through Ghostty config update, matching startup theme resolution without editing config files."
-                            )
-                        )
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var selectedPreviewConfigText: String? {
-        selectedProfile.previewConfigContents()
-    }
-
-    private var selectedConfigText: String {
-        selectedPreviewConfigText ?? String(
-            localized: "debug.startupAppearance.realConfigFallback",
-            defaultValue: "Loads real user config files."
-        )
-    }
-
-    private func applyPreview() {
-        applyAppearance(selectedAppearance)
-        GhosttyStartupAppearancePreviewState.profile = selectedProfile
-        GhosttyConfig.invalidateLoadCache()
-        if let appDelegate = AppDelegate.shared {
-            appDelegate.reloadConfiguration(
-                source: "debug.startupAppearancePreview",
-                reloadSettingsFromFile: false
-            )
-        } else {
-            GhosttyApp.shared.reloadConfiguration(
-                source: "debug.startupAppearancePreview",
-                reloadSettingsFromFile: false
-            )
-        }
-        lastAppliedProfile = selectedProfile
-        lastAppliedAppearance = selectedAppearance
-    }
-
-    private func restoreRealStartup() {
-        selectedProfile = .realUserConfig
-        selectedAppearance = .stored
-        applyAppearance(.stored)
-        GhosttyStartupAppearancePreviewState.profile = .realUserConfig
-        GhosttyConfig.invalidateLoadCache()
-        if let appDelegate = AppDelegate.shared {
-            appDelegate.reloadConfiguration(
-                source: "debug.startupAppearanceRestore",
-                reloadSettingsFromFile: false
-            )
-        } else {
-            GhosttyApp.shared.reloadConfiguration(
-                source: "debug.startupAppearanceRestore",
-                reloadSettingsFromFile: false
-            )
-        }
-        lastAppliedProfile = .realUserConfig
-        lastAppliedAppearance = .stored
-    }
-
-    private func applyAppearance(_ mode: StartupAppearancePreviewMode) {
-        switch mode {
-        case .stored:
-            switch AppearanceSettings.resolvedMode() {
-            case .system, .auto:
-                NSApplication.shared.appearance = nil
-            case .light:
-                NSApplication.shared.appearance = NSAppearance(named: .aqua)
-            case .dark:
-                NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
-            }
-        case .light:
-            NSApplication.shared.appearance = NSAppearance(named: .aqua)
-        case .dark:
-            NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
-        }
-    }
-
-    private func copySelectedConfig() {
-        guard let config = selectedPreviewConfigText else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(config, forType: .string)
-    }
-}
-#endif
+// view's app couplings are inverted behind the `StartupAppearanceReloading` seam
+// (resolved appearance mode, startup-config cache invalidation, running-app
+// reload), conformed app-side by `StartupAppearanceDebugReloader`. Its localized
+// labels are resolved app-side (`AppDelegate.startupAppearanceDebugStrings`) and
+// injected as `StartupAppearanceDebugStrings`, so `String(localized:)` binds to
+// the app bundle and keeps its non-English translations. The preview profile and
+// synthetic config contents come from `CmuxTerminalCore`. Nothing of this panel
+// remains in the app target except the seam conformer and the localized strings.
 
 // `BuildFlavor` now lives in `CmuxFoundation` (pure `Sendable` value type). This
 // typealias keeps the app-target spelling `BuildFlavor` byte-identical at every

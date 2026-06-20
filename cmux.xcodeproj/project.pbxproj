@@ -784,6 +784,7 @@
 		E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */; };
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		F20F85FC5900550685FA33AD /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A8BD195031FC4B82B4354297 /* StackAuth */; };
+		A1577A00DEB60000000000A0 /* StartupAppearanceDebugReloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
 		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
@@ -1792,6 +1793,7 @@
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachStartupCommandBuilder.swift; sourceTree = "<group>"; };
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
+		A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupAppearanceDebugReloader.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
 		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
@@ -2279,6 +2281,7 @@
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
 				A11EAB000000000000000001 /* AppearanceSettings.swift */,
+				A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */,
 				A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */,
 				D7C6F5000000000000000001 /* GhosttyTitleChange.swift */,
 				D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */,
@@ -4013,6 +4016,7 @@
 				988C6A036BA56EA5759A95A0 /* SidebarWorkspaceSnapshotRefreshPolicy.swift in Sources */,
 				A5001226 /* SocketControlMode+Display.swift in Sources */,
 				E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
+				A1577A00DEB60000000000A0 /* StartupAppearanceDebugReloader.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
 				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
