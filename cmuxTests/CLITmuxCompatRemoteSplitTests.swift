@@ -174,18 +174,18 @@ import Testing
     /// expression like `cd … && … claude` makes it try to exec the `cd` builtin as a
     /// binary, the pane exits immediately, and the teammate never gets a visible pane
     /// (it falls back to in-process). The fix runs every tmux respawn shell-command
-    /// through the user's login shell so Ghostty execs the shell, not the expression.
+    /// through a POSIX shell (/bin/sh) so Ghostty execs the shell, not the expression.
     /// `tmux_start_command` stays the raw command so `#{pane_start_command}` / OMX-HUD
     /// detection keep reporting it.
     @Test func respawnPaneRunsShellExpressionsThroughLoginShell() throws {
-        let shellPrefix = "${SHELL:-/bin/zsh} -c "
+        let shellPrefix = "/bin/sh -c "
 
         // Claude Code teammate command: spaced `cd … && … claude` shell expression.
         let teammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"
         let teammateResult = try respawnPaneForwardedCommand(teammate)
         #expect(
             teammateResult.command.hasPrefix(shellPrefix),
-            "teammate command must run through a login shell, got: \(teammateResult.command)"
+            "teammate command must run through /bin/sh -c, got: \(teammateResult.command)"
         )
         #expect(
             teammateResult.command.contains(teammate),

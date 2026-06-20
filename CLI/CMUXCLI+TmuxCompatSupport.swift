@@ -76,24 +76,26 @@ extension CMUXCLI {
     /// the pane exits before the real command runs; that is why Claude Code
     /// 2.1.183 teammates never opened a split pane (issue #6447).
     ///
-    /// Every command is run through `${SHELL:-/bin/zsh} -c '<command>'` (the
-    /// user's shell, resolved when Ghostty execs the wrapper), matching real
-    /// tmux's `$SHELL -c` semantics, so Ghostty execs the shell rather than a
-    /// builtin/expression/assignment-prefix. The whole command is single-quoted,
-    /// so it round-trips verbatim regardless of operators or quoting — there is no
-    /// attempt to classify which commands "need" a shell, which was unreliable
-    /// (tmux shell-commands can hide operators with no surrounding whitespace).
-    /// Commands that are already a shell invocation (e.g. OMO's `/bin/sh -c "…"`)
-    /// are simply run through one more shell, which execs straight into them.
+    /// Every command is run through `/bin/sh -c '<command>'`, so Ghostty execs a
+    /// shell rather than a builtin/expression/assignment-prefix. The whole command
+    /// is single-quoted, so it round-trips verbatim regardless of operators or
+    /// quoting — there is no attempt to classify which commands "need" a shell,
+    /// which was unreliable (tmux shell-commands can hide operators with no
+    /// surrounding whitespace). Commands that are already a shell invocation (e.g.
+    /// OMO's `/bin/sh -c "…"`) are simply run through one more shell, which execs
+    /// straight into them.
     ///
-    /// Only `-c` is passed (not `-lc`): every POSIX-ish and csh-family shell
-    /// accepts `-c`, whereas `-l`/`-lc` is rejected by `/bin/csh` and `/bin/tcsh`.
-    /// On macOS Ghostty already execs the wrapper with a login-style argv0
-    /// (`exec -l`), so the shell is still a login shell.
+    /// A POSIX shell (`/bin/sh`) is used deliberately rather than the user's
+    /// `$SHELL`: the commands being wrapped are POSIX `sh` syntax (Claude Code's
+    /// `cd … && env …`, and the no-command fallback `exec ${SHELL:-/bin/sh} -l`),
+    /// and `csh`/`tcsh` login shells cannot parse `${VAR:-default}` parameter
+    /// expansion or `NAME=value` command prefixes. `/bin/sh` is always present and
+    /// runs the bodies correctly for every user. `-l` is not passed (`/bin/sh`
+    /// does not take it); on macOS Ghostty already supplies a login-style argv0.
     func tmuxShellInvokedStartCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return command }
-        return "${SHELL:-/bin/zsh} -c \(tmuxShellQuote(trimmed))"
+        return "/bin/sh -c \(tmuxShellQuote(trimmed))"
     }
 
     func tmuxShellWords(_ commandText: String) -> [String] {
