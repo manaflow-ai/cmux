@@ -24,6 +24,13 @@ public actor PresenceSyncTransport: SyncTransport {
     private let session: URLSession
     private var task: URLSessionWebSocketTask?
 
+    /// Create a sync transport.
+    /// - Parameters:
+    ///   - serviceBaseURL: Presence service origin (no trailing slash), e.g. the
+    ///     deployed cmux-presence worker URL.
+    ///   - tokenSource: Supplies the Stack access token for the WebSocket auth.
+    ///   - teamID: Team to pin the socket (and the stored records) to.
+    ///   - session: URL session used for the WebSocket transport.
     public init(
         serviceBaseURL: String,
         tokenSource: PresenceTokenSource,
@@ -36,11 +43,16 @@ public actor PresenceSyncTransport: SyncTransport {
         self.session = session
     }
 
+    /// Send one text frame (the `sync.hello`), opening the WebSocket lazily on
+    /// first use. Throws on auth/transport failure so the caller can reconnect.
     public func send(_ data: Data) async throws {
         let task = try await connectedTask()
         try await task.send(.string(String(decoding: data, as: UTF8.self)))
     }
 
+    /// The inbound raw-frame stream. Opens the WebSocket lazily and yields each
+    /// message verbatim (the client parses it); the stream ends when the socket
+    /// closes, on a dropped frame, or on transport error.
     public nonisolated func frames() -> AsyncThrowingStream<Data, any Error> {
         // Bounded buffer (the shared socket also carries the team's frequent
         // presence ticks, so unbounded could grow if the consumer stalls), but

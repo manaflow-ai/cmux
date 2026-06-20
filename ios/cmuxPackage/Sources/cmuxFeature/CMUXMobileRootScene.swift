@@ -241,18 +241,20 @@ public struct CMUXMobileRootScene: View {
         let syncTeamIDProvider: (@Sendable () async -> String?)? = {
             await coordinator.resolvedTeamID
         }
-        let makeSyncTransport: (@Sendable (String) -> any SyncTransport)? =
-            PresenceClient.resolvedServiceBaseURL().map { baseURL in
-                { teamID in
-                    PresenceSyncTransport(
-                        serviceBaseURL: baseURL,
-                        tokenSource: PresenceTokenSource(
-                            accessToken: { try? await coordinator.accessToken() }
-                        ),
-                        teamID: teamID
-                    )
-                }
+        let makeSyncTransport: (@Sendable (String) -> any SyncTransport)?
+        if let presenceBaseURL = PresenceClient.resolvedServiceBaseURL() {
+            makeSyncTransport = { @Sendable (teamID: String) -> any SyncTransport in
+                PresenceSyncTransport(
+                    serviceBaseURL: presenceBaseURL,
+                    tokenSource: PresenceTokenSource(
+                        accessToken: { try? await coordinator.accessToken() }
+                    ),
+                    teamID: teamID
+                )
             }
+        } else {
+            makeSyncTransport = nil
+        }
         #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
