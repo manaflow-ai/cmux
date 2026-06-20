@@ -2016,6 +2016,12 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// `detachSurface(panelId:)` method below forwards here.
     private let splitDetach: SplitDetachCoordinator<DetachedSurfaceTransfer>
 
+    /// The surface-teardown coordinator (CmuxPanes): owns the whole-workspace
+    /// teardown sequence that frees every panel's Ghostty surface before
+    /// `TabManager` removes the workspace. `Workspace` is its
+    /// ``SurfaceTeardownHosting`` host; `teardownAllPanels()` forwards here.
+    private let surfaceTeardown = SurfaceTeardownCoordinator()
+
     /// Legacy Combine bridge for the remaining `workspace.$panels`
     /// subscribers. Driven exclusively from `panelsWillChange(to:)`, so it
     /// emits the new value during willSet and replays the current value on
@@ -2885,6 +2891,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         splitMoveReorder.attach(host: self)
         splitClose.attach(host: self)
         splitDetach.attach(host: self)
+        surfaceTeardown.attach(host: self)
         closedBrowserRestoreStaging.attach(host: self)
         sessionRestoreCoordinator.attach(host: self)
         unreadModel.attach(host: self)
@@ -7696,10 +7703,21 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
-        portalRenderingEnabled = false
-        clearLayoutFollowUp()
-        hideAllTerminalPortalViews()
-        hideAllBrowserPortalViews()
+        surfaceTeardown.teardownAllPanels()
+    }
+
+    // MARK: SurfaceTeardownHosting witnesses touching private teardown state
+    // Co-located with the `private` state/bodies they reach so they stay
+    // `private` rather than widening for the cross-file conformance (the
+    // ``SplitDetachHosting`` precedent). Remaining witnesses live in
+    // `Workspace+SurfaceTeardownHosting.swift`.
+    func disablePortalRendering() { portalRenderingEnabled = false }
+    func surfaceTeardownClearLayoutFollowUp() { clearLayoutFollowUp() }
+    func surfaceTeardownClearRemoteConfigurationIfWorkspaceBecameLocal() {
+        clearRemoteConfigurationIfWorkspaceBecameLocal()
+    }
+
+    func discardAllPanelsForTeardown() {
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             discardClosedPanelLifecycleState(
@@ -7715,10 +7733,9 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
                 cleanupControllerSurfaceState: true
             )
         }
-        pruneSurfaceMetadata(validSurfaceIds: [])
-        syncRemotePortScanTTYs()
-        recomputeListeningPorts()
-        clearRemoteConfigurationIfWorkspaceBecameLocal()
+    }
+
+    func clearPerPanelTeardownBookkeeping() {
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
