@@ -11,7 +11,8 @@ import Observation
 /// domain-owned and `WindowID`-keyed, looked up by each domain in its own
 /// `[WindowID: Model]`. `WindowCoordinator` keeps only the irreducible window
 /// layer: the live ``WindowID`` set, the `NSWindow` handle for each, and one
-/// window-closed broadcast every domain observes to drop its slice.
+/// single-consumer window-closed stream whose sole consumer (the app's
+/// teardown loop) runs teardown and drops every domain's per-window slice.
 ///
 /// ## Isolation
 ///
@@ -89,9 +90,10 @@ public final class WindowCoordinator: WindowManaging {
     }
 
     /// AppKit told us a registered window is closing: drop it from the live set,
-    /// broadcast its id exactly once, and keep the ``Entry`` (now pinning the
-    /// closing `NSWindow` strongly) in `entries` until the consumer calls
-    /// ``unregister(_:)`` on the deferred turn.
+    /// yield its id exactly once on the single-consumer ``windowClosed`` stream,
+    /// and keep the ``Entry`` (now pinning the closing `NSWindow` strongly) in
+    /// `entries` until the consumer calls ``unregister(_:)`` on the deferred
+    /// turn.
     ///
     /// The entry is intentionally NOT removed here. The close broadcast is
     /// consumed one main-actor turn later (the app's `unregisterMainWindow` runs

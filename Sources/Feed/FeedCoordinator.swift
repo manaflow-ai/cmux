@@ -1043,7 +1043,8 @@ private func makeFeedNotificationPolicyContext(
     let appDelegate = AppDelegate.shared
     let workspaceID = event.workspaceId.flatMap(UUID.init(uuidString:))
     let context = workspaceID.flatMap { appDelegate?.contextContainingTabId($0) }
-        ?? appDelegate?.mainWindowContexts.values.first(where: { $0.cmuxConfigStore != nil })
+        ?? appDelegate?.firstContextWithConfigStore()
+    let configStore = context.flatMap { appDelegate?.configStore(for: $0) }
     let workspace = workspaceID.flatMap { id in
         context?.tabManager.tabs.first(where: { $0.id == id })
     }
@@ -1078,8 +1079,8 @@ private func makeFeedNotificationPolicyContext(
             ),
             effects: effects
         ),
-        hooks: context?.cmuxConfigStore?.notificationHooks(startingFrom: cwd) ?? [],
-        globalConfigPath: context?.cmuxConfigStore?.globalConfigPath
+        hooks: configStore?.notificationHooks(startingFrom: cwd) ?? [],
+        globalConfigPath: configStore?.globalConfigPath
     )
 }
 

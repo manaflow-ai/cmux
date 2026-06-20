@@ -1025,7 +1025,7 @@ final class TerminalNotificationStore: ObservableObject {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
         let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
-        let cmuxConfigStore = context?.cmuxConfigStore
+        let cmuxConfigStore = context.flatMap { appDelegate?.configStore(for: $0) }
         let workspace = tabManager?.tabs.first(where: { $0.id == tabId })
         let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
         let isActiveTab = tabManager?.selectedTabId == tabId

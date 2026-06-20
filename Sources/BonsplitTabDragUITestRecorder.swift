@@ -132,7 +132,7 @@ final class BonsplitTabDragUITestRecorder: UITestRecording {
             if let rawActionButtonCount = env["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"],
                let requestedActionButtonCount = Int(rawActionButtonCount),
                requestedActionButtonCount > 0 {
-                guard let cmuxConfigStore = context.cmuxConfigStore else {
+                guard let cmuxConfigStore = self.appDelegate.configStore(for: context) else {
                     self.writeBonsplitTabDragUITestData(["setupError": "Missing cmux config store"])
                     return
                 }

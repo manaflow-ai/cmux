@@ -6,10 +6,10 @@ public import AppKit
 /// This is the keystone that lets per-window state stop living in one
 /// `AppDelegate`-owned aggregate. The conformer (``WindowCoordinator``) owns
 /// ONLY window identity and lifecycle: the set of live ``WindowID``s, the
-/// `NSWindow` handle for each, and a single window-closed broadcast. It owns no
-/// tabs, sidebar, focus, file-explorer, or config state. Each domain keeps its
-/// own `[WindowID: Model]` and drops a window's slice when it observes the
-/// closed event on ``windowClosed`` (owner ruling 2026-06-18: no per-window
+/// `NSWindow` handle for each, and a single window-closed event stream. It owns
+/// no tabs, sidebar, focus, file-explorer, or config state. Each domain keeps
+/// its own `[WindowID: Model]` (a ``WindowScopedStore``) and drops a window's
+/// slice when that window tears down (owner ruling 2026-06-18: no per-window
 /// aggregate; per-window state is domain-owned and `WindowID`-keyed).
 ///
 /// `@MainActor` because window registration and teardown originate on the main
@@ -41,12 +41,21 @@ public protocol WindowManaging: AnyObject {
     /// The ``WindowID`` registered for `window`, if any.
     func id(for window: NSWindow) -> WindowID?
 
-    /// A broadcast of window-closed events, one element per window that closes
-    /// (or is unregistered through the close path). Each domain subscribes once
-    /// at startup and drops the closing window's per-window slice.
+    /// Window-closed events, one element per window that closes (or is
+    /// unregistered through the close path).
     ///
-    /// `nonisolated` so a domain can start a detached `for await` loop without
-    /// hopping onto the main actor merely to obtain the stream; the values it
-    /// yields (``WindowID``) are `Sendable`.
+    /// This is a SINGLE-consumer `AsyncStream`: it is backed by one
+    /// continuation, so each yielded ``WindowID`` is delivered to exactly one
+    /// awaiting iterator. The app target's window-teardown loop is that sole
+    /// consumer; it both runs full teardown and drops every domain's per-window
+    /// slice (each domain's ``WindowScopedStore/remove(_:)``). Do NOT add a
+    /// second `for await` over this stream from a domain store: a second
+    /// iterator would split close events with the teardown loop and starve it
+    /// nondeterministically. Independent per-domain subscription requires a
+    /// broadcast/fan-out conformer first; that is a separate change.
+    ///
+    /// `nonisolated` so the single consumer can start its `for await` loop
+    /// without hopping onto the main actor merely to obtain the stream; the
+    /// values it yields (``WindowID``) are `Sendable`.
     nonisolated var windowClosed: AsyncStream<WindowID> { get }
 }

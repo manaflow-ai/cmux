@@ -259,7 +259,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
             return .notFound
         }
         let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
-        let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
+        let configStore = AppDelegate.shared?.configStore(forTabManager: tabManager)
         let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
         let placement = explicitPlacement
             ?? configured
