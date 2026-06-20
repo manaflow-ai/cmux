@@ -381,7 +381,14 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
     private func openAgentSession(cardId: UUID) async throws -> Bool {
         let engine = try await startedEngine()
         let board = await engine.currentBoard()
-        guard let card = board.card(id: cardId), !card.column.occupiesWipSlot else {
+        guard let card = board.card(id: cardId) else {
+            cmuxDebugLog("kanban.openAgentSession.noop reason=card_missing card=\(cardId.uuidString.prefix(8))")
+            return false
+        }
+        guard !card.column.occupiesWipSlot else {
+            cmuxDebugLog(
+                "kanban.openAgentSession.noop reason=wip_slot column=\(card.column.rawValue) card=\(cardId.uuidString.prefix(8))"
+            )
             return false
         }
         guard let app = AppDelegate.shared,
@@ -391,24 +398,33 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
               ),
               let paneId = location.workspace.paneId(forPanelId: panelId),
               !location.workspace.isRemoteTmuxMirror else {
+            cmuxDebugLog("kanban.openAgentSession.noop reason=location_unresolved card=\(cardId.uuidString.prefix(8))")
             return false
         }
 
-        // Reuse the card's worktree if it has one, otherwise provision a fresh
-        // one on demand (a live card need not be dispatched headless first).
-        let worktreePath: String
-        let branchName: String?
-        if let existing = card.worktreePath, !existing.isEmpty {
-            worktreePath = existing
-            branchName = card.branchName
-        } else if let root = workingDirectory,
-                  let provisioner = worktreeProvisioner,
-                  let provisioned = await provisioner.provision(cardId: cardId, repoRoot: root) {
-            worktreePath = provisioned.worktreePath
-            branchName = provisioned.branchName
+        // Resolve where the live session runs. Worktree provisioning is
+        // best-effort (a non-git workspace, or a failing `git worktree add`,
+        // yields nil), so only attempt it when the card has no worktree yet.
+        let provisioned: GitWorktreeProvisioner.Provisioned?
+        if (card.worktreePath?.isEmpty ?? true),
+           let root = workingDirectory,
+           let provisioner = worktreeProvisioner {
+            provisioned = await provisioner.provision(cardId: cardId, repoRoot: root)
         } else {
+            provisioned = nil
+        }
+        guard let resolved = Self.resolveLiveSessionWorktree(
+            existingWorktreePath: card.worktreePath,
+            existingBranchName: card.branchName,
+            provisionedWorktreePath: provisioned?.worktreePath,
+            provisionedBranchName: provisioned?.branchName,
+            workspaceDirectory: workingDirectory
+        ) else {
+            cmuxDebugLog("kanban.openAgentSession.noop reason=no_run_directory card=\(cardId.uuidString.prefix(8))")
             return false
         }
+        let worktreePath = resolved.worktreePath
+        let branchName = resolved.branchName
 
         let provider = AgentSessionProviderID(
             rawValue: card.agentProvider ?? AgentSessionProviderID.claude.rawValue
@@ -428,6 +444,9 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
         do {
             try await engine.dispatchLive(cardId: cardId)
         } catch {
+            cmuxDebugLog(
+                "kanban.openAgentSession.noop reason=dispatchLive_threw error=\(error.localizedDescription) card=\(cardId.uuidString.prefix(8))"
+            )
             liveBackend?.clearPendingSharedStore(cardId: cardId)
             return false
         }
@@ -443,10 +462,45 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
         if panel == nil {
             // Dispatch already moved the card to building; without a surface its
             // process never starts, so roll the run back.
+            cmuxDebugLog("kanban.openAgentSession.noop reason=surface_creation_failed card=\(cardId.uuidString.prefix(8))")
             await engine.cancel(cardId: cardId)
             return false
         }
+        cmuxDebugLog(
+            "kanban.openAgentSession.opened column=\(card.column.rawValue) card=\(cardId.uuidString.prefix(8))"
+        )
         return true
+    }
+
+    /// Where a live agent session runs for a card.
+    struct LiveSessionWorktree: Equatable {
+        let worktreePath: String
+        let branchName: String?
+    }
+
+    /// Resolves the directory (and optional isolated branch) a live session runs
+    /// in, in priority order: the card's existing worktree, then an on-demand
+    /// provisioned worktree, then the workspace directory itself.
+    ///
+    /// The workspace-directory fallback mirrors the headless ``CmuxNativeBackend``:
+    /// worktree provisioning is best-effort (a non-git workspace, or a failing
+    /// `git worktree add`, yields no worktree), and a live session must still
+    /// open and run there rather than silently refusing. Returns nil only when
+    /// there is no directory to run in at all.
+    nonisolated static func resolveLiveSessionWorktree(
+        existingWorktreePath: String?,
+        existingBranchName: String?,
+        provisionedWorktreePath: String?,
+        provisionedBranchName: String?,
+        workspaceDirectory: String?
+    ) -> LiveSessionWorktree? {
+        if let existing = existingWorktreePath, !existing.isEmpty {
+            return LiveSessionWorktree(worktreePath: existing, branchName: existingBranchName)
+        }
+        if let provisioned = provisionedWorktreePath, !provisioned.isEmpty {
+            return LiveSessionWorktree(worktreePath: provisioned, branchName: provisionedBranchName)
+        }
+        return nil
     }
 
     /// Returns the engine, creating and subscribing to it on first use and
