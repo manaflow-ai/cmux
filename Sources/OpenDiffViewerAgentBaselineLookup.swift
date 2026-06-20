@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 extension AppDelegate {
     func openDiffViewerAgentContextShouldFocus(workspaceId: UUID, surfaceId: UUID, sessionId: String) -> Bool? {
