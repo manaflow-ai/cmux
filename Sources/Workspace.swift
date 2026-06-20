@@ -2105,6 +2105,15 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// legacy Panel-Operations accessors below forward here.
     let surfaceLifecycle = SurfaceLifecycleCoordinator()
 
+    /// The surface-creation coordinator (CmuxWorkspaces): owns the value-typed
+    /// resolution rules shared by the terminal-creation paths — the startup
+    /// working-directory pick over an ordered candidate list and the inherited
+    /// zoom font-point arithmetic. The legacy `resolvedTerminalStartupWorkingDirectory`
+    /// / `normalizedTerminalWorkingDirectory` / `resolvedTerminalInheritanceFontPoints`
+    /// helpers below forward here; `Workspace` still gathers the candidate values
+    /// from its own registry because that requires live reads.
+    let surfaceCreation = SurfaceCreationCoordinator()
+
     /// The session-restore coordinator (CmuxWorkspaces): owns the
     /// persisted-layout serialization bridge (live Bonsplit tree → persisted
     /// layout DTO and back to live divider positions). `Workspace` is its
@@ -6245,19 +6254,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         sourceSurface: ghostty_surface_t,
         inheritedConfig: CmuxSurfaceConfigTemplate
     ) -> Float? {
-        let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
-        if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
-            if let runtimePoints, abs(runtimePoints - rooted) > 0.05 {
-                // Runtime zoom changed after lineage was seeded (manual zoom on descendant);
-                // treat runtime as the new root for future descendants.
-                return runtimePoints
-            }
-            return rooted
-        }
-        if inheritedConfig.fontSize > 0 {
-            return inheritedConfig.fontSize
-        }
-        return runtimePoints
+        surfaceCreation.resolvedInheritanceFontPoints(
+            rootedFontPoints: terminalInheritanceFontPointsByPanelId[terminalPanel.id],
+            runtimeFontPoints: cmuxCurrentSurfaceFontSizePoints(sourceSurface),
+            inheritedConfigFontPoints: inheritedConfig.fontSize
+        )
     }
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
@@ -6282,21 +6283,16 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         lastTerminalConfigInheritanceFontPoints
     }
 
-    nonisolated private static func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
-        let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     private func resolvedTerminalStartupWorkingDirectory(
         requestedWorkingDirectory: String?,
         sourcePanelId: UUID?
     ) -> String? {
-        [
+        surfaceCreation.resolvedStartupWorkingDirectory(candidates: [
             requestedWorkingDirectory,
             sourcePanelId.flatMap { panelDirectories[$0] },
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
-        ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
+        ])
     }
 
     /// Candidate terminal panels used as the source when creating inherited Ghostty config.
