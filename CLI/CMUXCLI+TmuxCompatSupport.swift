@@ -137,6 +137,14 @@ extension CMUXCLI {
     /// launcher env is propagated by the tmux shim to this `__tmux-compat` process,
     /// and is set only inside an opted-in claude-teams session, so OMO and the
     /// public `respawn-pane` command never see it and are unaffected.
+    ///
+    /// The bypass is deliberately per-launch and is NOT baked into the pane's
+    /// `tmux_start_command` (kept raw for display / OMX-HUD / `#{pane_start_command}`),
+    /// so it is not carried into session persistence/restore. That is intentional:
+    /// a restored teammate pane is an orphan (its team/parent session is gone after
+    /// an app restart) and is not a fresh `--dangerously-skip-permissions` opt-in, so
+    /// it correctly falls back to Claude's trust prompt rather than silently bypassing
+    /// the trust boundary outside an explicit opt-in.
     func tmuxClaudeTeamsRespawnEnvironment() -> [(key: String, value: String)] {
         guard ProcessInfo.processInfo.environment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" else {
             return []
