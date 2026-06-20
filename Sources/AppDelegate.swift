@@ -560,7 +560,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarSelectionState: SidebarSelectionState
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
-        var cmuxConfigStore: CmuxConfigStore?
+        // The per-window config store was peeled out of this aggregate into
+        // `AppDelegate.windowConfigStores` (a `WindowID`-keyed
+        // ``CmuxWindowing/WindowScopedStore`` whose slice is dropped by the
+        // window teardown paths); resolve it by `WindowID(windowId)` (owner
+        // ruling 2026-06-18: per-window state is domain-owned, `WindowID`-keyed).
         // The per-window close observation was drained out of this aggregate
         // into `AppDelegate.windowCoordinator` (a `WindowManaging` owning window
         // identity + the window-closed AsyncStream). `registerMainWindow`
@@ -574,7 +578,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState: SidebarState,
             sidebarSelectionState: SidebarSelectionState,
             fileExplorerState: FileExplorerState?,
-            cmuxConfigStore: CmuxConfigStore?,
             window: NSWindow?
         ) {
             self.windowId = windowId
@@ -582,7 +585,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.sidebarState = sidebarState
             self.sidebarSelectionState = sidebarSelectionState
             self.fileExplorerState = fileExplorerState
-            self.cmuxConfigStore = cmuxConfigStore
             self.window = window
             self.keyboardFocusCoordinator = MainWindowFocusController(
                 windowId: windowId,
@@ -1094,6 +1096,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// ``observeWindowCoordinatorClosures()`` to drive `unregisterMainWindow`.
     let windowCoordinator: any WindowManaging = WindowCoordinator()
     private var windowCoordinatorClosureTask: Task<Void, Never>?
+
+    /// Per-window config stores, keyed by ``WindowID`` (first domain peeled out
+    /// of the rejected `MainWindowContext` aggregate; owner ruling 2026-06-18).
+    /// A passive dictionary: its slice is dropped by the window teardown paths
+    /// (`unregisterMainWindowContext` / `discardOrphanedMainWindowContext`),
+    /// reached for every closing window. It deliberately does NOT subscribe to
+    /// the single-consumer `windowCoordinator.windowClosed` stream (whose sole
+    /// consumer is `observeWindowCoordinatorClosures()`), which would split
+    /// close events with the teardown loop and starve it.
+    let windowConfigStores = WindowScopedStore<CmuxConfigStore>()
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
@@ -3307,7 +3319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fileExplorerState: resolvedFileExplorerState
             )
             if let cmuxConfigStore {
-                existing.cmuxConfigStore = cmuxConfigStore
+                windowConfigStores.setModel(cmuxConfigStore, for: WindowID(existing.windowId))
             }
             windowCoordinator.register(window, id: WindowID(existing.windowId))
         } else if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
@@ -3344,7 +3356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fileExplorerState: resolvedFileExplorerState
             )
             if let cmuxConfigStore {
-                existing.cmuxConfigStore = cmuxConfigStore
+                windowConfigStores.setModel(cmuxConfigStore, for: WindowID(existing.windowId))
             }
             reindexMainWindowContextIfNeeded(existing, for: window)
             windowCoordinator.register(window, id: WindowID(windowId))
@@ -3357,10 +3369,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState,
                 fileExplorerState: fileExplorerState,
-                cmuxConfigStore: cmuxConfigStore,
                 window: window
             )
             mainWindowContexts[key] = context
+            if let cmuxConfigStore {
+                windowConfigStores.setModel(cmuxConfigStore, for: WindowID(windowId))
+            }
             windowCoordinator.register(window, id: WindowID(windowId))
         }
         commandPaletteWindowStore.registerWindow(windowId)
@@ -3402,9 +3416,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState: SidebarState(),
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
-            cmuxConfigStore: cmuxConfigStore,
             window: nil
         )
+        if let cmuxConfigStore {
+            windowConfigStores.setModel(cmuxConfigStore, for: WindowID(windowId))
+        }
         ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
         return windowId
@@ -4674,6 +4690,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // is a no-op there; on explicit-teardown callers it actively removes the
         // identity + its close observation.
         windowCoordinator.unregister(WindowID(removed.windowId))
+        // Drop the per-window config slice. This is the single removal point for
+        // both teardown paths (the AppKit close path reaches here via
+        // `unregisterMainWindow`; the windowless/explicit path calls this
+        // directly), so the store never needs its own `windowClosed` drain.
+        windowConfigStores.remove(WindowID(removed.windowId))
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
@@ -4690,6 +4711,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Drop the window-identity slice for the orphaned context (it was never
         // a live AppKit close, so the coordinator still holds it).
         windowCoordinator.unregister(WindowID(context.windowId))
+        // Drop the per-window config slice for the orphaned context (no AppKit
+        // close fired). Explicit removal is the store's only teardown signal.
+        windowConfigStores.remove(WindowID(context.windowId))
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
@@ -6097,7 +6121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         replacingInitialWorkspace initialWorkspace: Workspace? = nil,
         workspaceGroupTarget: WorkspaceGroupNewWorkspaceTarget? = nil
     ) -> Bool {
-        guard let cmuxConfigStore = context.cmuxConfigStore,
+        guard let cmuxConfigStore = windowConfigStores.model(for: WindowID(context.windowId)),
               let action = cmuxConfigStore.resolvedNewWorkspaceAction() else {
             return false
         }
@@ -6182,7 +6206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
         let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
-        let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
+        let configured = windowConfigStores.model(for: WindowID(context.windowId))?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
         return WorkspaceGroupNewWorkspaceTarget(
             groupId: groupId,
             referenceWorkspaceId: selectedWorkspaceId,
@@ -6215,7 +6239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? mainWindowContext(forShortcutEvent: event, debugSource: debugSource)
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
         guard let context,
-              let cmuxConfigStore = context.cmuxConfigStore else {
+              let cmuxConfigStore = windowConfigStores.model(for: WindowID(context.windowId)) else {
             return false
         }
 
@@ -9728,7 +9752,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     var reloadableConfigStores: [any CmuxConfigStoreReloading] {
-        mainWindowContexts.values.compactMap { $0.cmuxConfigStore }
+        windowConfigStores.models
+    }
+
+    /// The per-window config store for `context`, resolved by ``WindowID``
+    /// through ``windowConfigStores`` (the slice peeled out of `MainWindowContext`).
+    func configStore(for context: MainWindowContext) -> CmuxConfigStore? {
+        windowConfigStores.model(for: WindowID(context.windowId))
+    }
+
+    /// The per-window config store for the window owning `tabManager`, if any.
+    func configStore(forTabManager tabManager: TabManager) -> CmuxConfigStore? {
+        guard let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) else {
+            return nil
+        }
+        return windowConfigStores.model(for: WindowID(context.windowId))
+    }
+
+    /// The first registered context whose window has a config store.
+    func firstContextWithConfigStore() -> MainWindowContext? {
+        mainWindowContexts.values.first { windowConfigStores.model(for: WindowID($0.windowId)) != nil }
     }
 
     func refreshWindowTitlesAfterConfigReload() {
@@ -12190,7 +12233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func configuredCmuxShortcutActions(
         for context: MainWindowContext?
     ) -> [CmuxResolvedConfigAction] {
-        context?.cmuxConfigStore?.shortcutActions() ?? []
+        guard let context else { return [] }
+        return windowConfigStores.model(for: WindowID(context.windowId))?.shortcutActions() ?? []
     }
 
     private func handleConfiguredCmuxShortcut(
@@ -12242,7 +12286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let cwd = anchorId.flatMap { id in
                 tabManager.tabs.first(where: { $0.id == id })?.currentDirectory
             }
-            let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
+            let configured = windowConfigStores.model(for: WindowID(context.windowId))?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
             return configured
                 ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         }()
@@ -12415,7 +12459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return didSplit
             }
         case .command, .agent, .workspaceCommand:
-            guard let cmuxConfigStore = context.cmuxConfigStore else {
+            guard let cmuxConfigStore = windowConfigStores.model(for: WindowID(context.windowId)) else {
                 return false
             }
             let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
