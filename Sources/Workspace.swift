@@ -2167,6 +2167,13 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// were `@Published`, so no observer hooks are required.
     private let splitLayout = SplitLayoutModel<DetachedSurfaceTransfer>()
 
+    /// The split-lifecycle sub-model (CmuxPanes): owns the post-close
+    /// bookkeeping (next-tab-to-select and split-zoom-clear decisions recorded
+    /// against the pre-close tree). The `BonsplitDelegate` close methods below
+    /// forward here. None of the moved properties were `@Published`, so no
+    /// observer hooks are required.
+    private let splitLifecycle = SplitLifecycleCoordinator()
+
     /// Legacy Combine bridge for the remaining `workspace.$panels`
     /// subscribers. Driven exclusively from `panelsWillChange(to:)`, so it
     /// emits the new value during willSet and replays the current value on
@@ -3315,10 +3322,6 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     private var suppressClosedPanelHistory = false
     private var tabCloseButtonCloseTabIds: Set<TabID> = []
 
-    /// Deterministic tab selection to apply after a tab closes.
-    /// Keyed by the closing tab ID, value is the tab ID we want to select next.
-    private var postCloseSelectTabId: [TabID: TabID] = [:]
-    private var postCloseClearSplitZoomTabIds: Set<TabID> = []
     /// Panel IDs that were in a pane when a pane-close operation was approved.
     /// Bonsplit pane-close does not emit per-tab didClose callbacks.
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
@@ -10966,30 +10969,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         func recordPostCloseState() {
-            if controller.zoomedPaneId == pane,
-               controller.selectedTab(inPane: pane)?.id == tab.id {
-                postCloseClearSplitZoomTabIds.insert(tab.id)
-            } else {
-                postCloseClearSplitZoomTabIds.remove(tab.id)
-            }
-
-            let tabs = controller.tabs(inPane: pane)
-            guard let idx = tabs.firstIndex(where: { $0.id == tab.id }) else {
-                postCloseSelectTabId.removeValue(forKey: tab.id)
-                return
-            }
-
-            let target: TabID? = {
-                if idx + 1 < tabs.count { return tabs[idx + 1].id }
-                if idx > 0 { return tabs[idx - 1].id }
-                return nil
-            }()
-
-            if let target {
-                postCloseSelectTabId[tab.id] = target
-            } else {
-                postCloseSelectTabId.removeValue(forKey: tab.id)
-            }
+            splitLifecycle.recordPostCloseState(controller: controller, closing: tab, inPane: pane)
         }
 
         let tabCloseButtonClose = tabCloseButtonCloseTabIds.remove(tab.id) != nil
@@ -11221,8 +11201,8 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
         tabCloseButtonCloseTabIds.remove(tabId)
-        let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
-        let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
+        let selectTabId = splitLifecycle.consumePostCloseSelectTabId(forClosed: tabId)
+        let shouldClearSplitZoom = splitLifecycle.consumeShouldClearSplitZoom(forClosed: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
         let isDetaching = splitLayout.consumeDetachingMark(tabId)
         if shouldClearSplitZoom {
