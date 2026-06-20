@@ -350,14 +350,13 @@ public struct GhosttyConfig {
         return config
     }
 
-    /// Multiplies parsed cmux-visible font sizes by the global magnification
-    /// so terminal glyphs, pane tab titles, and sidebar text scale together.
+    /// Multiplies parsed runtime font sizes by the global magnification.
+    /// Sidebar font size stays as the clamped user setting and scales at render time.
     mutating func applyGlobalMagnificationIfNeeded() {
         guard !GlobalFontMagnification.isDefault else { return }
         let scale = GlobalFontMagnification.scale
         fontSize = max(1, fontSize * scale)
         surfaceTabBarFontSize = max(1, surfaceTabBarFontSize * scale)
-        sidebarFontSize = max(1, sidebarFontSize * scale)
     }
 
     /// Applies cmux's managed default theme for `preferredColorScheme` by parsing
