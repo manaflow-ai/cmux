@@ -1926,7 +1926,11 @@ extension CMUXCLI {
 
     /// Build the uncapped, grouped refs listing for the picker. Groups are in the
     /// FROZEN order suggested|worktrees|branches|remotes|recent; empty groups are
-    /// omitted by the caller's JSON assembly.
+    /// omitted by the caller's JSON assembly. The Suggested section (heuristic
+    /// default bases) and every section after it are DISJOINT: a ref surfaced in
+    /// Suggested is removed from worktrees/branches/remotes/recent, so a user can
+    /// read the top section as "the picker's nondeterministic guesses" without
+    /// seeing the same ref repeated in the deterministic lists below.
     private func diffBranchRefGroups(in repoRoot: String, selectedBaseRef: String?) -> [DiffBranchRefGroup] {
         let currentBranch = gitCurrentBranchName(in: repoRoot)
         var groups: [DiffBranchRefGroup] = []
@@ -1991,6 +1995,7 @@ extension CMUXCLI {
                 let short = branchRef.hasPrefix("refs/heads/")
                     ? String(branchRef.dropFirst("refs/heads/".count))
                     : branchRef
+                guard !suggestedSeen.contains(short) else { return }
                 worktreeRows.append(
                     DiffBranchRefRow(
                         ref: short,
@@ -2036,7 +2041,7 @@ extension CMUXCLI {
             for line in listing.split(whereSeparator: \.isNewline).map(String.init) {
                 let fields = line.components(separatedBy: "\t")
                 let ref = fields.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                guard !ref.isEmpty else { continue }
+                guard !ref.isEmpty, !suggestedSeen.contains(ref) else { continue }
                 let relative = fields.count > 1 ? fields[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
                 branchRows.append(
                     DiffBranchRefRow(
@@ -2069,7 +2074,7 @@ extension CMUXCLI {
         ) {
             for line in listing.split(whereSeparator: \.isNewline).map(String.init) {
                 let ref = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !ref.isEmpty, !ref.hasSuffix("/HEAD") else { continue }
+                guard !ref.isEmpty, !ref.hasSuffix("/HEAD"), !suggestedSeen.contains(ref) else { continue }
                 remoteRows.append(
                     DiffBranchRefRow(ref: ref, label: ref, secondary: nil, reason: nil, confidence: nil, current: nil, worktreeDir: nil)
                 )
@@ -2101,6 +2106,7 @@ extension CMUXCLI {
                 guard !ref.isEmpty,
                       ref != currentBranch,
                       !recentSeen.contains(ref),
+                      !suggestedSeen.contains(ref),
                       gitRefExists(ref, in: repoRoot) else { continue }
                 recentSeen.insert(ref)
                 recentRows.append(
