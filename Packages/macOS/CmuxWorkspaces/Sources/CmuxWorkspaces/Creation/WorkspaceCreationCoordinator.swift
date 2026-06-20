@@ -37,6 +37,7 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
     private let settings: any SettingsReading
     private let catalog: SettingCatalog
     private let debugLog: @Sendable (String) -> Void
+    private weak var host: (any WorkspaceCreationHosting<Tab>)?
 
     /// Creates the coordinator over the window's workspace model, reading new-
     /// workspace placement from the supplied settings + catalog.
@@ -56,6 +57,14 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
         self.settings = settings
         self.catalog = catalog
         self.debugLog = debugLog
+    }
+
+    /// Attaches the window-side creation-effect seam (the `Workspace`/`AppDelegate`
+    /// reach the creation orchestration inverts through). Wired before the first
+    /// `addWorkspace` so the initial creation's effects reach the host with the
+    /// legacy in-class timing.
+    public func attach(host: any WorkspaceCreationHosting<Tab>) {
+        self.host = host
     }
 
     /// Builds a ``WorkspaceCreationSnapshot`` from pre-extracted value-type data.
@@ -163,5 +172,157 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
             }
             return snapshot.selectedTabWasPinned ? pinnedCount : liveTabs.count
         }
+    }
+
+    // MARK: - Creation orchestration (legacy TabManager.addWorkspace / addTab)
+
+    /// Creates a new workspace, inserts it into the window's ``WorkspacesModel``,
+    /// and runs the full creation sequence. Lifts the legacy
+    /// `TabManager.addWorkspace(...)` body one-for-one: the pre-creation
+    /// inheritance reads, the `withExtendedLifetime` ARC guard around the whole
+    /// chain, the snapshot capture + DEBUG dev-mutation hook, the breadcrumb,
+    /// working-directory/font/config resolution, placement-driven insertion
+    /// index, port-ordinal allocation, default-title resolution, workspace boot +
+    /// chrome inheritance, background-load request, the live-array insertion +
+    /// group-contiguity normalization, the initial git-metadata schedule, the
+    /// eager-load surface prime, the two lifecycle publishes, the selection +
+    /// focus-notification block, the DEBUG UITest telemetry, and the welcome
+    /// send — in that exact order.
+    ///
+    /// Model mutations (`tabs` insertion, `normalizeWorkspaceGroupContiguity`,
+    /// `selectedTabId`) run here over the model; every app-coupled effect inverts
+    /// through ``WorkspaceCreationHosting``.
+    ///
+    /// Traps when the host is unattached: the window wires the host before its
+    /// first `addWorkspace`, and there is no meaningful workspace to return
+    /// without it (the legacy code unconditionally constructed one).
+    @discardableResult
+    public func addWorkspace(
+        title: String? = nil,
+        workingDirectory overrideWorkingDirectory: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
+        initialTerminalCommand: String? = nil,
+        initialTerminalInput: String? = nil,
+        initialTerminalEnvironment: [String: String] = [:],
+        workspaceEnvironment: [String: String] = [:],
+        inheritWorkingDirectory: Bool = true,
+        select: Bool = true,
+        eagerLoadTerminal: Bool = false,
+        placementOverride: WorkspacePlacement? = nil,
+        autoWelcomeIfNeeded: Bool = true,
+        autoRefreshMetadata: Bool = true,
+        normalizeWorkspaceGroupsAfterInsert: Bool = true
+    ) -> Tab {
+        guard let host else {
+            preconditionFailure(
+                "WorkspaceCreationCoordinator.addWorkspace requires an attached WorkspaceCreationHosting host"
+            )
+        }
+        let sourceWorkspace = host.creationSourceWorkspace()
+        let capturedTabs = model.tabs
+        // Snapshot the selected tab from the pinned workspace instead of rereading the
+        // @Published selectedTabId storage after the inheritance helpers. The arm64 Nightly
+        // Cmd+N crash is in PublishedSubject.value.getter on that second getter read.
+        let capturedSelectedTabId = sourceWorkspace?.id
+        // Keep both the source workspace and the pre-creation workspace array alive for the
+        // entire creation path. Release ARC can otherwise drop retains early across the
+        // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
+        return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
+            let dir = host.implicitWorkingDirectory(
+                inheritWorkingDirectory: inheritWorkingDirectory,
+                from: sourceWorkspace
+            )
+            let font = host.inheritedTerminalFontPoints(from: sourceWorkspace)
+            let snapshot = workspaceCreationSnapshotLite(
+                currentTabs: capturedTabs,
+                currentSelectedTabId: capturedSelectedTabId,
+                preferredWorkingDirectory: dir,
+                inheritedTerminalFontPoints: font
+            )
+            host.didCaptureWorkspaceCreationSnapshot()
+#if DEBUG
+            host.maybeMutateSelectionDuringWorkspaceCreationForDev(snapshot: snapshot)
+#endif
+            let nextTabCount = snapshot.tabs.count + 1
+            host.recordWorkspaceCreateBreadcrumb(tabCount: nextTabCount)
+            let explicitWorkingDirectory = host.normalizedWorkingDirectory(overrideWorkingDirectory)
+            let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
+            // Resolve placement against the pre-creation snapshot before Workspace init
+            // boots terminal state. The ssh/new-workspace path can otherwise crash while
+            // reading @Published placement state from existing workspaces mid-creation.
+            let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+            let ordinal = host.nextPortOrdinal()
+            let defaultTitle = host.defaultWorkspaceTitle(
+                initialSurface: initialSurface,
+                tabNumber: nextTabCount
+            )
+            let newWorkspace = host.makeWorkspaceForCreation(
+                title: title ?? defaultTitle,
+                explicitTitle: title,
+                workingDirectory: workingDirectory,
+                portOrdinal: ordinal,
+                inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints,
+                initialSurface: initialSurface,
+                initialTerminalCommand: initialTerminalCommand,
+                initialTerminalInput: initialTerminalInput,
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                workspaceEnvironment: workspaceEnvironment,
+                chromeInheritanceSource: sourceWorkspace ?? capturedTabs.first
+            )
+            if eagerLoadTerminal && !select {
+                host.requestBackgroundWorkspaceLoad(workspaceId: newWorkspace.id)
+            }
+            // Apply insertion to the current live array so post-snapshot closes/reorders
+            // are preserved instead of reintroducing stale workspace instances.
+            var updatedTabs = model.tabs
+            if insertIndex >= 0 && insertIndex <= updatedTabs.count {
+                updatedTabs.insert(newWorkspace, at: insertIndex)
+            } else {
+                updatedTabs.append(newWorkspace)
+            }
+            model.tabs = updatedTabs
+            // The global insertion-index rules don't know about group sections.
+            // Re-run the group-aware normalize so a freshly-added workspace
+            // can't land inside another group's contiguous section.
+            if normalizeWorkspaceGroupsAfterInsert, !model.workspaceGroups.isEmpty {
+                model.normalizeWorkspaceGroupContiguity()
+            }
+            if autoRefreshMetadata {
+                host.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(newWorkspace)
+            }
+            if eagerLoadTerminal {
+                if select {
+                    host.requestBackgroundSurfaceStartIfNeeded(newWorkspace)
+                }
+            }
+            host.publishWorkspaceCreated(newWorkspace, selected: select)
+            host.publishInitialSurfaceCreated(newWorkspace, selected: select)
+            if select {
+#if DEBUG
+                host.debugPrimeWorkspaceSwitchTrigger(to: newWorkspace.id)
+#endif
+                model.selectedTabId = newWorkspace.id
+                host.postDidFocusTab(workspaceId: newWorkspace.id)
+            }
+#if DEBUG
+            host.recordAddTabUITestTelemetry(
+                tabCount: updatedTabs.count,
+                selectedTabId: select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
+            )
+#endif
+            if autoWelcomeIfNeeded && select && initialSurface == .terminal
+                && host.shouldSendWelcomeCommand() {
+                host.sendWelcomeCommandWhenReady(to: newWorkspace)
+            }
+            return newWorkspace
+        }
+    }
+
+    /// Convenience alias for ``addWorkspace(title:workingDirectory:initialSurface:initialTerminalCommand:initialTerminalInput:initialTerminalEnvironment:workspaceEnvironment:inheritWorkingDirectory:select:eagerLoadTerminal:placementOverride:autoWelcomeIfNeeded:autoRefreshMetadata:normalizeWorkspaceGroupsAfterInsert:)``
+    /// with the two parameters the legacy `addTab` exposed (legacy
+    /// `TabManager.addTab(select:eagerLoadTerminal:)`).
+    @discardableResult
+    public func addTab(select: Bool = true, eagerLoadTerminal: Bool = false) -> Tab {
+        addWorkspace(select: select, eagerLoadTerminal: eagerLoadTerminal)
     }
 }

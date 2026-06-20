@@ -793,6 +793,7 @@
 		C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */; };
 		604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000008 /* TabManager+WindowTitle.swift */; };
 		E3CA00000000000000000001 /* TabManager+WorkspaceCommandHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CA00000000000000000002 /* TabManager+WorkspaceCommandHosting.swift */; };
+		E3CE00000000000000000001 /* TabManager+WorkspaceCreationHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CE00000000000000000002 /* TabManager+WorkspaceCreationHosting.swift */; };
 		E3B7A4000000000000000F22 /* TabManager+WorkspaceHandoffHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000F23 /* TabManager+WorkspaceHandoffHosting.swift */; };
 		E3CB00000000000000000001 /* TabManager+WorkspaceSelectionHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CB00000000000000000002 /* TabManager+WorkspaceSelectionHosting.swift */; };
 		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
@@ -1788,6 +1789,7 @@
 		C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SidebarGitHosting.swift"; sourceTree = "<group>"; };
 		604500100000000000000008 /* TabManager+WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WindowTitle.swift"; sourceTree = "<group>"; };
 		E3CA00000000000000000002 /* TabManager+WorkspaceCommandHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCommandHosting.swift"; sourceTree = "<group>"; };
+		E3CE00000000000000000002 /* TabManager+WorkspaceCreationHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCreationHosting.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000F23 /* TabManager+WorkspaceHandoffHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceHandoffHosting.swift"; sourceTree = "<group>"; };
 		E3CB00000000000000000002 /* TabManager+WorkspaceSelectionHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceSelectionHosting.swift"; sourceTree = "<group>"; };
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
@@ -2399,6 +2401,7 @@
 				E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */,
 				E3CD00000000000000000002 /* Workspace+BrowserOpenWorkspaceHandle.swift */,
 				E3CB00000000000000000002 /* TabManager+WorkspaceSelectionHosting.swift */,
+				E3CE00000000000000000002 /* TabManager+WorkspaceCreationHosting.swift */,
 				E3B7A40000000000000000F1 /* TabManager+FocusedSurfaceHosting.swift */,
 				E3B7A4000000000000000F23 /* TabManager+WorkspaceHandoffHosting.swift */,
 				E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */,
@@ -3983,6 +3986,7 @@
 				C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */,
 				604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */,
 				E3CA00000000000000000001 /* TabManager+WorkspaceCommandHosting.swift in Sources */,
+				E3CE00000000000000000001 /* TabManager+WorkspaceCreationHosting.swift in Sources */,
 				E3B7A4000000000000000F22 /* TabManager+WorkspaceHandoffHosting.swift in Sources */,
 				E3CB00000000000000000001 /* TabManager+WorkspaceSelectionHosting.swift in Sources */,
 				A5001003 /* TabManager.swift in Sources */,
