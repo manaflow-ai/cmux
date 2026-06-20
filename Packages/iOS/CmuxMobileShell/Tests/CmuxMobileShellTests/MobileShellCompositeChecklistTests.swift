@@ -139,7 +139,7 @@ import Testing
         let runtime = LivenessTestRuntime(
             transportFactory: AttachTicketSuccessTransportFactory(ticket: ticket),
             stackAccessTokenProvider: { try provider.next() },
-            stackAccessTokenForceRefresher: { throw FirstCallSucceedsTokenProvider.TokenError() },
+            stackAccessTokenForceRefresher: { throw TestStackTokenError() },
             now: { TestClock().now }
         )
         let store = MobileShellComposite.preview(runtime: runtime)
@@ -154,11 +154,10 @@ import Testing
         // The Stack token provider fails, so the request never reaches the
         // transport. The auth gate fails, but the network gate must stay untested
         // (not falsely cleared) since no packet left the device (issue #6084).
-        struct TokenError: Error {}
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
-            stackAccessTokenProvider: { throw TokenError() },
-            stackAccessTokenForceRefresher: { throw TokenError() },
+            stackAccessTokenProvider: { throw TestStackTokenError() },
+            stackAccessTokenForceRefresher: { throw TestStackTokenError() },
             now: { TestClock().now }
         )
         let store = MobileShellComposite.preview(runtime: runtime)
@@ -180,7 +179,7 @@ import Testing
         let runtime = LivenessTestRuntime(
             transportFactory: ConnectFailingTransportFactory(),
             stackAccessTokenProvider: { try provider.next() },
-            stackAccessTokenForceRefresher: { throw FirstCallSucceedsTokenProvider.TokenError() },
+            stackAccessTokenForceRefresher: { throw TestStackTokenError() },
             now: { TestClock().now }
         )
         let store = MobileShellComposite.preview(runtime: runtime)
@@ -249,194 +248,5 @@ import Testing
             routes: [routeA, routeB],
             expiresAt: TestClock().now.addingTimeInterval(3600)
         )
-    }
-}
-
-/// A Stack-token provider that succeeds exactly once, then fails — so the first
-/// route's request builds auth (and then fails to connect) while a later route's
-/// request fails its token build before any send.
-final class FirstCallSucceedsTokenProvider: @unchecked Sendable {
-    struct TokenError: Error {}
-    private let lock = NSLock()
-    private var count = 0
-
-    func next() throws -> String {
-        let n: Int = lock.withLock {
-            count += 1
-            return count
-        }
-        guard n == 1 else { throw TokenError() }
-        return "token-1"
-    }
-}
-
-/// A transport whose `connect()` always fails, modeling an unreachable route.
-actor ConnectFailingTransport: CmxByteTransport {
-    struct ConnectFailed: Error {}
-
-    func connect() async throws { throw ConnectFailed() }
-    func receive() async throws -> Data? { nil }
-    func send(_ data: Data) async throws {}
-    func close() async {}
-}
-
-struct ConnectFailingTransportFactory: CmxByteTransportFactory {
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        ConnectFailingTransport()
-    }
-}
-
-/// A transport that answers any framed request with a successful
-/// `mobile.attach_ticket.create` response carrying `ticket`, so the manual-host
-/// pre-connect probe succeeds (and thereby reaches the Mac).
-actor AttachTicketSuccessTransport: CmxByteTransport {
-    private let ticket: CmxAttachTicket
-    private var pendingFrames: [Data] = []
-    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
-    private var isClosed = false
-
-    init(ticket: CmxAttachTicket) {
-        self.ticket = ticket
-    }
-
-    func connect() async throws {}
-
-    func receive() async throws -> Data? {
-        if !pendingFrames.isEmpty {
-            return pendingFrames.removeFirst()
-        }
-        if isClosed {
-            return nil
-        }
-        return await withCheckedContinuation { continuation in
-            receiveWaiters.append(continuation)
-        }
-    }
-
-    func send(_ data: Data) async throws {
-        var buffer = data
-        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        for payload in payloads {
-            let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
-            guard let id = parsed?["id"] as? String,
-                  let ticketData = try? encoder.encode(ticket),
-                  let ticketJSON = try? JSONSerialization.jsonObject(with: ticketData) else { continue }
-            let envelope: [String: Any] = ["id": id, "ok": true, "result": ["ticket": ticketJSON]]
-            guard let frame = try? MobileSyncFrameCodec.encodeFrame(
-                JSONSerialization.data(withJSONObject: envelope)
-            ) else { continue }
-            deliver(frame)
-        }
-    }
-
-    func close() async {
-        isClosed = true
-        let waiters = receiveWaiters
-        receiveWaiters = []
-        for waiter in waiters {
-            waiter.resume(returning: nil)
-        }
-    }
-
-    private func deliver(_ frame: Data) {
-        if receiveWaiters.isEmpty {
-            pendingFrames.append(frame)
-            return
-        }
-        receiveWaiters.removeFirst().resume(returning: frame)
-    }
-}
-
-struct AttachTicketSuccessTransportFactory: CmxByteTransportFactory {
-    let ticket: CmxAttachTicket
-
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        AttachTicketSuccessTransport(ticket: ticket)
-    }
-}
-
-/// Reports a fixed online/offline verdict and never emits a path change, for the
-/// reachability preflight test.
-struct StubReachability: ReachabilityProviding {
-    let online: Bool
-    var isOnline: Bool { get async { online } }
-    func pathChanges() -> AsyncStream<Void> {
-        AsyncStream { $0.finish() }
-    }
-}
-
-/// A transport that answers every framed request with one configured RPC error
-/// frame, so a pairing attempt fails at the authentication/trust gate without a
-/// real host. Mirrors the receive/deliver pump of `LivenessTransport`.
-actor ChecklistErrorTransport: CmxByteTransport {
-    private let code: String?
-    private let message: String
-    private var pendingFrames: [Data] = []
-    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
-    private var isClosed = false
-
-    init(code: String?, message: String) {
-        self.code = code
-        self.message = message
-    }
-
-    func connect() async throws {}
-
-    func receive() async throws -> Data? {
-        if !pendingFrames.isEmpty {
-            return pendingFrames.removeFirst()
-        }
-        if isClosed {
-            return nil
-        }
-        return await withCheckedContinuation { continuation in
-            receiveWaiters.append(continuation)
-        }
-    }
-
-    func send(_ data: Data) async throws {
-        var buffer = data
-        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-        for payload in payloads {
-            let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
-            guard let id = parsed?["id"] as? String else { continue }
-            var error: [String: Any] = ["message": message]
-            if let code {
-                error["code"] = code
-            }
-            let envelope: [String: Any] = ["id": id, "ok": false, "error": error]
-            guard let frame = try? MobileSyncFrameCodec.encodeFrame(
-                JSONSerialization.data(withJSONObject: envelope)
-            ) else { continue }
-            deliver(frame)
-        }
-    }
-
-    func close() async {
-        isClosed = true
-        let waiters = receiveWaiters
-        receiveWaiters = []
-        for waiter in waiters {
-            waiter.resume(returning: nil)
-        }
-    }
-
-    private func deliver(_ frame: Data) {
-        if receiveWaiters.isEmpty {
-            pendingFrames.append(frame)
-            return
-        }
-        receiveWaiters.removeFirst().resume(returning: frame)
-    }
-}
-
-struct ChecklistErrorTransportFactory: CmxByteTransportFactory {
-    let code: String?
-    let message: String
-
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        ChecklistErrorTransport(code: code, message: message)
     }
 }

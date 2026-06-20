@@ -404,9 +404,3 @@ private enum AddDeviceField: Hashable {
     case host
     case port
 }
-
-private struct PairingInputSignature: Equatable {
-    let pairingCode: String
-    let host: String
-    let port: String
-}
