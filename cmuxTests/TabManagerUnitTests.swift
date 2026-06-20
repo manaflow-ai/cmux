@@ -1811,8 +1811,16 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
     }
 
-    func testClosePanelButtonClosesWorkspaceWhenItOwnsTheLastSurface() {
-        let manager = TabManager()
+    func testClosePanelButtonClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsDisabled() {
+        let suiteName = "TabManagerUnitTests.CloseButtonClosesLastSurface.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: lastSurfaceCloseShortcutDefaultsKey)
+
+        let manager = TabManager(settings: UserDefaultsSettingsClient(defaults: defaults))
         let firstWorkspace = manager.tabs[0]
         let secondWorkspace = manager.addWorkspace()
         manager.selectWorkspace(secondWorkspace)
@@ -1830,7 +1838,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             return
         }
 
-        secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId)
+        secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
         XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
         drainMainQueue()
         drainMainQueue()
@@ -1841,19 +1849,16 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertTrue(secondWorkspace.panels.isEmpty)
     }
 
-    func testClosePanelButtonStillClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsEnabled() {
-        let defaults = UserDefaults.standard
-        let originalSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
-        defaults.set(false, forKey: lastSurfaceCloseShortcutDefaultsKey)
-        defer {
-            if let originalSetting {
-                defaults.set(originalSetting, forKey: lastSurfaceCloseShortcutDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
-            }
+    func testClosePanelButtonKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() {
+        let suiteName = "TabManagerUnitTests.CloseButtonKeepsLastSurface.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
         }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: lastSurfaceCloseShortcutDefaultsKey)
 
-        let manager = TabManager()
+        let manager = TabManager(settings: UserDefaultsSettingsClient(defaults: defaults))
         let firstWorkspace = manager.tabs[0]
         let secondWorkspace = manager.addWorkspace()
         manager.selectWorkspace(secondWorkspace)
@@ -1868,15 +1873,16 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             return
         }
 
-        secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId)
-        XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
+        secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
+        XCTAssertTrue(secondWorkspace.closePanel(secondPanelId))
         drainMainQueue()
         drainMainQueue()
 
-        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
-        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id, secondWorkspace.id])
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
         XCTAssertNil(secondWorkspace.panels[secondPanelId])
-        XCTAssertTrue(secondWorkspace.panels.isEmpty)
+        XCTAssertEqual(secondWorkspace.panels.count, 1)
+        XCTAssertNotEqual(secondWorkspace.focusedPanelId, secondPanelId)
     }
 
     func testGenericClosePanelKeepsWorkspaceOpenWithoutExplicitCloseMarker() {
