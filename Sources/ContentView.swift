@@ -9662,9 +9662,9 @@ enum CmuxExtensionSidebarSelection {
             .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
     }
 
-    /// One provider descriptor per `<name>.swift`/`<name>.json` file in the
-    /// sidebars directory (`.swift` preferred when both exist), titled by the
-    /// file's base name.
+    /// One provider descriptor per `<name>.swift`/`<name>.html`/`<name>.json`
+    /// file in the sidebars directory (`.swift` preferred, then `.html`, then
+    /// `.json` when more than one exists), titled by the file's base name.
     static var customSidebarDescriptors: [CmuxSidebarProviderDescriptor] {
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: customSidebarsDirectory,
@@ -9673,9 +9673,11 @@ enum CmuxExtensionSidebarSelection {
         var extensionByName: [String: String] = [:]
         for url in entries {
             let ext = url.pathExtension.lowercased()
-            guard ext == "swift" || ext == "json" else { continue }
+            guard ext == "swift" || ext == "html" || ext == "json" else { continue }
             let name = url.deletingPathExtension().lastPathComponent
-            if extensionByName[name] == "swift" { continue }
+            if customSidebarFileExtensionPriority(extensionByName[name]) < customSidebarFileExtensionPriority(ext) {
+                continue
+            }
             extensionByName[name] = ext
         }
         return extensionByName.keys.sorted().map { name in
@@ -9693,7 +9695,7 @@ enum CmuxExtensionSidebarSelection {
     }
 
     /// Resolves a custom-sidebar provider id to its backing file URL
-    /// (`.swift` preferred), or `nil` if neither file exists.
+    /// (`.swift`, then `.html`, then `.json`), or `nil` if no file exists.
     static func customSidebarFileURL(forProviderId providerId: String) -> URL? {
         customSidebarFileURL(forProviderId: providerId, sidebarsDirectory: customSidebarsDirectory)
     }
@@ -9704,9 +9706,24 @@ enum CmuxExtensionSidebarSelection {
         guard isValidCustomSidebarFileBaseName(name) else { return nil }
         let swiftURL = sidebarsDirectory.appendingPathComponent("\(name).swift", isDirectory: false)
         if FileManager.default.fileExists(atPath: swiftURL.path) { return swiftURL }
+        let htmlURL = sidebarsDirectory.appendingPathComponent("\(name).html", isDirectory: false)
+        if FileManager.default.fileExists(atPath: htmlURL.path) { return htmlURL }
         let jsonURL = sidebarsDirectory.appendingPathComponent("\(name).json", isDirectory: false)
         if FileManager.default.fileExists(atPath: jsonURL.path) { return jsonURL }
         return nil
+    }
+
+    private static func customSidebarFileExtensionPriority(_ pathExtension: String?) -> Int {
+        switch pathExtension?.lowercased() {
+        case "swift":
+            return 0
+        case "html":
+            return 1
+        case "json":
+            return 2
+        default:
+            return Int.max
+        }
     }
 
     private static func isValidCustomSidebarFileBaseName(_ name: String) -> Bool {

@@ -243,7 +243,7 @@ final class RenderWorkerCoordinator {
                 swiftRender = nil
                 hasRendered = true
             }
-        case .json:
+        case .json, .webPage:
             lastGoodState = model.state
             lastGoodRender = nil
         case .missing, .failed:
@@ -264,6 +264,7 @@ final class RenderWorkerCoordinator {
                 state: state ?? displayedState ?? model?.state ?? .missing,
                 swiftRender: swiftRender,
                 hasRenderedSwift: hasRendered,
+                dataContext: dataState,
                 dispatch: dispatch,
                 contentInsets: insets
             ),

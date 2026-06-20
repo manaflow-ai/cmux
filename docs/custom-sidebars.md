@@ -1,10 +1,11 @@
 # Custom sidebars: vibe-code your own cmux sidebar
 
-cmux lets you build your own sidebar UI by writing a small SwiftUI-style file.
-It is interpreted at runtime (no Xcode, no build step, no signing), renders as
-native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
-state, and can run cmux commands on tap. This guide is the authoring contract
-for you or a coding agent.
+cmux lets you build your own sidebar UI by writing a small SwiftUI-style file
+or an HTML file. Swift sidebars are interpreted at runtime. HTML sidebars run
+in a transparent native webview. Neither path needs Xcode, signing, or a build
+step. Both hot-reload on save, bind to live cmux state, and can run cmux
+commands on tap. This guide is the authoring contract for you or a coding
+agent.
 
 It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 (`customSidebars.beta.enabled`). While off, custom sidebars do not appear.
@@ -40,22 +41,23 @@ SwiftUI, files, or syntax. Concretely:
 Write a named file (the name becomes the menu label; use short kebab-case):
 
     ~/.config/cmux/sidebars/<name>.swift     # interpreted Swift (preferred)
+    ~/.config/cmux/sidebars/<name>.html      # sidebar webview
     ~/.config/cmux/sidebars/<name>.json      # declarative JSON (simpler, static)
 
 Each file shows up as an option in the **sidebar toggle button's right-click
 menu** and can also open as a normal Bonsplit pane tab. Pick it from the menu
 for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
-edit the file and save and it hot-reloads. If both `<name>.swift` and
-`<name>.json` exist, `.swift` wins.
+edit the file and save and it hot-reloads. If more than one file exists for the
+same name, cmux uses `.swift`, then `.html`, then `.json`.
 
-A sidebar file is a single SwiftUI-style view expression (no `struct`, no
-`var body` wrapper, just the view).
+A Swift sidebar file is a single SwiftUI-style view expression (no `struct`,
+no `var body` wrapper, just the view).
 
 ## Choosing the renderer (in-process vs remote)
 
-By default a custom sidebar renders in-process: the interpreted view mounts
-as real SwiftUI inside the cmux window, so hover styling, focus, keyboard,
-and same-frame resize all work natively. The tradeoff is that the
+By default a Swift or JSON custom sidebar renders in-process: the interpreted
+view mounts as real SwiftUI inside the cmux window, so hover styling, focus,
+keyboard, and same-frame resize all work natively. The tradeoff is that the
 interpreter shares the host process.
 
 For sidebars from sources you do not fully trust you can switch to the
@@ -73,6 +75,10 @@ renderers protect the host against pathological sources with an evaluation
 budget (nesting depth and total produced nodes): a render that exceeds the
 budget is discarded and the last good render stays up.
 
+HTML sidebars always use the in-process webview path so WebKit stays attached
+to the live sidebar window with native focus, scrolling, keyboard, hover, and
+inspector behavior.
+
 ## Downloadable examples
 
 The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
@@ -81,12 +87,15 @@ The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
   review, progress, research, and done.
 - `finder.swift` shows a macOS Finder-style workspace browser with a source
   list, selected workspace details, and tabs.
+- `web-status.html` shows the same live data from JavaScript in a transparent
+  native sidebar webview.
 
 Install one from a cmux checkout:
 
     mkdir -p ~/.config/cmux/sidebars
     cp Examples/CustomSidebars/status-board.swift ~/.config/cmux/sidebars/status-board.swift
     cp Examples/CustomSidebars/finder.swift ~/.config/cmux/sidebars/finder.swift
+    cp Examples/CustomSidebars/web-status.html ~/.config/cmux/sidebars/web-status.html
 
 Then validate and open it as a Bonsplit pane:
 
@@ -96,6 +105,38 @@ Then validate and open it as a Bonsplit pane:
 `cmux sidebar select <name>` still previews a custom sidebar in the left
 sidebar picker. Use `cmux sidebar open <name>` when you want the sidebar as a
 normal pane tab that can live in a right-side split.
+
+## HTML sidebars
+
+HTML sidebars load from `~/.config/cmux/sidebars/<name>.html` in a transparent
+`WKWebView`. Adjacent assets referenced by the file are readable, so a copied
+React/Vite build can load its local JavaScript and CSS files.
+
+cmux injects this runtime before page scripts run:
+
+    window.cmux.sidebar.data          // live data, same fields as Swift sidebars
+    window.cmux.sidebar.theme         // colorScheme, foreground, secondary, accent
+    window.cmux.sidebar.contentInsets // top/bottom chrome insets in points
+    window.cmux.postAction(action)    // run a native sidebar action
+
+The payload updates about once a second and dispatches a browser event:
+
+    window.addEventListener("cmuxsidebarupdate", (event) => {
+      render(event.detail.data)
+    })
+
+Run a cmux command from JavaScript with:
+
+    window.cmux.postAction({
+      type: "cmux",
+      method: "workspace.select",
+      params: { workspace_id: workspace.id }
+    })
+
+`type: "log"` accepts `message`; `type: "openURL"` accepts `url`. The webview
+injects native CSS variables such as `--cmux-sidebar-foreground`,
+`--cmux-sidebar-secondary`, `--cmux-sidebar-accent`,
+`--cmux-sidebar-safe-top`, and `--cmux-sidebar-safe-bottom`.
 
 ## Quick start
 

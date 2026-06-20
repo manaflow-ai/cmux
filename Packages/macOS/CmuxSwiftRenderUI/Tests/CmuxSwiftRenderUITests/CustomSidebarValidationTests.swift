@@ -22,6 +22,32 @@ struct CustomSidebarValidationTests {
         #expect(urls.map(\.lastPathComponent) == ["finder.swift"])
     }
 
+    @Test("discovers HTML before JSON and after Swift")
+    func discoversHTMLBetweenSwiftAndJSON() throws {
+        let directory = try temporaryDirectory()
+        try """
+        <main>HTML</main>
+        """.write(to: directory.appendingPathComponent("finder.html"), atomically: true, encoding: .utf8)
+        try """
+        {"version":1,"root":{"type":"text","text":"JSON"}}
+        """.write(to: directory.appendingPathComponent("finder.json"), atomically: true, encoding: .utf8)
+        try """
+        {"version":1,"root":{"type":"text","text":"JSON"}}
+        """.write(to: directory.appendingPathComponent("status.json"), atomically: true, encoding: .utf8)
+
+        var urls = validator.discover(in: directory)
+
+        #expect(urls.map(\.lastPathComponent) == ["finder.html", "status.json"])
+
+        try """
+        Text("Swift")
+        """.write(to: directory.appendingPathComponent("finder.swift"), atomically: true, encoding: .utf8)
+
+        urls = validator.discover(in: directory)
+
+        #expect(urls.map(\.lastPathComponent) == ["finder.swift", "status.json"])
+    }
+
     @Test("reports JSON schema errors with root path")
     func reportsMissingJSONVersion() throws {
         let directory = try temporaryDirectory()
@@ -68,8 +94,8 @@ struct CustomSidebarValidationTests {
         let directory = examplesDirectory()
         let report = validator.validate(directory: directory, dataContext: Self.richSidebarContext)
 
-        #expect(report.names.sorted() == ["finder", "status-board"])
-        #expect(report.validCount == 2)
+        #expect(report.names.sorted() == ["finder", "status-board", "web-status"])
+        #expect(report.validCount == 3)
         #expect(report.errorCount == 0)
     }
 
@@ -111,6 +137,30 @@ struct CustomSidebarValidationTests {
         }
     }
 
+    @MainActor
+    @Test("model resolves HTML before JSON")
+    func modelResolvesHTMLBeforeJSON() throws {
+        let directory = try temporaryDirectory()
+        let jsonURL = directory.appendingPathComponent("finder.json")
+        let htmlURL = directory.appendingPathComponent("finder.html")
+
+        try """
+        {"version":1,"root":{"type":"text","text":"JSON"}}
+        """.write(to: jsonURL, atomically: true, encoding: .utf8)
+        try """
+        <main>HTML</main>
+        """.write(to: htmlURL, atomically: true, encoding: .utf8)
+
+        let model = CustomSidebarModel(fileURL: jsonURL)
+        model.reload()
+
+        guard case let .webPage(resolvedURL) = model.state else {
+            Issue.record("Expected HTML sidebar state when HTML and JSON share a name")
+            return
+        }
+        #expect(resolvedURL == htmlURL)
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-sidebar-validation-\(UUID().uuidString)", isDirectory: true)
@@ -120,6 +170,7 @@ struct CustomSidebarValidationTests {
 
     private func examplesDirectory() -> URL {
         URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
