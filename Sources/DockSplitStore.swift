@@ -61,43 +61,6 @@ final class DockSplitStore: BonsplitDelegate {
         }
     }
 
-    private static func makeConfiguration() -> BonsplitConfiguration {
-        let config = GhosttyConfig.load()
-        return BonsplitConfiguration(
-            allowSplits: true,
-            allowCloseTabs: true,
-            allowCloseLastPane: false,
-            allowTabReordering: true,
-            allowCrossPaneTabMove: true,
-            autoCloseEmptyPanes: true,
-            contentViewLifecycle: .keepAllAlive,
-            newTabPosition: .current,
-            tabBarVisibility: .always,
-            appearance: makeAppearance(from: config)
-        )
-    }
-
-    private static func makeAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
-        let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
-        let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
-            usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
-        )
-        return BonsplitConfiguration.Appearance(
-            tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
-            tabTitleFontSize: config.surfaceTabBarFontSize,
-            splitButtonBackdropEffect: Workspace.bonsplitSplitButtonBackdropEffect(),
-            splitButtonTooltips: Workspace.currentSplitButtonTooltips(),
-            enableAnimations: false,
-            chromeColors: Workspace.bonsplitChromeColors(
-                backgroundColor: config.backgroundColor,
-                backgroundOpacity: config.backgroundOpacity,
-                sharesWindowBackdrop: sharesWindowBackdrop,
-                renderingMode: renderingMode
-            ),
-            usesSharedBackdrop: sharesWindowBackdrop
-        )
-    }
-
     func applyGhosttyChrome(from config: GhosttyConfig) {
         bonsplitController.configuration.appearance = Self.makeAppearance(from: config)
     }
@@ -107,6 +70,28 @@ final class DockSplitStore: BonsplitDelegate {
     func panel(for tabId: TabID) -> (any Panel)? {
         guard let panelId = surfaceIdToPanelId[tabId] else { return nil }
         return panels[panelId]
+    }
+
+    func browserPanel(for panelId: UUID) -> BrowserPanel? {
+        panels[panelId] as? BrowserPanel
+    }
+
+    func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
+        guard let responder, let window else { return nil }
+        if let focused = focusedPanelId,
+           let browser = panels[focused] as? BrowserPanel,
+           browser.ownedFocusIntent(for: responder, in: window) != nil {
+            return browser
+        }
+        for (panelId, panel) in panels {
+            guard panelId != focusedPanelId,
+                  let browser = panel as? BrowserPanel,
+                  browser.ownedFocusIntent(for: responder, in: window) != nil else {
+                continue
+            }
+            return browser
+        }
+        return nil
     }
 
     private func surfaceId(forPanelId panelId: UUID) -> TabID? {
@@ -170,6 +155,7 @@ final class DockSplitStore: BonsplitDelegate {
     /// Tears down every Dock panel (closing terminals/browsers and their
     /// portals). Called from `Workspace.teardownAllPanels()` on workspace close.
     func closeAllPanels() {
+        cancelConfigurationTasks()
         setVisibleInUI(false)
         removeAllPanels()
     }
@@ -581,6 +567,15 @@ final class DockSplitStore: BonsplitDelegate {
         surfaceIdToPanelId.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
+    }
+
+    private func cancelConfigurationTasks() {
+        configurationLoadGeneration += 1
+        configurationIdentityGeneration += 1
+        configurationLoadTask?.cancel()
+        configurationIdentityTask?.cancel()
+        configurationLoadTask = nil
+        configurationIdentityTask = nil
     }
 
     private func startConfigurationLoad(replacingPanels: Bool) {

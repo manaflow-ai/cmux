@@ -2200,7 +2200,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Backing store for `dockSplit`, created on first access. Kept optional so
     /// workspace teardown can tear down the Dock only when it was actually used
     /// (and so reading it during teardown does not lazily create one).
-    private var _dockSplit: DockSplitStore?
+    private(set) var _dockSplit: DockSplitStore?
 
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.

@@ -2908,13 +2908,6 @@ class TabManager: ObservableObject {
         tabs.first(where: { $0.id == tabId })?.focusedPanelId
     }
 
-    /// Returns the focused panel if it's a BrowserPanel, nil otherwise
-    var focusedBrowserPanel: BrowserPanel? {
-        guard let tab = selectedWorkspace,
-              let panelId = tab.focusedPanelId else { return nil }
-        return tab.panels[panelId] as? BrowserPanel
-    }
-
     /// Returns the focused panel if it's a MarkdownPanel showing the rendered
     /// preview, nil otherwise. Zoom applies to the preview WKWebView, so the raw
     /// text-edit mode is deliberately excluded.

@@ -308,12 +308,16 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
         nsView.focusFirstControl = { [weak store] in
             store?.focusFirstControl() == true
         }
+        nsView.ownsDockBrowserFocus = { [weak store] responder, window in
+            store?.browserPanel(owning: responder, in: window) != nil
+        }
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 }
 
 final class DockKeyboardFocusView: NSView {
     var focusFirstControl: (() -> Bool)?
+    var ownsDockBrowserFocus: ((NSResponder, NSWindow) -> Bool)?
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
@@ -323,6 +327,7 @@ final class DockKeyboardFocusView: NSView {
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
+        if let window, ownsDockBrowserFocus?(responder, window) == true { return true }
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false

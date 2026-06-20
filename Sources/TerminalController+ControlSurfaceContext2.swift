@@ -399,11 +399,11 @@ extension TerminalController {
         guard let newPanelId else {
             return .createFailed
         }
-        return .createdDock(
+        return .created(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            dockPaneID: paneId.id,
-            dockSurfaceID: newPanelId,
+            paneID: paneId.id,
+            surfaceID: newPanelId,
             typeRawValue: panelType.rawValue
         )
     }
@@ -417,7 +417,7 @@ extension TerminalController {
         url: URL?,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
-        guard panelType == .terminal || panelType == .browser else { return .dockUnsupportedType(typeRawValue: panelType.rawValue, message: "Dock placement supports only terminal and browser surfaces") }
+        guard panelType == .terminal || panelType == .browser else { return .dockUnsupportedType(typeRawValue: panelType.rawValue, message: String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports only terminal and browser surfaces")) }
         let dock = ws.dockSplit
         guard let paneId = dock.resolvePane(requestedPaneID: inputs.requestedPaneID) else {
             return .paneNotFound
@@ -437,11 +437,11 @@ extension TerminalController {
         guard let newPanelId else {
             return .createFailed
         }
-        return .created(
+        return .createdDock(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            paneID: paneId.id,
-            surfaceID: newPanelId,
+            dockPaneID: paneId.id,
+            dockSurfaceID: newPanelId,
             typeRawValue: panelType.rawValue
         )
     }

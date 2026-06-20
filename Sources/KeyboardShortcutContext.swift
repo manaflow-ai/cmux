@@ -289,6 +289,10 @@ extension AppDelegate {
                 mainWindowContexts.values.first(where: { $0.window === window }) else {
                 return nil
             }
+            if let panel = context.tabManager.selectedWorkspace?
+                .dockBrowserPanel(owning: window.firstResponder, in: window) {
+                return panel
+            }
             return context.tabManager.focusedBrowserPanel
         }
 
@@ -322,6 +326,9 @@ extension AppDelegate {
                 if let panel = workspace.browserPanel(for: panelId) {
                     return panel
                 }
+                if let panel = workspace.dockBrowserPanel(for: panelId) {
+                    return panel
+                }
             }
         }
         return nil
@@ -336,6 +343,9 @@ extension AppDelegate {
                         continue
                     }
                     return browserPanel
+                }
+                if let panel = workspace.dockBrowserPanel(owning: webView, in: webView.window) {
+                    return panel
                 }
             }
         }
