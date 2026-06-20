@@ -176,6 +176,37 @@ import Testing
     collector.unmount()
 }
 
+/// A surface remount must not inherit a cancelled view's in-flight replay
+/// guard. The first replay below is deliberately held forever; after unmount
+/// and remount the second sink still needs its own cold-attach replay so the
+/// phone cannot stay pinned to an old history boundary.
+@MainActor
+@Test func remountWhileReplayIsInFlightRequestsFreshReplay() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.holdReplayRequest(number: 1)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let firstCollector = OutputCollector()
+    firstCollector.mount(store: store, surfaceID: "live-terminal")
+    let sawFirstReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawFirstReplay, "the first mount must request a cold-attach replay")
+
+    firstCollector.unmount()
+    let secondCollector = OutputCollector()
+    secondCollector.mount(store: store, surfaceID: "live-terminal")
+    let sawSecondReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
+    #expect(
+        sawSecondReplay,
+        "unmounting must clear the in-flight replay guard; otherwise the remounted surface can stay stuck behind the old replay"
+    )
+    secondCollector.unmount()
+}
+
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
 /// working: silence past the threshold plus a host that stops answering the
 /// probe must still tear down and re-subscribe.
