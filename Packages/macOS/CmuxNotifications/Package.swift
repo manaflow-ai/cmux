@@ -13,9 +13,15 @@ let package = Package(
             targets: ["CmuxNotifications"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxCore"),
+    ],
     targets: [
         .target(
             name: "CmuxNotifications",
+            dependencies: [
+                .product(name: "CmuxCore", package: "CmuxCore"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

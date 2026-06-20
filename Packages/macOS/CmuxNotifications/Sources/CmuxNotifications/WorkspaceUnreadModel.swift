@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxCore
 import Observation
 
 /// The per-workspace unread / attention-indicator sub-model.
@@ -13,6 +14,14 @@ import Observation
 /// `restorePanelUnreadIndicator`, `clearRestoredUnreadIndicator`,
 /// `preferredUnreadPanelIdForJump`, the badge-sync family, and
 /// `syncPanelDerivedWorkspaceUnread`).
+///
+/// It also owns the per-panel attention-flash logic the same god object kept
+/// inline: the notification-indicator reads (`hasVisibleNotificationIndicator`,
+/// `hasUnreadNotification`), the flash-decision input (`attentionPersistentState`),
+/// the flash request (`requestAttentionFlash`), and the tmux workspace-pane
+/// overlay flash mirrors (`tmuxWorkspaceFlash*` + `triggerWorkspacePaneFlash`).
+/// The pure decision itself lives in `CmuxCore`
+/// (`WorkspaceAttentionFlashDecision.decide`).
 ///
 /// `Workspace` owns one instance and forwards each former stored property
 /// through a computed `get`/`set` pair and each former method through a
@@ -59,6 +68,30 @@ public final class WorkspaceUnreadModel {
     /// never fired `objectWillChange`; this property deliberately omits the
     /// ``willChange`` bridge to preserve that.
     public var manualUnreadMarkedAt: [UUID: Date] = [:]
+
+    /// The panel the tmux workspace-pane overlay is currently flashing for
+    /// (legacy `Workspace.tmuxWorkspaceFlashPanelId`). `private(set)`: only
+    /// ``triggerWorkspacePaneFlash(panelId:reason:)`` writes it.
+    ///
+    /// The legacy property was `@Published private(set)`, so a write fired
+    /// `objectWillChange`; this mirror calls ``willChange`` at `willSet` time to
+    /// preserve that emission moment for the SwiftUI reader in `ContentView`.
+    public private(set) var tmuxWorkspaceFlashPanelId: UUID? {
+        willSet { willChange?() }
+    }
+
+    /// Why the tmux workspace-pane overlay is flashing (legacy
+    /// `Workspace.tmuxWorkspaceFlashReason`). See ``tmuxWorkspaceFlashPanelId``.
+    public private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason? {
+        willSet { willChange?() }
+    }
+
+    /// Monotonic token bumped on every flash request so the overlay re-triggers
+    /// even when the panel/reason repeat (legacy
+    /// `Workspace.tmuxWorkspaceFlashToken`). See ``tmuxWorkspaceFlashPanelId``.
+    public private(set) var tmuxWorkspaceFlashToken: UInt64 = 0 {
+        willSet { willChange?() }
+    }
 
     /// Panel ids that carry a restored unread indicator (legacy
     /// `Workspace.restoredUnreadPanelIds`).
@@ -122,6 +155,60 @@ public final class WorkspaceUnreadModel {
             !manualUnreadPanelIds.isEmpty ||
                 hasWorkspaceContributingRestoredUnreadIndicator
         )
+    }
+
+    // MARK: - Attention flash
+
+    /// Whether the panel currently shows a visible notification indicator.
+    /// Faithful lift of the private `Workspace.hasVisibleNotificationIndicator(panelId:)`
+    /// (which read `notificationStore?.hasVisibleNotificationIndicator(forTabId:surfaceId:) ?? false`).
+    public func hasVisibleNotificationIndicator(panelId: UUID) -> Bool {
+        host?.workspaceUnreadHasVisibleNotificationIndicator(panelId: panelId) ?? false
+    }
+
+    /// Whether the panel has an unread notification. Faithful lift of the
+    /// private `Workspace.hasUnreadNotification(panelId:)` (which read
+    /// `notificationStore?.hasUnreadNotification(forTabId:surfaceId:) ?? false`).
+    public func hasUnreadNotification(panelId: UUID) -> Bool {
+        host?.workspaceUnreadHasUnreadNotification(panelId: panelId) ?? false
+    }
+
+    /// Snapshots the unread/attention facts a flash decision reads. Faithful
+    /// lift of `Workspace.attentionPersistentState()`.
+    public func attentionPersistentState() -> WorkspaceAttentionPersistentState {
+        let unreadPanelIDs = Set(
+            (host?.workspaceUnreadPanelIds() ?? []).filter {
+                restoredUnreadPanelIds.contains($0) ||
+                    (host?.workspaceUnreadHasUnreadNotification(panelId: $0) ?? false)
+            }
+        )
+        return WorkspaceAttentionPersistentState(
+            unreadPanelIDs: unreadPanelIDs,
+            focusedReadPanelID: host?.workspaceUnreadFocusedReadPanelId(),
+            manualUnreadPanelIDs: manualUnreadPanelIds
+        )
+    }
+
+    /// Requests an attention flash on a panel, suppressing a navigation flash
+    /// when another panel competes. Faithful lift of
+    /// `Workspace.requestAttentionFlash(panelId:reason:)`.
+    public func requestAttentionFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
+        let decision = WorkspaceAttentionFlashDecision.decide(
+            targetPanelID: panelId,
+            reason: reason,
+            persistentState: attentionPersistentState()
+        )
+        guard decision.isAllowed else { return }
+        host?.workspaceUnreadTriggerPanelFlash(panelId: panelId, reason: reason)
+    }
+
+    /// Triggers the tmux workspace-pane overlay flash for a panel, bumping the
+    /// re-trigger token. Faithful lift of
+    /// `Workspace.triggerWorkspacePaneFlash(panelId:reason:)`.
+    public func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
+        tmuxWorkspaceFlashPanelId = panelId
+        tmuxWorkspaceFlashReason = reason
+        tmuxWorkspaceFlashToken &+= 1
     }
 
     // MARK: - Mutations
