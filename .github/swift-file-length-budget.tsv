@@ -19,7 +19,7 @@
 6151	CLI/cmux_open.swift
 6072	Sources/TextBoxInput.swift
 5922	cmuxTests/TerminalAndGhosttyTests.swift
-6029	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+6043	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 5526	cmuxTests/BrowserConfigTests.swift
 4477	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift

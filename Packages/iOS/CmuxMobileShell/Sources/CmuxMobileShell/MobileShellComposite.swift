@@ -1341,11 +1341,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // reachable Mac instead of bailing when nothing is marked active is what
         // lets the home come up connected without the user choosing a Mac; the
         // other Macs are then aggregated read-only into one integrated list.
-        let target: MobilePairedMac? = {
-            if let activeMac, reachableRoute(activeMac) != nil { return activeMac }
-            return allMacs.first { reachableRoute($0) != nil }
-        }()
-        guard let mac = target, let (host, port) = reachableRoute(mac) else {
+        // Candidate Macs in priority order: the active Mac first (when it has a
+        // usable route), then every OTHER saved Mac with a usable route. A
+        // down/unreachable Mac has a route but fails the connect, so we fall
+        // through to the next candidate instead of stranding the user on "Mac
+        // offline" just because their active Mac happens to be off.
+        var candidates: [MobilePairedMac] = []
+        if let activeMac, reachableRoute(activeMac) != nil {
+            candidates.append(activeMac)
+        }
+        candidates.append(contentsOf: allMacs.filter { mac in
+            mac.macDeviceID != activeMac?.macDeviceID && reachableRoute(mac) != nil
+        })
+        guard !candidates.isEmpty else {
             // No saved Mac has a usable route right now (none paired, or all
             // offline). Clear the hint only when there are truly no saved Macs, so
             // the add-device sheet comes up cleanly; otherwise keep it so a Retry
@@ -1354,9 +1362,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        // Best-effort registry refresh for this Mac in the background (non-
-        // blocking; the connect below uses the freshly-restored backup routes).
-        refreshRoutesFromRegistry(for: mac, stackUserID: stackUserID)
         // A newer attempt may have started while we awaited the store read; if so,
         // let it own the flags rather than marking ourselves the active reconnect.
         guard generation == storedMacReconnectGeneration else { return false }
@@ -1365,9 +1370,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Cap how long the restoring gate stays up: a stored Mac whose route went
         // stale (Tailscale address changed, or it's offline) makes connectManualHost
         // hang on a slow connect timeout, and the gate shows RestoringSessionView for
-        // that whole time. After the deadline, resolve the gate so the user reaches
-        // add-device quickly; the connect keeps trying, so a later success still
-        // flips connectionState to .connected and shows the workspaces.
+        // that whole time. After the deadline, resolve the gate so the list shows
+        // quickly; the connect loop keeps trying, so a later success still flips
+        // connectionState to .connected and shows the workspaces.
         let restoringDeadline = Task { [weak self] in
             // Bounded, cancellable deadline (not a poll) — cancelled the instant the
             // connect resolves; only caps the restoring-gate window.
@@ -1380,7 +1385,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.isReconnectingStoredMac = false
             self.didFinishStoredMacReconnectAttempt = true
         }
-        await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
+        // Try each candidate until one connects, so a single offline Mac never
+        // blocks the others.
+        for mac in candidates {
+            guard generation == storedMacReconnectGeneration,
+                  let (host, port) = reachableRoute(mac) else { break }
+            // Best-effort registry refresh for this Mac in the background.
+            refreshRoutesFromRegistry(for: mac, stackUserID: stackUserID)
+            await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
+            if connectionState == .connected { break }
+        }
         restoringDeadline.cancel()
         // A newer attempt may have started during the connect; it now owns the flags.
         guard generation == storedMacReconnectGeneration else { return false }
