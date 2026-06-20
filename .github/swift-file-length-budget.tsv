@@ -89,10 +89,10 @@
 1038	Sources/RemoteTmuxController.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1015	Sources/TerminalController+ControlWorkspaceContext.swift
-1006	cmuxTests/CmuxSSHURLRequestTests.swift
+1007	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
 994	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
-972	Sources/AppDelegate+CmuxSSHURL.swift
+973	Sources/AppDelegate+CmuxSSHURL.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
@@ -100,7 +100,6 @@
 925	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
-905	Sources/CmuxSSHURLRequest.swift
 901	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	Sources/Panels/TerminalPanel.swift
@@ -211,6 +210,7 @@
 526	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
 524	Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/HostBrowserSignInFlowTests.swift
+524	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/DeepLink/CmuxSSHURLRequest.swift
 522	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
