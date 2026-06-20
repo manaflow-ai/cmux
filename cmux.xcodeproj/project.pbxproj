@@ -183,6 +183,7 @@
 		C89CF970000000000000001 /* cmux_open_chat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89CF970000000000000002 /* cmux_open_chat.swift */; };
 		C89CF970000000000000003 /* cmux_open_chat_context.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89CF970000000000000004 /* cmux_open_chat_context.swift */; };
 		C89CF970000000000000005 /* cmux_open_chat_html.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89CF970000000000000006 /* cmux_open_chat_html.swift */; };
+		C89CF970000000000000007 /* cmux_open_chat_labels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C89CF970000000000000008 /* cmux_open_chat_labels.swift */; };
 		A5001654 /* CmuxActionTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001655 /* CmuxActionTrust.swift */; };
 		AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -1257,6 +1258,7 @@
 		C89CF970000000000000002 /* cmux_open_chat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux_open_chat.swift; sourceTree = "<group>"; };
 		C89CF970000000000000004 /* cmux_open_chat_context.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux_open_chat_context.swift; sourceTree = "<group>"; };
 		C89CF970000000000000006 /* cmux_open_chat_html.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux_open_chat_html.swift; sourceTree = "<group>"; };
+		C89CF970000000000000008 /* cmux_open_chat_labels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux_open_chat_labels.swift; sourceTree = "<group>"; };
 		A5001655 /* CmuxActionTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxActionTrust.swift; sourceTree = "<group>"; };
 		E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+EqualizeSplitsMenu.swift"; sourceTree = "<group>"; };
 		C4160A010000000000000002 /* cmuxApp+HistoryMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+HistoryMenu.swift"; sourceTree = "<group>"; };
@@ -2849,6 +2851,7 @@
 					C89CF970000000000000002 /* cmux_open_chat.swift */,
 					C89CF970000000000000004 /* cmux_open_chat_context.swift */,
 					C89CF970000000000000006 /* cmux_open_chat_html.swift */,
+					C89CF970000000000000008 /* cmux_open_chat_labels.swift */,
 					B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */,
 				D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */,
 				B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */,
@@ -4158,6 +4161,7 @@
 					C89CF970000000000000001 /* cmux_open_chat.swift in Sources */,
 					C89CF970000000000000003 /* cmux_open_chat_context.swift in Sources */,
 					C89CF970000000000000005 /* cmux_open_chat_html.swift in Sources */,
+					C89CF970000000000000007 /* cmux_open_chat_labels.swift in Sources */,
 					B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */,
 				6D9C51AB30A64B1ABC819146 /* CMUXCLI+AgentHookPayload.swift in Sources */,
 				B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */,

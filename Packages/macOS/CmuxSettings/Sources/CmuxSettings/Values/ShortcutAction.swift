@@ -104,6 +104,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case canvasDistributeVertically
 
     // MARK: Browser & Find
+    /// Opens the Codex-style Chat composer in a browser pane.
     case openChat
     case openDiffViewer
     case saveFilePreview
