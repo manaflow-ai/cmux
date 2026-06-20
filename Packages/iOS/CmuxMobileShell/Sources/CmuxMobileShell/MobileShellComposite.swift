@@ -2398,6 +2398,39 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return String(String.UnicodeScalarView(scalars))
     }
 
+    private func boundedPairingRequestTimeoutNanoseconds(
+        runtime: any MobileSyncRuntime,
+        attemptStartedAt: Date
+    ) -> UInt64 {
+        let requestTimeout = runtime.pairingRequestTimeoutNanoseconds
+        let attemptTimeout = runtime.pairingAttemptTimeoutNanoseconds
+        guard attemptTimeout > 0 else {
+            return requestTimeout
+        }
+
+        let elapsedSeconds = max(0, runtime.now().timeIntervalSince(attemptStartedAt))
+        let elapsedNanoseconds = UInt64((elapsedSeconds * 1_000_000_000).rounded(.up))
+        guard elapsedNanoseconds < attemptTimeout else {
+            return 0
+        }
+        return min(requestTimeout, attemptTimeout - elapsedNanoseconds)
+    }
+
+    private func syntheticManualHostTicket(
+        displayName: String,
+        macDeviceID: String,
+        route: CmxAttachRoute
+    ) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            workspaceID: "manual-workspace",
+            terminalID: nil,
+            macDeviceID: macDeviceID,
+            macDisplayName: displayName,
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60 * 60)
+        )
+    }
+
     private func manualHostTicket(
         name: String,
         host: String,
@@ -2419,13 +2452,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     throw error
                 }
             }
-            return try Self.manualHostTicket(
+            return try syntheticManualHostTicket(
                 displayName: displayName,
                 macDeviceID: "manual-\(host):\(port)",
                 route: directRoute
             )
         }
-        return try Self.manualHostTicket(
+        return try syntheticManualHostTicket(
             displayName: displayName,
             macDeviceID: "manual-\(host):\(port)",
             route: directRoute
@@ -2449,21 +2482,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             || normalizedMessage.contains("ticket not available")
     }
 
-    private static func manualHostTicket(
-        displayName: String,
-        macDeviceID: String,
-        route: CmxAttachRoute
-    ) throws -> CmxAttachTicket {
-        try CmxAttachTicket(
-            workspaceID: "manual-workspace",
-            terminalID: nil,
-            macDeviceID: macDeviceID,
-            macDisplayName: displayName,
-            routes: [route],
-            expiresAt: Date().addingTimeInterval(60 * 60)
-        )
-    }
-
     private func requestManualAttachTicket(
         route: CmxAttachRoute,
         displayName: String,
@@ -2472,7 +2490,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let runtime else {
             throw MobileShellConnectionError.insecureManualRoute
         }
-        let probeTicket = try Self.manualHostTicket(
+        let probeTicket = try syntheticManualHostTicket(
             displayName: displayName,
             macDeviceID: "manual-ticket-request",
             route: route
@@ -2485,7 +2503,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         let timeoutNanoseconds: UInt64
         if let attemptStartedAt {
-            timeoutNanoseconds = Self.boundedPairingRequestTimeoutNanoseconds(
+            timeoutNanoseconds = boundedPairingRequestTimeoutNanoseconds(
                 runtime: runtime,
                 attemptStartedAt: attemptStartedAt
             )
@@ -3358,7 +3376,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             for workspaceListRequest in workspaceListRequests {
                 do {
-                    let requestTimeoutNanoseconds = Self.boundedPairingRequestTimeoutNanoseconds(
+                    let requestTimeoutNanoseconds = boundedPairingRequestTimeoutNanoseconds(
                         runtime: runtime,
                         attemptStartedAt: connectionAttemptStartedAt
                     )
@@ -3412,24 +3430,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         diagnosticLog?.record(DiagnosticEvent(.pairFail))
         throw lastError ?? MobileShellConnectionError.connectionClosed
-    }
-
-    private static func boundedPairingRequestTimeoutNanoseconds(
-        runtime: any MobileSyncRuntime,
-        attemptStartedAt: Date
-    ) -> UInt64 {
-        let requestTimeout = runtime.pairingRequestTimeoutNanoseconds
-        let attemptTimeout = runtime.pairingAttemptTimeoutNanoseconds
-        guard attemptTimeout > 0 else {
-            return requestTimeout
-        }
-
-        let elapsedSeconds = max(0, runtime.now().timeIntervalSince(attemptStartedAt))
-        let elapsedNanoseconds = UInt64((elapsedSeconds * 1_000_000_000).rounded(.up))
-        guard elapsedNanoseconds < attemptTimeout else {
-            return 0
-        }
-        return min(requestTimeout, attemptTimeout - elapsedNanoseconds)
     }
 
     private struct WorkspaceListRequest {

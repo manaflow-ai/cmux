@@ -4,7 +4,7 @@ import Testing
 @testable import CmuxAuthRuntime
 
 @MainActor
-@Suite(.serialized) struct AuthCoordinatorTimeoutTests {
+@Suite struct AuthCoordinatorTimeoutTests {
     private static let testTimeouts = AuthTimeouts(
         interactiveFlow: .seconds(5),
         network: .seconds(2)
@@ -90,6 +90,73 @@ import Testing
         await client.release()
     }
 
+    @Test func timedOutCredentialExchangeIsCancelledBeforeItCanWriteTokens() async throws {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let coordinator = makeCoordinator(client: client, clock: clock)
+
+        await client.armCredentialGate()
+        let signIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.credentialDidPark()
+        await clock.waitUntilSleepers()
+        clock.advance(by: Self.testTimeouts.network)
+
+        await #expect(throws: AuthError.timedOut) { try await signIn.value }
+        #expect(coordinator.isLoading == false)
+
+        let retry = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await #expect(throws: AuthError.timedOut) { try await retry.value }
+        #expect(await client.credentialStartCount == 1)
+
+        await client.releaseParkedCredential()
+        try await Task.sleep(for: .milliseconds(10))
+
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
+        #expect(coordinator.isAuthenticated == false)
+    }
+
+    @Test func timedOutSessionValidationDoesNotStartSecondStuckTokenProbe() async throws {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = HangingLaunchTokenProbeAuthClient(user: user)
+        let coordinator = makeCoordinator(
+            client: client,
+            clock: clock,
+            cachedUser: user,
+            hasCachedTokens: true
+        )
+
+        coordinator.start()
+        await client.waitForAccessStartCount(1)
+        await clock.waitUntilSleepers()
+        clock.advance(by: Self.testTimeouts.network)
+        await coordinator.awaitBootstrapped()
+        #expect(await client.accessStartCount == 1)
+
+        let retry = Task { await coordinator.revalidateSession() }
+        await retry.value
+
+        #expect(await client.accessStartCount == 1)
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+    }
+
+    @Test func lateDeadlineCannotPoisonCompletedAuthPhase() async {
+        let registry = AuthPhaseTimeoutRegistry()
+        let race = AuthPhaseTimeoutRace()
+        let id = UUID()
+        #expect(await registry.canBegin(.sendCode))
+        #expect(await registry.begin(.sendCode, id: id))
+        #expect(await race.winOperation())
+        #expect(await race.winTimeout() == false)
+        await registry.markTimedOut(.sendCode, id: id)
+        #expect(await registry.canBegin(.sendCode) == false)
+        await registry.end(.sendCode, id: id)
+        #expect(await registry.canBegin(.sendCode))
+    }
+
     @Test func launchRestoreTokenProbeTimeoutKeepsCachedSessionInteractive() async throws {
         let clock = ManualTestClock()
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
@@ -116,7 +183,7 @@ import Testing
         }
         defer { bootstrap.cancel() }
 
-        try await Task.sleep(for: .milliseconds(50))
+        await completion.waitUntilStarted()
 
         #expect(await completion.didStart)
         #expect(coordinator.isRestoringSession == false)
@@ -168,94 +235,4 @@ import Testing
         // (transient), unlike a definitive .unauthorized.
         #expect(AuthError.timedOut.cachedSessionValidationFailureAction == .preserveCachedSession)
     }
-}
-
-actor ReleasableCancellationIgnoringMagicLinkAuthClient: AuthClient {
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
-    private var didRelease = false
-    private(set) var startCount = 0
-
-    func waitForStartCount(_ count: Int) async {
-        if startCount >= count { return }
-        await withCheckedContinuation { startWaiters.append($0) }
-    }
-
-    func release() {
-        didRelease = true
-        let waiters = releaseWaiters
-        releaseWaiters = []
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-
-    func accessToken() async -> String? { nil }
-    func refreshToken() async -> String? { nil }
-    func forceRefreshAccessToken() async -> String? { nil }
-    func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? { nil }
-    func listTeams() async throws -> [CMUXAuthTeam] { [] }
-
-    func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
-        startCount += 1
-        let waiters = startWaiters
-        startWaiters = []
-        for waiter in waiters {
-            waiter.resume()
-        }
-        while !didRelease {
-            await withCheckedContinuation { continuation in
-                releaseWaiters.append(continuation)
-            }
-        }
-        return "nonce"
-    }
-
-    func signInWithMagicLink(code: String) async throws {}
-    func signInWithCredential(email: String, password: String) async throws {}
-    func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
-    func storedAccessToken() async -> String? { nil }
-    func clearLocalSession() async {}
-    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {}
-    func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
-    func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { accessToken }
-}
-
-actor HangingLaunchTokenProbeAuthClient: AuthClient {
-    private let user: CMUXAuthUser
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var accessStarted = false
-
-    init(user: CMUXAuthUser) {
-        self.user = user
-    }
-
-    func accessTokenDidStart() async {
-        if accessStarted { return }
-        await withCheckedContinuation { startWaiters.append($0) }
-    }
-
-    func accessToken() async -> String? {
-        accessStarted = true
-        for waiter in startWaiters { waiter.resume() }
-        startWaiters = []
-        while true {
-            try? await Task.sleep(for: .seconds(3600))
-        }
-        return nil
-    }
-
-    func refreshToken() async -> String? { "refresh" }
-    func forceRefreshAccessToken() async -> String? { nil }
-    func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? { user }
-    func listTeams() async throws -> [CMUXAuthTeam] { [] }
-    func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "nonce" }
-    func signInWithMagicLink(code: String) async throws {}
-    func signInWithCredential(email: String, password: String) async throws {}
-    func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
-    func storedAccessToken() async -> String? { nil }
-    func clearLocalSession() async {}
-    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {}
-    func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
-    func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { nil }
 }

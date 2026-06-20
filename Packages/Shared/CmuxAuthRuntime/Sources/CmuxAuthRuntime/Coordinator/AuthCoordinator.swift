@@ -68,6 +68,7 @@ public final class AuthCoordinator {
     private let isOnline: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
     private let log = AuthDebugLog()
+    private let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
 
     private var pendingNonce: String?
     var debugCredentials: CMUXAuthAutoLoginCredentials?
@@ -111,7 +112,9 @@ public final class AuthCoordinator {
     /// (`publishSessionTokens`) refuses to persist tokens once its flow task
     /// is cancelled, so a cancelled exchange can never re-store credentials
     /// behind sign-out's local clear, no matter when its network call resumes.
-    @ObservationIgnored private var activeSignInExchanges: [UInt64: Task<Void, any Error>] = [:]
+    @ObservationIgnored private var activeSignInExchanges: [
+        UInt64: (id: UUID, task: Task<Void, any Error>)
+    ] = [:]
 
     /// The staleness context a sign-in flow captures before its first await:
     /// the session generation (does a later sign-out invalidate this flow?)
@@ -150,14 +153,86 @@ public final class AuthCoordinator {
         timeout: Duration,
         _ operation: @escaping @Sendable () async throws -> Void
     ) async throws {
-        let exchange = Task { try await self.runPhase(phase, timeout: timeout, operation) }
-        activeSignInExchanges[flow.attempt] = exchange
-        defer { activeSignInExchanges[flow.attempt] = nil }
+        let exchangeID = UUID()
+        guard await phaseTimeoutRegistry.begin(phase, id: exchangeID) else {
+            log.log("auth.phase=\(phase.rawValue) previous timed-out exchange still active")
+            throw AuthError.timedOut
+        }
+        let registry = phaseTimeoutRegistry
+        let exchange = Task { try await operation() }
+        activeSignInExchanges[flow.attempt] = (id: exchangeID, task: exchange)
+        Task { [weak self, registry, attempt = flow.attempt, exchangeID, phase] in
+            _ = await exchange.result
+            await registry.end(phase, id: exchangeID)
+            await MainActor.run {
+                guard self?.activeSignInExchanges[attempt]?.id == exchangeID else { return }
+                self?.activeSignInExchanges[attempt] = nil
+            }
+        }
         try await withTaskCancellationHandler {
-            try await exchange.value
+            try await waitForExchange(exchange, id: exchangeID, phase: phase, timeout: timeout)
         } onCancel: {
             exchange.cancel()
         }
+    }
+
+    private func waitForExchange(
+        _ exchange: Task<Void, any Error>,
+        id: UUID,
+        phase: AuthPhase,
+        timeout: Duration
+    ) async throws {
+        try Task.checkCancellation()
+        let race = AuthPhaseTimeoutRace()
+        let stream = AsyncThrowingStream<Void, any Error> { continuation in
+            let exchangeWaiter = Task {
+                do {
+                    try await exchange.value
+                    guard await race.winOperation() else { return }
+                    continuation.yield(())
+                    continuation.finish()
+                } catch {
+                    guard await race.winOperation() else { return }
+                    continuation.finish(throwing: error)
+                }
+            }
+            let deadline = Task { [clock, log] in
+                do {
+                    try await clock.sleep(for: timeout, tolerance: nil)
+                    try Task.checkCancellation()
+                } catch {
+                    return
+                }
+                guard await race.winTimeout() else { return }
+                log.log("auth.phase=\(phase.rawValue) timed out after \(timeout)")
+                await phaseTimeoutRegistry.markTimedOut(phase, id: id)
+                exchange.cancel()
+                continuation.finish(throwing: AuthError.timedOut)
+            }
+            continuation.onTermination = { _ in
+                exchangeWaiter.cancel()
+                deadline.cancel()
+            }
+        }
+        do {
+            for try await _ in stream {
+                return
+            }
+        } catch AuthError.timedOut {
+            let timedOutAttempts = activeSignInExchanges.compactMap { attempt, active in
+                active.id == id ? attempt : nil
+            }
+            for attempt in timedOutAttempts {
+                activeSignInExchanges[attempt] = nil
+            }
+            throw AuthError.timedOut
+        } catch {
+            throw error
+        }
+        if Task.isCancelled {
+            throw CancellationError()
+        }
+        throw AuthError.timedOut
     }
 
     /// Creates an auth coordinator.
@@ -483,7 +558,8 @@ public final class AuthCoordinator {
         // them here would block local-first sign-out on their unwinding
         // (the rollback in `completeSignIn` stays as belt-and-braces for a
         // write that already raced past the chokepoint).
-        for exchange in activeSignInExchanges.values { exchange.cancel() }
+        for exchange in activeSignInExchanges.values { exchange.task.cancel() }
+        activeSignInExchanges.removeAll()
 
         // Mark the sign-out epoch synchronously, before the first await
         // below, so a sign-in completion whose exchange write already raced
@@ -497,6 +573,7 @@ public final class AuthCoordinator {
         // the local clear below).
         sessionGeneration &+= 1
         signOutEpoch &+= 1
+        await phaseTimeoutRegistry.clear([.verifyCode, .passwordSignIn, .oauth, .validateSession])
 
         // Capture the teardown credentials with raw stored reads (no refresh,
         // no network) before they are destroyed.
@@ -685,6 +762,8 @@ public final class AuthCoordinator {
             duration: timeout,
             clock: clock,
             log: log,
+            registry: phaseTimeoutRegistry,
+            blocksRetriesWhileTimedOutOperationActive: phase == .sendCode || phase == .validateSession,
             operation: operation
         )
     }

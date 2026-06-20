@@ -32,6 +32,7 @@ actor GateableValidationAuthClient: AuthClient {
     private let teamsGate = Gate()
     private let credentialGate = Gate()
     private let clearGate = Gate()
+    private(set) var credentialStartCount = 0
 
     init(user: CMUXAuthUser, teams: [CMUXAuthTeam] = []) {
         self.user = user
@@ -110,6 +111,7 @@ actor GateableValidationAuthClient: AuthClient {
     }
 
     func signInWithCredential(email: String, password: String) async throws {
+        credentialStartCount += 1
         await parkIfArmed(credentialGate)
         // Mirror the vendored SDK's `publishSessionTokens` chokepoint: a flow
         // whose task was cancelled while the request was in flight must not
