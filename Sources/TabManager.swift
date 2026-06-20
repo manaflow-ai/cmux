@@ -453,6 +453,15 @@ class TabManager: ObservableObject {
         resolveFocusedBrowser: { [weak self] in self?.focusedBrowserPanel },
         resolveWorkspaceTerminals: { [weak self] in self?.selectedWorkspaceTerminalPanels ?? [] }
     )
+    /// Browser-panel open/split/surface creation orchestration (CmuxBrowser):
+    /// the workspace resolution, select-if-not-selected step, split-right
+    /// reuse/split-source policy, and default focused-or-first-pane open path.
+    /// TabManager hosts its seam (TabManager+BrowserOpenHosting) — supplying the
+    /// target workspace handle, the selection flow with its app-side
+    /// notification-store dismissal, the focus memory, and the browser-enabled
+    /// gate — and forwards the legacy `openBrowser`/`newBrowserSplit`/
+    /// `newBrowserSurface` entry points.
+    let browserOpen = BrowserOpenCoordinator()
     /// React Grab toggle resolution + orchestration (CmuxBrowser). Stateless;
     /// each call passes the target workspace as a `ReactGrabWorkspaceContext`.
     let reactGrabController = ReactGrabController()
@@ -629,6 +638,7 @@ class TabManager: ObservableObject {
         notificationDismissal.attach(host: self)
         focusHistoryNavigation.attach(host: self)
         focusedSurface.attach(host: self)
+        browserOpen.attach(host: self)
         surfaceMetadata.attach(titleHost: self)
         // Workspace-list/group/selection storage (CmuxWorkspaces). Attached
         // before the first addWorkspace so the property-observer hooks fire
@@ -2992,6 +3002,17 @@ class TabManager: ObservableObject {
     // TabManager hosts its seam (TabManager+NotificationDismissalHosting)
     // and forwards the legacy entry points below.
 
+    /// Selects `workspaceId` for the `CmuxBrowser` ``BrowserOpenCoordinator``'s
+    /// open flow, satisfying `BrowserOpenHosting.selectWorkspaceForBrowserOpen`.
+    /// A narrow internal wrapper co-located with the `private selectWorkspaceId`
+    /// it forwards to, so the private selection flow (and its app-side
+    /// notification-store dismissal) stays private. Byte-faithful to the legacy
+    /// `openBrowser` body's
+    /// `selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)`.
+    func selectWorkspaceForBrowserOpen(_ workspaceId: UUID) {
+        selectWorkspaceId(workspaceId, notificationDismissalContext: .explicitWorkspaceResume)
+    }
+
     private func selectWorkspaceId(
         _ tabId: UUID,
         notificationDismissalContext: NotificationDismissalContext?
@@ -3689,7 +3710,9 @@ class TabManager: ObservableObject {
         return true
     }
 
-    /// Create a new browser panel in a split
+    /// Create a new browser panel in a split. Forwards to the `CmuxBrowser`
+    /// ``BrowserOpenCoordinator`` (resolution + availability gate through the
+    /// `BrowserOpenHosting` seam this window conforms to).
     func newBrowserSplit(
         tabId: UUID,
         fromPanelId: UUID,
@@ -3700,42 +3723,48 @@ class TabManager: ObservableObject {
         focus: Bool = true,
         initialDividerPosition: CGFloat? = nil
     ) -> UUID? {
-        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSplit(
-            from: fromPanelId,
+        browserOpen.newBrowserSplit(
+            tabId: tabId,
+            fromPanelId: fromPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
             url: url,
             preferredProfileID: preferredProfileID,
             focus: focus,
             initialDividerPosition: initialDividerPosition
-        )?.id
+        )
     }
 
-    /// Create a new browser surface in a pane
+    /// Create a new browser surface in a pane. Forwards to the `CmuxBrowser`
+    /// ``BrowserOpenCoordinator``.
     func newBrowserSurface(
         tabId: UUID,
         inPane paneId: PaneID,
         url: URL? = nil,
         preferredProfileID: UUID? = nil
     ) -> UUID? {
-        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSurface(
+        browserOpen.newBrowserSurface(
+            tabId: tabId,
             inPane: paneId,
             url: url,
             preferredProfileID: preferredProfileID
-        )?.id
+        )
     }
 
-    /// Get a browser panel by ID
+    /// Get a browser panel by ID. Stays here: a pure lookup returning the
+    /// app-target `BrowserPanel` reference (which a lower package cannot name),
+    /// with no creation orchestration to fold into the coordinator.
     func browserPanel(tabId: UUID, panelId: UUID) -> BrowserPanel? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.browserPanel(for: panelId)
     }
 
-    /// Open a browser in a specific workspace, optionally preferring a split-right layout.
+    /// Open a browser in a specific workspace, optionally preferring a
+    /// split-right layout. Forwards to the `CmuxBrowser`
+    /// ``BrowserOpenCoordinator``, which owns the reuse/split-source policy and
+    /// the default focused-or-first-pane open path; this window supplies the
+    /// workspace handle, the selection flow (with its app-side notification-store
+    /// dismissal), the focus memory, and the browser-enabled gate.
     @discardableResult
     func openBrowser(
         inWorkspace tabId: UUID,
@@ -3744,79 +3773,25 @@ class TabManager: ObservableObject {
         preferredProfileID: UUID? = nil,
         insertAtEnd: Bool = false
     ) -> UUID? {
-        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
-        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
-        if selectedTabId != tabId {
-            selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
-        }
-
-        if preferSplitRight {
-            if let targetPaneId = workspace.topRightBrowserReusePane(),
-               let browserPanel = workspace.newBrowserSurface(
-                   inPane: targetPaneId,
-                   url: url,
-                   focus: true,
-                   insertAtEnd: insertAtEnd,
-                   preferredProfileID: preferredProfileID
-               ) {
-                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-                return browserPanel.id
-            }
-
-            let splitSourcePanelId: UUID? = {
-                if let focusedPanelId = workspace.focusedPanelId,
-                   workspace.panels[focusedPanelId] != nil {
-                    return focusedPanelId
-                }
-                if let rememberedPanelId = focusedSurface.rememberedFocusedPanelId(tabId),
-                   workspace.panels[rememberedPanelId] != nil {
-                    return rememberedPanelId
-                }
-                if let orderedPanelId = workspace.sidebarOrderedPanelIds().first(where: { workspace.panels[$0] != nil }) {
-                    return orderedPanelId
-                }
-                return workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }.first
-            }()
-
-            if let splitSourcePanelId,
-               let browserPanel = workspace.newBrowserSplit(
-                   from: splitSourcePanelId,
-                   orientation: .horizontal,
-                   url: url,
-                   preferredProfileID: preferredProfileID,
-                   focus: true
-               ) {
-                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-                return browserPanel.id
-            }
-        }
-
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
-              let browserPanel = workspace.newBrowserSurface(
-                  inPane: paneId,
-                  url: url,
-                  focus: true,
-                  insertAtEnd: insertAtEnd,
-                  preferredProfileID: preferredProfileID
-              ) else {
-            return nil
-        }
-        rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-        return browserPanel.id
+        browserOpen.openBrowser(
+            inWorkspace: tabId,
+            url: url,
+            preferSplitRight: preferSplitRight,
+            preferredProfileID: preferredProfileID,
+            insertAtEnd: insertAtEnd
+        )
     }
 
-    /// Open a browser in the currently focused pane (as a new surface)
+    /// Open a browser in the currently focused pane (as a new surface). Forwards
+    /// to the `CmuxBrowser` ``BrowserOpenCoordinator``.
     @discardableResult
     func openBrowser(
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
         insertAtEnd: Bool = false
     ) -> UUID? {
-        guard let tabId = selectedTabId else { return nil }
-        return openBrowser(
-            inWorkspace: tabId,
+        browserOpen.openBrowser(
             url: url,
-            preferSplitRight: false,
             preferredProfileID: preferredProfileID,
             insertAtEnd: insertAtEnd
         )
