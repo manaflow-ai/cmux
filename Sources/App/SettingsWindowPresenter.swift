@@ -36,6 +36,7 @@ struct SettingsWindowPresenter {
             NotificationCenter.default.removeObserver(self)
         }
 
+        @MainActor
         @objc
         func settingsWindowWillClose(_ notification: Notification) {
             guard
