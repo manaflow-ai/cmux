@@ -13408,9 +13408,6 @@ class TerminalController {
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
-        guard v2UUID(params, "workspace_id") != nil else {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-        }
         let requestedSurfaceID: UUID
         switch mobileTerminalAliasUUID(params: params) {
         case .missing, .invalid:

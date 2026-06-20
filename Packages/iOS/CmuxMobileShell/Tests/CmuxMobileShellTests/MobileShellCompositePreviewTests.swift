@@ -214,7 +214,7 @@ import Testing
         let frame = try MobileTerminalRenderGridFrame(
             surfaceID: "terminal-build",
             stateSeq: 1,
-            columns: 80,
+            columns: 400,
             rows: 1,
             full: true,
             rowSpans: [

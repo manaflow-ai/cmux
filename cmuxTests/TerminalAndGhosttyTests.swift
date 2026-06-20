@@ -1414,7 +1414,6 @@ final class TerminalOffscreenStartupTests: XCTestCase {
                 id: "terminal-close",
                 method: "terminal.close",
                 params: [
-                    "workspace_id": workspace.id.uuidString,
                     "surface_id": closingPanel.id.uuidString,
                 ],
                 auth: nil
