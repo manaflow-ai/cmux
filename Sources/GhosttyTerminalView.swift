@@ -4786,7 +4786,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return copied
         }
 
-        if !ghosttyWroteFormattedText && pasteboardString != selectedText {
+        if pasteboardString != selectedText {
             GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
         }
         return copied || !selectedText.isEmpty
