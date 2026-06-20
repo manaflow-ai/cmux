@@ -27,6 +27,12 @@ struct SurfaceLifecycleCoordinatorTests {
         var dividerWrites: [(position: CGFloat, splitId: UUID)] = []
         var dividerWriteReturns = true
 
+        var definedProfileIDs: Set<UUID> = []
+        var effectiveLastUsedProfileID = UUID()
+        var preferredBrowserProfileID: UUID?
+        var preferredWrites: [UUID?] = []
+        var sourcePanelProfileID: [UUID: UUID] = [:]
+
         func surfaceId(forPanelId panelId: UUID) -> TabID? { surfaceForPanel[panelId] }
         var allBonsplitPaneIds: [PaneID] { panes }
         func tabs(inPane paneId: PaneID) -> [Bonsplit.Tab] { tabsByPane[paneId] ?? [] }
@@ -35,6 +41,18 @@ struct SurfaceLifecycleCoordinatorTests {
         func applySplitDividerPosition(_ position: CGFloat, forSplit splitId: UUID) -> Bool {
             dividerWrites.append((position, splitId))
             return dividerWriteReturns
+        }
+        func surfaceLifecycleProfileDefinitionExists(id: UUID) -> Bool {
+            definedProfileIDs.contains(id)
+        }
+        var surfaceLifecycleEffectiveLastUsedProfileID: UUID { effectiveLastUsedProfileID }
+        var surfaceLifecyclePreferredBrowserProfileID: UUID? { preferredBrowserProfileID }
+        func surfaceLifecycleSetPreferredBrowserProfileID(_ profileID: UUID?) {
+            preferredWrites.append(profileID)
+            preferredBrowserProfileID = profileID
+        }
+        func surfaceLifecycleSourcePanelProfileID(panelId: UUID) -> UUID? {
+            sourcePanelProfileID[panelId]
         }
     }
 
@@ -157,5 +175,84 @@ struct SurfaceLifecycleCoordinatorTests {
         )
 
         #expect(coordinator.topRightBrowserReusePane() == rightPane)
+    }
+
+    @Test func setPreferredBrowserProfileIDClearsOnNilAndIgnoresUndefined() {
+        let host = FakeHost()
+        let coordinator = SurfaceLifecycleCoordinator()
+        coordinator.attach(host: host)
+
+        let defined = UUID()
+        let undefined = UUID()
+        host.definedProfileIDs = [defined]
+
+        // nil clears unconditionally.
+        coordinator.setPreferredBrowserProfileID(nil)
+        #expect(host.preferredWrites == [nil])
+        #expect(host.preferredBrowserProfileID == nil)
+
+        // An undefined id is ignored (no write).
+        coordinator.setPreferredBrowserProfileID(undefined)
+        #expect(host.preferredWrites == [nil])
+        #expect(host.preferredBrowserProfileID == nil)
+
+        // A defined id is stored.
+        coordinator.setPreferredBrowserProfileID(defined)
+        #expect(host.preferredWrites == [nil, defined])
+        #expect(host.preferredBrowserProfileID == defined)
+    }
+
+    @Test func resolvedNewBrowserProfileIDFollowsTierOrder() {
+        let host = FakeHost()
+        let coordinator = SurfaceLifecycleCoordinator()
+        coordinator.attach(host: host)
+
+        let preferredArg = UUID()
+        let sourceProfile = UUID()
+        let stored = UUID()
+        let lastUsed = UUID()
+        let sourcePanel = UUID()
+        host.effectiveLastUsedProfileID = lastUsed
+        host.sourcePanelProfileID = [sourcePanel: sourceProfile]
+
+        // Tier 1: explicit preferred arg when defined.
+        host.definedProfileIDs = [preferredArg, sourceProfile, stored]
+        host.preferredBrowserProfileID = stored
+        #expect(
+            coordinator.resolvedNewBrowserProfileID(
+                preferredProfileID: preferredArg,
+                sourcePanelId: sourcePanel
+            ) == preferredArg
+        )
+
+        // Tier 2: source panel's profile when the preferred arg is undefined.
+        host.definedProfileIDs = [sourceProfile, stored]
+        #expect(
+            coordinator.resolvedNewBrowserProfileID(
+                preferredProfileID: preferredArg,
+                sourcePanelId: sourcePanel
+            ) == sourceProfile
+        )
+
+        // Tier 3: workspace stored preferred when arg + source are undefined.
+        host.definedProfileIDs = [stored]
+        #expect(
+            coordinator.resolvedNewBrowserProfileID(
+                preferredProfileID: preferredArg,
+                sourcePanelId: sourcePanel
+            ) == stored
+        )
+
+        // Tier 4: effective last-used fallback when nothing else is defined.
+        host.definedProfileIDs = []
+        #expect(
+            coordinator.resolvedNewBrowserProfileID(
+                preferredProfileID: preferredArg,
+                sourcePanelId: sourcePanel
+            ) == lastUsed
+        )
+
+        // No-arg call also lands on the fallback.
+        #expect(coordinator.resolvedNewBrowserProfileID() == lastUsed)
     }
 }

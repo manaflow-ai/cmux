@@ -158,4 +158,53 @@ public final class SurfaceLifecycleCoordinator {
 
         return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
     }
+
+    // MARK: - Browser profile resolution
+
+    /// Records `profileID` as the workspace's preferred browser profile when it
+    /// names a currently-defined profile, clearing the preference when `nil`.
+    /// Faithful lift of `Workspace.setPreferredBrowserProfileID(_:)`: a `nil`
+    /// argument clears unconditionally, a non-`nil` argument that no longer maps
+    /// to a defined profile is ignored, and only a valid id is stored. The
+    /// preferred-id storage lives on the workspace (the property is
+    /// `private(set)`), so the write goes through
+    /// ``SurfaceLifecycleHosting/surfaceLifecycleSetPreferredBrowserProfileID(_:)``.
+    public func setPreferredBrowserProfileID(_ profileID: UUID?) {
+        guard let host else { return }
+        guard let profileID else {
+            host.surfaceLifecycleSetPreferredBrowserProfileID(nil)
+            return
+        }
+        guard host.surfaceLifecycleProfileDefinitionExists(id: profileID) else { return }
+        host.surfaceLifecycleSetPreferredBrowserProfileID(profileID)
+    }
+
+    /// The browser profile id a freshly created browser surface should adopt,
+    /// lifted one-for-one from `Workspace.resolvedNewBrowserProfileID`. The tiers,
+    /// in order: an explicit `preferredProfileID` that still names a defined
+    /// profile; the profile of an existing browser panel at `sourcePanelId` when
+    /// that profile is still defined; the workspace's stored preferred profile
+    /// when it is still defined; finally the store's effective last-used profile.
+    /// Each non-final tier is gated on the profile still being defined, exactly as
+    /// the legacy body's `BrowserProfileStore` lookups were.
+    public func resolvedNewBrowserProfileID(
+        preferredProfileID: UUID? = nil,
+        sourcePanelId: UUID? = nil
+    ) -> UUID? {
+        guard let host else { return nil }
+        if let preferredProfileID,
+           host.surfaceLifecycleProfileDefinitionExists(id: preferredProfileID) {
+            return preferredProfileID
+        }
+        if let sourcePanelId,
+           let sourceProfileID = host.surfaceLifecycleSourcePanelProfileID(panelId: sourcePanelId),
+           host.surfaceLifecycleProfileDefinitionExists(id: sourceProfileID) {
+            return sourceProfileID
+        }
+        if let preferred = host.surfaceLifecyclePreferredBrowserProfileID,
+           host.surfaceLifecycleProfileDefinitionExists(id: preferred) {
+            return preferred
+        }
+        return host.surfaceLifecycleEffectiveLastUsedProfileID
+    }
 }
