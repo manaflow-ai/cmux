@@ -600,7 +600,9 @@ struct DockPanelView: View {
     let workspaceId: UUID?
     @ObservedObject var store: DockControlsStore
     @Environment(\.colorScheme) private var colorScheme
-    @State private var dividerNSColor = GhosttyConfig.load().resolvedSplitDividerColor
+    @State private var dividerNSColor = WorkspaceContentView
+        .resolveGhosttyAppearanceConfig(reason: "dockDividerStateInit")
+        .resolvedSplitDividerColor
 
     var body: some View {
         VStack(spacing: 0) {
