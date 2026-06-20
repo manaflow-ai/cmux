@@ -1,13 +1,11 @@
 import XCTest
-import CmuxTerminalServices
+import CmuxTerminal
 import Testing
 import CmuxControlSocket
 import CmuxFoundation
 import CmuxTerminalCore
-import CmuxTerminalCopyMode
-import CmuxSocketControl
+import CmuxSettings
 import AppKit
-import CmuxFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -15,7 +13,6 @@ import CMUXMobileCore
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
-import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

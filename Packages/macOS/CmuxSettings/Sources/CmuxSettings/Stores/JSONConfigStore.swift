@@ -1,4 +1,4 @@
-import CmuxFileWatch
+import CmuxFoundation
 import Foundation
 
 /// Typed read/write/observe access to settings persisted in the cmux JSON config file.

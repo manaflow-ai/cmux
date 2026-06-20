@@ -35,6 +35,15 @@ def _expect_error_contains(label: str, fn, needle: str) -> None:
     raise cmuxError(f"{label}: expected error containing {needle!r}, but call succeeded")
 
 
+def _wait_for(pred, timeout_s: float = 6.0, step_s: float = 0.05) -> None:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if pred():
+            return
+        time.sleep(step_s)
+    raise cmuxError("Timed out waiting for condition")
+
+
 def _wait_selector(c: cmux, surface_id: str, selector: str, timeout_s: float = 6.0) -> None:
     timeout_ms = max(1, int(timeout_s * 1000.0))
     try:
@@ -306,7 +315,17 @@ def main() -> int:
             _wait_selector(c, sid, "#action-btn", timeout_s=7.0)
             c._call("browser.console.list", {"surface_id": sid})
             c._call("browser.addscript", {"surface_id": sid, "script": "window.emitConsoleAndError();"})
-            time.sleep(0.35)
+
+            def _console_ready() -> bool:
+                entries = c._call("browser.console.list", {"surface_id": sid}) or {}
+                return int(entries.get("count") or 0) >= 1
+
+            def _errors_ready() -> bool:
+                entries = c._call("browser.errors.list", {"surface_id": sid}) or {}
+                return int(entries.get("count") or 0) >= 1
+
+            _wait_for(_console_ready, timeout_s=7.0)
+            _wait_for(_errors_ready, timeout_s=7.0)
             console_entries = c._call("browser.console.list", {"surface_id": sid}) or {}
             errors_entries = c._call("browser.errors.list", {"surface_id": sid}) or {}
             _must(int(console_entries.get("count") or 0) >= 1, f"Expected console entries: {console_entries}")
