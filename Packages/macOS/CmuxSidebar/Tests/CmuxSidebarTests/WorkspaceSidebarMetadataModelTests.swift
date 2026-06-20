@@ -141,6 +141,51 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         #expect(received == [0, 1])
     }
 
+    @Test func resetClearsEverySidebarMetadataField() {
+        let model = makeModel()
+        let id = UUID()
+        model.addStatusEntry(
+            SidebarStatusEntry(
+                key: "agent",
+                value: "running",
+                icon: nil,
+                color: nil,
+                url: nil,
+                priority: 1,
+                format: .plain,
+                timestamp: Date(timeIntervalSince1970: 1)
+            )
+        )
+        model.appendLogEntry(message: "hello", level: .info, source: nil)
+        model.updateProgress(SidebarProgressState(value: 0.5, label: "half"))
+        model.updateGitBranch(SidebarGitBranchState(branch: "main", isDirty: true))
+        model.panelGitBranches[id] = SidebarGitBranchState(branch: "dev", isDirty: false)
+        let pr = SidebarPullRequestState(
+            number: 7,
+            label: "PR 7",
+            url: URL(string: "https://example.com/7")!,
+            status: .open,
+            branch: "feat",
+            isStale: false
+        )
+        model.updatePullRequest(pr)
+        model.panelPullRequests[id] = pr
+        model.metadataBlocks["b"] = SidebarMetadataBlock(
+            key: "b", markdown: "x", priority: 1, timestamp: Date(timeIntervalSince1970: 10)
+        )
+
+        model.reset()
+
+        #expect(model.statusEntries.isEmpty)
+        #expect(model.logEntries.isEmpty)
+        #expect(model.progress == nil)
+        #expect(model.gitBranch == nil)
+        #expect(model.panelGitBranches.isEmpty)
+        #expect(model.pullRequest == nil)
+        #expect(model.panelPullRequests.isEmpty)
+        #expect(model.metadataBlocks.isEmpty)
+    }
+
     @Test func panelMapsForwardThroughStoredProperties() {
         let model = makeModel()
         let id = UUID()

@@ -199,6 +199,28 @@ public final class WorkspaceSidebarMetadataModel {
         self.pullRequest = pullRequest
     }
 
+    /// Clears every sidebar-metadata field this model owns, in the order the
+    /// legacy `Workspace.resetSidebarContext(reason:)` cleared them: status
+    /// entries, log entries, progress, workspace and per-panel git branches,
+    /// workspace and per-panel pull requests, and metadata blocks.
+    ///
+    /// Each assignment is unconditional, matching the legacy
+    /// `resetSidebarContext` (which assigned `nil` / called `removeAll()` even
+    /// when the field was already empty), so the `didSet` subjects fire exactly
+    /// as before. The non-sidebar state `resetSidebarContext` also clears
+    /// (agent PIDs, listening ports, conversation messages, browser panels)
+    /// stays in the `Workspace` shim, which calls this then clears the rest.
+    public func reset() {
+        statusEntries.removeAll()
+        logEntries.removeAll()
+        progress = nil
+        gitBranch = nil
+        panelGitBranches.removeAll()
+        pullRequest = nil
+        panelPullRequests.removeAll()
+        metadataBlocks.removeAll()
+    }
+
     /// Returns the metadata blocks sorted for sidebar display: descending
     /// priority, then descending timestamp, then ascending key (legacy
     /// `Workspace.sidebarMetadataBlocksInDisplayOrder()`).
