@@ -552,8 +552,6 @@ private let ghosttyTerminalOwnedShortcutsBeforeAppShortcut = [
     StoredShortcut(first: ShortcutStroke(key: "↓", command: true, shift: false, option: false, control: true)),
     StoredShortcut(first: ShortcutStroke(key: "←", command: true, shift: false, option: false, control: true)),
     StoredShortcut(first: ShortcutStroke(key: "→", command: true, shift: false, option: false, control: true)),
-    StoredShortcut(first: ShortcutStroke(key: "f", command: true, shift: false, option: false, control: false)),
-    StoredShortcut(first: ShortcutStroke(key: "e", command: true, shift: false, option: false, control: false)),
     StoredShortcut(first: ShortcutStroke(key: "g", command: true, shift: false, option: false, control: false)),
     StoredShortcut(first: ShortcutStroke(key: "g", command: true, shift: true, option: false, control: false)),
     StoredShortcut(first: ShortcutStroke(key: "i", command: true, shift: false, option: true, control: false)),

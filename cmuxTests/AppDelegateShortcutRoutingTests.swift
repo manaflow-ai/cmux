@@ -11177,6 +11177,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        XCTAssertFalse(
+            appDelegate.shouldRouteFocusedTerminalGhosttyOwnedShortcut(event, in: window),
+            "Cmd+F should stay on cmux terminal find setup instead of Ghostty pre-menu routing"
+        )
+
 #if DEBUG
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
