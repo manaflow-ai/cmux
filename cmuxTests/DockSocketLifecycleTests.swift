@@ -211,6 +211,39 @@ struct DockSocketLifecycleTests {
         }
     }
 
+    @Test("Dock tab selection activates the selected terminal")
+    @MainActor
+    func dockTabSelectionActivatesSelectedTerminal() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.tabs.first)
+        let store = workspace.dockSplit
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+
+        let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let secondPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let firstTabId = try #require(store.surfaceId(forPanelId: firstPanelId))
+        let secondTabId = try #require(store.surfaceId(forPanelId: secondPanelId))
+        let firstPanel = try #require(store.panel(for: firstTabId) as? TerminalPanel)
+        let secondPanel = try #require(store.panel(for: secondTabId) as? TerminalPanel)
+
+        store.setVisibleInUI(true)
+
+        #expect(store.focusedPanelId == secondPanelId)
+        #expect(!firstPanel.hostedView.debugPortalVisibleInUI)
+        #expect(!firstPanel.hostedView.debugPortalActive)
+        #expect(secondPanel.hostedView.debugPortalVisibleInUI)
+        #expect(secondPanel.hostedView.debugPortalActive)
+
+        store.bonsplitController.selectTab(firstTabId)
+
+        #expect(store.focusedPanelId == firstPanelId)
+        #expect(firstPanel.hostedView.debugPortalVisibleInUI)
+        #expect(firstPanel.hostedView.debugPortalActive)
+        #expect(!secondPanel.hostedView.debugPortalVisibleInUI)
+        #expect(!secondPanel.hostedView.debugPortalActive)
+    }
+
     @Test("Runtime close routes Dock terminals through the Dock lifecycle")
     @MainActor
     func runtimeCloseRoutesDockTerminalsThroughDockLifecycle() throws {

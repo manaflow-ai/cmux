@@ -74,6 +74,10 @@ final class DockSplitStore: BonsplitDelegate {
         return panels[panelId]
     }
 
+    func forEachPanel(_ body: (UUID, any Panel) -> Void) {
+        for (panelId, panel) in panels { body(panelId, panel) }
+    }
+
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         panels[panelId] as? BrowserPanel
     }
@@ -153,7 +157,7 @@ final class DockSplitStore: BonsplitDelegate {
     func setVisibleInUI(_ visible: Bool) {
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
-        applyVisibilityToAllPanels()
+        applyFocusedDockSelection()
     }
 
     /// Tears down every Dock panel (closing terminals/browsers and their
@@ -326,7 +330,7 @@ final class DockSplitStore: BonsplitDelegate {
         guard let paneId = paneId(forPanelId: panelId), let tabId = surfaceId(forPanelId: panelId) else { return }
         bonsplitController.focusPane(paneId)
         bonsplitController.selectTab(tabId)
-        panels[panelId]?.focus()
+        applyDockSelection(tabId: tabId, inPane: paneId)
     }
 
     private func resolveSourcePanelId(_ requested: UUID?) -> UUID? {
@@ -506,10 +510,6 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     // MARK: - Visibility
-
-    private func applyVisibilityToAllPanels() {
-        for panel in panels.values { applyVisibility(to: panel) }
-    }
 
     // MARK: - BonsplitDelegate
 
