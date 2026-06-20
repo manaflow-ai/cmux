@@ -485,6 +485,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
     let clientID: String
+
+    func runtimeNow() -> Date {
+        runtime?.now() ?? Date()
+    }
+
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
     /// UI surfaces an error rather than silently dropping the report.

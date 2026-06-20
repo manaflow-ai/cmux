@@ -13534,24 +13534,9 @@ class TerminalController {
               resolved.workspace.terminalPanel(for: surfaceId) != nil else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
-        guard mobileTerminalPanels(in: resolved.workspace).count > 1 else {
-            return .err(
-                code: "protected",
-                message: String(
-                    localized: "mobile.terminal.closeBlocked.message",
-                    defaultValue: "This terminal can't be closed right now."
-                ),
-                data: [
-                    "workspace_id": resolved.workspace.id.uuidString,
-                    "surface_id": surfaceId.uuidString,
-                ]
-            )
-        }
-        guard closeSurfaceRecordingHistory(in: resolved.workspace, surfaceId: surfaceId, force: true) else {
-            return .err(code: "internal_error", message: "Failed to close terminal", data: [
-                "workspace_id": resolved.workspace.id.uuidString,
-                "surface_id": surfaceId.uuidString,
-            ])
+        guard mobileTerminalPanels(in: resolved.workspace).count > 1,
+              mobileCloseSurfaceRecordingHistoryIfAllowed(in: resolved.workspace, surfaceId: surfaceId) else {
+            return mobileTerminalCloseProtectedResult(workspace: resolved.workspace, surfaceId: surfaceId)
         }
         clearMobileViewportReports(surfaceID: surfaceId, reason: "mobile.terminal.close")
         var refreshParams = params
@@ -13561,6 +13546,37 @@ class TerminalController {
         return v2MobileWorkspaceList(
             params: refreshParams,
             tabManager: resolved.tabManager
+        )
+    }
+
+    private func mobileCloseSurfaceRecordingHistoryIfAllowed(
+        in workspace: Workspace,
+        surfaceId: UUID
+    ) -> Bool {
+        if let tabId = workspace.surfaceIdFromPanelId(surfaceId) {
+            return workspace.requestNonInteractiveCloseTabRecordingHistoryIfAllowed(
+                tabId,
+                source: .tabCloseButton
+            )
+        }
+        guard workspace.canClosePanelWithoutPrompt(panelId: surfaceId, source: .tabCloseButton) else {
+            return false
+        }
+        workspace.markCloseHistoryEligible(panelId: surfaceId)
+        return workspace.closePanel(surfaceId, force: false)
+    }
+
+    private func mobileTerminalCloseProtectedResult(workspace: Workspace, surfaceId: UUID) -> V2CallResult {
+        .err(
+            code: "protected",
+            message: String(
+                localized: "mobile.terminal.closeBlocked.message",
+                defaultValue: "This terminal can't be closed right now."
+            ),
+            data: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceId.uuidString,
+            ]
         )
     }
 

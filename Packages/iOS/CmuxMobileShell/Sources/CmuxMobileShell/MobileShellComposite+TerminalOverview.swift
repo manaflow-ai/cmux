@@ -32,7 +32,7 @@ extension MobileShellComposite {
         let liveTerminalIDs = Set(workspace.terminals.map(\.id))
         terminalOverviewPreviewLinesByID = terminalOverviewPreviewLinesByID.filter { liveTerminalIDs.contains($0.key) }
         terminalOverviewPreviewUpdatedAtByID = terminalOverviewPreviewUpdatedAtByID.filter { liveTerminalIDs.contains($0.key) }
-        let now = runtime?.now() ?? Date()
+        let now = runtimeNow()
         let terminalsNeedingReplay = workspace.terminals.filter { terminal in
             terminal.isReady && shouldRefreshTerminalOverviewPreview(for: terminal.id, now: now)
         }
@@ -52,7 +52,7 @@ extension MobileShellComposite {
                 )
                 guard remoteClient === client, connectionState == .connected else { return }
                 terminalOverviewPreviewLinesByID[terminal.id] = lines
-                terminalOverviewPreviewUpdatedAtByID[terminal.id] = runtime?.now() ?? Date()
+                terminalOverviewPreviewUpdatedAtByID[terminal.id] = runtimeNow()
             } catch {
                 guard remoteClient === client, connectionState == .connected else { return }
                 guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }

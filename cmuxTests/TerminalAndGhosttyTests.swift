@@ -1423,6 +1423,102 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertFalse(terminals.contains { ($0["id"] as? String) == closingPanel.id.uuidString })
     }
 
+    func testMobileTerminalCloseRejectsPinnedTerminal() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
+        let closingPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneID, focus: false))
+        workspace.setPanelPinned(panelId: closingPanel.id, pinned: true)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-pinned",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": closingPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close to reject pinned terminal")
+            return
+        }
+        XCTAssertEqual(error.code, "protected")
+        XCTAssertNotNil(workspace.terminalPanel(for: closingPanel.id))
+    }
+
+    func testMobileTerminalCloseRejectsConfirmationRequiredTerminal() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let defaults = UserDefaults.standard
+        let settings = AppCatalogSection()
+        let originalWarnBeforeClosingTab = defaults.object(forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        defaults.set(true, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+        defaults.set(false, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        defer {
+            restoreUserDefault(originalWarnBeforeClosingTab, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+            restoreUserDefault(originalWarnBeforeClosingTabXButton, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
+        let closingPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneID, focus: false))
+        closingPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        defer {
+            closingPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+        }
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return true
+        }
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-confirmation-required",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": closingPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close to reject confirmation-required terminal")
+            return
+        }
+        XCTAssertEqual(error.code, "protected")
+        XCTAssertEqual(promptCount, 0)
+        XCTAssertNotNil(workspace.terminalPanel(for: closingPanel.id))
+    }
+
+    private func restoreUserDefault(_ value: Any?, forKey key: String) {
+        let defaults = UserDefaults.standard
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     func testMobileHostNetworkStatusDoesNotExposePrivateMetadata() async throws {
         let response = await TerminalController.shared.mobileHostHandleRPC(
             MobileHostRPCRequest(

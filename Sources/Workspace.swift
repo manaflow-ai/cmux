@@ -3444,6 +3444,26 @@ final class Workspace: Identifiable, ObservableObject {
         return closed
     }
 
+    func canClosePanelWithoutPrompt(panelId: UUID, source: CloseTabCloseSource) -> Bool {
+        guard !isPanelPinned(panelId) else { return false }
+        return !CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+            source: source
+        )
+    }
+
+    @discardableResult
+    func requestNonInteractiveCloseTabRecordingHistoryIfAllowed(
+        _ tabId: TabID,
+        source: CloseTabCloseSource
+    ) -> Bool {
+        guard let panelId = panelIdFromSurfaceId(tabId),
+              canClosePanelWithoutPrompt(panelId: panelId, source: source) else {
+            return false
+        }
+        return requestNonInteractiveCloseTabRecordingHistory(tabId)
+    }
+
     /// Non-interactive socket/API close path. Remote-tmux mirror tabs must be
     /// routed to tmux before a local forced close is attempted; otherwise
     /// `forceCloseTabIds` bypasses `shouldCloseTab` and removes the cmux tab

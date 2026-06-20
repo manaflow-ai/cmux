@@ -16,7 +16,7 @@ extension MobileShellComposite {
             let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
             terminalOverviewPreviewLinesByID[terminalID] =
                 Self.terminalOverviewPreviewLines(from: frame)
-            terminalOverviewPreviewUpdatedAtByID[terminalID] = runtime?.now() ?? Date()
+            terminalOverviewPreviewUpdatedAtByID[terminalID] = runtimeNow()
         }
         deliverTerminalOutput(
             TerminalOutputDelivery(
