@@ -307,7 +307,7 @@ final class MainWindowFocusController {
                 noteMainPanelInteraction(workspaceId: workspace.id, panelId: panelId)
                 return true
             }
-            if rightSidebarModeOwning(responder) != nil {
+            if liveRightSidebarModeOwning(responder, in: window) != nil {
                 syncAfterResponderChange(responder: responder)
                 return true
             }
@@ -323,6 +323,14 @@ final class MainWindowFocusController {
         publishFeedFocusSnapshot()
         workspace.focusPanel(panelId)
         return panel.restoreFocusIntent(panel.preferredFocusIntentForActivation())
+    }
+
+    private func liveRightSidebarModeOwning(
+        _ responder: NSResponder,
+        in window: NSWindow
+    ) -> RightSidebarMode? {
+        guard (responder as? NSView)?.window === window else { return nil }
+        return rightSidebarModeOwning(responder)
     }
 
     private func shouldPreserveForeignResponderDuringMainPanelRestore(
