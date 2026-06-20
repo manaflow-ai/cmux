@@ -1897,16 +1897,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         replyToTerminateOnce(shouldQuit)
     }
 
-    static func pendingTerminateReply(
-        isAwaitingTerminateKills: Bool,
-        hasActiveQuitConfirmation: Bool,
-        activeQuitConfirmationOwnsTerminateRequest: Bool
-    ) -> NSApplication.TerminateReply? {
-        if isAwaitingTerminateKills { return .terminateLater }
-        guard hasActiveQuitConfirmation else { return nil }
-        return activeQuitConfirmationOwnsTerminateRequest ? .terminateLater : .terminateCancel
-    }
-
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if let reply = Self.pendingTerminateReply(
             isAwaitingTerminateKills: isAwaitingTerminateKills,
@@ -1967,34 +1957,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
-    }
-
-    private func hasQuitConfirmationDirtyWorkspaces() -> Bool {
-        var visitedManagers = Set<ObjectIdentifier>()
-
-        func managerHasDirtyWorkspace(_ manager: TabManager?) -> Bool {
-            guard let manager else { return false }
-            let managerId = ObjectIdentifier(manager)
-            guard visitedManagers.insert(managerId).inserted else { return false }
-            return manager.tabs.contains(where: { $0.needsConfirmClose() })
-        }
-
-        for context in mainWindowContexts.values {
-            if managerHasDirtyWorkspace(context.tabManager) {
-                return true
-            }
-        }
-
-        if managerHasDirtyWorkspace(tabManager) {
-            return true
-        }
-
-        for route in recoverableMainWindowRoutes() {
-            if managerHasDirtyWorkspace(route.tabManager) {
-                return true
-            }
-        }
-        return false
     }
 
     @discardableResult

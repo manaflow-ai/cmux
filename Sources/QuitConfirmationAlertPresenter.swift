@@ -85,3 +85,34 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
         completion(response, alert.suppressionButton?.state ?? .off)
     }
 }
+
+extension AppDelegate {
+    static func pendingTerminateReply(
+        isAwaitingTerminateKills: Bool,
+        hasActiveQuitConfirmation: Bool,
+        activeQuitConfirmationOwnsTerminateRequest: Bool
+    ) -> NSApplication.TerminateReply? {
+        if isAwaitingTerminateKills { return .terminateLater }
+        guard hasActiveQuitConfirmation else { return nil }
+        return activeQuitConfirmationOwnsTerminateRequest ? .terminateLater : .terminateCancel
+    }
+
+    func hasQuitConfirmationDirtyWorkspaces() -> Bool {
+        var visitedManagers = Set<ObjectIdentifier>()
+
+        func managerHasDirtyWorkspace(_ manager: TabManager?) -> Bool {
+            guard let manager else { return false }
+            let managerId = ObjectIdentifier(manager)
+            guard visitedManagers.insert(managerId).inserted else { return false }
+            return manager.tabs.contains(where: { $0.needsConfirmClose() })
+        }
+
+        if mainWindowContexts.values.contains(where: { managerHasDirtyWorkspace($0.tabManager) }) {
+            return true
+        }
+        if managerHasDirtyWorkspace(tabManager) {
+            return true
+        }
+        return recoverableMainWindowRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
+    }
+}
