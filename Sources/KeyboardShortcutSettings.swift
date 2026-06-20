@@ -794,7 +794,7 @@ enum KeyboardShortcutSettings {
             reserved.append(shortcut)
         }
 
-        reserved.append(contentsOf: hardcodedSystemWideHotkeyConflicts)
+        reserved.append(contentsOf: hardcodedSystemWideHotkeyConflicts.filter { currentAction != .showHideAllWindows || $0.key != "`" || !$0.command || $0.option || $0.control })
         return reserved
     }
 
