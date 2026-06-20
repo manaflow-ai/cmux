@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 
 if ! awk '
-  /^      - name: Build universal nightly app \(Release\)/ { in_universal=1; next }
+  /^      - name: Build universal nightly app and Ghostty CLI helper \(Release\)/ { in_universal=1; next }
   in_universal && /^      - name:/ { in_universal=0 }
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }
   in_universal && /ARCHS="arm64 x86_64"/ { saw_universal_archs=1 }
@@ -20,14 +20,16 @@ if ! awk '
 fi
 
 if ! awk '
-  /^      - name: Build universal Ghostty CLI helper/ { in_helper=1; next }
+  /^      - name: Build universal nightly app and Ghostty CLI helper \(Release\)/ { in_helper=1; next }
   in_helper && /^      - name:/ { in_helper=0 }
   in_helper && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   in_helper && /helper missing arm64 slice/ { saw_arm64_assert=1 }
   in_helper && /helper missing x86_64 slice/ { saw_x86_assert=1 }
-  END { exit !(saw_build && saw_arm64_assert && saw_x86_assert) }
+  in_helper && /wait "\$HELPER_PID"/ { saw_wait=1 }
+  in_helper && /cat "\$HELPER_LOG"/ { saw_log=1 }
+  END { exit !(saw_build && saw_arm64_assert && saw_x86_assert && saw_wait && saw_log) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must build and verify the real universal Ghostty helper"
+  echo "FAIL: nightly workflow must build and verify the real universal Ghostty helper alongside the app build"
   exit 1
 fi
 
