@@ -101,30 +101,20 @@ struct WorkspaceAttentionFlashPresentation: Equatable, Sendable {
     let glowRadius: CGFloat
 }
 
-struct WorkspaceAttentionPersistentState: Equatable, Sendable {
-    var unreadPanelIDs: Set<UUID> = []
-    var focusedReadPanelID: UUID?
-    var manualUnreadPanelIDs: Set<UUID> = []
+/// Canonical definition lives in `CmuxCore.WorkspaceAttentionPersistentState`;
+/// this typealias keeps the unqualified app-target call sites byte-identical.
+typealias WorkspaceAttentionPersistentState = CmuxCore.WorkspaceAttentionPersistentState
 
-    var indicatorPanelIDs: Set<UUID> {
-        var ids = unreadPanelIDs.union(manualUnreadPanelIDs)
-        if let focusedReadPanelID {
-            ids.insert(focusedReadPanelID)
-        }
-        return ids
-    }
+/// Canonical definition lives in `CmuxCore.WorkspaceAttentionFlashDecision`;
+/// this typealias keeps the unqualified app-target call sites byte-identical.
+typealias WorkspaceAttentionFlashDecision = CmuxCore.WorkspaceAttentionFlashDecision
 
-    func hasCompetingIndicator(for panelID: UUID) -> Bool {
-        indicatorPanelIDs.contains(where: { $0 != panelID })
-    }
-}
-
-struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
-    let panelID: UUID
-    let reason: WorkspaceAttentionFlashReason
-    let isAllowed: Bool
-}
-
+/// The app-target presentation half of attention flashing.
+///
+/// The pure flash *decision* (`WorkspaceAttentionPersistentState`,
+/// `WorkspaceAttentionFlashDecision.decide(...)`) moved to `CmuxCore` so the
+/// `WorkspaceUnreadModel` can compute it; the ring colors/styles stay here
+/// because they resolve to `NSColor`.
 enum WorkspaceAttentionCoordinator {
     static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
         accent: .notificationBlue,
@@ -143,26 +133,6 @@ enum WorkspaceAttentionCoordinator {
         case .navigation, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return flashRingStyle
         }
-    }
-
-    static func decideFlash(
-        targetPanelID: UUID,
-        reason: WorkspaceAttentionFlashReason,
-        persistentState: WorkspaceAttentionPersistentState
-    ) -> WorkspaceAttentionFlashDecision {
-        let isAllowed: Bool
-        switch reason {
-        case .navigation:
-            isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
-            isAllowed = true
-        }
-
-        return WorkspaceAttentionFlashDecision(
-            panelID: targetPanelID,
-            reason: reason,
-            isAllowed: isAllowed
-        )
     }
 }
 

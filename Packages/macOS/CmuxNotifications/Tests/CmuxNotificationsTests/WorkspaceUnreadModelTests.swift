@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxCore
 @testable import CmuxNotifications
 
 /// Recording fake host for ``WorkspaceUnreadModel``: scriptable live-state reads
@@ -10,6 +11,8 @@ private final class FakeUnreadHost: WorkspaceUnreadHosting {
     var existingPanels: Set<UUID> = []
     var tabPanels: Set<UUID> = []
     var visibleIndicatorPanels: Set<UUID> = []
+    var unreadNotificationPanels: Set<UUID> = []
+    var focusedReadPanelId: UUID?
     var workspaceManualUnread = false
     var representativePanelId: UUID?
 
@@ -18,12 +21,20 @@ private final class FakeUnreadHost: WorkspaceUnreadHosting {
     var markReadPanels: [UUID] = []
     var markReadWorkspaceCount = 0
     var clearRestoredCount = 0
+    var panelFlashes: [(panel: UUID, reason: WorkspaceAttentionFlashReason)] = []
 
     func workspaceUnreadPanelExists(_ panelId: UUID) -> Bool { existingPanels.contains(panelId) }
     func workspaceUnreadPanelIds() -> Set<UUID> { existingPanels }
     func workspaceUnreadPanelHasTab(_ panelId: UUID) -> Bool { tabPanels.contains(panelId) }
     func workspaceUnreadHasVisibleNotificationIndicator(panelId: UUID) -> Bool {
         visibleIndicatorPanels.contains(panelId)
+    }
+    func workspaceUnreadHasUnreadNotification(panelId: UUID) -> Bool {
+        unreadNotificationPanels.contains(panelId)
+    }
+    func workspaceUnreadFocusedReadPanelId() -> UUID? { focusedReadPanelId }
+    func workspaceUnreadTriggerPanelFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
+        panelFlashes.append((panelId, reason))
     }
     func workspaceUnreadNotificationHasManualUnread() -> Bool { workspaceManualUnread }
     func workspaceUnreadRepresentativePanelId() -> UUID? { representativePanelId }
@@ -285,5 +296,111 @@ struct WorkspaceUnreadModelTests {
 
         model.restoredUnreadPanelIndicators[panel] = .workspaceUnread
         #expect(fireCount == 2)
+    }
+
+    // MARK: - Attention flash
+
+    @Test func hasIndicatorReadsForwardToHost() {
+        let host = FakeUnreadHost()
+        let visible = UUID(), unread = UUID(), neither = UUID()
+        host.visibleIndicatorPanels = [visible]
+        host.unreadNotificationPanels = [unread]
+        let model = makeModel(host)
+
+        #expect(model.hasVisibleNotificationIndicator(panelId: visible) == true)
+        #expect(model.hasVisibleNotificationIndicator(panelId: neither) == false)
+        #expect(model.hasUnreadNotification(panelId: unread) == true)
+        #expect(model.hasUnreadNotification(panelId: neither) == false)
+    }
+
+    @Test func attentionPersistentStateUnionsRestoredAndNotificationUnread() {
+        let host = FakeUnreadHost()
+        let restored = UUID(), notified = UUID(), manual = UUID(), focusedRead = UUID()
+        host.existingPanels = [restored, notified, manual]
+        host.tabPanels = [restored, notified, manual]
+        host.unreadNotificationPanels = [notified]
+        host.focusedReadPanelId = focusedRead
+        let model = makeModel(host)
+        model.restorePanelUnreadIndicator(restored, contributesToWorkspaceUnread: true)
+        model.markPanelUnread(manual)
+
+        let state = model.attentionPersistentState()
+
+        #expect(state.unreadPanelIDs == [restored, notified])
+        #expect(state.focusedReadPanelID == focusedRead)
+        #expect(state.manualUnreadPanelIDs == [manual])
+    }
+
+    @Test func requestNavigationFlashSuppressedWhenAnotherPanelCompetes() {
+        let host = FakeUnreadHost()
+        let target = UUID(), competitor = UUID()
+        host.existingPanels = [target, competitor]
+        host.tabPanels = [target, competitor]
+        host.unreadNotificationPanels = [competitor]
+        let model = makeModel(host)
+
+        model.requestAttentionFlash(panelId: target, reason: .navigation)
+
+        // competitor carries an unread indicator -> navigation flash suppressed.
+        #expect(host.panelFlashes.isEmpty)
+    }
+
+    @Test func requestNavigationFlashAllowedWhenOnlyTargetCompetes() {
+        let host = FakeUnreadHost()
+        let target = UUID()
+        host.existingPanels = [target]
+        host.tabPanels = [target]
+        host.unreadNotificationPanels = [target]
+        let model = makeModel(host)
+
+        model.requestAttentionFlash(panelId: target, reason: .navigation)
+
+        #expect(host.panelFlashes.count == 1)
+        #expect(host.panelFlashes.first?.panel == target)
+        #expect(host.panelFlashes.first?.reason == .navigation)
+    }
+
+    @Test func requestNonNavigationFlashAlwaysPlays() {
+        let host = FakeUnreadHost()
+        let target = UUID(), competitor = UUID()
+        host.existingPanels = [target, competitor]
+        host.tabPanels = [target, competitor]
+        host.unreadNotificationPanels = [competitor]
+        let model = makeModel(host)
+
+        for reason: WorkspaceAttentionFlashReason in [.notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug] {
+            model.requestAttentionFlash(panelId: target, reason: reason)
+        }
+
+        #expect(host.panelFlashes.map(\.reason) ==
+            [.notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug])
+    }
+
+    @Test func triggerWorkspacePaneFlashSetsMirrorsAndBumpsToken() {
+        let host = FakeUnreadHost()
+        let panel = UUID()
+        let model = makeModel(host)
+
+        model.triggerWorkspacePaneFlash(panelId: panel, reason: .notificationArrival)
+        #expect(model.tmuxWorkspaceFlashPanelId == panel)
+        #expect(model.tmuxWorkspaceFlashReason == .notificationArrival)
+        #expect(model.tmuxWorkspaceFlashToken == 1)
+
+        // A repeat for the same panel/reason still bumps the token so the
+        // overlay re-triggers.
+        model.triggerWorkspacePaneFlash(panelId: panel, reason: .notificationArrival)
+        #expect(model.tmuxWorkspaceFlashToken == 2)
+    }
+
+    @Test func tmuxFlashMirrorsFireWillChange() {
+        let host = FakeUnreadHost()
+        let model = makeModel(host)
+        var fireCount = 0
+        model.willChange = { fireCount += 1 }
+
+        model.triggerWorkspacePaneFlash(panelId: UUID(), reason: .debug)
+        // panelId + reason + token writes each fire willChange (legacy
+        // @Published private(set) parity).
+        #expect(fireCount == 3)
     }
 }

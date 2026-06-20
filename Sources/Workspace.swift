@@ -2356,9 +2356,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         unreadModel.restoredUnreadPanelIds
     }
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
-    @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
-    @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
-    @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
+    /// The tmux workspace-pane overlay flash mirrors now live on
+    /// ``unreadModel``; these forward its `@Observable` reads so the existing
+    /// `ContentView` accessors stay byte-identical. The model fires `willChange`
+    /// (`objectWillChange.send()`) on each write, preserving the former
+    /// `@Published private(set)` emission moment.
+    var tmuxWorkspaceFlashPanelId: UUID? { unreadModel.tmuxWorkspaceFlashPanelId }
+    var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason? { unreadModel.tmuxWorkspaceFlashReason }
+    var tmuxWorkspaceFlashToken: UInt64 { unreadModel.tmuxWorkspaceFlashToken }
     var manualUnreadMarkedAt: [UUID: Date] {
         get { unreadModel.manualUnreadMarkedAt }
         set { unreadModel.manualUnreadMarkedAt = newValue }
@@ -3589,9 +3594,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
-        tmuxWorkspaceFlashPanelId = panelId
-        tmuxWorkspaceFlashReason = reason
-        tmuxWorkspaceFlashToken &+= 1
+        unreadModel.triggerWorkspacePaneFlash(panelId: panelId, reason: reason)
     }
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
@@ -3837,36 +3840,19 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     private func hasVisibleNotificationIndicator(panelId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
+        unreadModel.hasVisibleNotificationIndicator(panelId: panelId)
     }
 
     private func hasUnreadNotification(panelId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
+        unreadModel.hasUnreadNotification(panelId: panelId)
     }
 
     private func attentionPersistentState() -> WorkspaceAttentionPersistentState {
-        let notificationStore = AppDelegate.shared?.notificationStore
-        let unreadPanelIDs = Set(
-            panels.keys.filter {
-                restoredUnreadPanelIds.contains($0) ||
-                    (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: $0) ?? false)
-            }
-        )
-        return WorkspaceAttentionPersistentState(
-            unreadPanelIDs: unreadPanelIDs,
-            focusedReadPanelID: notificationStore?.focusedReadIndicatorSurfaceId(forTabId: id),
-            manualUnreadPanelIDs: manualUnreadPanelIds
-        )
+        unreadModel.attentionPersistentState()
     }
 
     private func requestAttentionFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
-        let decision = WorkspaceAttentionCoordinator.decideFlash(
-            targetPanelID: panelId,
-            reason: reason,
-            persistentState: attentionPersistentState()
-        )
-        guard decision.isAllowed else { return }
-        panels[panelId]?.triggerFlash(reason: reason)
+        unreadModel.requestAttentionFlash(panelId: panelId, reason: reason)
     }
 
     private func syncUnreadBadgeStateForPanel(_ panelId: UUID) {
@@ -4145,7 +4131,19 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func workspaceUnreadHasVisibleNotificationIndicator(panelId: UUID) -> Bool {
-        hasVisibleNotificationIndicator(panelId: panelId)
+        AppDelegate.shared?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
+    }
+
+    func workspaceUnreadHasUnreadNotification(panelId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
+    }
+
+    func workspaceUnreadFocusedReadPanelId() -> UUID? {
+        AppDelegate.shared?.notificationStore?.focusedReadIndicatorSurfaceId(forTabId: id)
+    }
+
+    func workspaceUnreadTriggerPanelFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
+        panels[panelId]?.triggerFlash(reason: reason)
     }
 
     func workspaceUnreadNotificationHasManualUnread() -> Bool {

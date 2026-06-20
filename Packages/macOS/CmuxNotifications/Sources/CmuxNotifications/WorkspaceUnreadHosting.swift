@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxCore
 
 /// The live-workspace operations ``WorkspaceUnreadModel`` reaches back into.
 ///
@@ -32,8 +33,24 @@ public protocol WorkspaceUnreadHosting: AnyObject {
     func workspaceUnreadPanelHasTab(_ panelId: UUID) -> Bool
 
     /// Whether the panel currently shows a visible notification indicator
-    /// (legacy `hasVisibleNotificationIndicator(panelId:)`).
+    /// (legacy `notificationStore?.hasVisibleNotificationIndicator(forTabId:surfaceId:)`,
+    /// the body of the legacy private `Workspace.hasVisibleNotificationIndicator(panelId:)`).
     func workspaceUnreadHasVisibleNotificationIndicator(panelId: UUID) -> Bool
+
+    /// Whether the panel has an unread notification in the notification store
+    /// (legacy `notificationStore?.hasUnreadNotification(forTabId:surfaceId:)`,
+    /// the body of the legacy private `Workspace.hasUnreadNotification(panelId:)`).
+    func workspaceUnreadHasUnreadNotification(panelId: UUID) -> Bool
+
+    /// The panel currently showing the focused-read indicator, used to build the
+    /// attention-flash persistent state (legacy
+    /// `notificationStore?.focusedReadIndicatorSurfaceId(forTabId:)`).
+    func workspaceUnreadFocusedReadPanelId() -> UUID?
+
+    /// Plays the per-panel attention flash for an allowed flash decision
+    /// (legacy `panels[panelId]?.triggerFlash(reason:)`). A no-op when the panel
+    /// is absent, matching the legacy optional-chain.
+    func workspaceUnreadTriggerPanelFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason)
 
     /// Whether the workspace itself is marked manually unread in the
     /// notification store (legacy `notificationStore?.hasManualUnread(forTabId:)`).
