@@ -133,35 +133,20 @@ import Testing
         // Regression: a long SSH destination produced a ControlPath that, once
         // OpenSSH appended its transient `.XXXXXXXXXXXXXXXX` bind suffix,
         // overflowed the AF_UNIX sun_path limit — `ssh` died with
-        // `unix_listener: path "…" too long for Unix domain socket`.
+        // `unix_listener: path "…" too long for Unix domain socket`. The path
+        // OpenSSH actually binds (ControlPath + transient suffix), not the renamed
+        // ControlPath, is what must fit.
         let host = RemoteTmuxHost(destination: "dev-host-2a-7059f1dc.us-west-2.example.internal")
-        // Use a long but realistic home directory so the test asserts the budget,
-        // not the test machine's short home (which would mask the overflow).
-        let path = RemoteTmuxHost.controlSocketPath(
-            homeDirectory: "/Users/developer",
-            slug: host.slug,
-            connectionHash: host.connectionHash
-        )
-        // The path OpenSSH actually binds (ControlPath + transient suffix) must
-        // fit the limit — that bound path, not the renamed ControlPath, is what
-        // overflowed in the report.
-        let boundLength = path.utf8.count + RemoteTmuxHost.opensshTransientSuffixLength
-        #expect(boundLength <= RemoteTmuxHost.maxUnixSocketPathLength)
+        #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
     }
 
-    @Test func controlSocketPathFitsUnixLimitForExtremeInputs() {
-        // Even a pathological destination + long home directory must stay within
-        // budget; the hash (uniqueness) is preserved, only the slug is trimmed.
+    @Test func controlSocketPathFitsUnixLimitForExtremeDestination() {
+        // Even a pathological destination must stay within budget; the hash
+        // (uniqueness) is preserved, only the slug is trimmed.
         let host = RemoteTmuxHost(destination: String(repeating: "very-long-host.example.com.", count: 20))
-        let path = RemoteTmuxHost.controlSocketPath(
-            homeDirectory: "/Users/some-unusually-long-account-name-here",
-            slug: host.slug,
-            connectionHash: host.connectionHash
-        )
-        let boundLength = path.utf8.count + RemoteTmuxHost.opensshTransientSuffixLength
-        #expect(boundLength <= RemoteTmuxHost.maxUnixSocketPathLength)
+        #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
         // The collision-resistant hash is never trimmed away.
-        #expect(path.hasSuffix("-\(host.connectionHash).sock"))
+        #expect(host.controlSocketPath.hasSuffix("-\(host.connectionHash).sock"))
     }
 
     @Test func controlSocketPathTrimmingPreservesEndpointUniqueness() {
@@ -169,12 +154,33 @@ import Testing
         // collapse after trimming) must still get distinct socket paths via the
         // untrimmed connectionHash — otherwise destructive commands could route to
         // the wrong host through a shared master.
-        let home = "/Users/developer"
         let a = RemoteTmuxHost(destination: "dev-host-2a-7059f1dc.us-west-2.example.internal")
         let b = RemoteTmuxHost(destination: "dev-host-2a-7059f1dc.us-east-1.example.internal")
-        let pathA = RemoteTmuxHost.controlSocketPath(homeDirectory: home, slug: a.slug, connectionHash: a.connectionHash)
-        let pathB = RemoteTmuxHost.controlSocketPath(homeDirectory: home, slug: b.slug, connectionHash: b.connectionHash)
-        #expect(pathA != pathB)
+        #expect(a.controlSocketPath != b.controlSocketPath)
+        // …and both still fit the limit after trimming.
+        #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(a.controlSocketPath))
+        #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(b.controlSocketPath))
+    }
+
+    @Test func controlSocketPathFitnessPredicateMatchesAFUnixLimit() {
+        // The predicate that `ensureControlSocketDirectory()` gates on: a path
+        // leaving room for OpenSSH's 17-byte transient suffix fits; one that does
+        // not, does not. macOS sun_path is 104 bytes incl. NUL (103 usable), so
+        // the longest fitting ControlPath is 103 - 17 = 86 bytes.
+        let fitting = String(repeating: "a", count: 86)
+        let overflowing = String(repeating: "a", count: 87)
+        #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(fitting))
+        #expect(!RemoteTmuxHost.controlSocketPathFitsUnixLimit(overflowing))
+    }
+
+    @Test func ensureControlSocketDirectoryCreatesDirForBindablePath() throws {
+        // A destination that fits on the real (short) home must create the socket
+        // directory without throwing. The un-bindable branch (home so long even an
+        // empty slug overflows) is covered by the predicate test above, since the
+        // real home directory can't be lengthened from a unit test.
+        let host = RemoteTmuxHost(destination: "short-host")
+        #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
+        try host.ensureControlSocketDirectory()
     }
 
     @Test func controlModeCommandNameRejectsLineDelimitersAndControlScalars() {

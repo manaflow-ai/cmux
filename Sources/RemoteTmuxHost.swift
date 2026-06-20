@@ -85,33 +85,35 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// for that suffix — otherwise long destinations fail with
     /// `unix_listener: path "…" too long for Unix domain socket`. The
     /// ``connectionHash`` is never trimmed, so uniqueness is preserved even when
-    /// the slug is dropped entirely.
+    /// the slug is dropped entirely. ``ensureControlSocketDirectory()`` rejects
+    /// the rare case where even an empty slug overflows (an unusually long home).
     var controlSocketPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return Self.controlSocketPath(homeDirectory: home, slug: slug, connectionHash: connectionHash)
+        // Fixed parts that can never be trimmed: directory, the `tmux-` prefix,
+        // the `-<hash>.sock` tail, and the transient suffix OpenSSH binds first.
+        let prefix = "\(home)/.cmux/ssh/tmux-"
+        let suffix = "-\(connectionHash).sock"
+        let fixedBytes = prefix.utf8.count + suffix.utf8.count + Self.opensshTransientSuffixLength
+        let slugBudget = max(0, Self.maxUnixSocketPathLength - fixedBytes)
+        return "\(prefix)\(Self.trimmedToUTF8ByteBudget(slug, slugBudget))\(suffix)"
     }
 
     /// macOS caps an AF_UNIX `sun_path` at 104 bytes (including the NUL
     /// terminator), so the usable path length is 103 bytes.
-    static let maxUnixSocketPathLength = 103
+    private static let maxUnixSocketPathLength = 103
 
     /// Bytes OpenSSH appends to `ControlPath` for its transient pre-rename bind
     /// socket: a `.` plus 16 random characters (see `mux.c`). The bound path must
     /// fit the AF_UNIX limit, not just the final renamed `ControlPath`.
-    static let opensshTransientSuffixLength = 17
+    private static let opensshTransientSuffixLength = 17
 
-    /// Builds the control socket path for a given home directory, trimming the
-    /// slug so `path + OpenSSH transient suffix` fits the AF_UNIX limit. Factored
-    /// out (and home-dir injectable) so the length budget is unit-testable
-    /// independent of the running machine's home directory.
-    static func controlSocketPath(homeDirectory: String, slug: String, connectionHash: String) -> String {
-        // Fixed parts that can never be trimmed: directory, the `tmux-` prefix,
-        // the `-<hash>.sock` tail, and the transient suffix OpenSSH binds first.
-        let prefix = "\(homeDirectory)/.cmux/ssh/tmux-"
-        let suffix = "-\(connectionHash).sock"
-        let fixedBytes = prefix.utf8.count + suffix.utf8.count + opensshTransientSuffixLength
-        let slugBudget = max(0, maxUnixSocketPathLength - fixedBytes)
-        return "\(prefix)\(trimmedToUTF8ByteBudget(slug, slugBudget))\(suffix)"
+    /// Whether the path OpenSSH would actually bind for `controlPath` — i.e.
+    /// `controlPath` plus its 17-byte transient suffix — fits the AF_UNIX limit.
+    /// ``ensureControlSocketDirectory()`` checks this before opening the master so
+    /// an un-bindable path fails with a clear error instead of the opaque
+    /// `unix_listener: … too long`.
+    static func controlSocketPathFitsUnixLimit(_ controlPath: String) -> Bool {
+        controlPath.utf8.count + opensshTransientSuffixLength <= maxUnixSocketPathLength
     }
 
     /// Returns the longest whole-`Character` prefix of `value` whose UTF-8
@@ -132,8 +134,23 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     }
 
     /// Ensures the directory that holds the control socket exists.
+    ///
+    /// Also rejects up front the rare case where the home directory is long
+    /// enough that the fixed path parts alone overflow the AF_UNIX limit, so even
+    /// an empty slug can't fit (``controlSocketPath`` trims the slug but cannot
+    /// shrink the home dir / hash / suffix). Without this guard `ssh` would still
+    /// open, then die with the opaque `unix_listener: … too long` — surfacing it
+    /// here gives a clear, actionable error instead.
     func ensureControlSocketDirectory() throws {
-        let dir = (controlSocketPath as NSString).deletingLastPathComponent
+        let path = controlSocketPath
+        guard Self.controlSocketPathFitsUnixLimit(path) else {
+            throw RemoteTmuxError.unreachable(
+                "SSH control socket path is too long for a Unix domain socket "
+                    + "(\(path.utf8.count + Self.opensshTransientSuffixLength) > "
+                    + "\(Self.maxUnixSocketPathLength) bytes); home directory path is too long"
+            )
+        }
+        let dir = (path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(
             atPath: dir,
             withIntermediateDirectories: true,
