@@ -239,8 +239,9 @@ jobs:
           DEVICE_FAMILY: ${{ matrix.family }}
         run: |
           set -euo pipefail
-          simulator_env="$RUNNER_TEMP/simulator-${DEVICE_FAMILY}.env"
-          python3 - <<'PY' > "$simulator_env"
+          SIMULATOR_ENV="${RUNNER_TEMP:-$PWD/.tmp}/simulator-${DEVICE_FAMILY}.env"
+          mkdir -p "$(dirname "$SIMULATOR_ENV")"
+          python3 - <<'PY' > "$SIMULATOR_ENV"
           import json
           import os
           import subprocess
@@ -351,8 +352,19 @@ jobs:
           print(f"SIMULATOR_ID={selected['udid']}")
           print(f"SIMULATOR_NAME={selected['name']}")
           PY
-          cat "$simulator_env"
-          cat "$simulator_env" >> "$GITHUB_ENV"
+          cat "$SIMULATOR_ENV"
+          cat "$SIMULATOR_ENV" >> "$GITHUB_ENV"
+
+      - name: Prepare iOS build paths
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          DEVICE_FAMILY: ${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-${DEVICE_FAMILY}"
+          rm -rf "$IOS_DERIVED_DATA"
+          mkdir -p "$IOS_DERIVED_DATA/logs"
+          echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
 
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
@@ -361,7 +373,7 @@ jobs:
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }} \
+            -derivedDataPath "$IOS_DERIVED_DATA" \
             -resolvePackageDependencies
 
       - name: Run iOS simulator tests
@@ -374,7 +386,7 @@ jobs:
             -workspace ios/cmux.xcworkspace
             -scheme cmux-ios
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
-            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }}
+            -derivedDataPath "$IOS_DERIVED_DATA"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
@@ -398,7 +410,7 @@ jobs:
               ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)|✘ Test|✘ Suite" "$log_path"
           }
           for attempt in 1 2; do
-            LOG_PATH="/tmp/cmux-ios-${{ matrix.family }}-attempt-${attempt}.log"
+            LOG_PATH="$IOS_DERIVED_DATA/logs/attempt-${attempt}.log"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
             xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl erase "$SIMULATOR_ID"

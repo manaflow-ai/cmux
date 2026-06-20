@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxProcess
+public import CmuxFoundation
 
 /// Resolves GitHub pull-request badges for workspace panels: which PR (if any)
 /// is open/merged/closed for each panel's branch.
