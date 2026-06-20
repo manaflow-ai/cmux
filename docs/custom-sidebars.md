@@ -139,13 +139,27 @@ with:
   `dirty`, `ports` (array of Int).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
+- `agents` — array of Claude Code agent sessions, mirroring `claude agents
+  --json --all` (every live session plus background sessions that are still
+  working or blocked, and completed background sessions). Refreshed by polling
+  `claude` every few seconds while a custom sidebar is shown, so it is empty if
+  `claude` is not installed/on PATH. Always present per entry: `cwd` (working
+  directory, good for grouping by project), `kind` (`background` or
+  `interactive`), and the derived booleans `background`, `working`, `blocked`,
+  `done`, `failed`, `stopped`, `active` (= working or blocked). Present when the
+  CLI reports them (use `if let` / ternary): `id` (short background id, usable
+  with `claude attach/logs/stop`), `name`, `sessionId`, `state`
+  (`working|blocked|done|failed|stopped`), `status` (`busy|idle|waiting`, while
+  the process is alive), `pid`, `startedAt` (epoch ms), `waitingFor` (what a
+  blocked session is waiting on, e.g. `permission prompt`). Plus the scalars
+  `agentsCount`, `agentsWorkingCount`, `agentsBlockedCount`.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
   sidebar re-renders about once a second, so clocks/countdowns and workspace
   changes are live.
 
-Optional fields are omitted when the workspace doesn't have them, so guard with
-`if let b = w.branch { ... }` or `w.pr != nil ? ... : ...` rather than assuming
-they exist.
+Optional fields are omitted when the workspace or agent doesn't have them, so
+guard with `if let b = w.branch { ... }` or `a.name != nil ? ... : ...` rather
+than assuming they exist.
 
 ## Views
 
