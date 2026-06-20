@@ -117,10 +117,11 @@ struct TerminalKeyboardConfigurationTests {
         view.onBackspace = { backspaces += 1 }
         view.onEscapeSequence = { escapeSequences.append($0) }
 
+        view.insertText("echo ")
         view.insertText("teh ")
         view.simulateTextChangeForTesting("the ", isComposing: false)
 
-        #expect(textEvents == ["teh ", "he"])
+        #expect(textEvents == ["echo ", "teh ", "he"])
         #expect(backspaces == 2)
         #expect(escapeSequences == [
             Data([0x1B, 0x5B, 0x44]),

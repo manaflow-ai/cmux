@@ -1043,8 +1043,7 @@ final class TerminalInputTextView: UITextView {
                 return
             }
             if !currentText.isEmpty {
-                applyTerminalReplacement(from: committedInputMirrorText, to: currentText)
-                setCommittedInputMirrorText(currentText)
+                applyScopedTerminalReplacement(to: currentText)
                 clearProxyTextBuffer()
                 return
             }
@@ -1102,6 +1101,36 @@ final class TerminalInputTextView: UITextView {
         if committedInputMirrorText.count > Self.committedInputMirrorTextLimit {
             committedInputMirrorText = String(committedInputMirrorText.suffix(Self.committedInputMirrorTextLimit))
         }
+    }
+
+    private func applyScopedTerminalReplacement(to currentText: String) {
+        let scope = trailingReplacementScope(in: committedInputMirrorText)
+        let prefix = String(committedInputMirrorText.dropLast(scope.count))
+        let usesFullMirrorScope = prefix.isEmpty || currentText.hasPrefix(prefix)
+        let oldText = usesFullMirrorScope ? committedInputMirrorText : scope
+        guard !oldText.isEmpty else { return }
+
+        applyTerminalReplacement(from: oldText, to: currentText)
+        setCommittedInputMirrorText(usesFullMirrorScope ? currentText : prefix + currentText)
+    }
+
+    private func trailingReplacementScope(in text: String) -> String {
+        let characters = Array(text)
+        guard !characters.isEmpty else { return "" }
+
+        var wordEnd = characters.count
+        while wordEnd > 0, isReplacementBoundary(characters[wordEnd - 1]) {
+            wordEnd -= 1
+        }
+        var wordStart = wordEnd
+        while wordStart > 0, !isReplacementBoundary(characters[wordStart - 1]) {
+            wordStart -= 1
+        }
+        return String(characters[wordStart...])
+    }
+
+    private func isReplacementBoundary(_ character: Character) -> Bool {
+        character == " " || character == "\t" || character == "\n" || character == "\r"
     }
 
     private func applyTerminalReplacement(from oldText: String, to newText: String) {
