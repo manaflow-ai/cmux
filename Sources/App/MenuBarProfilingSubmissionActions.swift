@@ -138,6 +138,7 @@ extension MenuBarProfilingProgressWindowController {
     }
 
     private func finishPackage(terminationStatus: Int32) {
+        drainSubmitPipes()
         clearSubmitProcess()
         openFolderButton.title = String(localized: "statusMenu.profiling.previewAttachment", defaultValue: "Preview Attachment")
 
@@ -164,6 +165,7 @@ extension MenuBarProfilingProgressWindowController {
     }
 
     private func finishSubmit(terminationStatus: Int32) {
+        drainSubmitPipes()
         clearSubmitProcess()
         submitButton.title = String(localized: "statusMenu.profiling.sendEmail", defaultValue: "Send Email")
 
@@ -183,6 +185,31 @@ extension MenuBarProfilingProgressWindowController {
         submitOutputPipe = nil
         submitErrorPipe = nil
         submitProcess = nil
+    }
+
+    private func drainSubmitPipes() {
+        submitOutputPipe?.fileHandleForReading.readabilityHandler = nil
+        submitErrorPipe?.fileHandleForReading.readabilityHandler = nil
+        appendRemainingSubmitOutput(from: submitOutputPipe)
+        appendRemainingSubmitError(from: submitErrorPipe)
+    }
+
+    private func appendRemainingSubmitOutput(from pipe: Pipe?) {
+        guard let data = pipe?.fileHandleForReading.readDataToEndOfFile(), !data.isEmpty else {
+            return
+        }
+        if let text = String(data: data, encoding: .utf8) {
+            submitOutput += text
+        }
+    }
+
+    private func appendRemainingSubmitError(from pipe: Pipe?) {
+        guard let data = pipe?.fileHandleForReading.readDataToEndOfFile(), !data.isEmpty else {
+            return
+        }
+        if let text = String(data: data, encoding: .utf8) {
+            submitErrorOutput += text
+        }
     }
 
     private func archiveURLFromSubmitOutput() -> URL? {

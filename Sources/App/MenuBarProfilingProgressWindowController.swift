@@ -324,6 +324,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
     private func finish(terminationStatus: Int32) {
         countdownTimer?.invalidate()
         countdownTimer = nil
+        drainScriptPipes()
         clearReadabilityHandlers()
         process = nil
         progressIndicator.doubleValue = Double(estimatedSeconds)
@@ -364,6 +365,22 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         errorPipe?.fileHandleForReading.readabilityHandler = nil
         outputPipe = nil
         errorPipe = nil
+    }
+
+    private func drainScriptPipes() {
+        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        errorPipe?.fileHandleForReading.readabilityHandler = nil
+        appendRemainingData(from: outputPipe)
+        appendRemainingData(from: errorPipe)
+    }
+
+    private func appendRemainingData(from pipe: Pipe?) {
+        guard let data = pipe?.fileHandleForReading.readDataToEndOfFile(), !data.isEmpty else {
+            return
+        }
+        if let text = String(data: data, encoding: .utf8) {
+            appendScriptOutput(text)
+        }
     }
 
     private func failureMessage() -> String {
