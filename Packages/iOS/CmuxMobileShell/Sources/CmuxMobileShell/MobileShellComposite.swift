@@ -1149,13 +1149,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
-        supportedHostCapabilities = [
-            Self.workspaceActionsCapability,
-            Self.workspaceReadStateCapability,
-            Self.workspaceCloseCapability,
-            Self.terminalCloseCapability,
-            Self.workspaceGroupsCapability,
-        ]
+        supportedHostCapabilities = [Self.terminalCloseCapability]
         connectedHostName = PreviewMobileHost.hostName
         guard isCurrentPairingAttempt(attemptID) else { return }
         connectionState = .connected
