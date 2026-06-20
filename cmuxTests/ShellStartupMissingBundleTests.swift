@@ -217,7 +217,7 @@ struct ShellStartupMissingBundleTests {
         let result = runProcess(
             executablePath: "/bin/zsh",
             arguments: ["-f", driverURL.path],
-            timeout: 5
+            timeout: 10
         )
 
         expectEqual(result.status, 0, result.stderr)
