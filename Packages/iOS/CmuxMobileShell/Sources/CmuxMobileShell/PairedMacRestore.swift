@@ -64,12 +64,26 @@ public struct PairedMacRestore: Sendable {
                existing.lastSeenAt.timeIntervalSince1970 >= backupSeconds {
                 continue // local is at least as fresh: keep it (local authoritative)
             }
+            // Active flag policy: when this record already exists locally we are
+            // only refreshing its route/name (the backup is fresher), so PRESERVE
+            // its current local active flag — otherwise a route refresh of the
+            // active Mac (e.g. `refreshFromBackup` right before reconnect/
+            // aggregation) would silently deactivate it and lose the user's
+            // selection. For a record missing locally, honor the backup's active
+            // only on a fresh install (no local active host); never hijack an
+            // existing active selection.
+            let markActive: Bool
+            if let existing = localByID[record.macDeviceID] {
+                markActive = existing.isActive
+            } else {
+                markActive = hasLocalActive ? false : record.isActive
+            }
             do {
                 try await store.upsert(
                     macDeviceID: record.macDeviceID,
                     displayName: record.displayName,
                     routes: record.routes,
-                    markActive: hasLocalActive ? false : record.isActive,
+                    markActive: markActive,
                     stackUserID: accountID,
                     now: Date(timeIntervalSince1970: backupSeconds)
                 )

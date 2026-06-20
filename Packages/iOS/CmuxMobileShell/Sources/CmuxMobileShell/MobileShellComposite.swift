@@ -2657,9 +2657,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             secondaryMacSubscriptions[macID] = nil
             workspacesByMac[macID] = nil
         }
-        // Establish a live subscription for each newly-present secondary Mac.
-        for mac in macs where wanted.contains(mac.macDeviceID) && secondaryMacSubscriptions[mac.macDeviceID] == nil {
-            await establishSecondaryMacSubscription(for: mac)
+        // For each wanted secondary Mac: establish a fresh subscription, or — if
+        // one already exists — reseed its snapshot over the existing client so an
+        // explicit refresh (foreground/pull) still updates a stream that was
+        // suspended while backgrounded or whose pushes never started. If the
+        // existing client is dead, recreate the subscription.
+        for mac in macs where wanted.contains(mac.macDeviceID) {
+            if let existing = secondaryMacSubscriptions[mac.macDeviceID] {
+                if let previews = await fetchSecondaryWorkspaces(on: existing.client, macDeviceID: mac.macDeviceID) {
+                    workspacesByMac[mac.macDeviceID] = MacWorkspaceState(
+                        macDeviceID: mac.macDeviceID,
+                        displayName: mac.displayName,
+                        workspaces: previews,
+                        status: .connected
+                    )
+                } else {
+                    existing.cancel()
+                    secondaryMacSubscriptions[mac.macDeviceID] = nil
+                    await establishSecondaryMacSubscription(for: mac)
+                }
+            } else {
+                await establishSecondaryMacSubscription(for: mac)
+            }
         }
     }
 

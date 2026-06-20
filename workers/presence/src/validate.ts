@@ -124,9 +124,10 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
  * worker buffer more than MAX_REQUEST_BYTES. */
 export async function readBoundedJson(
   request: Request,
+  maxBytes: number = MAX_REQUEST_BYTES,
 ): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; status: number }> {
   const lengthHeader = request.headers.get("content-length");
-  if (lengthHeader && Number(lengthHeader) > MAX_REQUEST_BYTES) {
+  if (lengthHeader && Number(lengthHeader) > maxBytes) {
     return { ok: false, status: 413 };
   }
   if (!request.body) return { ok: false, status: 400 };
@@ -139,7 +140,7 @@ export async function readBoundedJson(
       const { done, value } = await reader.read();
       if (done) break;
       received += value.byteLength;
-      if (received > MAX_REQUEST_BYTES) {
+      if (received > maxBytes) {
         await reader.cancel();
         return { ok: false, status: 413 };
       }

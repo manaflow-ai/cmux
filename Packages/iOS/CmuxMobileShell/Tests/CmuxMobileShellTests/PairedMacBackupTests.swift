@@ -206,6 +206,31 @@ private actor MutableBackup: PairedMacBackingUp {
         #expect(shared?.routes.first?.endpoint == .hostPort(host: "192.168.0.6", port: 22))
     }
 
+    @Test func refreshUpdatingActiveMacRouteKeepsItActive() async throws {
+        // Regression: a backup refresh that brings a FRESHER record for the
+        // currently-active Mac (e.g. refreshFromBackup right before reconnect)
+        // must update its route but NOT clear its active flag, or auto-reconnect
+        // loses the user's selected Mac.
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await inner.upsert(
+            macDeviceID: "mac-a", displayName: "Studio",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true, stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1_000)
+        )
+        // Backup is strictly newer (route changed) and its own active flag is false.
+        let backup = FakeBackup(records: [
+            try backupRecord("mac-a", host: "10.0.0.99", lastSeenMs: 9_000_000_000_000, active: false),
+        ])
+        let outcome = await PairedMacRestore(store: inner, backup: backup).run(accountID: "user-1")
+        #expect(outcome.restored == 1) // mac-a route refreshed from the fresher backup
+        let macA = try await inner.loadAll(stackUserID: "user-1").first { $0.macDeviceID == "mac-a" }
+        #expect(macA?.routes.first?.endpoint == .hostPort(host: "10.0.0.99", port: 22)) // route updated
+        #expect(macA?.isActive == true) // active flag preserved (not cleared by the refresh)
+        #expect(try await inner.activeMac(stackUserID: "user-1")?.macDeviceID == "mac-a")
+    }
+
     @Test func emptyBackupLeavesLocalUntouched() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }

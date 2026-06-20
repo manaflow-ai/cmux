@@ -50,6 +50,16 @@ export const MAX_DISPLAY_NAME_LENGTH = 128;
 export const MAX_ROUTES = 16;
 export const MAX_ROUTES_TOTAL_BYTES = 2048;
 
+/** Max request body for a paired-Mac backup POST. Sized to the DECLARED limits
+ * (the shared 16 KiB heartbeat cap is far too small: a full reconcile pushes up
+ * to MAX_BACKUP_OPS ops, each up to MAX_ROUTES_TOTAL_BYTES of routes plus id /
+ * display name / timestamps / JSON overhead). Derived as ~3 KiB/op + a small
+ * envelope so a legitimate large backup is accepted instead of 413'd and
+ * silently dropped by the best-effort client. The bounded reader still aborts
+ * early past this cap. */
+export const MAX_PAIRED_MAC_BACKUP_BYTES =
+  MAX_BACKUP_OPS * (MAX_ROUTES_TOTAL_BYTES + 1024) + 2048;
+
 /** The backup payload — mirrors the iOS `MobilePairedMac` row so a restore is
  * lossless. The server bounds it but does not interpret `routes` (route
  * validation stays client-owned, exactly like the heartbeat route handling), so

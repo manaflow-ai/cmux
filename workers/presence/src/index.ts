@@ -25,7 +25,7 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { parseHeartbeat, readBoundedJson } from "./validate";
-import { parsePairedMacBackup } from "./syncPairedMacs";
+import { MAX_PAIRED_MAC_BACKUP_BYTES, parsePairedMacBackup } from "./syncPairedMacs";
 
 export { TeamPresence };
 
@@ -93,7 +93,9 @@ export default {
         return json(await team.stub.listPairedMacs(team.teamId, team.user.id));
       }
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-      const body = await readBoundedJson(request);
+      // A full backup reconcile can far exceed the 16 KiB heartbeat cap, so size
+      // the bound to the declared paired-Mac limits instead of dropping it.
+      const body = await readBoundedJson(request, MAX_PAIRED_MAC_BACKUP_BYTES);
       if (!body.ok) return json({ error: "invalid_request" }, body.status);
       const parsed = parsePairedMacBackup(body.value);
       if (!parsed.ok) return json({ error: parsed.error }, 400);
