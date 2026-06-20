@@ -21904,14 +21904,6 @@ struct CMUXCLI {
                     client: client
                 ) ?? "exec ${SHELL:-/bin/sh} -l"
             }
-            // Run the respawn command through a login shell. The surface execs
-            // its process command via Ghostty's macOS `exec -l <command>`, which
-            // only works for a single executable; tmux respawn shell-commands are
-            // arbitrary shell expressions (Claude Code teammates use
-            // `cd <dir> && env … <claude> …`), so they must go through a shell or
-            // the pane dies before the command runs (#6447). Keep
-            // `tmux_start_command` raw so `#{pane_start_command}` / OMX-HUD
-            // detection still see the original command.
             var params: [String: Any] = [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
@@ -22857,9 +22849,6 @@ struct CMUXCLI {
             let workspaceArg = workspaceOpt ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let commandText = (commandOpt ?? respawnRem3.dropFirst(respawnRem3.first == "--" ? 1 : 0).joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
-            // Run the command through a shell so Ghostty's macOS `exec -l <command>`
-            // execs a shell rather than a bare builtin/expression (#6447); keep
-            // tmux_start_command raw for `#{pane_start_command}` / OMX detection.
             var params: [String: Any] = [
                 "command": tmuxShellInvokedStartCommand(finalCommand),
                 "tmux_start_command": finalCommand
