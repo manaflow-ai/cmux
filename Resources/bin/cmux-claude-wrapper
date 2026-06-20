@@ -23,6 +23,9 @@ cmux_claude_wrapper_is_self_or_shim() {
         return 0
     fi
     case "$candidate" in
+        */cmux-cli-shims/*/claude|*/cmux-cli-shims/claude)
+            return 0
+            ;;
         */Contents/Resources/bin/claude|*/Resources/bin/claude)
             return 0
             ;;
@@ -306,7 +309,6 @@ extract_claude_resume_session_id() {
                 fi
                 ;;
             *)
-                return 1
                 ;;
         esac
         index=$((index + 1))
@@ -337,7 +339,6 @@ claude_explicit_session_flag_present() {
                 fi
                 ;;
             *)
-                return 1
                 ;;
         esac
         index=$((index + 1))

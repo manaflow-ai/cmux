@@ -1605,27 +1605,14 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private final class ClaudeTranscriptLookupCache {
-        private struct ProjectSessionKey: Hashable {
-            let projectRoot: String
-            let sessionId: String
-        }
-
-        private struct ConfigRootSessionKey: Hashable {
-            let configRoot: String
-            let sessionId: String
-        }
-
-        private enum CachedTranscriptPath {
-            case found(String)
-            case missing
-        }
-
         private let homeDirectory: String
         private let fileManager: FileManager
         private var defaultRoots: [String]?
         private var projectDirsByConfigRoot: [String: [String]] = [:]
-        private var transcriptPathByProjectRootAndSession: [ProjectSessionKey: CachedTranscriptPath] = [:]
-        private var transcriptPathByConfigRootAndSession: [ConfigRootSessionKey: CachedTranscriptPath] = [:]
+        private var transcriptPathByProjectRootAndSession: [String: String] = [:]
+        private var missingTranscriptPathByProjectRootAndSession: Set<String> = []
+        private var transcriptPathByConfigRootAndSession: [String: String] = [:]
+        private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
 
         init(homeDirectory: String, fileManager: FileManager) {
             self.homeDirectory = homeDirectory
@@ -1699,14 +1686,12 @@ struct RestorableAgentSessionIndex: Sendable {
             let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
             let projectRoot = ((projectsRoot as NSString).appendingPathComponent(projectDirName) as NSString)
                 .standardizingPath
-            let key = ProjectSessionKey(projectRoot: projectRoot, sessionId: sessionId)
+            let key = cacheKey(projectRoot, sessionId)
             if let cached = transcriptPathByProjectRootAndSession[key] {
-                switch cached {
-                case .found(let path):
-                    return path
-                case .missing:
-                    return nil
-                }
+                return cached
+            }
+            if missingTranscriptPathByProjectRootAndSession.contains(key) {
+                return nil
             }
 
             let path = RestorableAgentSessionIndex.claudeTranscriptPath(
@@ -1714,25 +1699,27 @@ struct RestorableAgentSessionIndex: Sendable {
                 sessionId: sessionId,
                 fileManager: fileManager
             )
-            transcriptPathByProjectRootAndSession[key] = path.map(CachedTranscriptPath.found) ?? .missing
+            if let path {
+                transcriptPathByProjectRootAndSession[key] = path
+            } else {
+                missingTranscriptPathByProjectRootAndSession.insert(key)
+            }
             return path
         }
 
         func transcriptPathInAnyProject(configRoot: String, sessionId: String) -> String? {
             let standardizedRoot = (configRoot as NSString).standardizingPath
-            let key = ConfigRootSessionKey(configRoot: standardizedRoot, sessionId: sessionId)
+            let key = cacheKey(standardizedRoot, sessionId)
             if let cached = transcriptPathByConfigRootAndSession[key] {
-                switch cached {
-                case .found(let path):
-                    return path
-                case .missing:
-                    return nil
-                }
+                return cached
+            }
+            if missingTranscriptPathByConfigRootAndSession.contains(key) {
+                return nil
             }
 
             let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
             guard directoryExists(atPath: projectsRoot) else {
-                transcriptPathByConfigRootAndSession[key] = .missing
+                missingTranscriptPathByConfigRootAndSession.insert(key)
                 return nil
             }
 
@@ -1742,17 +1729,21 @@ struct RestorableAgentSessionIndex: Sendable {
                     projectDirName: projectDir,
                     sessionId: sessionId
                 ) {
-                    transcriptPathByConfigRootAndSession[key] = .found(path)
+                    transcriptPathByConfigRootAndSession[key] = path
                     return path
                 }
             }
-            transcriptPathByConfigRootAndSession[key] = .missing
+            missingTranscriptPathByConfigRootAndSession.insert(key)
             return nil
         }
 
         private func directoryExists(atPath path: String) -> Bool {
             var isDirectory: ObjCBool = false
             return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+        }
+
+        private func cacheKey(_ prefix: String, _ sessionId: String) -> String {
+            prefix + "\u{0}" + sessionId
         }
     }
 

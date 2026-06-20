@@ -218,6 +218,90 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
+    @Test func claudeSessionStartFallsBackToClaudePIDWhenTTYBindingIsStale() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-tty-pid")
+        defer { context.cleanup() }
+
+        let leakedWorkspaceId = context.workspaceId
+        let leakedSurfaceId = context.surfaceId
+        let staleTTYWorkspaceId = "66666666-6666-6666-6666-666666666666"
+        let staleTTYSurfaceId = "55555555-5555-5555-5555-555555555555"
+        let staleTTYWorkspaceFocusedSurfaceId = "44444444-4444-4444-4444-444444444444"
+        let pidWorkspaceId = "77777777-7777-7777-7777-777777777777"
+        let pidSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let ttyName = "ttys-claude-stale-tty-pid"
+        let claudePID = 42_425
+        let socketPassword = "claude-stale-tty-pid-secret"
+        let sessionId = "claude-stale-tty-pid-session"
+
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(leakedSurfaceId, "surface:1", true)],
+            ttyName: ttyName,
+            ttySurfaceId: staleTTYSurfaceId,
+            ttyWorkspaceId: staleTTYWorkspaceId,
+            surfacesByWorkspace: [
+                leakedWorkspaceId: [(leakedSurfaceId, "surface:1", true)],
+                staleTTYWorkspaceId: [(staleTTYWorkspaceFocusedSurfaceId, "surface:2", true)],
+                pidWorkspaceId: [(pidSurfaceId, "surface:3", false)],
+            ],
+            agentPID: claudePID,
+            agentPIDWorkspaceId: pidWorkspaceId,
+            agentPIDSurfaceId: pidSurfaceId,
+            requiredSocketPassword: socketPassword
+        )
+
+        let environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_SOCKET_PASSWORD": socketPassword,
+            "CMUX_WORKSPACE_ID": leakedWorkspaceId,
+            "CMUX_SURFACE_ID": leakedSurfaceId,
+            "CMUX_CLI_TTY_NAME": ttyName,
+            "CMUX_CLAUDE_PID": "\(claudePID)",
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
+        ]
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let request = try #require(
+            resumeBindingRequests(in: context).last,
+            "Expected Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+        )
+        #expect(
+            request["workspace_id"] as? String == pidWorkspaceId,
+            "Stale TTY binding must fall through to the Claude PID workspace, not leaked ambient env; params=\(request)"
+        )
+        #expect(
+            request["surface_id"] as? String == pidSurfaceId,
+            "Stale TTY binding must fall through to the Claude PID surface, not leaked ambient env; params=\(request)"
+        )
+        #expect(
+            context.state.snapshot().contains { $0.contains(#""method":"system.top""#) },
+            "Stale TTY binding must not suppress the Claude PID process lookup; saw \(context.state.snapshot())"
+        )
+        #expect(
+            context.state.snapshot().contains("auth \(socketPassword)"),
+            "Claude PID fallback must authenticate before reading system.top on password-protected sockets"
+        )
+    }
+
     @Test func claudeSessionStartIgnoresStaleTTYWorkspaceWhenBoundSurfaceIsGone() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-tty-workspace")
         defer { context.cleanup() }
