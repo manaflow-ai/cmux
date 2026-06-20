@@ -25,5 +25,10 @@ Current rules:
 - `swift-logging.md`
 - `swiftui-state-layout.md`
 - `user-facing-errors.md`
+- `test-determinism.md`
+- `swift-test-pbxproj-wiring.md`
+- `submodule-push-before-pointer.md`
+- `wkwebview-file-url-access-keys.md`
+- `swift-workspace-package-group-mirroring.md`
 
 Open source repository note: review bots should apply the configuration from the base branch. A PR that edits these rules should not be able to weaken its own review.

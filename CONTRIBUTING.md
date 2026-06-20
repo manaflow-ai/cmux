@@ -30,6 +30,10 @@
    ```
    The script prints the `.app` path. Cmd-click to open, or pass `--launch` to open automatically.
 
+## Understanding the codebase
+
+Before making changes, read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the layer map, key runtime flows, and a "Where do I find X?" index. The contributor rules (architecture discipline, testing policy, localization, and pitfalls) live in [`CLAUDE.md`](CLAUDE.md) and the task-specific skills under `skills/`.
+
 ## Development Scripts
 
 | Script | Description |

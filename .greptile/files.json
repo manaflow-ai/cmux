@@ -66,6 +66,26 @@
       "scope": ["**/Package.swift", "**/Package.resolved", "**/.gitignore", "cmux.xcodeproj/**", ".github/workflows/**"]
     },
     {
+      "path": ".github/review-bot-rules/swift-test-pbxproj-wiring.md",
+      "description": "Source-of-truth cmux review rule for wiring cmuxTests/cmuxUITests Swift files into the Xcode project (pbxproj).",
+      "scope": ["cmuxTests/**", "cmuxUITests/**", "ios/**", "cmux.xcodeproj/**"]
+    },
+    {
+      "path": ".github/review-bot-rules/submodule-push-before-pointer.md",
+      "description": "Source-of-truth cmux review rule for submodule pointer bumps reachable from the submodule's canonical remote branch.",
+      "scope": [".gitmodules", "ghostty", "vendor/**"]
+    },
+    {
+      "path": ".github/review-bot-rules/wkwebview-file-url-access-keys.md",
+      "description": "Source-of-truth cmux review rule for WKWebView file:// SPI keys on code-split React/Solid surfaces.",
+      "scope": ["**/*.swift"]
+    },
+    {
+      "path": ".github/review-bot-rules/swift-workspace-package-group-mirroring.md",
+      "description": "Source-of-truth cmux review rule for mirroring Packages/{Shared,iOS,macOS} into cmux.xcworkspace.",
+      "scope": ["Packages/**", "cmux.xcworkspace/**", "**/Package.swift"]
+    },
+    {
       "path": "CLAUDE.md",
       "description": "Repo-local guidance for cmux Swift, SwiftUI, testing, shortcut, localization, and no-sleep policies.",
       "scope": ["**/*.swift", "**/Package.swift", "cmux.xcodeproj/**"]

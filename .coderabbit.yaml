@@ -61,6 +61,21 @@ reviews:
     - path: "CHANGELOG.md"
       instructions: |
         Apply `.github/review-bot-rules/full-internationalization.md` during review. Verify changelog copy rendered on the docs site has matching localized message coverage for every locale listed in `web/i18n/routing.ts`.
+    - path: "cmuxTests/**"
+      instructions: |
+        Apply `.github/review-bot-rules/swift-test-pbxproj-wiring.md` during review. Flag a new `.swift` file under `cmuxTests/` or `cmuxUITests/` that lacks a matching `PBXFileReference` + `PBXSourcesBuildPhase` entry in `cmux.xcodeproj/project.pbxproj` in the same diff — Xcode silently never runs it ("Executed 0 tests"), so a regression test passes as a no-op. Pass for SPM-package `Tests/` files, which need no pbxproj entry.
+    - path: "cmux.xcodeproj/**"
+      instructions: |
+        Apply `.github/review-bot-rules/swift-test-pbxproj-wiring.md` and `.github/review-bot-rules/swift-workspace-package-group-mirroring.md` during review. Verify new test files are wired into the test target, and that package-reference / group changes mirror the physical `Packages/{Shared,iOS,macOS}/` layout.
+    - path: ".gitmodules"
+      instructions: |
+        Apply `.github/review-bot-rules/submodule-push-before-pointer.md` during review. Flag a submodule pointer bump (especially `ghostty`) whose new SHA is not shown to be reachable from the submodule's canonical remote branch (`git merge-base --is-ancestor HEAD origin/main`), or that lands on a detached HEAD / unpushed branch.
+    - path: "Packages/**"
+      instructions: |
+        Apply `.github/review-bot-rules/swift-workspace-package-group-mirroring.md` during review. Flag a new or moved package directory under `Packages/{Shared,iOS,macOS}/` without a matching `FileRef` update in `cmux.xcworkspace/contents.xcworkspacedata`, or placement in the wrong group for its consumers. The fix is `python3 scripts/check-workspace-package-groups.py --write`.
+    - path: "**/*.swift"
+      instructions: |
+        Apply `.github/review-bot-rules/wkwebview-file-url-access-keys.md` during review. Flag a new webview coordinator that calls `loadFileURL(...)` for a code-split React/Solid surface without enabling both `allowFileAccessFromFileURLs` and `allowUniversalAccessFromFileURLs` (or the shared `allowFileURLAccess(_:)` helper). Over `file://` the origin is `null` and the panel blanks silently. Pass for single-inlined-bundle Solid surfaces and remote `http(s)://` content.
 
   pre_merge_checks:
     custom_checks:

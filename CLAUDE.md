@@ -1,5 +1,44 @@
 # cmux agent notes
 
+## What cmux is
+
+cmux is a native macOS terminal multiplexer (Swift/AppKit, **not** Electron) built on **libghostty** — the Ghostty terminal engine, vendored as the `ghostty/` submodule and consumed as `GhosttyKit.xcframework` — for GPU-accelerated rendering. It targets developers running many parallel AI coding-agent sessions: a vertical-tab sidebar surfaces each workspace's git branch, PR status, open ports, and latest notification; a notification-ring lights panes that need attention (OSC 9/99/777); an embedded scriptable browser panel; and a full CLI + Unix-socket control plane for automation.
+
+Repo components:
+
+- **macOS app** — `Sources/` (the main `cmux` Xcode target; large "god files" like `AppDelegate.swift` / `ContentView.swift` / `Workspace.swift` are being decomposed into packages), `cmux.xcodeproj` / `cmux.xcworkspace`.
+- **CLI** — `CLI/` builds the bundled `cmux` binary that talks to the app over a Unix socket (protocol in `Packages/macOS/CmuxControlSocket`).
+- **SPM packages** — `Packages/Shared` (both apps), `Packages/iOS`, `Packages/macOS`; see the `cmux-architecture` skill for the layer DAG.
+- **cmuxd** — Zig sidecar daemon (`cmuxd/`, built ReleaseFast) for on-device process/resource monitoring, over its own socket.
+- **daemon/remote** — Go `cmuxd-remote` for `cmux ssh` remote PTY sessions (JSON-RPC over SSH stdio).
+- **web** — Next.js 16 / React 19 / Drizzle / Effect on Vercel: marketing, docs, and the Cloud VM control plane (`web/`).
+- **webviews** — Vite/React/Solid panels rendered in WKWebView (`webviews/`, e.g. the Kanban board).
+- **iOS app** — `ios/` companion (consumes `Packages/iOS` + `Packages/Shared`).
+- **workers** — Cloudflare Worker for presence sync (`workers/presence/`).
+
+Runtime model: **Window → Workspace** (⌘1–8, tmux-session-like) **→ Pane** (split tree) **→ Surface** (a tab / one Ghostty terminal) **→ Panel** (content type: terminal, browser, markdown, kanban, agentSession, …; enum in `Sources/Panels/Panel.swift`).
+
+## Command reference
+
+TypeScript/JS uses **bun** everywhere (lockfiles `bun.lock`).
+
+| Task | Command |
+|---|---|
+| First-time setup | `./scripts/setup.sh` |
+| Build the Debug app (always tag) | `./scripts/reload.sh --tag <slug>` (`--launch` to open it) |
+| Compile-only check (no launch) | `xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-<tag> build` |
+| Run all Swift unit tests | `./scripts/test-unit.sh` |
+| Run one Swift test class | `./scripts/test-unit.sh -only-testing:cmuxTests/<TestClass>` |
+| Run one Swift test method | `./scripts/test-unit.sh -only-testing:cmuxTests/<TestClass>/<method>` |
+| Run one SPM package's tests | `swift test --package-path Packages/<Group>/<Package>` |
+| web/ dev · build · test | `cd web && bun run dev` · `bun run build` · `bun test` |
+| webviews/ build · test · typecheck | `cd webviews && bun run build` · `bun run test` · `bun run typecheck` |
+| Biome lint (whole repo) | `bun run biome:check` |
+| Rebuild GhosttyKit | `cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast` |
+| Rebuild cmuxd | `cd cmuxd && zig build -Doptimize=ReleaseFast` |
+
+CI guard checks worth running locally before pushing pbxproj/package changes: `./scripts/check-pbxproj.sh`, `./scripts/lint-pbxproj-test-wiring.sh`, `python3 scripts/check-workspace-package-groups.py --check`, `python3 scripts/check-package-resolved-policy.py`.
+
 ## Initial setup
 
 Run the setup script to initialize submodules, build GhosttyKit, and install the pbxproj normalization pre-commit hook:
@@ -131,6 +170,12 @@ When adding a regression test for a bug fix, use a two-commit structure so CI pr
 
 This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
 
+Run the single test class to confirm it goes red without the fix (and green with it):
+
+```bash
+./scripts/test-unit.sh -only-testing:cmuxTests/<TestClass>
+```
+
 ## Shared behavior policy
 
 - When a behavior is exposed through multiple entrypoints (keyboard shortcut, command palette, context menu, CLI, settings, debug menu), implement one shared action/model path and verify every entrypoint that should invoke it. Do not patch one surface while leaving the others with duplicated logic.
@@ -156,6 +201,8 @@ This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the
 - **Test files in `cmuxTests/` must be wired into `cmux.xcodeproj/project.pbxproj`.** A `.swift` file added to the worktree without a matching `PBXFileReference` + `PBXSourcesBuildPhase` entry is silently ignored by Xcode and never compiles or runs on CI. Both `xcodebuild test -only-testing:cmuxTests/<TestClass>` and bot reviews pass with "Executed 0 tests" — so the missing wiring is indistinguishable from a clean two-commit red/green regression test until a real user hits the bug. The `workflow-guard-tests` job runs `./scripts/lint-pbxproj-test-wiring.sh` to catch this at PR time; surfaced during the https://github.com/manaflow-ai/cmux/issues/4529 investigation against https://github.com/manaflow-ai/cmux/pull/4536. Add via Xcode (drag the file into the cmuxTests target) or hand-edit the four pbxproj entries; reference any wired sibling like `TabManagerUnitTests.swift` as a template.
 - **SPM packages live in group folders, and the root workspace mirrors that folder shape exactly.** Every Swift package lives physically under exactly one group directory — `Packages/Shared/<pkg>` (used by both apps), `Packages/iOS/<pkg>` (iOS app only), or `Packages/macOS/<pkg>` (macOS app only) — and `cmux.xcworkspace/contents.xcworkspacedata` has three groups whose container locations are those folders, with every package directory appearing as a FileRef under its folder's group. So opening the workspace shows all packages grouped exactly like the directory tree. The folder is the source of truth: to move a package between groups, `git mv` its directory, then run `python3 scripts/check-workspace-package-groups.py --write` to regenerate the workspace. A new package goes in the group folder matching its consumers (both apps → Shared, iOS only → iOS, macOS only → macOS). Cross-group `.package(path:)` deps use `../../<Group>/<Name>`; never hand-edit the workspace group membership. CI's `python3 scripts/check-workspace-package-groups.py --check` fails on drift.
 - **Do not ignore cmux-owned `Package.resolved` files.** SwiftPM resolution changes must be visible in PR diffs. Track the root Xcode lockfile and every cmux-owned package-local `Package.resolved` generated by standalone `swift package resolve`, `swift build`, or `swift test`; a package-local lockfile is the source of truth for that package's standalone resolution and is not replaced by `cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`. Vendored third-party directories may preserve their upstream ignore policy, but cmux-owned package `.gitignore` files must not ignore `Package.resolved`. CI's `python3 scripts/check-package-resolved-policy.py` fails if this drifts.
+- **WKWebView panels that load code-split ES modules over `file://` need the file-access prefs, or they mount to a blank panel.** The React webview surfaces (`Resources/markdown-viewer/webviews-app/*.html` → `main.mjs` → dynamic `import()` of `surfaces/*.mjs` + shared `chunks/*.mjs`) are loaded with `loadFileURL`. Over `file://` the document origin is `null`, so WebKit rejects every cross-origin module fetch (`"Origin null is not allowed by Access-Control-Allow-Origin"`), `main.mjs` never runs, and the surface is a silent blank panel — no JS executes, so in-page error hooks can't even fire. The coordinator's `WKWebViewConfiguration` must set both `preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")` and `setValue(true, forKey: "allowUniversalAccessFromFileURLs")` (KVC SPI). `KanbanWebRendererCoordinator` and `AgentSessionWebRendererCoordinator` both do this; any new file://-loaded React surface must too. The Solid renderer ships a single inlined bundle and sidesteps the rule, which is why this only ever broke the React agent-session renderer (rarely opened outside the Debug menu) until the Kanban "Live" button started opening it.
+- **`bun run build` in `webviews/` is NOT the canonical build — use `./scripts/build-webviews-app.sh`.** The Vite config has `emptyOutDir: true` and emits only `main.mjs` + `chunks/*.mjs`; the host HTML shells (`agent-session.html`, `kanban.html`) are written by the `build-webviews-app.sh` wrapper *after* Vite (it also inlines `marked.min.js` into the agent-session shell and normalizes trailing whitespace). Running bare `bun run build` wipes the output dir and deletes those `.html` files without regenerating them, leaving a broken bundle. Always rebuild webview assets with `./scripts/build-webviews-app.sh`; verify byte-for-byte with `./scripts/build-webviews-app.sh --check` (also a CI guard). For runtime debugging, a tagged Debug app writes its event log to `/tmp/cmux-debug-<tag>.log`.
 
 ## Ghostty submodule workflow
 
@@ -194,7 +241,7 @@ git commit -m "Update ghostty submodule"
 Use the `/release` command to prepare a new release. This will:
 1. Determine the new version (bumps minor by default)
 2. Gather commits since the last tag and update the changelog
-3. Update `CHANGELOG.md` (the docs changelog page at `web/app/docs/changelog/page.tsx` reads from it)
+3. Update `CHANGELOG.md` (the docs changelog page at `web/app/[locale]/docs/changelog/page.tsx` reads from it)
 4. Run `./scripts/bump-version.sh` to update both versions
 5. Commit, run `./scripts/release-pretag-guard.sh`, tag, and push
 
@@ -236,9 +283,11 @@ Notes:
 
 ## Skills
 
-Detailed cmux contributor rules live in repo skills under `skills/`; use the task-specific skill before changing that area.
+Detailed cmux contributor rules live in repo skills under `skills/`; use the task-specific skill before changing that area. For the cross-cutting architecture map (layer DAG, key runtime flows, and a "Where do I find X?" index), read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) first.
 
-Core skill map:
+Full skill map (23 skills under `skills/`):
+
+Contributor workflow & code:
 
 - `cmux-dev-workflow`: setup, tagged reloads, Xcode project normalization, sidebar extension tagging, local dev build isolation.
 - `cmux-architecture`: package boundaries, refactor architecture, file/API discipline, testability, Swift concurrency rules.
@@ -250,3 +299,22 @@ Core skill map:
 - `cmux-shared-behavior`: shared action paths for multi-entrypoint behavior and optimistic updates.
 - `cmux-ghostty`: Ghostty submodule and GhosttyKit workflow.
 - `cmux-release`: release, version bump, changelog, pretag guard, and release asset workflow.
+
+Subsystem deep-dives:
+
+- `cmux-agent-session`: agent-session & Kanban-live runtime — one-spawn/many-observers process store, provider stdout parsing, webview renderer + bridge.
+- `cmux-webviews`: `webviews/` Vite/React/Solid build discipline (`build-webviews-app.sh`), native bridge, file:// SPI keys.
+- `cmux-kanban`: `CmuxKanbanCore` engine, `DispatchBackend`, WIP/column policy, cancel routing, board WKWebView.
+- `cmux-ios`: iOS app (`ios/`) + `Packages/iOS` + cross-platform `Packages/Shared` rules, `MobileShellComposite`, terminal mirroring.
+
+End-user automation & customization:
+
+- `cmux`: topology and routing — list/focus/move windows, workspaces, panes, surfaces; identify caller context.
+- `cmux-workspace`: scope automation to the caller's workspace; socket targeting; non-interfering pane/surface control.
+- `cmux-browser`: open URLs, interact with pages, wait for state, extract data from cmux browser surfaces.
+- `cmux-custom-sidebar`: author and hot-reload interpreted SwiftUI-style sidebar files in `~/.config/cmux/sidebars/`.
+- `cmux-customization`: cmux.json actions, custom commands, layouts, palette/dock/sidebar settings, browser routing, presets.
+- `cmux-settings`: view and edit `~/.config/cmux/cmux.json`; validate, set values by JSON path, apply immediately.
+- `cmux-keyboard-shortcuts`: customize, rebind, template, or audit cmux keyboard shortcuts.
+- `cmux-markdown`: open markdown files in a formatted live-reload viewer panel alongside the terminal.
+- `cmux-diagnostics`: health-check / support-safe doctor report for hooks, notifications, session restore, socket access.
