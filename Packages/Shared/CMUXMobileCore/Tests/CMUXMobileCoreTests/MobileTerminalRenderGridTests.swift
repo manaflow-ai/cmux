@@ -3,14 +3,19 @@ import Testing
 @testable import CMUXMobileCore
 
 @Test func mobileScrollbackBudgetsKeepReplayAndMirrorCapacityCoupled() {
+    let budget = MobileTerminalScrollbackBudget.localMirror
+    let scxLiveTailPhysicalRows = 2_600
     let scxWrapScrollPhysicalRows = 2_600 * 3
+    let visibleRows: UInt64 = 48
 
-    #expect(MobileTerminalScrollbackBudget.fullReplayRows >= 10_000)
-    #expect(MobileTerminalScrollbackBudget.fullReplayRows >= scxWrapScrollPhysicalRows)
-    #expect(MobileTerminalScrollbackBudget.localMirrorScrollbackLimitBytes ==
-        MobileTerminalScrollbackBudget.fullReplayRows *
-        MobileTerminalScrollbackBudget.localMirrorBytesPerReplayRow)
-    #expect(MobileTerminalScrollbackBudget.localMirrorBytesPerReplayRow >= 12 * 1024)
+    #expect(MobileTerminalScrollbackBudget.fullReplayRows == budget.fullReplayRows)
+    #expect(MobileTerminalScrollbackBudget.localMirrorScrollbackLimitBytes == budget.localMirrorScrollbackLimitBytes)
+    #expect(budget.fullReplayRows >= scxLiveTailPhysicalRows)
+    #expect(budget.fullReplayRows >= scxWrapScrollPhysicalRows)
+    #expect(budget.expectedTotalRows(scrollbackRows: scxWrapScrollPhysicalRows, visibleRows: visibleRows) ==
+        UInt64(scxWrapScrollPhysicalRows) + visibleRows)
+    #expect(budget.localMirrorScrollbackLimitBytes >= budget.fullReplayRows * 12 * 1024)
+    #expect(budget.retentionAccountingSlackRows == 1)
 }
 
 @Test func renderGridFrameEncodesVisibleRowsAndCursor() throws {

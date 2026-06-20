@@ -18,7 +18,10 @@ extension GhosttySurfaceView {
             + "max=\(String(format: "%.2f", result.maxRowOffset)) "
             + "rowOffset=\(String(format: "%.2f", result.rowOffset)) "
             + "wasAtBottom=\(result.wasAtBottom) "
-            + "replayRows=\(localScrollbackModel.replayScrollbackRows)"
+            + "replayRows=\(localScrollbackModel.replayScrollbackRows) "
+            + "expectedTotal=\(result.expectedTotalRows) "
+            + "retainedTotal=\(result.observation.totalRows) "
+            + "retention=\(result.mirrorRetention)"
         )
         if result.mirrorTruncated {
             MobileDebugLog.anchormux(

@@ -23,17 +23,20 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
     public struct ReplayWindow: Equatable, Sendable {
         public let activeScreen: MobileTerminalRenderGridFrame.Screen
         public let scrollbackRows: Int
+        public let mirrorBudget: MobileTerminalScrollbackMirrorBudget
 
         public init(
             activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
-            scrollbackRows: Int = 0
+            scrollbackRows: Int = 0,
+            mirrorBudget: MobileTerminalScrollbackMirrorBudget = MobileTerminalScrollbackBudget.localMirror
         ) {
             self.activeScreen = activeScreen
             self.scrollbackRows = max(0, scrollbackRows)
+            self.mirrorBudget = mirrorBudget
         }
 
         public func expectedTotalRows(visibleRows: UInt64) -> UInt64 {
-            UInt64(scrollbackRows) + visibleRows
+            mirrorBudget.expectedTotalRows(scrollbackRows: scrollbackRows, visibleRows: visibleRows)
         }
     }
 
@@ -76,7 +79,23 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         }
     }
 
-    private static let retentionAccountingSlackRows: UInt64 = 1
+    public struct MirrorRetentionPolicy: Equatable, Sendable {
+        public let accountingSlackRows: UInt64
+
+        public init(accountingSlackRows: UInt64 = MobileTerminalScrollbackBudget.retentionAccountingSlackRows) {
+            self.accountingSlackRows = accountingSlackRows
+        }
+
+        public func retention(
+            replayWindow: ReplayWindow,
+            observation: MirrorObservation,
+            expectedTotalRows: UInt64
+        ) -> MirrorRetention {
+            guard replayWindow.scrollbackRows > 0 else { return .complete }
+            guard observation.totalRows + accountingSlackRows < expectedTotalRows else { return .complete }
+            return .truncated(missingRows: expectedTotalRows - observation.totalRows)
+        }
+    }
 
     public struct BoundsResult: Equatable, Sendable {
         public let rowOffset: Double
@@ -120,12 +139,17 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
     }
 
     private let bottomAnchorPolicy: BottomAnchorPolicy
+    private let mirrorRetentionPolicy: MirrorRetentionPolicy
 
     private var boundsInitialized = false
     private var anchorToBottomOnNextBounds = false
 
-    public init(bottomAnchorPolicy: BottomAnchorPolicy = BottomAnchorPolicy()) {
+    public init(
+        bottomAnchorPolicy: BottomAnchorPolicy = BottomAnchorPolicy(),
+        mirrorRetentionPolicy: MirrorRetentionPolicy = MirrorRetentionPolicy()
+    ) {
         self.bottomAnchorPolicy = bottomAnchorPolicy
+        self.mirrorRetentionPolicy = mirrorRetentionPolicy
     }
 
     public var isViewingLiveBottom: Bool {
@@ -174,7 +198,7 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         observedTotalRows = observation.totalRows
         visibleRows = observation.visibleRows
         let expectedTotal = replayWindow.expectedTotalRows(visibleRows: observation.visibleRows)
-        mirrorRetention = Self.retention(
+        mirrorRetention = mirrorRetentionPolicy.retention(
             replayWindow: replayWindow,
             observation: observation,
             expectedTotalRows: expectedTotal
@@ -225,16 +249,6 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         mirrorRetention = .complete
         boundsInitialized = false
         anchorToBottomOnNextBounds = false
-    }
-
-    private static func retention(
-        replayWindow: ReplayWindow,
-        observation: MirrorObservation,
-        expectedTotalRows: UInt64
-    ) -> MirrorRetention {
-        guard replayWindow.scrollbackRows > 0 else { return .complete }
-        guard observation.totalRows + retentionAccountingSlackRows < expectedTotalRows else { return .complete }
-        return .truncated(missingRows: expectedTotalRows - observation.totalRows)
     }
 
     private static func resolvedMaxRowOffset(

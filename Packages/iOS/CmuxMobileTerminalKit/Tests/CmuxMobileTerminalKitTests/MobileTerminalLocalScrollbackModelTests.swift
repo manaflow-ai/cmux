@@ -73,7 +73,9 @@ import Testing
 }
 
 @Test func oneRowMirrorAccountingSlackDoesNotMarkReplayTruncated() {
-    var model = MobileTerminalLocalScrollbackModel()
+    var model = MobileTerminalLocalScrollbackModel(
+        mirrorRetentionPolicy: .init(accountingSlackRows: 1)
+    )
     _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 100)
 
     let bounds = model.updateBounds(total: 151, len: 52)
@@ -82,6 +84,20 @@ import Testing
     #expect(bounds.mirrorRetention == .complete)
     #expect(bounds.maxRowOffset == 100)
     #expect(bounds.rowOffset == 100)
+}
+
+@Test func retentionPolicyWithoutSlackTreatsOneMissingRowAsTruncated() {
+    var model = MobileTerminalLocalScrollbackModel(
+        mirrorRetentionPolicy: .init(accountingSlackRows: 0)
+    )
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 100)
+
+    let bounds = model.updateBounds(total: 151, len: 52)
+
+    #expect(bounds.expectedTotalRows == 152)
+    #expect(bounds.mirrorRetention == .truncated(missingRows: 1))
+    #expect(bounds.maxRowOffset == 99)
+    #expect(bounds.rowOffset == 99)
 }
 
 @Test func replayWindowClampsNegativeMetadataRows() {
