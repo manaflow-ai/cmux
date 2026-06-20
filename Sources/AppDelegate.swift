@@ -12609,6 +12609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?"),
             String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
             String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?"),
+            String(localized: "dialog.closePane.title", defaultValue: "Close pane?"),
             String(localized: "dialog.closeWindow.title", defaultValue: "Close window?"),
         ]
         let closeConfirmationPanel = NSApp.windows

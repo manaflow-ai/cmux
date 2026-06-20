@@ -72,6 +72,8 @@ final class DockSplitStore: BonsplitDelegate {
 
     // MARK: - Lookups
 
+    func currentRemoteBrowserSettings() -> DockRemoteBrowserSettings { remoteBrowserSettingsProvider() }
+
     func panel(for tabId: TabID) -> (any Panel)? {
         guard let panelId = surfaceIdToPanelId[tabId] else { return nil }
         return panels[panelId]
@@ -194,20 +196,26 @@ final class DockSplitStore: BonsplitDelegate {
         kind: DockSurfaceKind,
         inPane paneId: PaneID,
         url: URL? = nil,
+        initialRequest: URLRequest? = nil,
         command: String? = nil,
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        preferredProfileID: UUID? = nil,
+        bypassInsecureHTTPHostOnce: String? = nil
     ) -> UUID? {
         ensureLoaded()
         guard let panel = makePanel(
             kind: kind,
             command: command,
             url: url,
+            initialRequest: initialRequest,
             environment: environment,
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            preferredProfileID: preferredProfileID,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else { return nil }
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
             return nil
@@ -339,9 +347,12 @@ final class DockSplitStore: BonsplitDelegate {
         kind: DockSurfaceKind,
         command: String?,
         url: URL?,
+        initialRequest: URLRequest? = nil,
         environment: [String: String],
         workingDirectory: String,
-        tmuxStartCommand: String? = nil
+        tmuxStartCommand: String? = nil,
+        preferredProfileID: UUID? = nil,
+        bypassInsecureHTTPHostOnce: String? = nil
     ) -> (any Panel)? {
         switch kind {
         case .terminal:
@@ -356,10 +367,15 @@ final class DockSplitStore: BonsplitDelegate {
             )
         case .browser:
             guard BrowserAvailabilitySettings.isEnabled() else {
-                if let url { _ = NSWorkspace.shared.open(url) }
+                if let externalURL = url ?? initialRequest?.url { _ = NSWorkspace.shared.open(externalURL) }
                 return nil
             }
-            return makeBrowserPanel(url: url)
+            return makeBrowserPanel(
+                url: url,
+                initialRequest: initialRequest,
+                preferredProfileID: preferredProfileID,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            )
         }
     }
 
@@ -379,21 +395,6 @@ final class DockSplitStore: BonsplitDelegate {
             guard BrowserAvailabilitySettings.isEnabled() else { return nil }
             return makeBrowserPanel(url: def.url.flatMap { URL(string: $0) })
         }
-    }
-
-    /// Builds a Dock browser panel, forwarding the workspace's remote-browser
-    /// settings so Dock browsers share the same proxy / data store as main-area
-    /// browser panes (correct for remote/cloud workspaces).
-    private func makeBrowserPanel(url: URL?) -> BrowserPanel {
-        let settings = remoteBrowserSettingsProvider()
-        return BrowserPanel(
-            workspaceId: workspaceId,
-            initialURL: url,
-            proxyEndpoint: settings.proxyEndpoint,
-            bypassRemoteProxy: settings.bypassRemoteProxy,
-            isRemoteWorkspace: settings.isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier
-        )
     }
 
     private func makeTerminalPanel(

@@ -2,6 +2,31 @@ import AppKit
 import Bonsplit
 import CmuxSettings
 
+private struct DockPaneCloseConfirmationPrompt: Sendable {
+    let title: String
+    let message: String
+
+    init(titles: [String]) {
+        let count = titles.count
+        let titleLines = titles.map { "• \($0)" }.joined(separator: "\n")
+        title = String(localized: "dialog.closePane.title", defaultValue: "Close pane?")
+
+        if count == 1 {
+            let format = String(
+                localized: "dialog.closeOtherTabs.message.one",
+                defaultValue: "This will close 1 tab in this pane:\n%@"
+            )
+            message = String(format: format, locale: .current, titleLines)
+        } else {
+            let format = String(
+                localized: "dialog.closeOtherTabs.message.other",
+                defaultValue: "This will close %1$lld tabs in this pane:\n%2$@"
+            )
+            message = String(format: format, locale: .current, Int64(count), titleLines)
+        }
+    }
+}
+
 extension DockSplitStore {
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         if forceCloseDockTabIds.contains(tab.id) {
@@ -44,16 +69,34 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
-        for tab in controller.tabs(inPane: pane) where !forceCloseDockTabIds.contains(tab.id) {
-            guard let panel = panel(for: tab.id) else { continue }
-            if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+        let confirmableTabs = controller.tabs(inPane: pane).compactMap { tab -> (id: TabID, title: String)? in
+            guard !forceCloseDockTabIds.contains(tab.id), let panel = panel(for: tab.id) else { return nil }
+            guard CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
                 requiresConfirmation: dockPanelNeedsConfirmClose(panel),
                 source: .shortcut
-            ) {
-                return false
-            }
+            ) else { return nil }
+            return (tab.id, CloseOtherTabsConfirmationPrompt.displayTitle(panel.displayTitle))
         }
-        return true
+        guard !confirmableTabs.isEmpty else { return true }
+
+        let tabIds = Set(confirmableTabs.map { $0.id })
+        guard pendingCloseConfirmDockTabIds.isDisjoint(with: tabIds) else { return false }
+
+        let confirmationManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? AppDelegate.shared?.tabManager
+        if confirmationManager?.isCloseConfirmationInFlight == true { return false }
+
+        pendingCloseConfirmDockTabIds.formUnion(tabIds)
+        let prompt = DockPaneCloseConfirmationPrompt(titles: confirmableTabs.map { $0.title })
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.pendingCloseConfirmDockTabIds.subtract(tabIds) }
+            guard self.confirmCloseDockPane(prompt, confirmationManager: confirmationManager) else { return }
+
+            self.forceCloseDockTabIds.formUnion(tabIds)
+            defer { self.forceCloseDockTabIds.subtract(tabIds) }
+            _ = self.bonsplitController.closePane(pane)
+        }
+        return false
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
@@ -88,7 +131,14 @@ extension DockSplitStore {
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
         }
+        return confirmCloseDockPrompt(title: title, message: message, confirmationManager: confirmationManager)
+    }
 
+    private func confirmCloseDockPane(_ prompt: DockPaneCloseConfirmationPrompt, confirmationManager: TabManager?) -> Bool {
+        confirmCloseDockPrompt(title: prompt.title, message: prompt.message, confirmationManager: confirmationManager)
+    }
+
+    private func confirmCloseDockPrompt(title: String, message: String, confirmationManager: TabManager?) -> Bool {
         if let confirmationManager {
             return confirmationManager.confirmClose(title: title, message: message, acceptCmdD: false)
         }
