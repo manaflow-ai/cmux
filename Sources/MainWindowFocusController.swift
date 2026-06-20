@@ -313,7 +313,9 @@ final class MainWindowFocusController {
             }
             if terminalFocusRequest(for: responder) == nil,
                selectedFocusedPanelRequest(owning: responder) == nil,
-               shouldPreserveForeignResponderDuringMainPanelRestore(responder, in: window) {
+               shouldRespectForeignFirstResponder(responder, in: window, isRightSidebarOwner: {
+                   liveRightSidebarModeOwning($0, in: window) != nil
+               }) {
                 return false
             }
         }
@@ -331,22 +333,6 @@ final class MainWindowFocusController {
     ) -> RightSidebarMode? {
         guard (responder as? NSView)?.window === window else { return nil }
         return rightSidebarModeOwning(responder)
-    }
-
-    private func shouldPreserveForeignResponderDuringMainPanelRestore(
-        _ responder: NSResponder,
-        in window: NSWindow
-    ) -> Bool {
-        if let textResponder = responder as? NSText,
-           textResponder.window === window {
-            return true
-        }
-
-        guard let responderView = responder as? NSView else { return false }
-        guard responderView.window === window else { return false }
-        guard !responderView.isHiddenOrHasHiddenAncestor else { return false }
-        guard responderView !== window.contentView else { return false }
-        return responderView.superview != nil
     }
 
     @discardableResult

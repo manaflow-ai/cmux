@@ -6406,6 +6406,60 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
     }
 
+    func testWindowKeyRestoreIgnoresSameWindowStrayResponderForFocusedTerminal() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView),
+              let focusController = appDelegate.keyboardFocusCoordinator(for: window) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
+
+        let strayResponder = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        (window.contentView?.superview ?? window.contentView)?.addSubview(strayResponder)
+        defer { strayResponder.removeFromSuperview() }
+
+        XCTAssertTrue(window.makeFirstResponder(strayResponder), "Expected same-window stray responder to take focus")
+        XCTAssertTrue(window.firstResponder === strayResponder)
+        XCTAssertFalse(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to lose first responder before stray-responder restoration"
+        )
+
+        appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
+        XCTAssertTrue(
+            appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: panelId, in: window),
+            "Main-panel intent should allow terminal focus before window-key restoration"
+        )
+
+        XCTAssertTrue(
+            focusController.restoreTargetAfterWindowBecameKey(),
+            "Window key restoration should ignore same-window stray responders and restore the focused terminal"
+        )
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
+        }
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "A same-window stray responder must not block terminal first-responder restoration"
+        )
+        XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
+    }
+
     func testWindowKeyRestoreIgnoresStrandedRightSidebarResponderForFocusedTerminal() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
