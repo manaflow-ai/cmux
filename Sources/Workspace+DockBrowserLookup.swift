@@ -8,4 +8,8 @@ extension Workspace {
     func dockBrowserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
         _dockSplit?.browserPanel(owning: responder, in: window)
     }
+
+    func containsDockPane(_ paneId: UUID) -> Bool {
+        _dockSplit?.containsPane(paneId) ?? false
+    }
 }

@@ -306,12 +306,12 @@ final class DockSplitStore: BonsplitDelegate {
         return bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
     }
 
-    /// Whether a panel id is present in the Dock tree (for validating an
-    /// explicit `surface_id` source before a Dock split).
+    /// Whether a panel id is present in the Dock tree.
     func containsPanel(_ panelId: UUID) -> Bool {
         ensureLoaded()
         return panels[panelId] != nil
     }
+    func containsPane(_ paneId: UUID) -> Bool { bonsplitController.allPaneIds.contains(where: { $0.id == paneId }) }
 
     /// Creates a new surface in the currently focused Dock pane (Dock toolbar "+" menu).
     func newInFocusedPane(kind: DockSurfaceKind) {
@@ -561,14 +561,15 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     private func removeAllPanels() {
-        for tabId in bonsplitController.allTabIds {
-            _ = bonsplitController.closeTab(tabId)
-        }
+        let tabIds = Set(bonsplitController.allTabIds)
+        pendingCloseConfirmDockTabIds.removeAll(); tabCloseButtonCloseDockTabIds.removeAll()
+        forceCloseDockTabIds.formUnion(tabIds)
+        defer { forceCloseDockTabIds.subtract(tabIds) }
+        for tabId in tabIds { _ = bonsplitController.closeTab(tabId) }
         collapseToSingleEmptyPane()
         reconcilePanels()
         for panel in panels.values { panel.close() }
-        panels.removeAll()
-        surfaceIdToPanelId.removeAll()
+        panels.removeAll(); surfaceIdToPanelId.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
     }

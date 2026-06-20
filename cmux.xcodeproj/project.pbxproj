@@ -862,6 +862,7 @@
 		C0DE00000000000000000C66 /* TerminalController+ControlSurfaceContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C65 /* TerminalController+ControlSurfaceContext2.swift */; };
 		C0DE00000000000000000C68 /* TerminalController+ControlSurfaceContext3.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C67 /* TerminalController+ControlSurfaceContext3.swift */; };
 		C0DE00000000000000000C6A /* TerminalController+ControlSurfaceContext4.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C69 /* TerminalController+ControlSurfaceContext4.swift */; };
+		C0DE00000000000000000C86 /* TerminalController+ControlSurfaceDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */; };
 		C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */; };
 		C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */; };
 		C0DE00000000000000000C62 /* TerminalController+ControlWorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */; };
@@ -1884,6 +1885,7 @@
 		C0DE00000000000000000C65 /* TerminalController+ControlSurfaceContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceContext2.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C67 /* TerminalController+ControlSurfaceContext3.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceContext3.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C69 /* TerminalController+ControlSurfaceContext4.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceContext4.swift"; sourceTree = "<group>"; };
+		C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSurfaceDock.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C79 /* TerminalController+ControlSystemContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext2.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceContext.swift"; sourceTree = "<group>"; };
@@ -2548,6 +2550,7 @@
 				C0DE00000000000000000C65 /* TerminalController+ControlSurfaceContext2.swift */,
 				C0DE00000000000000000C67 /* TerminalController+ControlSurfaceContext3.swift */,
 				C0DE00000000000000000C69 /* TerminalController+ControlSurfaceContext4.swift */,
+				C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */,
 				C0DE00000000000000000C51 /* TerminalController+ControlMobileHostContext.swift */,
 				ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */,
 				C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */,
@@ -4096,6 +4099,7 @@
 				C0DE00000000000000000C66 /* TerminalController+ControlSurfaceContext2.swift in Sources */,
 				C0DE00000000000000000C68 /* TerminalController+ControlSurfaceContext3.swift in Sources */,
 				C0DE00000000000000000C6A /* TerminalController+ControlSurfaceContext4.swift in Sources */,
+				C0DE00000000000000000C86 /* TerminalController+ControlSurfaceDock.swift in Sources */,
 				C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */,
 				C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */,
 				C0DE00000000000000000C62 /* TerminalController+ControlWorkspaceContext.swift in Sources */,
