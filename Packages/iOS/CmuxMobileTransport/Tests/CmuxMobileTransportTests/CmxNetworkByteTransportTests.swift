@@ -86,9 +86,11 @@ import Testing
     // timeout to scan-to-pair latency whenever a dead route sorted first.
     let server = try NetworkEchoServer(response: Data())
     let port = try await server.start()
-    server.stop()
-    // Yield until the port is actually released by the cancelled listener.
-    try await Task.sleep(nanoseconds: 100_000_000)
+    // Deterministically wait for the listener to reach `.cancelled` (the OS has
+    // released the port) instead of guessing with a fixed sleep, which could
+    // dial before teardown completed and see a half-open socket rather than the
+    // immediate refusal this test asserts.
+    await server.stopAndWaitForCancellation()
 
     let transport = try CmxNetworkByteTransport(
         host: "127.0.0.1",
@@ -117,6 +119,8 @@ private final class NetworkEchoServer: @unchecked Sendable {
     private let response: Data
     private let queue = DispatchQueue(label: "dev.cmux.mobile.network-echo-server")
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
+    private var cancelledContinuation: CheckedContinuation<Void, Never>?
+    private var didCancel = false
     private var connections: [NWConnection] = []
 
     init(response: Data) throws {
@@ -141,12 +145,31 @@ private final class NetworkEchoServer: @unchecked Sendable {
 
     func stop() {
         queue.async {
-            self.listener.cancel()
-            for connection in self.connections {
-                connection.cancel()
-            }
-            self.connections.removeAll()
+            self.beginCancel()
         }
+    }
+
+    /// Cancels the listener and suspends until it reaches `.cancelled`, so callers
+    /// know the OS has released the bound port before they dial it.
+    func stopAndWaitForCancellation() async {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                if self.didCancel {
+                    continuation.resume()
+                    return
+                }
+                self.cancelledContinuation = continuation
+                self.beginCancel()
+            }
+        }
+    }
+
+    private func beginCancel() {
+        listener.cancel()
+        for connection in connections {
+            connection.cancel()
+        }
+        connections.removeAll()
     }
 
     private func handleListenerState(_ state: NWListener.State) {
@@ -163,8 +186,11 @@ private final class NetworkEchoServer: @unchecked Sendable {
             readyContinuation?.resume(throwing: error)
             readyContinuation = nil
         case .cancelled:
+            didCancel = true
             readyContinuation?.resume(throwing: CancellationError())
             readyContinuation = nil
+            cancelledContinuation?.resume()
+            cancelledContinuation = nil
         case .setup, .waiting:
             break
         @unknown default:

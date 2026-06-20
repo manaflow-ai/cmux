@@ -85,5 +85,23 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         defaultValue: []
     )
 
+    /// Whether the per-pane runaway-memory guardrail is active. When on, cmux
+    /// polls each pane's process-tree memory and warns (badge + dismissible
+    /// banner with a kill action) when one crosses the threshold, before the OS
+    /// can OOM-suspend the whole app. On by default.
+    public let runawayMemoryGuardrailEnabled = DefaultsKey<Bool>(
+        id: "terminal.runawayMemoryGuardrail.enabled",
+        defaultValue: true,
+        userDefaultsKey: "terminal.runawayMemoryGuardrail.enabled"
+    )
+
+    /// Process-tree resident-memory threshold, in gigabytes, at which a pane is
+    /// flagged as a runaway. Default 8 GB.
+    public let runawayMemoryGuardrailThresholdGB = DefaultsKey<Double>(
+        id: "terminal.runawayMemoryGuardrail.thresholdGB",
+        defaultValue: 8,
+        userDefaultsKey: "terminal.runawayMemoryGuardrail.thresholdGB"
+    )
+
     public init() {}
 }

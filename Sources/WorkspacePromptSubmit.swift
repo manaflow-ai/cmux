@@ -1,4 +1,4 @@
-import CMUXWorkstream
+import CMUXAgentLaunch
 import Foundation
 
 enum IMessageModeSettings {
