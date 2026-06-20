@@ -34,6 +34,12 @@ public final class DebugWindowsCoordinator {
     @ObservationIgnored
     private var browserProfilePopoverController: BrowserProfilePopoverDebugWindowController?
 
+    @ObservationIgnored
+    private var tabBarBackdropLabController: TabBarBackdropLabWindowController?
+
+    @ObservationIgnored
+    private let tabBarBackdropLabContentProvider: (@MainActor () -> NSView)?
+
     #if DEBUG
     @ObservationIgnored
     private var splitButtonLayoutController: SplitButtonLayoutDebugWindowController?
@@ -81,9 +87,15 @@ public final class DebugWindowsCoordinator {
     ///     main-window glass tint through the app-target window-chrome composition,
     ///     so the app target injects it here. `nil` disables
     ///     ``showBackgroundDebug()`` (no panel is presented).
+    ///   - tabBarBackdropLabContentProvider: Builds the content view for the "Tab
+    ///     Bar Backdrop Lab" panel. The lab renders live `Bonsplit` tab bars and
+    ///     samples the app-target `GhosttyApp`/`Workspace` backdrop tuning, so the
+    ///     app target injects it here. `nil` disables ``showTabBarBackdropLab()``
+    ///     (no panel is presented).
     public init(
         decorator: (any WindowDecorating)?,
         browserDebugContext: (any BrowserDebugContext)? = nil,
+        tabBarBackdropLabContentProvider: (@MainActor () -> NSView)? = nil,
         debugWindowControlsContentProvider: (@MainActor () -> NSView)? = nil,
         menuBarExtraDebugContentProvider: (@MainActor () -> NSView)? = nil,
         backgroundDebugContentProvider: (@MainActor () -> NSView)? = nil
@@ -91,6 +103,7 @@ public final class DebugWindowsCoordinator {
         self.decorator = decorator
         self.browserDebugContext = browserDebugContext
         self.aboutTitlebarStore = AboutTitlebarDebugStore(decorator: decorator)
+        self.tabBarBackdropLabContentProvider = tabBarBackdropLabContentProvider
         #if DEBUG
         self.debugWindowControlsContentProvider = debugWindowControlsContentProvider
         self.menuBarExtraDebugContentProvider = menuBarExtraDebugContentProvider
@@ -130,6 +143,19 @@ public final class DebugWindowsCoordinator {
         let controller = browserProfilePopoverController
             ?? BrowserProfilePopoverDebugWindowController(decorator: decorator)
         browserProfilePopoverController = controller
+        controller.show()
+    }
+
+    /// Presents the Tab Bar Backdrop Lab panel, creating its window on first use.
+    ///
+    /// No-op when no content provider was injected at construction.
+    public func showTabBarBackdropLab() {
+        guard let tabBarBackdropLabContentProvider else { return }
+        let controller = tabBarBackdropLabController
+            ?? TabBarBackdropLabWindowController(
+                contentProvider: tabBarBackdropLabContentProvider
+            )
+        tabBarBackdropLabController = controller
         controller.show()
     }
 

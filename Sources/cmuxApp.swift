@@ -586,7 +586,7 @@ struct cmuxApp: App {
                             defaultValue: "Tab Bar Backdrop Lab…"
                         )
                     ) {
-                        TabBarBackdropLabWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showTabBarBackdropLab()
                     }
                     Button("File Explorer Style Debug…") {
                         FileExplorerStyleDebugWindowController.shared.show()
@@ -1534,7 +1534,7 @@ struct DebugWindowControlsView: View {
                                 defaultValue: "Tab Bar Backdrop Lab…"
                             )
                         ) {
-                            TabBarBackdropLabWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showTabBarBackdropLab()
                         }
                         Button(
                             String(
@@ -1556,7 +1556,7 @@ struct DebugWindowControlsView: View {
                             StartupAppearanceDebugWindowController.shared.show()
                             AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
                             PDFPreviewChromeDebugWindowController.shared.show()
-                            TabBarBackdropLabWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showTabBarBackdropLab()
                             FeedTextEditorDebugWindowController.shared.show()
                         }
                     }
@@ -2358,42 +2358,15 @@ struct MenuBarExtraDebugView: View {
 #endif
 
 // MARK: - Tab Bar Backdrop Lab Window
+//
+// The window shell lives in `CmuxAppKitSupportUI`
+// (`TabBarBackdropLabWindowController`); these views are the app-coupled content it
+// hosts. They render live `Bonsplit` tab bars and sample the app-target
+// `GhosttyApp`/`Workspace` backdrop tuning, so they stay in the app target and are
+// injected into ``DebugWindowsCoordinator`` as the content provider for the
+// package-owned window shell.
 
-private final class TabBarBackdropLabWindowController: ReleasingWindowController {
-    static let shared = TabBarBackdropLabWindowController()
-
-    override func makeWindow() -> NSWindow {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1040),
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = String(localized: "debug.tabBarBackdropLab.title", defaultValue: "Tab Bar Backdrop Lab")
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        window.level = .floating
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.tabBarBackdropLab")
-        window.center()
-
-        let hostingView = NSHostingView(rootView: TabBarBackdropLabView())
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-        window.contentView = hostingView
-
-        return window
-    }
-
-    func show() {
-        showManagedWindow(orderFrontRegardless: true)
-    }
-}
-
-private struct TabBarBackdropLabView: View {
+struct TabBarBackdropLabView: View {
     @State private var opacity: Double
     @State private var sidebarWidth: Double = 74
     @State private var sampleWidth: Double = 460
