@@ -25,7 +25,11 @@ extension ControlCommandCoordinator {
 
     /// Maps a shared panel-resolution failure to the exact legacy `.err` the
     /// `v2BrowserWithPanel` head produced.
-    private func browserPanelResolutionError(
+    ///
+    /// `internal` (not `private`): the read-only-getters domain
+    /// (`ControlCommandCoordinator+BrowserReadOnly.swift`) shares the same
+    /// `v2BrowserWithPanel` head and reuses this mapping.
+    func browserPanelResolutionError(
         _ failure: ControlBrowserPanelResolutionFailure
     ) -> ControlCallResult {
         switch failure {
@@ -59,7 +63,11 @@ extension ControlCommandCoordinator {
     /// The standard `workspace_id`/`workspace_ref`/`surface_id`/`surface_ref`
     /// identity object every `v2BrowserWithPanel` payload opened with, plus the
     /// command's extra keys (insertion order is irrelevant for JSON objects).
-    private func browserPanelPayload(
+    ///
+    /// `internal` (not `private`): the read-only-getters domain
+    /// (`ControlCommandCoordinator+BrowserReadOnly.swift`) reuses this identity
+    /// payload shaping.
+    func browserPanelPayload(
         workspaceID: UUID,
         surfaceID: UUID,
         extra: [String: JSONValue]
