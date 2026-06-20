@@ -2271,10 +2271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
-        installJumpUnreadUITestRecorderIfNeeded()
-        installTerminalCmdClickUITestRecorderIfNeeded()
-        installGotoSplitUITestRecorderIfNeeded()
-        installBonsplitTabDragUITestRecorderIfNeeded()
+        installLaunchUITestRecorders()
         setupTerminalViewportUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
@@ -2341,15 +2338,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
-    /// Installs the ``TerminalCmdClickUITestRecorder`` once; the recorder owns
-    /// the fixture/shell seeding, token-grid geometry, command execution against
-    /// the live terminal surface, and byte-faithful capture-file writes.
-    private func installTerminalCmdClickUITestRecorderIfNeeded() {
-        let recorder = terminalCmdClickUITestRecorder ?? TerminalCmdClickUITestRecorder(appDelegate: self)
-        terminalCmdClickUITestRecorder = recorder
-        recorder.installIfNeeded()
-    }
-
     private func scheduleUITestSocketSanityCheckIfNeeded() {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
@@ -8028,15 +8016,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
 #if DEBUG
-    /// Installs the ``JumpUnreadUITestRecorder`` once; the recorder owns the
-    /// notification/workspace fixture, the focus expectation, and byte-faithful
-    /// capture-file writes.
-    private func installJumpUnreadUITestRecorderIfNeeded() {
-        let recorder = jumpUnreadUITestRecorder ?? JumpUnreadUITestRecorder(appDelegate: self)
-        jumpUnreadUITestRecorder = recorder
-        recorder.installIfNeeded()
-    }
-
     /// Live notification-open hook: records jump-unread open-routing keys to the
     /// shared jump-unread capture file. The notification-open routing lives in
     /// `AppDelegate` (it needs live window/context state), so it writes through
@@ -8059,21 +8038,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// matches the armed expectation. Forwards to ``JumpUnreadUITestRecorder``.
     func recordJumpUnreadFocusIfExpected(tabId: UUID, surfaceId: UUID) {
         jumpUnreadUITestRecorder?.recordFocusIfExpected(tabId: tabId, surfaceId: surfaceId)
-    }
-
-    /// Installs the ``GotoSplitUITestRecorder`` once; the recorder owns the
-    /// browser-split fixture setup, the navigation/find-state recording timer,
-    /// the focus observers, and byte-faithful capture-file writes.
-    private func installGotoSplitUITestRecorderIfNeeded() {
-        let recorder = gotoSplitUITestRecorder ?? GotoSplitUITestRecorder(appDelegate: self)
-        gotoSplitUITestRecorder = recorder
-        recorder.installIfNeeded()
-    }
-
-    private func installBonsplitTabDragUITestRecorderIfNeeded() {
-        let recorder = bonsplitTabDragUITestRecorder ?? BonsplitTabDragUITestRecorder(appDelegate: self)
-        bonsplitTabDragUITestRecorder = recorder
-        recorder.installIfNeeded()
     }
 
     private func setupTerminalViewportUITestIfNeeded() {
@@ -13880,4 +13844,28 @@ extension AppDelegate: SessionAutosaveScheduling {}
 // MARK: - CmuxTestSupport diagnostics seam conformance
 
 extension AppDelegate: UITestDiagnosticsProviding {}
+
+// MARK: - CmuxTestSupport recorder-install seam conformance
+
+extension AppDelegate: UITestRecorderInstalling {
+    /// The launch-time recorders, built and cached in the legacy install order
+    /// (jump-unread, terminal cmd-click, goto-split, bonsplit tab-drag). Each is
+    /// the same cached instance the live notification/navigation hooks write
+    /// through, so installing here arms exactly the recorders those hooks record
+    /// into. `feedSidebar`, the multi-window scaffold, the terminal-viewport
+    /// recorder, and the diagnostics observers are installed from their own
+    /// lifecycle points (deferred feed-store readiness, distinct shape) and so
+    /// stay out of this batch.
+    var launchUITestRecorders: [any UITestRecording] {
+        let jumpUnread = jumpUnreadUITestRecorder ?? JumpUnreadUITestRecorder(appDelegate: self)
+        jumpUnreadUITestRecorder = jumpUnread
+        let terminalCmdClick = terminalCmdClickUITestRecorder ?? TerminalCmdClickUITestRecorder(appDelegate: self)
+        terminalCmdClickUITestRecorder = terminalCmdClick
+        let gotoSplit = gotoSplitUITestRecorder ?? GotoSplitUITestRecorder(appDelegate: self)
+        gotoSplitUITestRecorder = gotoSplit
+        let bonsplitTabDrag = bonsplitTabDragUITestRecorder ?? BonsplitTabDragUITestRecorder(appDelegate: self)
+        bonsplitTabDragUITestRecorder = bonsplitTabDrag
+        return [jumpUnread, terminalCmdClick, gotoSplit, bonsplitTabDrag]
+    }
+}
 #endif
