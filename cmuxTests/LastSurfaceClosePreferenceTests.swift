@@ -133,8 +133,30 @@ struct LastSurfaceClosePreferenceTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(closeWorkspaceOnLastSurface, forKey: closeWorkspaceOnLastSurfaceKey)
         let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let warningDefaults = UserDefaults.standard
+        let catalog = AppCatalogSection()
+        let originalWarnBeforeClosingTab = warningDefaults.object(
+            forKey: catalog.warnBeforeClosingTab.userDefaultsKey
+        )
+        let originalWarnBeforeClosingTabXButton = warningDefaults.object(
+            forKey: catalog.warnBeforeClosingTabXButton.userDefaultsKey
+        )
+        warningDefaults.set(false, forKey: catalog.warnBeforeClosingTab.userDefaultsKey)
+        warningDefaults.set(false, forKey: catalog.warnBeforeClosingTabXButton.userDefaultsKey)
         ClosedItemHistoryStore.shared.removeAll()
-        defer { ClosedItemHistoryStore.shared.removeAll() }
+        defer {
+            restore(originalWarnBeforeClosingTab, forKey: catalog.warnBeforeClosingTab.userDefaultsKey)
+            restore(originalWarnBeforeClosingTabXButton, forKey: catalog.warnBeforeClosingTabXButton.userDefaultsKey)
+            ClosedItemHistoryStore.shared.removeAll()
+        }
         try run(TabManager(settings: settings))
+    }
+
+    private func restore(_ value: Any?, forKey key: String) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 }
