@@ -20,8 +20,9 @@ public struct MobileTerminalFontPreference {
     /// scale as macOS (see the iOS DPI handling in `ghostty/src/font/face.zig`);
     /// the Retina pixel multiplier is applied separately via content scale.
     public static let defaultSize: Float32 = 10
-    /// Smallest size the zoom controls will reach.
-    static let minimumSize: Float32 = 8
+    /// Smallest size the zoom controls will reach. Intentionally tiny so the
+    /// pinch/zoom-out can pack many columns/rows onto the phone for an overview.
+    static let minimumSize: Float32 = 2
     /// Largest size the zoom controls will reach.
     static let maximumSize: Float32 = 28
 }
