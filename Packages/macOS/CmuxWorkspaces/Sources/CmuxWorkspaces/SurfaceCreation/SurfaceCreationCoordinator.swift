@@ -1,4 +1,5 @@
 public import Foundation
+public import Bonsplit
 public import CmuxTerminalCore
 
 /// Resolves the value-typed inputs a workspace computes when creating or
@@ -111,6 +112,77 @@ public final class SurfaceCreationCoordinator {
             environment[key] = value
         }
         return environment
+    }
+
+    /// Walks the workspace's ordered inheritance-source candidates and returns
+    /// the inherited Ghostty config for the new surface, mirroring the legacy
+    /// `Workspace.inheritedTerminalConfig(preferredPanelId:inPane:)` exactly.
+    ///
+    /// The coordinator owns the pure decision (which candidate wins, how the
+    /// rooted/runtime/inherited font points combine, when to seed lineage, and
+    /// the last-known-font fallback); every live-state read and write is driven
+    /// through ``SurfaceCreationHosting``. For each candidate the workspace
+    /// supplies (in priority order), the walk asks the host for the candidate's
+    /// live probe (`nil` when the panel no longer exposes a live surface, which
+    /// the legacy body skipped via `guard let sourceSurface`). On the first live
+    /// candidate it resolves the rooted font points
+    /// (``resolvedInheritanceFontPoints(rootedFontPoints:runtimeFontPoints:inheritedConfigFontPoints:)``),
+    /// applies a positive result to the config, then asks the host to commit the
+    /// selection (seed the lineage root when positive, remember the inheritance
+    /// source, record a positive final font size as the last-known value), and
+    /// returns the config. When no candidate is live it synthesizes a fallback
+    /// config from the host's last-known font points (or returns `nil` when there
+    /// are none), matching the legacy fallback branch.
+    ///
+    /// - Parameters:
+    ///   - host: the workspace live-state seam.
+    ///   - preferredPanelId: the explicitly preferred inheritance-source panel,
+    ///     forwarded to the host's candidate ordering.
+    ///   - preferredPaneId: the target pane, forwarded to the host's candidate
+    ///     ordering.
+    /// - Returns: the inherited config to apply to the new surface, or `nil` when
+    ///   there is no live candidate and no last-known font lineage.
+    public func resolveInheritedConfig(
+        host: any SurfaceCreationHosting,
+        preferredPanelId: UUID? = nil,
+        inPane preferredPaneId: PaneID? = nil
+    ) -> CmuxSurfaceConfigTemplate? {
+        // Walk candidates in priority order and use the first panel that still exposes
+        // a runtime surface pointer.
+        for panelId in host.configInheritanceCandidatePanelIds(
+            preferredPanelId: preferredPanelId,
+            inPane: preferredPaneId
+        ) {
+            guard let probe = host.probeInheritanceCandidate(panelId: panelId) else { continue }
+            var config = probe.inheritedConfig
+            // The lineage root to seed: the resolved value only when it is
+            // positive, exactly as the legacy `rootedFontPoints > 0` branch
+            // applied it to the config and wrote it back to the per-panel map.
+            var rootedFontPointsToSeed: Float?
+            if let rootedFontPoints = resolvedInheritanceFontPoints(
+                rootedFontPoints: probe.rootedFontPoints,
+                runtimeFontPoints: probe.runtimeFontPoints,
+                inheritedConfigFontPoints: config.fontSize
+            ), rootedFontPoints > 0 {
+                config.fontSize = rootedFontPoints
+                rootedFontPointsToSeed = rootedFontPoints
+            }
+            host.commitInheritanceSelection(
+                panelId: panelId,
+                rootedFontPoints: rootedFontPointsToSeed,
+                finalConfigFontPoints: config.fontSize
+            )
+            return config
+        }
+
+        if let fallbackFontPoints = host.lastKnownInheritanceFontPoints {
+            var config = CmuxSurfaceConfigTemplate()
+            config.fontSize = fallbackFontPoints
+            host.logInheritanceFallback(fontPoints: fallbackFontPoints)
+            return config
+        }
+
+        return nil
     }
 
     /// Promotes the inherited surface config so the pane is held open after a
