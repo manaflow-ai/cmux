@@ -245,4 +245,48 @@ public final class SessionRestoreCoordinator<Layout> where Layout: SessionLayout
         }
         return nil
     }
+
+    // MARK: - Persisted panel ordering
+
+    /// Builds the ordered, de-duplicated, capped list of panel ids a workspace
+    /// snapshot persists, byte-faithfully reproducing the inline merge at the top
+    /// of the legacy `Workspace.sessionSnapshot(includeScrollback:...)` body.
+    ///
+    /// The legacy body merged two sources in order: first the sidebar's display
+    /// order (`sidebarOrderedPanelIds()`), then every remaining live panel id
+    /// sorted by `uuidString`, de-duplicating with a single `Set` as it walked
+    /// both lists, then took `.prefix(maxPanelsPerWorkspace)` before mapping each
+    /// surviving id to a panel snapshot. The two source lists and the live panel
+    /// set are `Workspace`-owned live state, so the host gathers them (it already
+    /// sorts the remaining ids while reading `panels.keys`); the ordering, the
+    /// first-source-wins de-duplication, and the cap live here with the other
+    /// snapshot decisions. The caller maps each returned id to its snapshot,
+    /// exactly as the legacy `compactMap` did.
+    ///
+    /// - Parameters:
+    ///   - sidebarOrdered: the sidebar display order (legacy
+    ///     `sidebarOrderedPanelIds()`), consulted first.
+    ///   - remaining: every other live panel id, already in the legacy
+    ///     `uuidString`-sorted order (legacy `panels.keys.sorted(by:)`),
+    ///     consulted second; ids already seen in `sidebarOrdered` are dropped.
+    ///   - limit: the maximum number of panels a workspace persists (legacy
+    ///     `SessionPersistencePolicy.maxPanelsPerWorkspace`), kept app-side so the
+    ///     wire/persistence constant stays owned by the app target.
+    /// - Returns: the merged, de-duplicated ids truncated to `limit`, in the
+    ///   exact order the legacy `allPanelIds.prefix(limit)` produced.
+    public func persistedPanelIdOrder(
+        sidebarOrdered: [UUID],
+        remaining: [UUID],
+        limit: Int
+    ) -> [UUID] {
+        var seen: Set<UUID> = []
+        var allPanelIds: [UUID] = []
+        for panelId in sidebarOrdered where seen.insert(panelId).inserted {
+            allPanelIds.append(panelId)
+        }
+        for panelId in remaining where seen.insert(panelId).inserted {
+            allPanelIds.append(panelId)
+        }
+        return Array(allPanelIds.prefix(limit))
+    }
 }

@@ -61,18 +61,17 @@ extension Workspace {
             reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
 
-        let orderedPanelIds = sidebarOrderedPanelIds()
-        var seen: Set<UUID> = []
-        var allPanelIds: [UUID] = []
-        for panelId in orderedPanelIds where seen.insert(panelId).inserted {
-            allPanelIds.append(panelId)
-        }
-        for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) where seen.insert(panelId).inserted {
-            allPanelIds.append(panelId)
-        }
+        // The ordered, first-source-wins de-duplicated, capped panel-id merge
+        // lives in CmuxWorkspaces behind the SessionRestoreCoordinator; Workspace
+        // gathers the two live source lists (sidebar order, then the remaining
+        // live panel ids sorted by uuidString) and the wire/persistence cap.
+        let allPanelIds = sessionRestoreCoordinator.persistedPanelIdOrder(
+            sidebarOrdered: sidebarOrderedPanelIds(),
+            remaining: panels.keys.sorted(by: { $0.uuidString < $1.uuidString }),
+            limit: SessionPersistencePolicy.maxPanelsPerWorkspace
+        )
 
         let panelSnapshots = allPanelIds
-            .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
                 sessionPanelSnapshot(
                     panelId: panelId,
