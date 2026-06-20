@@ -6721,18 +6721,6 @@ private extension NSScreen {
     }
 }
 
-extension Notification.Name {
-    static let ghosttyDidTick = Notification.Name("ghosttyDidTick")
-    static let ghosttyDidRenderFrame = Notification.Name("ghosttyDidRenderFrame")
-    static let ghosttyDidUpdateScrollbar = Notification.Name("ghosttyDidUpdateScrollbar")
-    static let ghosttyDidUpdateCellSize = Notification.Name("ghosttyDidUpdateCellSize")
-    static let ghosttyDidReceiveWheelScroll = Notification.Name("ghosttyDidReceiveWheelScroll")
-    static let ghosttySearchFocus = Notification.Name("ghosttySearchFocus")
-    static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
-    static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
-    static let browserSearchFocus = Notification.Name("browserSearchFocus")
-}
-
 // MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
 
 private final class GhosttyScrollView: NSScrollView {
