@@ -1507,13 +1507,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil, isSignedIn {
             let teamID = (await syncTeamIDProvider?()) ?? ""
             if !teamID.isEmpty {
+                deviceListTeamID = teamID // the team the rendered list is for
                 // Team switched while a socket was pinned to the old team: restart
                 // the subscription so the new team streams + seeds.
                 if let active = syncSubscriptionTeamID, active != teamID {
                     syncTask?.cancel()
                     syncTask = nil
                     syncSubscriptionTeamID = nil
-                    deviceSyncAuthoritative = false // new team hasn't synced yet
                     evaluateSyncSubscription()
                 }
                 // Serve the durable list when present. A non-mutating read so an
@@ -1532,7 +1532,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let syncStore,
                    let cursor = try? await syncStore.cursor(teamID: teamID, collection: devicesSyncCollection),
                    cursor > 0 {
-                    deviceSyncAuthoritative = true
+                    deviceSyncAuthoritativeTeamID = teamID
                     registryDevices = []
                     return
                 }
@@ -1598,13 +1598,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// device sorts first, then most-recently-seen.
     public var deviceTreeDevices: [RegistryDevice] {
         if !registryDevices.isEmpty { return registryDevices }
-        // In local-first mode, once the store has AUTHORITATIVELY synced this
-        // team (`deviceSyncAuthoritative`), an empty `registryDevices` means the
-        // team genuinely has no devices: do NOT synthesize from `pairedMacs` (that
+        // In local-first mode, once the store has AUTHORITATIVELY synced the team
+        // the list is showing (`deviceSyncAuthoritativeTeamID == deviceListTeamID`),
+        // an empty `registryDevices` means the team genuinely has no devices: do
+        // NOT synthesize from `pairedMacs` (that
         // XOR fallback is only for the registry-only path; it would resurrect
         // stale local Macs the DO removed). BEFORE the first sync we keep the
         // fallback, so an offline first launch still shows the local paired Macs.
-        if deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil, deviceSyncAuthoritative {
+        if deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil,
+           let synced = deviceSyncAuthoritativeTeamID, synced == deviceListTeamID {
             return []
         }
         let connectedID = connectedMacDeviceID
@@ -1668,11 +1670,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// team switch re-seeds the new team (the per-team migration marker also
     /// makes the underlying seed idempotent).
     private var seededSyncTeams: Set<String> = []
-    /// Whether the sync store has synced the current team (cursor > 0), so an
-    /// empty list is AUTHORITATIVE. Until then `deviceTreeDevices` keeps the
-    /// paired-Mac fallback, so an offline first launch still shows local Macs
-    /// rather than collapsing to empty. Reset on team change / sign-out.
-    private var deviceSyncAuthoritative = false
+    /// The team for which the sync store has synced (cursor > 0), so an empty
+    /// list for THAT team is AUTHORITATIVE. Compared against ``deviceListTeamID``
+    /// (the team the rendered list is for) in `deviceTreeDevices`, so a synced
+    /// team-A never marks an unsynced team-B authoritative. Until a team is
+    /// synced, the paired-Mac fallback persists (offline first launch still shows
+    /// local Macs). Reset on sign-out.
+    private var deviceSyncAuthoritativeTeamID: String?
+    /// The team the currently-rendered ``registryDevices`` is for (local-first
+    /// path), so the authoritative-empty gate can scope to the displayed team.
+    private var deviceListTeamID: String?
 
     /// Start or stop the device-list sync to match the session + flag. Called
     /// from the `isSignedIn` edge and `resumeForegroundRefresh()`, exactly like
@@ -1690,7 +1697,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             syncTask = nil
             syncSubscriptionTeamID = nil
             seededSyncTeams = []
-            deviceSyncAuthoritative = false
+            deviceSyncAuthoritativeTeamID = nil
+            deviceListTeamID = nil
         }
     }
 
@@ -1792,7 +1800,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reached via `await` from the off-main sync loop's apply callback.
     private func handleSyncCommit(teamID: String) async {
         if (await syncTeamIDProvider?() ?? "") == teamID {
-            deviceSyncAuthoritative = true
+            deviceSyncAuthoritativeTeamID = teamID
         }
         await reloadDeviceListFromSyncStore(teamID: teamID)
     }
@@ -1839,6 +1847,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// stale-team overwrite guard is unit-testable.
     func reloadDeviceListFromSyncStore(teamID: String) async {
         if let devices = await syncStoreDevices(teamID: teamID) {
+            deviceListTeamID = teamID
             registryDevices = devices
         }
     }

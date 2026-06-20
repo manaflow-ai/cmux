@@ -35,6 +35,12 @@ import Testing
         @MainActor var currentUserID: String? { userID }
     }
 
+    /// A flippable team, to simulate a team switch.
+    final class MutableTeam: @unchecked Sendable {
+        var current: String
+        init(_ t: String) { current = t }
+    }
+
     private static let owner = "user-1"
 
     private func makeTransportFactory() -> @Sendable (String) -> any SyncTransport {
@@ -225,6 +231,45 @@ import Testing
         )
         await composite.loadPairedMacs()
         await composite.loadRegistryDevices() // empty + not synced -> no authoritative gate
+        #expect(composite.deviceTreeDevices.map(\.deviceId) == ["mac-old"])
+    }
+
+    /// The authoritative-empty gate is team-scoped: a synced (empty) team-A must
+    /// not mark an unsynced team-B authoritative, so after switching to team-B the
+    /// tree falls back to the local paired Macs.
+    @Test func authoritativeEmptyIsTeamScoped() async throws {
+        let (store, dir) = try emptySyncStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // team-A is synced and authoritatively empty.
+        try await store.applySnapshot(
+            teamID: "team-A", collection: devicesSyncCollection, snapshotRev: 5, epoch: 1,
+            records: [], sortKeyFor: { DeviceSyncFacade.sortKey(for: $0) }, now: Date())
+        let macDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: macDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: macDir) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: macDir.appendingPathComponent("paired-macs.sqlite3"))
+        try await pairedStore.upsert(
+            macDeviceID: "mac-old", displayName: "Old", routes: [],
+            markActive: true, stackUserID: Self.owner)
+
+        let team = MutableTeam("team-A")
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            syncStore: store,
+            deviceListLocalFirst: true,
+            syncTeamIDProvider: { team.current },
+            makeSyncTransport: makeTransportFactory(),
+            identityProvider: FakeIdentity(userID: Self.owner),
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+        )
+        await composite.loadPairedMacs()
+        await composite.loadRegistryDevices()             // team-A authoritative empty
+        #expect(composite.deviceTreeDevices.isEmpty)
+        team.current = "team-B"                            // switch to an unsynced team
+        await composite.loadRegistryDevices()
         #expect(composite.deviceTreeDevices.map(\.deviceId) == ["mac-old"])
     }
 
