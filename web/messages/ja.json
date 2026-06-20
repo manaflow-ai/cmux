@@ -1456,8 +1456,8 @@
     },
     "ohMyOpenCode": {
       "title": "oh-my-opencode",
-      "metaTitle": "oh-my-opencode - cmux",
-      "metaDescription": "cmux内でOpenCodeとoh-my-openagentを実行。マルチモデルエージェントオーケストレーションをネイティブcmuxスプリットで。",
+      "metaTitle": "oh-my-opencode: cmux内のOpenCodeマルチエージェント",
+      "metaDescription": "oh-my-opencode（cmux omo）は、cmux内でoh-my-openagentプラグインを有効にしてOpenCode CLIを実行します。Claude、GPT、Gemini、Grokを並列エージェントとしてオーケストレーションし、それぞれがネイティブのcmuxスプリットになります。",
       "nightlyWarning": "<nightly>ナイトリービルド</nightly>でのみ利用可能です。",
       "intro": "cmux omoはoh-my-openagentプラグインを有効にしてcmux対応環境でOpenCodeを起動します。oh-my-openagentは複数のAIモデル（Claude、GPT、Gemini、Grok）を専門エージェントとして並列にオーケストレーションします。エージェントペインはネイティブのcmuxスプリットになります。",
       "usage": "使い方",

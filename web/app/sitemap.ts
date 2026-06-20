@@ -45,13 +45,27 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/wall-of-love", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/nightly", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.6 },
     { path: "/assets", lastModified: "2026-06-03", changeFrequency: "monthly" as const, priority: 0.5 },
+    // Comparison and category pages: English-only discovery surfaces, not in nav.
+    { path: "/best-terminal-for-mac", lastModified: "2026-06-20", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/cmux-vs-tmux", lastModified: "2026-06-20", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/cmux-vs-iterm2", lastModified: "2026-06-20", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/cmux-vs-warp", lastModified: "2026-06-20", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/privacy-policy", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 
-  // Legal pages are English-only (not translated), so they only get one entry.
-  const englishOnly = new Set(["/privacy-policy", "/terms-of-service", "/eula"]);
+  // English-only pages (not translated) get a single entry: the legal pages
+  // and the comparison/category discovery pages.
+  const englishOnly = new Set([
+    "/privacy-policy",
+    "/terms-of-service",
+    "/eula",
+    "/best-terminal-for-mac",
+    "/cmux-vs-tmux",
+    "/cmux-vs-iterm2",
+    "/cmux-vs-warp",
+  ]);
 
   const entries: MetadataRoute.Sitemap = [];
 
