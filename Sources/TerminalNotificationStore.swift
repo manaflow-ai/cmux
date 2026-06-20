@@ -1861,7 +1861,7 @@ final class TerminalNotificationStore: ObservableObject {
         let currentAuthorizationState = authorizationState
         let effectiveEffects = Self.fallbackEffects(
             effects,
-            authorizationState: Self.immediateFallbackAuthorizationState(from: currentAuthorizationState)
+            authorizationState: currentAuthorizationState
         )
         if Self.shouldRefreshFallbackAuthorizationState(currentAuthorizationState),
            effects.desktop || effects.sound || effects.command {
@@ -1916,17 +1916,6 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private static func overflowFallbackAuthorizationState(
-        from state: NotificationAuthorizationState
-    ) -> NotificationAuthorizationState {
-        switch state {
-        case .authorized, .denied, .provisional, .ephemeral:
-            return state
-        case .unknown, .notDetermined:
-            return .denied
-        }
-    }
-
-    private static func immediateFallbackAuthorizationState(
         from state: NotificationAuthorizationState
     ) -> NotificationAuthorizationState {
         switch state {

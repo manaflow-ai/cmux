@@ -154,16 +154,17 @@ final class NotificationAuthorizationDeliveryTests {
         #expect(localFeedbackNotificationIDs.isEmpty)
     }
 
-    @Test func staleDeniedAuthorizationSuppressesRecordlessNonDesktopFeedback() async {
+    @Test func coldDeniedAuthorizationRefreshKeepsImmediateRecordlessFeedback() async {
         let store = TerminalNotificationStore.shared
         let originalAuthorizationState = store.authorizationState
         var statusProviderCalls = 0
+        var feedbackTitles: [String] = []
         var effects = TerminalNotificationPolicyEffects()
         effects.record = false
         effects.markUnread = false
         effects.reorderWorkspace = false
         effects.desktop = false
-        effects.sound = true
+        effects.sound = false
         effects.command = true
         effects.paneFlash = false
         let notification = TerminalNotification(
@@ -182,8 +183,12 @@ final class NotificationAuthorizationDeliveryTests {
             statusProviderCalls += 1
             completion(.denied)
         }
+        store.configureNotificationCommandRunnerForTesting { title, _, _ in
+            feedbackTitles.append(title)
+        }
         defer {
             store.resetNotificationAuthorizationStatusProviderForTesting()
+            store.resetNotificationCommandRunnerForTesting()
             store.setAuthorizationStateForTesting(originalAuthorizationState)
         }
 
@@ -196,6 +201,7 @@ final class NotificationAuthorizationDeliveryTests {
 
         #expect(statusProviderCalls == 1)
         #expect(store.authorizationState == .denied)
+        #expect(feedbackTitles == ["Recordless"])
     }
 
     @Test func supersededPhoneDismissFlushesWhenForwardingTurnsOffDuringAuthorizationRefresh() async {
@@ -303,7 +309,7 @@ final class NotificationAuthorizationDeliveryTests {
         effects.markUnread = false
         effects.reorderWorkspace = false
         effects.desktop = false
-        effects.sound = true
+        effects.sound = false
         effects.command = true
         effects.paneFlash = false
         let first = TerminalNotification(
@@ -347,7 +353,7 @@ final class NotificationAuthorizationDeliveryTests {
 
         #expect(statusProviderCalls == 1)
         #expect(pendingStatusCompletions.count == 1)
-        #expect(feedbackTitles.isEmpty)
+        #expect(feedbackTitles == ["Recordless 1", "Recordless 2"])
 
         pendingStatusCompletions[0](.authorized)
         while let state = await authorizationUpdates.next() {
@@ -357,9 +363,9 @@ final class NotificationAuthorizationDeliveryTests {
         }
 
         #expect(store.authorizationState == .authorized)
-        #expect(feedbackTitles.isEmpty)
+        #expect(feedbackTitles == ["Recordless 1", "Recordless 2"])
 
         store.scheduleUserNotificationForTesting(first, effects: effects)
-        #expect(feedbackTitles == ["Recordless 1"])
+        #expect(feedbackTitles == ["Recordless 1", "Recordless 2", "Recordless 1"])
     }
 }
