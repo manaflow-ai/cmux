@@ -1,3 +1,4 @@
+import CmuxTestSupport
 import Foundation
 
 #if DEBUG
@@ -15,29 +16,14 @@ enum UITestRecorder {
 
     static func record(_ updates: [String: String]) {
         guard let path else { return }
-        var payload = load(at: path)
-        for (k, v) in updates {
-            payload[k] = v
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        UITestKeyValueCaptureFile(path: path).merge(updates)
     }
 
     static func incrementInt(_ key: String) {
         guard let path else { return }
-        var payload = load(at: path)
-        let value = Int(payload[key] ?? "") ?? 0
-        payload[key] = String(value + 1)
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
-    }
-
-    private static func load(at path: String) -> [String: String] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return [:]
-        }
-        return object
+        let file = UITestKeyValueCaptureFile(path: path)
+        let value = Int(file.load()[key] ?? "") ?? 0
+        file.merge([key: String(value + 1)])
     }
 }
 #endif
