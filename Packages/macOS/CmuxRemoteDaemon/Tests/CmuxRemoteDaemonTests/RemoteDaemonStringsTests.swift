@@ -10,15 +10,17 @@ struct RemoteDaemonCapabilityTests {
         #expect(RemoteDaemonCapability.ptySessionToken.rawValue == "pty.session.token")
         #expect(RemoteDaemonCapability.ptyPersistentDaemon.rawValue == "pty.session.persistent_daemon")
         #expect(RemoteDaemonCapability.ptyWriteNotification.rawValue == "pty.write.notification")
+        #expect(RemoteDaemonCapability.ptyResizeNotification.rawValue == "pty.resize.notification")
     }
 
-    @Test("the persistent PTY family is the four PTY capabilities")
+    @Test("the persistent PTY family is the PTY capability set")
     func persistentPTYFamily() {
         #expect(RemoteDaemonCapability.persistentPTYFamily == [
             "pty.session",
             "pty.session.token",
             "pty.session.persistent_daemon",
             "pty.write.notification",
+            "pty.resize.notification",
         ])
     }
 }
@@ -37,6 +39,7 @@ struct RemoteDaemonStringsTests {
             "pty.session.token",
             "pty.session.persistent_daemon",
             "pty.write.notification",
+            "pty.resize.notification",
         ] {
             #expect(
                 strings.missingRequiredCapabilitiesMessage([capability])

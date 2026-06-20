@@ -1,5 +1,7 @@
-import CmuxCommandPalette
 import AppKit
+import CmuxCommandPalette
+import CmuxSidebar
+import CmuxSwiftRender
 
 extension ContentView {
     static func commandPaletteShortcutAction(forCommandID commandId: String) -> KeyboardShortcutSettings.Action? {
@@ -82,6 +84,8 @@ extension ContentView {
             return .attachTextBoxFile
         case "palette.terminalSendCtrlF":
             return .sendCtrlFToTerminal
+        case "palette.terminalClearScreenKeepScrollback":
+            return .clearScreenKeepScrollback
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":
@@ -136,6 +140,8 @@ extension ContentView {
             return "palette.showRightSidebarFeed"
         case .dock:
             return "palette.showRightSidebarDock"
+        case .customSidebar:
+            return "palette.showRightSidebarCustomSidebar"
         }
     }
 
@@ -157,7 +163,7 @@ extension ContentView {
             return "palette.openFindPane"
         case .sessions:
             return "palette.openVaultPane"
-        case .feed, .dock:
+        case .feed, .dock, .customSidebar:
             return nil
         }
     }
@@ -170,7 +176,7 @@ extension ContentView {
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
         case .sessions:
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
-        case .feed, .dock:
+        case .feed, .dock, .customSidebar:
             return nil
         }
     }
@@ -196,6 +202,25 @@ extension ContentView {
         openRightSidebarToolPane(mode)
     }
 
+    func openCustomSidebarPane(_ name: String) {
+        guard let workspace = tabManager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        sidebarSelectionState.selection = .tabs
+        workspace.clearSplitZoom()
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.openOrFocusCustomSidebarSplit(from: focusedPanelId, name: name) != nil {
+            return
+        }
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+              workspace.openOrFocusCustomSidebarSurface(inPane: paneId, name: name, focus: true) != nil else {
+            NSSound.beep()
+            return
+        }
+    }
+
     private static func commandPaletteRightSidebarModeShortcutAction(
         forCommandID commandID: String
     ) -> KeyboardShortcutSettings.Action? {
@@ -205,5 +230,88 @@ extension ContentView {
             return nil
         }
         return mode.shortcutAction
+    }
+
+    func rightSidebarCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
+        let selectedId = tabManager.selectedTabId
+        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
+            rightSidebarCustomSidebarWorkspaceSnapshot(workspace, index: index, selectedId: selectedId)
+        }
+        let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: workspaces,
+            selectedWorkspaceId: selectedId,
+            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
+            totalUnreadCount: sidebarUnread.totalUnreadCount,
+            now: now
+        )
+        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
+    }
+
+    private func rightSidebarCustomSidebarWorkspaceSnapshot(
+        _ workspace: Workspace,
+        index: Int,
+        selectedId: UUID?
+    ) -> CustomSidebarWorkspaceSnapshot {
+        let focusedPanelId = workspace.focusedPanelId
+        let firstBranch = workspace.sidebarGitBranchesInDisplayOrder().first
+        let progress = workspace.progress.map {
+            CustomSidebarWorkspaceSnapshot.Progress(value: $0.value, label: $0.label)
+        }
+        let remote = workspace.remoteDisplayTarget.map { target in
+            CustomSidebarWorkspaceSnapshot.Remote(
+                target: target,
+                stateRawValue: workspace.remoteConnectionState.rawValue,
+                isConnected: workspace.remoteConnectionState == .connected
+            )
+        }
+        return CustomSidebarWorkspaceSnapshot(
+            id: workspace.id,
+            title: workspace.customTitle ?? workspace.title,
+            isSelected: workspace.id == selectedId,
+            isPinned: workspace.isPinned,
+            index: index,
+            directory: workspace.currentDirectory,
+            listeningPorts: workspace.listeningPorts,
+            unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
+            surfaces: rightSidebarCustomSidebarSurfaceSnapshots(workspace, focusedPanelId: focusedPanelId),
+            surfaceCount: workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count },
+            customDescription: workspace.customDescription,
+            customColor: workspace.customColor,
+            gitBranch: firstBranch?.branch,
+            gitIsDirty: firstBranch?.isDirty ?? false,
+            pullRequestValues: workspace.customSidebarPullRequestValues(),
+            progress: progress,
+            latestConversationMessage: workspace.latestConversationMessage,
+            latestSubmittedMessage: workspace.latestSubmittedMessage,
+            latestSubmittedAt: workspace.latestSubmittedAt,
+            remote: remote
+        )
+    }
+
+    private func rightSidebarCustomSidebarSurfaceSnapshots(
+        _ workspace: Workspace,
+        focusedPanelId: UUID?
+    ) -> [CustomSidebarSurfaceSnapshot] {
+        var surfaces: [CustomSidebarSurfaceSnapshot] = []
+        for paneId in workspace.bonsplitController.allPaneIds {
+            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+                let git = workspace.panelGitBranches[panelId]
+                surfaces.append(
+                    CustomSidebarSurfaceSnapshot(
+                        panelId: panelId,
+                        title: tab.title,
+                        isFocused: panelId == focusedPanelId,
+                        isPinned: workspace.pinnedPanelIds.contains(panelId),
+                        directory: workspace.panelDirectories[panelId],
+                        gitBranch: git?.branch,
+                        gitIsDirty: git?.isDirty ?? false,
+                        listeningPorts: workspace.surfaceListeningPorts[panelId] ?? []
+                    )
+                )
+            }
+        }
+        return surfaces
     }
 }

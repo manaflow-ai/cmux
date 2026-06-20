@@ -25,6 +25,7 @@ struct WorkspaceGroupHeaderRow: View {
     /// Mac without the groups capability), the chevron renders without a tap
     /// action.
     let toggleCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
+    var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
 
     /// The leading disclosure chevron. Its own hit target, so tapping it only
     /// collapses/expands and never opens the anchor.
@@ -104,7 +105,7 @@ struct WorkspaceGroupHeaderRow: View {
         HStack(spacing: 6) {
             // Same leading unread gutter as workspace rows (dot hidden when
             // read) so headers and top-level rows keep their columns aligned.
-            WorkspaceUnreadDot(isUnread: hasUnread)
+            WorkspaceUnreadDot(isUnread: hasUnread, leftShift: unreadIndicatorLeftShift)
             chevron
             anchorTarget
                 // The dot itself is accessibility-hidden; VoiceOver hears the
