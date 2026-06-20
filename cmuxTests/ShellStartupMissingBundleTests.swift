@@ -173,9 +173,13 @@ struct ShellStartupMissingBundleTests {
             .appendingPathComponent("deleted-bundle/Contents/Resources/shell-integration")
             .path
         let returnScriptURL = root.appendingPathComponent("return.zsh")
+        let childProbeCommand = """
+        print -r -- "child_top=${CMUX_RETURN_TOP_MARKER:-missing} child_bottom=${CMUX_RETURN_BOTTOM_MARKER:-missing}"
+        if (( $+aliases[cmux_return_bottom_alias] )); then print -r -- child_alias=present; else print -r -- child_alias=missing; fi
+        """
         try (
             "#!/bin/zsh\n"
-                + TerminalStartupReturnShellScript.commandThenReturnLines(command: "true").joined(separator: "\n")
+                + TerminalStartupReturnShellScript.commandThenReturnLines(command: childProbeCommand).joined(separator: "\n")
                 + "\n"
         )
         .write(to: returnScriptURL, atomically: true, encoding: .utf8)
@@ -222,6 +226,14 @@ struct ShellStartupMissingBundleTests {
 
         expectEqual(result.status, 0, result.stderr)
         expectFalse(result.timedOut, result.stderr)
+        expectTrue(
+            result.stdout.contains("child_top=top child_bottom=bottom"),
+            "expected resumed command shell to fully source ~/.zshrc; stdout=\(result.stdout) stderr=\(result.stderr)"
+        )
+        expectTrue(
+            result.stdout.contains("child_alias=present"),
+            "expected resumed command shell to see bottom-of-file alias; stdout=\(result.stdout) stderr=\(result.stderr)"
+        )
         expectTrue(
             result.stdout.contains("top=top bottom=bottom"),
             "expected returned shell to fully source ~/.zshrc; stdout=\(result.stdout) stderr=\(result.stderr)"

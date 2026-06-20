@@ -1317,8 +1317,7 @@ nonisolated enum TerminalStartupReturnShellScript {
 
     static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
         let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
-        var lines = [
-            shellLine,
+        var lines = [shellLine] + zshIntegrationReentryLines + [
             #"case "${_cmux_resume_shell:t}" in"#,
             #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
             #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
