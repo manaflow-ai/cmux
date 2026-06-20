@@ -259,6 +259,18 @@ class TerminalController {
     /// `nonisolated`.
     nonisolated(unsafe) var controlBrowserQueryWorker: ControlBrowserQueryWorker?
 
+    /// The worker-lane handler for the v2 `browser.*` navigation commands
+    /// (`browser.navigate` / `browser.back` / `browser.forward` /
+    /// `browser.reload`). Lives in CmuxControlSocket's
+    /// ``ControlBrowserNavigationWorker``, reaching the live browser surface
+    /// (`TabManager` / `surface_id` / workspace / browser-panel resolution, the
+    /// navigation calls, the ref computation, the post-action snapshot) strictly
+    /// through the ``ControlBrowserNavigationReading`` seam conformed over this
+    /// controller. Built in `init` once `self` is available (the seam conformer
+    /// holds `self` weakly). Read from the nonisolated socket-worker lane, so
+    /// stored `nonisolated`.
+    nonisolated(unsafe) var controlBrowserNavigationWorker: ControlBrowserNavigationWorker?
+
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
         let selector: String
@@ -357,6 +369,9 @@ class TerminalController {
         controlAuthWorker = ControlAuthWorker(reading: TerminalControllerAuthReading(owner: self))
         controlBrowserQueryWorker = ControlBrowserQueryWorker(
             reading: TerminalControllerBrowserQueryReading(owner: self)
+        )
+        controlBrowserNavigationWorker = ControlBrowserNavigationWorker(
+            reading: TerminalControllerBrowserNavigationReading(owner: self)
         )
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
@@ -1049,8 +1064,13 @@ class TerminalController {
             // the legacy shared dispatch did for every JS-eval browser method.
             v2MainSync { self.v2RefreshKnownRefs() }
             return runBrowserQueryWorker(request.control)
-        case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
-             "browser.snapshot", "browser.eval", "browser.wait",
+        case "browser.navigate", "browser.back", "browser.forward", "browser.reload":
+            // Owned by CmuxControlSocket's ``ControlBrowserNavigationWorker`` via
+            // the ``ControlBrowserNavigationReading`` seam. Refresh refs first like
+            // the legacy shared dispatch did for every JS-eval browser method.
+            v2MainSync { self.v2RefreshKnownRefs() }
+            return runBrowserNavigationWorker(request.control)
+        case "browser.snapshot", "browser.eval", "browser.wait",
              "browser.click", "browser.dblclick", "browser.hover", "browser.focus",
              "browser.type", "browser.fill", "browser.press", "browser.keydown", "browser.keyup",
              "browser.check", "browser.uncheck", "browser.select", "browser.scroll",
@@ -5433,54 +5453,6 @@ class TerminalController {
         return result
     }
 
-    private nonisolated func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-        guard let surfaceId = v2UUID(params, "surface_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
-        }
-        guard let url = v2String(params, "url") else {
-            return .err(code: "invalid_params", message: "Missing url", data: nil)
-        }
-
-        var basePayload: [String: Any]?
-        v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
-            browserPanel.navigateSmart(url)
-            basePayload = [
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
-            ]
-        }
-        guard var payload = basePayload else {
-            return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
-        }
-        // Run the optional --snapshot-after walk on the worker thread (not inside
-        // v2MainSync) so a slow accessibility-tree snapshot on a fresh surface
-        // can't block SwiftUI and recreate mount deadlocks. Standalone
-        // browser.snapshot already runs here; keep the post-action path identical.
-        v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-        return .ok(payload)
-    }
-
-    private nonisolated func v2BrowserBack(params: [String: Any]) -> V2CallResult {
-        return v2BrowserNavSimple(params: params, action: "back")
-    }
-
-    private nonisolated func v2BrowserForward(params: [String: Any]) -> V2CallResult {
-        return v2BrowserNavSimple(params: params, action: "forward")
-    }
-
-    private nonisolated func v2BrowserReload(params: [String: Any]) -> V2CallResult {
-        return v2BrowserNavSimple(params: params, action: "reload")
-    }
-
     private nonisolated func v2BrowserNotFoundDiagnostics(
         surfaceId: UUID,
         browserPanel: BrowserPanel,
@@ -6554,44 +6526,72 @@ class TerminalController {
     }
 
 
-    private nonisolated func v2BrowserNavSimple(params: [String: Any], action: String) -> V2CallResult {
+    /// The ``ControlBrowserNavigationReading`` seam resolver for the worker-lane
+    /// `browser.navigate`/`back`/`forward`/`reload` commands (worker:
+    /// ``ControlBrowserNavigationWorker``; conformer:
+    /// `TerminalController+ControlBrowserNavigationReading.swift`). `internal` and
+    /// co-located with the private browser state / `v2BrowserAppendPostSnapshot`
+    /// the witness cannot reach. Byte-faithful fusion of the former
+    /// `v2BrowserNavigate` / `v2BrowserNavSimple` bodies (resolution, navigation
+    /// calls, ref computation, and post-snapshot stay here; the worker owns the
+    /// `url` parse and payload shaping). Runs on the socket-worker thread.
+    nonisolated func controlResolveBrowserNavigation(
+        _ request: ControlBrowserNavigationRequest
+    ) -> ControlBrowserNavigationResolution {
+        let params = request.params.mapValues { $0.foundationObject }
+        let url = request.navigateURL
+
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .tabManagerUnavailable
         }
         guard let surfaceId = v2UUID(params, "surface_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+            return .invalidSurfaceID
+        }
+        if case .navigate = request, url == nil {
+            return .missingURL
         }
 
-        var basePayload: [String: Any]?
+        var identity: (workspaceID: UUID, workspaceRef: String, surfaceRef: String, windowID: UUID?, windowRef: String?)?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let browserPanel = ws.browserPanel(for: surfaceId) else { return }
-            switch action {
-            case "back":
+            switch request {
+            case .navigate:
+                if let url { browserPanel.navigateSmart(url) }
+            case .back:
                 browserPanel.goBack()
-            case "forward":
+            case .forward:
                 browserPanel.goForward()
-            case "reload":
+            case .reload:
                 browserPanel.reload()
-            default:
-                break
             }
-            basePayload = [
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
-            ]
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            identity = (
+                workspaceID: ws.id,
+                workspaceRef: v2EnsureHandleRef(kind: .workspace, uuid: ws.id),
+                surfaceRef: v2EnsureHandleRef(kind: .surface, uuid: surfaceId),
+                windowID: windowId,
+                windowRef: windowId.map { v2EnsureHandleRef(kind: .window, uuid: $0) }
+            )
         }
-        guard var payload = basePayload else {
-            return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+        guard let identity else {
+            return .surfaceNotFound(surfaceID: surfaceId)
         }
-        // Run --snapshot-after off the main thread (see v2BrowserNavigate): the
-        // accessibility-tree walk must not block SwiftUI on a fresh surface.
-        v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-        return .ok(payload)
+        // Run the optional --snapshot-after walk on the worker thread (not inside
+        // v2MainSync) so a slow accessibility-tree snapshot on a fresh surface
+        // can't block SwiftUI and recreate mount deadlocks. Standalone
+        // browser.snapshot already runs here; keep the post-action path identical.
+        var postPayload: [String: Any] = [:]
+        v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &postPayload)
+        return .navigated(ControlBrowserNavigated(
+            workspaceID: identity.workspaceID,
+            workspaceRef: identity.workspaceRef,
+            surfaceID: surfaceId,
+            surfaceRef: identity.surfaceRef,
+            windowID: identity.windowID,
+            windowRef: identity.windowRef,
+            postSnapshot: postPayload.compactMapValues { JSONValue(foundationObject: $0) }
+        ))
     }
 
     /// Resolves one parsed `browser.find.*` request against the live browser
@@ -6993,10 +6993,6 @@ class TerminalController {
     /// See ControlCommandExecutionPolicy for why these must not hold the main actor.
     private nonisolated func v2BrowserJSCommandOnSocketWorker(method: String, params: [String: Any]) -> V2CallResult {
         switch method {
-        case "browser.navigate": return v2BrowserNavigate(params: params)
-        case "browser.back": return v2BrowserBack(params: params)
-        case "browser.forward": return v2BrowserForward(params: params)
-        case "browser.reload": return v2BrowserReload(params: params)
         case "browser.snapshot": return v2BrowserSnapshot(params: params)
         case "browser.eval": return v2BrowserEval(params: params)
         case "browser.wait": return v2BrowserWait(params: params)
