@@ -714,6 +714,49 @@ test("auto start sends provider start from an explicit snapshot", async () => {
   expect(messages[0]?.params.providerId).toBe("codex");
 });
 
+test("auto start surfaces a live session's first prompt as a user message", async () => {
+  const loaded = reduceSession(
+    reduceSession(initialState("react"), { type: "context", context }),
+    { type: "providers", providers },
+  );
+  const actions: Action[] = [];
+  const globalWithWindow = globalThis as unknown as { window?: unknown };
+  const originalWindow = globalWithWindow.window;
+  globalWithWindow.window = {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          async postMessage() {
+            return { ok: true, value: { sessionId: "session-live", firstPrompt: "Ship the feature" } };
+          },
+        },
+      },
+    },
+  };
+
+  try {
+    await autoStartProvider(loaded, (action) => actions.push(action));
+  } finally {
+    if (originalWindow === undefined) {
+      delete globalWithWindow.window;
+    } else {
+      globalWithWindow.window = originalWindow;
+    }
+  }
+
+  // The first prompt must arrive as a "sent" action *after* the session is
+  // accepted, otherwise the reducer's running-session guard would drop it.
+  expect(actions.map((action) => action.type)).toEqual([
+    "autoStartAttempted",
+    "starting",
+    "startAccepted",
+    "sent",
+  ]);
+  const finalState = actions.reduce(reduceSession, loaded);
+  const firstUserTurn = finalState.transcript.find((entry) => entry.role === "user");
+  expect(firstUserTurn?.text).toBe("Ship the feature");
+});
+
 test("sent input only clears the submitted value", () => {
   const loaded = {
     ...reduceSession(initialState("react"), { type: "context", context }),
