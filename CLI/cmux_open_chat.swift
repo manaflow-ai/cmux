@@ -180,7 +180,7 @@ extension CMUXCLI {
           --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
           --surface <id|ref|index>     Source surface to split from (default: $CMUX_SURFACE_ID)
           --window <id|ref|index>      Target window
-          --cwd, --repo <path>         Repository or workspace path used for Chat context
+          --cwd, --repo, --path <path> Repository or workspace path used for Chat context
           --workspace-name <name>      Workspace name shown in the Chat heading
           --focus <true|false>         Focus the Chat browser split (default: false)
           --no-focus                   Do not focus the opened Chat browser split
@@ -195,7 +195,7 @@ extension CMUXCLI {
     private func openChatUnknownFlagMessage(_ flag: String) -> String {
         let format = CMUXDiffViewerLocalization.string(
             "cli.openChat.error.unknownFlagFormat",
-            defaultValue: "open-chat: unknown flag '%@'. Usage: cmux open-chat [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--workspace-name <name>] [--focus true|false] [--no-focus]"
+            defaultValue: "open-chat: unknown flag '%@'. Usage: cmux open-chat [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd|--repo|--path <path>] [--workspace-name <name>] [--focus true|false] [--no-focus]"
         )
         return String(format: format, flag)
     }

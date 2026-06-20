@@ -34125,7 +34125,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
-          open-chat|chat [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--workspace-name <name>] [--focus <true|false>] [--no-focus]
+          open-chat|chat [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd|--repo|--path <path>] [--workspace-name <name>] [--focus <true|false>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
@@ -34244,7 +34244,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
-          open-chat|chat [--cwd <path>] [--workspace-name <name>] [--focus <true|false>] (open the Codex-style Chat composer in a browser split)
+          open-chat|chat [--cwd|--repo|--path <path>] [--workspace-name <name>] [--focus <true|false>] (open the Codex-style Chat composer in a browser split)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status
