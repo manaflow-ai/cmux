@@ -1973,9 +1973,59 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// - Returns: `true` if the foreground connection now targets that Mac (or
     ///   already did), `false` if the switch could not connect — so callers like
     ///   `openWorkspace` can avoid selecting a workspace whose Mac is not live.
+    /// Promote the live read-only secondary connection for `macID` to the
+    /// foreground by REUSING its client — no re-dial. Returns `false` (so the
+    /// caller re-dials) when no live secondary exists or it no longer responds.
+    ///
+    /// This is the fix for "Mac offline" on a reachable Mac: re-dialing the
+    /// foreground (refreshFromBackup route re-derivation + offline preflight +
+    /// `connect()` pairing-generation race) has several independent failure points,
+    /// any of which strands the user even though a working client to that exact Mac
+    /// already sits in `secondaryMacSubscriptions`. Reusing it makes that failure
+    /// unrepresentable for an already-aggregated Mac.
+    private func promoteSecondaryToForeground(_ macID: String) async -> Bool {
+        guard runtime != nil, let sub = secondaryMacSubscriptions[macID] else { return false }
+        // Probe the live client so we only promote a connection that responds NOW
+        // (the read-only stream can have silently dropped); on failure, re-dial.
+        guard let previews = await fetchSecondaryWorkspaces(on: sub.client, macDeviceID: macID),
+              secondaryMacSubscriptions[macID] === sub else { return false }
+        mobileShellLog.info("promote: reusing live secondary connection as foreground mac=\(macID, privacy: .public)")
+        // Take a fresh connection generation so the foreground machinery (polling,
+        // event listener, in-flight request guards) treats this client as current.
+        let generation = UUID()
+        connectionAttemptGeneration = generation
+        connectionGeneration = generation
+        cancelRemoteOperationTasks() // stop the OLD foreground's polling/tasks
+        // Take ownership of the live client; do NOT disconnect it.
+        secondaryMacSubscriptions[macID] = nil
+        sub.detachKeepingClient()
+        let displayName = workspacesByMac[macID]?.displayName
+        activeTicket = sub.ticket
+        activeRoute = sub.route
+        connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
+        replaceRemoteClient(with: sub.client)
+        foregroundMacDeviceID = macID
+        workspacesByMac[macID] = MacWorkspaceState(
+            macDeviceID: macID, displayName: displayName, workspaces: previews, status: .connected
+        )
+        connectionState = .connected
+        markMacConnectionHealthy()
+        startTerminalRefreshPolling()
+        syncSelectedTerminalForWorkspace()
+        if let pairedMacStore {
+            Task { try? await pairedMacStore.setActive(macDeviceID: macID) }
+        }
+        // Re-aggregate so the PREVIOUS foreground Mac comes back as a secondary.
+        scheduleSecondaryAggregation()
+        return true
+    }
+
     @discardableResult
     public func switchToMac(macDeviceID: String) async -> Bool {
         guard let pairedMacStore else { return false }
+        // FAST PATH: if a live read-only connection to this Mac already exists,
+        // promote it to the foreground (reuse the client) instead of re-dialing.
+        if await promoteSecondaryToForeground(macDeviceID) { return true }
         // Refresh routes from the per-user backup so a Mac that relaunched on a
         // new port is reachable — the same freshness guarantee auto-connect and
         // aggregation use — then resolve the target from the STORE (authoritative).
@@ -2624,7 +2674,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ticket), or nil if it has no reachable route / the ticket fails. The caller
     /// owns disconnecting it. Routes are loopback-deprioritized on device. Never
     /// touches the foreground connection.
-    private func makeSecondaryClient(for mac: MobilePairedMac) async -> MobileCoreRPCClient? {
+    /// The live client to a secondary Mac plus the route/ticket it was dialed on,
+    /// so the connection can later be PROMOTED to the foreground (reused) instead
+    /// of re-dialed.
+    private struct SecondaryClientHandle {
+        let client: MobileCoreRPCClient
+        let route: CmxAttachRoute
+        let ticket: CmxAttachTicket
+    }
+
+    private func makeSecondaryClient(for mac: MobilePairedMac) async -> SecondaryClientHandle? {
         guard let runtime else { return nil }
         let supportedKinds = runtime.supportedRouteKinds
         guard let (host, port) = Self.firstReconnectHostPortRoute(
@@ -2645,12 +2704,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let route = supportedRoutes.first else { return nil }
-        return MobileCoreRPCClient(
+        let client = MobileCoreRPCClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
             allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         )
+        return SecondaryClientHandle(client: client, route: route, ticket: ticket)
     }
 
     /// Fetch one Mac's workspace list over an EXISTING client, tagged with its
@@ -2768,7 +2828,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func establishSecondaryMacSubscription(for mac: MobilePairedMac, account: String?) async {
         let macID = mac.macDeviceID
         guard secondaryMacSubscriptions[macID] == nil,
-              let client = await makeSecondaryClient(for: mac) else { return }
+              let handle = await makeSecondaryClient(for: mac) else { return }
+        let client = handle.client
         // Re-check after the async client build so a concurrent refresh cannot
         // open a duplicate connection, AND so a sign-out / account switch during
         // the connect does not leave a previous account's connection live or write
@@ -2777,7 +2838,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
             return
         }
-        let subscription = SecondaryMacSubscription(macDeviceID: macID, client: client)
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: macID, client: client, route: handle.route, ticket: handle.ticket
+        )
         secondaryMacSubscriptions[macID] = subscription
         let displayName = mac.displayName
         let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
@@ -6107,6 +6170,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 private final class SecondaryMacSubscription {
     let macDeviceID: String
     let client: MobileCoreRPCClient
+    /// The route and ticket this client was dialed on, kept so the live connection
+    /// can be PROMOTED to the foreground (reused) rather than re-dialed.
+    let route: CmxAttachRoute
+    let ticket: CmxAttachTicket
     /// A fresh per-connection event stream id for the `mobile.events.subscribe`
     /// enable handshake (the server keys its push subscription by this).
     let streamID: String
@@ -6118,9 +6185,11 @@ private final class SecondaryMacSubscription {
     var refreshTask: Task<Void, Never>?
     var refreshPending = false
 
-    init(macDeviceID: String, client: MobileCoreRPCClient) {
+    init(macDeviceID: String, client: MobileCoreRPCClient, route: CmxAttachRoute, ticket: CmxAttachTicket) {
         self.macDeviceID = macDeviceID
         self.client = client
+        self.route = route
+        self.ticket = ticket
         self.streamID = "ios-secondary-events-\(macDeviceID)-\(UUID().uuidString)"
     }
 
@@ -6131,6 +6200,16 @@ private final class SecondaryMacSubscription {
         refreshTask = nil
         let client = self.client
         Task { await client.disconnect() }
+    }
+
+    /// Stop the read-only consumer loops but KEEP the client connected — used when
+    /// promoting this connection to the foreground, which takes ownership of the
+    /// live client instead of disconnecting it.
+    func detachKeepingClient() {
+        task?.cancel()
+        task = nil
+        refreshTask?.cancel()
+        refreshTask = nil
     }
 }
 
