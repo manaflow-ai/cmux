@@ -49,6 +49,7 @@ enum SessionEntryResumeCoordinator {
 
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
+    @Environment(\.colorScheme) private var colorScheme
     /// Lives alongside the store but is owned by this view so drag-state
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.
@@ -114,7 +115,7 @@ struct SessionIndexView: View {
             Toggle(isOn: $store.scopeToCurrentDirectory) {
                 Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
                     .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             }
             .toggleStyle(.checkbox)
             .controlSize(.small)
@@ -145,7 +146,7 @@ struct SessionIndexView: View {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.loading", defaultValue: "Loading Vault…"))
                 .font(.system(size: 11))
-                .foregroundColor(.secondary)
+                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -154,11 +155,11 @@ struct SessionIndexView: View {
         VStack(spacing: 4) {
             Text(String(localized: "sessionIndex.empty.title", defaultValue: "Vault is empty"))
                 .font(.system(size: 12))
-                .foregroundColor(.secondary)
+                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             Text(String(localized: "sessionIndex.empty.subtitle",
                                    defaultValue: "Claude Code, Codex, OpenCode, and Rovo Dev history will appear here."))
                 .font(.system(size: 11))
-                .foregroundColor(.secondary.opacity(0.7))
+                .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
         }
@@ -203,6 +204,7 @@ struct SessionIndexView: View {
                     IndexSectionView(
                         section: section,
                         rowLimit: Self.collapsedRowLimit,
+                        colorScheme: colorScheme,
                         isDragged: draggedKey == section.key,
                         previewEntryId: previewEntry?.id,
                         isCollapsed: Binding(
@@ -257,6 +259,11 @@ struct SessionIndexView: View {
 private struct AgentIconImage: View, Equatable {
     let agent: SessionAgent
     let size: CGFloat
+    let colorScheme: ColorScheme
+
+    static func == (lhs: AgentIconImage, rhs: AgentIconImage) -> Bool {
+        lhs.agent == rhs.agent && lhs.size == rhs.size && lhs.colorScheme == rhs.colorScheme
+    }
 
     var body: some View {
         if let assetName = agent.assetName {
@@ -268,7 +275,7 @@ private struct AgentIconImage: View, Equatable {
         } else {
             Image(systemName: agent.systemImageName ?? "person.crop.circle")
                 .font(.system(size: max(size - 2, 10), weight: .regular))
-                .foregroundColor(.secondary)
+                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                 .frame(width: size, height: size)
         }
     }
@@ -348,6 +355,7 @@ struct SectionGapActions {
 private struct IndexSectionView: View, Equatable {
     let section: IndexSection
     let rowLimit: Int
+    let colorScheme: ColorScheme
     /// True iff this section is the one currently being dragged. Precomputed
     /// in the parent from a single `draggedKey` snapshot so the section's
     /// opacity fade doesn't require observing the drag coordinator here.
@@ -368,6 +376,7 @@ private struct IndexSectionView: View, Equatable {
     static func == (lhs: IndexSectionView, rhs: IndexSectionView) -> Bool {
         lhs.section == rhs.section
             && lhs.rowLimit == rhs.rowLimit
+            && lhs.colorScheme == rhs.colorScheme
             && lhs.isDragged == rhs.isDragged
             && lhs.previewEntryId == rhs.previewEntryId
             && lhs.isCollapsed == rhs.isCollapsed
@@ -381,6 +390,7 @@ private struct IndexSectionView: View, Equatable {
                 ForEach(Array(section.entries.prefix(rowLimit))) { entry in
                     SessionRow(
                         entry: entry,
+                        colorScheme: colorScheme,
                         isPreviewPresented: previewEntryId == entry.id,
                         onPreviewPresentationChange: { isPresented in
                             if isPresented {
@@ -409,7 +419,7 @@ private struct IndexSectionView: View, Equatable {
         } label: {
             Text(String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.secondary.opacity(0.7))
+                .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
                 .padding(.leading, 32)
                 .padding(.trailing, 12)
                 .padding(.vertical, 4)
@@ -421,6 +431,7 @@ private struct IndexSectionView: View, Equatable {
             SectionPopoverHost(
                 isPresented: $isPopoverOpen,
                 section: section,
+                colorScheme: colorScheme,
                 search: actions.search,
                 loadSnapshot: actions.loadSnapshot,
                 onResume: actions.onResume
@@ -436,12 +447,12 @@ private struct IndexSectionView: View, Equatable {
                 sectionIconView
                 Text(section.title)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.6))
+                    .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
                     .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 Spacer(minLength: 0)
             }
@@ -471,11 +482,11 @@ private struct IndexSectionView: View, Equatable {
     private var sectionIconView: some View {
         switch section.icon {
         case .agent(let agent):
-            AgentIconImage(agent: agent, size: 14)
+            AgentIconImage(agent: agent, size: 14, colorScheme: colorScheme)
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
-                .foregroundColor(.secondary)
+                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                 .frame(width: 14, height: 14)
         }
     }
@@ -556,6 +567,7 @@ private struct SectionGapDropDelegate: DropDelegate {
 
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
+    let colorScheme: ColorScheme
     let isPreviewPresented: Bool
     let onPreviewPresentationChange: (Bool) -> Void
     let onResume: ((SessionEntry) -> Void)?
@@ -565,21 +577,22 @@ private struct SessionRow: View, Equatable {
         // Skip body re-eval during scroll when the entry is unchanged.
         // The closure isn't compared (it comes from stable parent state).
         lhs.entry == rhs.entry &&
+            lhs.colorScheme == rhs.colorScheme &&
             lhs.isPreviewPresented == rhs.isPreviewPresented
     }
 
     var body: some View {
         HStack(spacing: 6) {
-            AgentIconImage(agent: entry.agent, size: 12)
+            AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
             Text(entry.displayTitle)
                 .font(.system(size: 13))
-                .foregroundColor(.primary.opacity(0.92))
+                .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
             Text(relativeTime(entry.modified))
                 .font(.system(size: 12).monospacedDigit())
-                .foregroundColor(.secondary.opacity(0.65))
+                .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
                 .fixedSize()
         }
         .padding(.leading, 32)
@@ -598,7 +611,7 @@ private struct SessionRow: View, Equatable {
             sessionDragItemProvider(for: entry)
         } preview: {
             HStack(spacing: 6) {
-                AgentIconImage(agent: entry.agent, size: 12)
+                AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
                 Text(entry.displayTitle)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
@@ -621,7 +634,8 @@ private struct SessionRow: View, Equatable {
                     get: { isPreviewPresented },
                     set: { onPreviewPresentationChange($0) }
                 ),
-                entry: entry
+                entry: entry,
+                colorScheme: colorScheme
             )
         }
     }
@@ -731,6 +745,7 @@ private struct SessionTranscriptPreviewView: View {
 
     @State private var loadState: SessionTranscriptPreviewState = .loading
     @State private var closeIsHovered = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -755,17 +770,17 @@ private struct SessionTranscriptPreviewView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            AgentIconImage(agent: entry.agent, size: 14)
+            AgentIconImage(agent: entry.agent, size: 14, colorScheme: colorScheme)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.primary)
+                    .foregroundColor(RightSidebarContentTextStyle.primary(colorScheme: colorScheme))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let cwd = entry.cwdLabel {
                     Text(cwd)
                         .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -773,7 +788,11 @@ private struct SessionTranscriptPreviewView: View {
             Spacer(minLength: 8)
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(closeIsHovered ? .primary : .secondary)
+                .foregroundColor(
+                    closeIsHovered
+                        ? RightSidebarContentTextStyle.primary(colorScheme: colorScheme)
+                        : RightSidebarContentTextStyle.secondary(colorScheme: colorScheme)
+                )
                 .frame(width: 20, height: 20)
                 .background(
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
@@ -815,7 +834,7 @@ private struct SessionTranscriptPreviewView: View {
                     text: String(localized: "sessionIndex.preview.empty", defaultValue: "No previewable messages")
                 )
             } else {
-                SessionTranscriptVirtualizedList(rows: turns)
+                SessionTranscriptVirtualizedList(rows: turns, colorScheme: colorScheme)
             }
         }
     }
@@ -826,7 +845,7 @@ private struct SessionTranscriptPreviewView: View {
                 .controlSize(.small)
             Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
                 .font(.system(size: 12))
-                .foregroundColor(.secondary)
+                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             Spacer(minLength: 0)
         }
         .padding(12)
@@ -837,10 +856,10 @@ private struct SessionTranscriptPreviewView: View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.secondary)
+                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             Text(text)
                 .font(.system(size: 12))
-                .foregroundColor(.secondary)
+                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             Spacer(minLength: 0)
         }
         .padding(12)
@@ -925,12 +944,17 @@ private struct SessionTranscriptResizeHandle: View {
 
 private struct SessionTranscriptVirtualizedList: View, Equatable {
     let rows: [SessionTranscriptDisplayRow]
+    let colorScheme: ColorScheme
+
+    static func == (lhs: SessionTranscriptVirtualizedList, rhs: SessionTranscriptVirtualizedList) -> Bool {
+        lhs.rows == rhs.rows && lhs.colorScheme == rhs.colorScheme
+    }
 
     var body: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(rows) { row in
-                    SessionTranscriptTurnView(row: row)
+                    SessionTranscriptTurnView(row: row, colorScheme: colorScheme)
                         .id(row.id)
                 }
             }
@@ -942,6 +966,7 @@ private struct SessionTranscriptVirtualizedList: View, Equatable {
 
 private struct SessionTranscriptTurnView: View, Equatable {
     let row: SessionTranscriptDisplayRow
+    let colorScheme: ColorScheme
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -959,7 +984,7 @@ private struct SessionTranscriptTurnView: View, Equatable {
             }
             Text(row.text)
                 .font(row.role.bodyFont)
-                .foregroundColor(.primary.opacity(0.92))
+                .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1926,6 +1951,7 @@ private enum SessionTranscriptLoader {
 private struct SessionTranscriptPopoverHost: NSViewRepresentable {
     @Binding var isPresented: Bool
     let entry: SessionEntry
+    let colorScheme: ColorScheme
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isPresented: $isPresented)
@@ -1944,7 +1970,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
     func updateNSView(_ nsView: PopoverAnchorView, context: Context) {
         let coordinator = context.coordinator
         coordinator.anchorView = nsView
-        coordinator.update(entry: entry)
+        coordinator.update(entry: entry, colorScheme: colorScheme)
         if isPresented {
             coordinator.present()
         } else {
@@ -1964,6 +1990,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
         private var popover: NSPopover?
         private var currentEntry: SessionEntry?
+        private var currentColorScheme: ColorScheme = .light
         private let sizeModel = SessionTranscriptPopoverSizeModel()
         private var wantsPresentation = false
 
@@ -1971,9 +1998,10 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
             _isPresented = isPresented
         }
 
-        func update(entry: SessionEntry) {
-            let shouldRefresh = currentEntry?.id != entry.id
+        func update(entry: SessionEntry, colorScheme: ColorScheme) {
+            let shouldRefresh = currentEntry?.id != entry.id || currentColorScheme != colorScheme
             currentEntry = entry
+            currentColorScheme = colorScheme
             if shouldRefresh {
                 refreshContent()
             }
@@ -2017,6 +2045,8 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
 
         private func refreshContent() {
             guard let entry = currentEntry else { return }
+            let colorScheme = currentColorScheme
+            hostingController.applyRightSidebarPopoverAppearance(colorScheme, popover: popover)
             hostingController.rootView = AnyView(
                 SessionTranscriptPreviewView(
                     entry: entry,
@@ -2027,6 +2057,8 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
                 ) { [weak self] in
                     self?.closeFromContent()
                 }
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.colorScheme, colorScheme)
                 .id(entry.id)
             )
             hostingController.view.invalidateIntrinsicContentSize()
@@ -2067,6 +2099,15 @@ private final class PopoverAnchorView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         onDidMoveToWindow?()
+    }
+}
+
+private extension NSHostingController where Content == AnyView {
+    func applyRightSidebarPopoverAppearance(_ colorScheme: ColorScheme, popover: NSPopover?) {
+        let baseAppearance = view.window?.effectiveAppearance ?? NSApp.effectiveAppearance
+        let appearance = FileExplorerColors.appearance(for: colorScheme, preservingVariantsOf: baseAppearance)
+        popover?.appearance = appearance
+        view.appearance = appearance
     }
 }
 
@@ -2147,6 +2188,7 @@ private struct SectionPopoverView: View {
     /// only). When non-nil, `loadMore()` slices this array in memory
     /// instead of hitting the store.
     @State private var fullSnapshot: [SessionEntry]?
+    @Environment(\.colorScheme) private var colorScheme
 
     private static let pageSize = 100
 
@@ -2168,7 +2210,7 @@ private struct SectionPopoverView: View {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
                            defaultValue: "Search Vault"),
@@ -2183,7 +2225,7 @@ private struct SectionPopoverView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                     }
                     .buttonStyle(.plain)
                 }
@@ -2208,7 +2250,12 @@ private struct SectionPopoverView: View {
                                 .foregroundColor(.orange)
                             Text(msg)
                                 .font(.system(size: 11))
-                                .foregroundColor(.primary.opacity(0.85))
+                                .foregroundColor(
+                                    RightSidebarContentTextStyle.emphasized(
+                                        colorScheme: colorScheme,
+                                        lightOpacity: 0.85
+                                    )
+                                )
                         }
                     }
                 }
@@ -2225,13 +2272,13 @@ private struct SectionPopoverView: View {
                         Text(String(localized: "sessionIndex.popover.noMatches",
                                     defaultValue: "No matches"))
                             .font(.system(size: 12))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ForEach(loaded) { entry in
-                            PopoverRow(entry: entry) {
+                            PopoverRow(entry: entry, colorScheme: colorScheme) {
                                 onResume?(entry)
                                 onDismiss()
                             }
@@ -2248,7 +2295,7 @@ private struct SectionPopoverView: View {
                             Text(String(localized: "sessionIndex.popover.endOfList",
                                         defaultValue: "You've reached the end"))
                                 .font(.system(size: 11))
-                                .foregroundColor(.secondary.opacity(0.5))
+                                .foregroundColor(RightSidebarContentTextStyle.quaternary(colorScheme: colorScheme))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.vertical, 8)
                         }
@@ -2366,7 +2413,7 @@ private struct SectionPopoverView: View {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
                 .font(.system(size: 11))
-                .foregroundColor(.secondary)
+                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
@@ -2448,11 +2495,11 @@ private struct SectionPopoverView: View {
     private var sectionIconView: some View {
         switch section.icon {
         case .agent(let agent):
-            AgentIconImage(agent: agent, size: 14)
+            AgentIconImage(agent: agent, size: 14, colorScheme: colorScheme)
         case .folder:
             Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
-                .foregroundColor(.secondary)
+                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                 .frame(width: 14, height: 14)
         }
     }
@@ -2460,12 +2507,13 @@ private struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    let colorScheme: ColorScheme
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
 
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
-        lhs.entry == rhs.entry
+        lhs.entry == rhs.entry && lhs.colorScheme == rhs.colorScheme
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2490,20 +2538,18 @@ private struct PopoverRow: View, Equatable {
             Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: context.date))
         }
         .font(.system(size: 11).monospacedDigit())
-        .foregroundColor(.secondary.opacity(0.7))
+        .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
         .fixedSize()
     }
 
     var body: some View {
         HStack(spacing: 6) {
-            AgentIconImage(agent: entry.agent, size: 12)
-            // Flatten newlines so titles containing `<command-message>…\n…`
-            // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
-            // always constrain a Text that has hard line breaks in the
-            // source string.
+            AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
+            // Flatten hard breaks; lineLimit(1) does not always constrain
+            // Text backed by strings that contain explicit newlines.
             Text(Self.flatten(entry.displayTitle))
                 .font(.system(size: 12))
-                .foregroundColor(.primary.opacity(0.92))
+                .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
@@ -2634,8 +2680,8 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 struct SectionPopoverHost: NSViewRepresentable {
     @Binding var isPresented: Bool
     let section: IndexSection
-    /// Closure-typed search handle passed through to the SwiftUI popover
-    /// body. The host no longer holds a `SessionIndexStore` reference.
+    let colorScheme: ColorScheme
+    /// Closure-typed search handle; the host does not hold a store reference.
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
@@ -2656,6 +2702,7 @@ struct SectionPopoverHost: NSViewRepresentable {
         coordinator.anchorView = nsView
         coordinator.update(
             section: section,
+            colorScheme: colorScheme,
             search: search,
             loadSnapshot: loadSnapshot,
             onResume: onResume
@@ -2679,25 +2726,18 @@ struct SectionPopoverHost: NSViewRepresentable {
 
         private let hostingController: NSHostingController<AnyView> = {
             NSHostingController(rootView: AnyView(EmptyView()))
-            // DO NOT set sizingOptions here. sizingOptions =
-            // [.preferredContentSize] makes NSHostingController
-            // continuously rewrite its preferredContentSize from SwiftUI
-            // layout; NSPopover observes preferredContentSize and will
-            // override any manual popover.contentSize we set. On first
-            // open SwiftUI layout settles over multiple passes and
-            // preferredContentSize briefly reports a partial height —
-            // NSPopover latches onto that and renders squished (evidence:
-            // /tmp/cmux-debug-spin-fix.log, refreshContent logged
-            // fitting=360x486 at present, but visible popover was ~280).
-            // Instead we drive popover.contentSize manually from
-            // fittingSize on every updateNSView / present call.
+            // Do not set sizingOptions: NSPopover observes preferredContentSize
+            // and can override the manual contentSize while SwiftUI layout
+            // settles, briefly rendering the popover squished.
         }()
         private var popover: NSPopover?
         private var currentSection: IndexSection?
+        private var currentColorScheme: ColorScheme = .light
         private var currentSearch: SessionSearchFn?
         private var currentLoadSnapshot: DirectorySnapshotFn?
         private var currentOnResume: ((SessionEntry) -> Void)?
         private var lastRenderedSection: IndexSection?
+        private var lastRenderedColorScheme: ColorScheme?
         private var lastRenderedPresentationCount: Int?
         /// Bumped on every present(). Used as the SwiftUI view identity so each
         /// open gets fresh view-local state.
@@ -2709,24 +2749,24 @@ struct SectionPopoverHost: NSViewRepresentable {
 
         func update(
             section: IndexSection,
+            colorScheme: ColorScheme,
             search: @escaping SessionSearchFn,
             loadSnapshot: @escaping DirectorySnapshotFn,
             onResume: ((SessionEntry) -> Void)?
         ) {
             currentSection = section
+            currentColorScheme = colorScheme
             currentSearch = search
             currentLoadSnapshot = loadSnapshot
             currentOnResume = onResume
-            // When hidden, defer rebuilding the hosting view until `present()`.
-            // Rewriting rootView + forcing layout on every parent re-render was
-            // the 100% CPU loop behind #3010.
+            // When hidden, defer rebuilding until `present()`; eager rootView
+            // rewrites on parent re-render caused the 100% CPU loop in #3010.
             guard popover?.isShown == true else { return }
-            // Rows capture stable closure bundles above the list boundary, so
-            // the section snapshot is the meaningful input here. Skipping
-            // identical visible-section updates avoids re-laying out the popover
-            // during unrelated parent re-renders while still refreshing when the
-            // visible content actually changes.
-            guard lastRenderedSection != section || lastRenderedPresentationCount != presentationCount else { return }
+            // Refresh only when visible content, color scheme, or open identity changes.
+            guard lastRenderedSection != section
+                || lastRenderedColorScheme != colorScheme
+                || lastRenderedPresentationCount != presentationCount
+            else { return }
             refreshContent()
         }
 
@@ -2737,6 +2777,8 @@ struct SectionPopoverHost: NSViewRepresentable {
             debugRefreshContentCallCount += 1
             let onResume = currentOnResume
             let identity = presentationCount
+            let colorScheme = currentColorScheme
+            hostingController.applyRightSidebarPopoverAppearance(colorScheme, popover: popover)
             hostingController.rootView = AnyView(
                 SectionPopoverView(
                     section: section,
@@ -2746,11 +2788,12 @@ struct SectionPopoverHost: NSViewRepresentable {
                 ) { [weak self] in
                     self?.closeFromContent()
                 }
-                // Tied to presentationCount so reopening the popover discards
-                // the prior open's view-local search and scroll state.
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.colorScheme, colorScheme)
                 .id(identity)
             )
             lastRenderedSection = section
+            lastRenderedColorScheme = colorScheme
             lastRenderedPresentationCount = presentationCount
             hostingController.view.invalidateIntrinsicContentSize()
             hostingController.view.layoutSubtreeIfNeeded()
@@ -2764,10 +2807,7 @@ struct SectionPopoverHost: NSViewRepresentable {
             }
             anchorView.superview?.layoutSubtreeIfNeeded()
             let popover = popover ?? makePopover()
-            // Only bump identity on a hidden-to-shown transition. Bumping on every
-            // updateNSView (which fires on parent re-renders, e.g. ObservedObject
-            // store changes) would reset SectionPopoverView's view-local state
-            // on every tick.
+            // Only bump identity on hidden-to-shown; parent re-renders must not reset view-local state.
             if !popover.isShown {
                 presentationCount += 1
                 refreshContent()

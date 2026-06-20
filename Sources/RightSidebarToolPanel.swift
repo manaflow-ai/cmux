@@ -243,6 +243,7 @@ struct RightSidebarToolPanelView: View {
 
     var body: some View {
         content
+            .environment(\.colorScheme, appearance.contentColorScheme)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: appearance.backgroundColor))
             .overlay {
@@ -264,6 +265,7 @@ struct RightSidebarToolPanelView: View {
                 onOpenFilePreview: panel.openFilePreview,
                 presentation: .files,
                 placement: .pane,
+                preferredColorScheme: appearance.contentColorScheme,
                 onFocus: requestPanelFocusIfNeeded,
                 onContainerChange: panel.attachFileExplorerContainer
             )
@@ -274,6 +276,7 @@ struct RightSidebarToolPanelView: View {
                 onOpenFilePreview: panel.openFilePreview,
                 presentation: .find,
                 placement: .pane,
+                preferredColorScheme: appearance.contentColorScheme,
                 onFocus: requestPanelFocusIfNeeded,
                 onContainerChange: panel.attachFileExplorerContainer
             )
