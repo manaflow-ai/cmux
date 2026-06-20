@@ -518,6 +518,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         decorator: self,
         browserDebugContext: self,
         tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView()) },
+        sidebarDebugContentProvider: {
+            NSHostingView(rootView: SidebarDebugView(
+                accentColor: { cmuxAccentColor() },
+                indicatorStyleDisplayName: { $0.displayName }
+            ))
+        },
         debugWindowControlsContentProvider: { NSHostingView(rootView: DebugWindowControlsView()) },
         menuBarExtraDebugContentProvider: { NSHostingView(rootView: MenuBarExtraDebugView()) },
         backgroundDebugContentProvider: { NSHostingView(rootView: BackgroundDebugView()) }
@@ -526,7 +532,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
         decorator: self,
         browserDebugContext: self,
-        tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView()) }
+        tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView()) },
+        sidebarDebugContentProvider: {
+            NSHostingView(rootView: SidebarDebugView(
+                accentColor: { cmuxAccentColor() },
+                indicatorStyleDisplayName: { $0.displayName }
+            ))
+        }
     )
     #endif
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.

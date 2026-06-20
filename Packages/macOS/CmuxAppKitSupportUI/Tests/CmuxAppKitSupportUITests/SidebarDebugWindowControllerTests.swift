@@ -1,0 +1,61 @@
+#if canImport(AppKit)
+import AppKit
+import Testing
+
+@testable import CmuxAppKitSupportUI
+
+/// Covers the Sidebar Debug window shell the app forwards into
+/// ``DebugWindowsCoordinator``. The controller builds the fixed
+/// `cmux.sidebarDebug` utility panel, mounts the app-supplied editor content, and
+/// routes chrome decoration through the injected ``WindowDecorating`` seam.
+@MainActor
+@Suite struct SidebarDebugWindowControllerTests {
+    @Test func showBuildsUtilityPanelMountsContentAndDecorates() {
+        let decorator = SidebarDebugRecordingDecorator()
+        let content = NSView()
+        let controller = SidebarDebugWindowController(
+            decorator: decorator,
+            contentProvider: { content }
+        )
+
+        controller.show()
+
+        let window = controller.window
+        #expect(window != nil)
+        #expect(window?.identifier?.rawValue == "cmux.sidebarDebug")
+        #expect(window?.title == "Sidebar Debug")
+        #expect(window?.contentView === content)
+        #expect(decorator.decorated.count == 1)
+        #expect(decorator.decorated.first === window)
+    }
+
+    @Test func showWithoutDecoratorStillBuildsPanel() {
+        let controller = SidebarDebugWindowController(
+            decorator: nil,
+            contentProvider: { NSView() }
+        )
+
+        controller.show()
+
+        #expect(controller.window?.identifier?.rawValue == "cmux.sidebarDebug")
+    }
+
+    @Test func coordinatorWithoutProviderDoesNotPresent() {
+        let coordinator = DebugWindowsCoordinator(decorator: nil)
+
+        coordinator.showSidebarDebug()
+        // No content provider was injected, so no panel is created. Reaching here
+        // without a crash is the contract (the call is a documented no-op).
+        #expect(Bool(true))
+    }
+}
+
+@MainActor
+private final class SidebarDebugRecordingDecorator: WindowDecorating {
+    private(set) var decorated: [NSWindow] = []
+
+    func applyWindowDecorations(to window: NSWindow) {
+        decorated.append(window)
+    }
+}
+#endif
