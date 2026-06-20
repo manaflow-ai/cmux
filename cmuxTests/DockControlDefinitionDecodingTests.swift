@@ -165,6 +165,25 @@ struct DockControlDefinitionDecodingTests {
         #expect(firstIdentity.baseDirectory == root.path)
     }
 
+    @Test("No-config Dock identity changes do not require panel reload")
+    @MainActor
+    func noConfigIdentityChangesDoNotRequirePanelReload() throws {
+        let firstRoot = try makeTemporaryDirectory()
+        let secondRoot = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: firstRoot)
+            try? FileManager.default.removeItem(at: secondRoot)
+        }
+
+        let firstIdentity = DockSplitStore.configIdentity(rootDirectory: firstRoot.path)
+        let secondIdentity = DockSplitStore.configIdentity(rootDirectory: secondRoot.path)
+
+        #expect(firstIdentity.sourcePath == nil)
+        #expect(secondIdentity.sourcePath == nil)
+        #expect(firstIdentity != secondIdentity)
+        #expect(!secondIdentity.requiresPanelReload(comparedTo: firstIdentity))
+    }
+
     @Test("Project config parent traversal stops at the filesystem root")
     @MainActor
     func projectConfigParentTraversalStopsAtRoot() {

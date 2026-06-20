@@ -591,7 +591,11 @@ final class DockSplitStore: BonsplitDelegate {
     private func applyConfigurationIdentity(_ current: DockConfigIdentity, generation: Int) {
         guard generation == configurationIdentityGeneration else { return }
         configurationIdentityTask = nil
-        guard lastLoadedConfigIdentity != current else { return }
+        guard current.requiresPanelReload(comparedTo: lastLoadedConfigIdentity) else {
+            lastLoadedConfigIdentity = current
+            resolvedBaseDirectory = current.baseDirectory
+            return
+        }
         reload()
     }
 
