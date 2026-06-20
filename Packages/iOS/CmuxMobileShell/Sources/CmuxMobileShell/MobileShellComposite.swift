@@ -752,6 +752,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         CMUXMobileShellStore(
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
+            reachability: PreviewReachability(),
             deliveredNotificationClearer: NoopDeliveredNotificationClearer()
         )
     }
@@ -5457,8 +5458,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 }
 
 private struct MobileTerminalViewportKey: Hashable, Sendable {
-    var workspaceID: MobileWorkspacePreview.ID
-    var terminalID: MobileTerminalPreview.ID
+    var workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID
 }
 
 private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {

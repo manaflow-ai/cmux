@@ -185,8 +185,9 @@ final class TerminalOutputCollector {
     #expect(result == .needsUserApproval)
     #expect(store.pairingVersionWarning?.contains("unknown compatibility") == true)
 
-    await store.acceptPairingVersionWarning()
+    let acceptedResult = await store.acceptPairingVersionWarning()
 
+    #expect(acceptedResult == .connected)
     #expect(store.phase == .workspaces)
     #expect(store.connectedHostName == "Test Mac")
     #expect(store.macConnectionStatus == .connected)
@@ -388,6 +389,7 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
+        reachability: OnlineReachability(),
         feedbackStampProvider: {
             MobileFeedbackStamp(
                 buildType: .dev,
@@ -447,6 +449,7 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
+        reachability: OnlineReachability(),
         feedbackStampProvider: {
             MobileFeedbackStamp(
                 buildType: .dev,
@@ -1383,7 +1386,8 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
-        pairedMacStore: pairedMacStore
+        pairedMacStore: pairedMacStore,
+        reachability: OnlineReachability()
     )
 
     store.signIn()
@@ -1502,7 +1506,8 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
-        pairedMacStore: pairedMacStore
+        pairedMacStore: pairedMacStore,
+        reachability: OnlineReachability()
     )
 
     store.signIn()
@@ -1553,6 +1558,7 @@ final class TerminalOutputCollector {
             currentUserIDValue: "phone-user",
             currentUserEmailValue: "phone@example.com"
         ),
+        reachability: OnlineReachability(),
         analytics: analytics
     )
 
@@ -1586,7 +1592,8 @@ final class TerminalOutputCollector {
         identityProvider: TestIdentityProvider(
             currentUserIDValue: nil,
             currentUserEmailValue: nil
-        )
+        ),
+        reachability: OnlineReachability()
     )
 
     store.signIn()
@@ -1623,6 +1630,7 @@ final class TerminalOutputCollector {
             currentUserIDValue: "phone-user",
             currentUserEmailValue: "user@example.com"
         ),
+        reachability: OnlineReachability(),
         analytics: analytics,
         feedbackStampProvider: {
             MobileFeedbackStamp(
@@ -1675,6 +1683,7 @@ final class TerminalOutputCollector {
             currentUserIDValue: "phone-user",
             currentUserEmailValue: "user@example.com"
         ),
+        reachability: OnlineReachability(),
         feedbackStampProvider: {
             MobileFeedbackStamp(
                 buildType: .dev,
@@ -1720,6 +1729,7 @@ final class TerminalOutputCollector {
             currentUserIDValue: "phone-user",
             currentUserEmailValue: "user@example.com"
         ),
+        reachability: OnlineReachability(),
         feedbackStampProvider: {
             MobileFeedbackStamp(
                 buildType: .dev,
@@ -1771,7 +1781,8 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
-        pairedMacStore: pairedMacStore
+        pairedMacStore: pairedMacStore,
+        reachability: OnlineReachability()
     )
 
     store.signIn()
@@ -2662,8 +2673,9 @@ private func testRuntime(
 private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
-    let payload = base64URLEncode(try encoder.encode(ticket.withCurrentMacPairingCompatibilityVersionForTest()))
-    return try #require(URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"))
+    let normalizedTicket = try ticket.withCurrentMacPairingCompatibilityVersionForTest()
+    let payload = base64URLEncode(try encoder.encode(normalizedTicket))
+    return try #require(URL(string: "cmux-ios://attach?v=\(normalizedTicket.version)&payload=\(payload)"))
 }
 
 private extension CmxAttachTicket {
@@ -3849,7 +3861,22 @@ private struct HangingTransportFactory: CmxByteTransportFactory {
 /// A ``ReachabilityProviding`` double reporting a permanently-offline device, so
 /// the pairing reachability preflight short-circuits before any connect.
 private struct OfflineReachability: ReachabilityProviding {
-    var isOnline: Bool { false }
+    var isOnline: Bool {
+        get async { false }
+    }
+
+    func pathChanges() -> AsyncStream<Void> {
+        AsyncStream { $0.finish() }
+    }
+}
+
+/// A ``ReachabilityProviding`` double reporting a stable online path, so tests
+/// that exercise scripted transports do not inherit CI runner network state.
+private struct OnlineReachability: ReachabilityProviding {
+    var isOnline: Bool {
+        get async { true }
+    }
+
     func pathChanges() -> AsyncStream<Void> {
         AsyncStream { $0.finish() }
     }

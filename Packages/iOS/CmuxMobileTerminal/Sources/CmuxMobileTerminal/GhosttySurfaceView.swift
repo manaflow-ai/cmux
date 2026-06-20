@@ -578,6 +578,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var displayLink: CADisplayLink?
     private var cursorBlinkState = TerminalCursorBlinkState()
     private var cursorOverlayLayer: CALayer?
+    private let defaultTerminalBackgroundColor = UIColor.ghosttyRendererColor(srgbRed: 0, green: 0, blue: 0)
+    private let defaultCursorOverlayColor = UIColor.ghosttyRendererColor(srgbRed: 0xc0, green: 0xc1, blue: 0xb5)
     /// Whether the host terminal currently wants the cursor shown (DECTCEM).
     /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
     /// the render-grid producer forwards that in the VT-patch bytes, so we track
@@ -761,8 +763,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     #endif
     private let snapshotFallbackView: UITextView = {
         let view = UITextView()
-        view.backgroundColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
-        view.textColor = UIColor(red: 0xfd/255.0, green: 0xff/255.0, blue: 0xf1/255.0, alpha: 1)
+        view.backgroundColor = .ghosttyRendererColor(srgbRed: 0x27, green: 0x28, blue: 0x22)
+        view.textColor = .ghosttyRendererColor(srgbRed: 0xfd, green: 0xff, blue: 0xf1)
         view.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         view.textContainerInset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         view.textContainer.lineFragmentPadding = 0
@@ -985,7 +987,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         self.liveFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
-        backgroundColor = .black
+        backgroundColor = defaultTerminalBackgroundColor
         isOpaque = true
         #if DEBUG
         // The surface is a container, not a leaf, so the docked toolbar's
@@ -2784,8 +2786,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             height: ceil(cellHeight)
         )
         overlay.backgroundColor = cursorBlinkState.isVisible
-            ? (configCursorColor ?? UIColor(red: 0xc0/255.0, green: 0xc1/255.0, blue: 0xb5/255.0, alpha: 1.0)).cgColor
-            : (configBackgroundColor ?? backgroundColor ?? .black).cgColor
+            ? (configCursorColor ?? defaultCursorOverlayColor).cgColor
+            : (configBackgroundColor ?? backgroundColor ?? defaultTerminalBackgroundColor).cgColor
         overlay.isHidden = false
     }
 
@@ -2814,7 +2816,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var bgColor = ghostty_config_color_s()
         let bgKey = "background"
         if ghostty_config_get(config, &bgColor, bgKey, UInt(bgKey.lengthOfBytes(using: .utf8))) {
-            let bg = UIColor(red: CGFloat(bgColor.r) / 255.0, green: CGFloat(bgColor.g) / 255.0, blue: CGFloat(bgColor.b) / 255.0, alpha: 1.0)
+            let bg = UIColor.ghosttyRendererColor(srgbRed: bgColor.r, green: bgColor.g, blue: bgColor.b)
             backgroundColor = bg
             snapshotFallbackView.backgroundColor = bg
             configBackgroundColor = bg
@@ -2829,17 +2831,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var fgColor = ghostty_config_color_s()
         let fgKey = "foreground"
         if ghostty_config_get(config, &fgColor, fgKey, UInt(fgKey.lengthOfBytes(using: .utf8))) {
-            snapshotFallbackView.textColor = UIColor(red: CGFloat(fgColor.r) / 255.0, green: CGFloat(fgColor.g) / 255.0, blue: CGFloat(fgColor.b) / 255.0, alpha: 1.0)
+            snapshotFallbackView.textColor = .ghosttyRendererColor(srgbRed: fgColor.r, green: fgColor.g, blue: fgColor.b)
         }
         var cursorColor = ghostty_config_color_s()
         let cursorKey = "cursor-color"
         if ghostty_config_get(config, &cursorColor, cursorKey, UInt(cursorKey.lengthOfBytes(using: .utf8))) {
-            configCursorColor = UIColor(
-                red: CGFloat(cursorColor.r) / 255.0,
-                green: CGFloat(cursorColor.g) / 255.0,
-                blue: CGFloat(cursorColor.b) / 255.0,
-                alpha: 1.0
-            )
+            configCursorColor = .ghosttyRendererColor(srgbRed: cursorColor.r, green: cursorColor.g, blue: cursorColor.b)
         }
     }
 
@@ -3363,15 +3360,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func applySnapshotFallbackTheme(from attributedText: NSAttributedString) {
         guard attributedText.length > 0 else {
-            snapshotFallbackView.backgroundColor = .black
+            snapshotFallbackView.backgroundColor = .ghosttyRendererColor(srgbRed: 0, green: 0, blue: 0)
             return
         }
 
         let probeIndex = firstVisibleThemeAttributeIndex(in: attributedText)
         if let background = attributedText.attribute(.backgroundColor, at: probeIndex, effectiveRange: nil) as? UIColor {
-            snapshotFallbackView.backgroundColor = background
+            snapshotFallbackView.backgroundColor = background.convertedToGhosttyRendererColorSpace()
         } else {
-            snapshotFallbackView.backgroundColor = .black
+            snapshotFallbackView.backgroundColor = .ghosttyRendererColor(srgbRed: 0, green: 0, blue: 0)
         }
     }
 
