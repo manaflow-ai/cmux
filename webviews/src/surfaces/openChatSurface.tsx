@@ -6,6 +6,7 @@ import openChatStyles from "../open-chat/styles.css?inline";
 import { applyCodexDocumentMetadata } from "../agent-session/shared/theme";
 import agentSessionStyles from "../agent-session/shared/styles.css?inline";
 import { createWebviewsRouter } from "../router";
+import diffViewerStyles from "../styles.css?inline";
 import { installWebviewStyles } from "./installWebviewStyles";
 
 function readConfig(): OpenChatConfig {
@@ -23,6 +24,7 @@ function readConfig(): OpenChatConfig {
  */
 export function mountOpenChatSurface(rootElement: HTMLElement): void {
   const config = readConfig();
+  installWebviewStyles("diff", diffViewerStyles);
   installWebviewStyles("agent-session", agentSessionStyles);
   installWebviewStyles("open-chat", openChatStyles);
   applyCodexDocumentMetadata();
