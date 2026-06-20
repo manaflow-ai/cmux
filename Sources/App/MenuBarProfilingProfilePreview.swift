@@ -1,9 +1,11 @@
 import Foundation
 
 enum MenuBarProfilingProfilePreview {
+    static let recipient = "founders@manaflow.com"
+
     static func text(outputURL: URL, email: String, summary: String) -> String {
         [
-            String(localized: "statusMenu.profiling.previewRecipient", defaultValue: "Recipient: founders@manaflow.com"),
+            String(format: String(localized: "statusMenu.profiling.previewRecipient", defaultValue: "Recipient: %@"), recipient),
             String(format: String(localized: "statusMenu.profiling.previewEmailFormat", defaultValue: "Your email: %@"), email),
             String(format: String(localized: "statusMenu.profiling.previewAttachmentFormat", defaultValue: "Attachment: %@"), outputURL.lastPathComponent + ".zip"),
             String(localized: "statusMenu.profiling.previewArchiveNote", defaultValue: "The email includes a zip with traces, logs, and summary.md."),
@@ -27,6 +29,7 @@ enum MenuBarProfilingProfilePreview {
         let summary = summaryText(for: profileURL)
         var args = [
             "--profile", profileURL.path,
+            "--recipient", recipient,
             "--reply-to-file", replyToFile.path,
             "--note-file", noteFile.path,
             "--skip-dialog",

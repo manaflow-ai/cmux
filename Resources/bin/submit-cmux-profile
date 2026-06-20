@@ -5,6 +5,7 @@ usage() {
   cat >&2 <<'USAGE'
 Usage: submit-cmux-profile --profile <dir> [--target-name <name>] [--target-pid <pid>]
                            [--channel <channel>] [--bundle-id <id>]
+                           [--recipient <email>]
                            [--reply-to <email>|--reply-to-file <path>]
                            [--note <text>|--note-file <path>] [--skip-dialog] [--send]
                            [--package-only] [--dry-run]
@@ -57,6 +58,11 @@ while [ "$#" -gt 0 ]; do
     --bundle-id)
       [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --bundle-id requires a value" >&2; exit 2; }
       bundle_id="$2"
+      shift 2
+      ;;
+    --recipient)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --recipient requires a value" >&2; exit 2; }
+      recipient="$2"
       shift 2
       ;;
     --reply-to)

@@ -307,18 +307,21 @@ note_file="$TMP_DIR/note.txt"
 printf '%s' "user@example.com" > "$reply_to_file"
 printf '%s' "profile note" > "$note_file"
 
-CMUX_PROFILE_LOCALE=ja_JP CMUX_PROFILE_OSASCRIPT="$capture_osascript" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
+CMUX_PROFILE_FEEDBACK_EMAIL=wrong@example.com CMUX_PROFILE_LOCALE=ja_JP CMUX_PROFILE_OSASCRIPT="$capture_osascript" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
   --profile "$timeout_out" \
   --target-name "cmux DEV dog" \
   --target-pid 303 \
   --channel dev \
   --bundle-id com.cmuxterm.app.debug.dog \
+  --recipient founders@manaflow.com \
   --reply-to-file "$reply_to_file" \
   --note-file "$note_file" \
   --send
 if ! grep -Fq "cmuxプロファイルを送信" "$captured_args" ||
    ! grep -Fq "下書きを開く" "$captured_args" ||
    ! grep -Fq "cmuxプロファイリングキャプチャ" "$captured_args" ||
+   ! grep -Fq "founders@manaflow.com" "$captured_args" ||
+   grep -Fq "wrong@example.com" "$captured_args" ||
    ! grep -Fq "user@example.com" "$captured_args" ||
    ! grep -Fq "profile note" "$captured_args" ||
    ! grep -Fq "true" "$captured_args"; then
