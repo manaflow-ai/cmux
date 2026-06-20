@@ -1505,8 +1505,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // through to the `/api/devices` registry path below rather than show an
         // empty tree. Flag OFF keeps the registry path verbatim.
         if deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil, isSignedIn {
+            let requestingUserID = identityProvider?.currentUserID
             let teamID = (await syncTeamIDProvider?()) ?? ""
-            if !teamID.isEmpty {
+            // The team-resolve await may have suspended; only proceed if still the
+            // same signed-in user, so a stale read can't mutate the new session.
+            if isSignedIn, identityProvider?.currentUserID == requestingUserID, !teamID.isEmpty {
                 deviceListTeamID = teamID // the team the rendered list is for
                 // Team switched while a socket was pinned to the old team: restart
                 // the subscription so the new team streams + seeds.
@@ -1532,6 +1535,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let syncStore,
                    let cursor = try? await syncStore.cursor(teamID: teamID, collection: devicesSyncCollection),
                    cursor > 0 {
+                    // The cursor read suspended; only blank the tree if we are
+                    // still the same signed-in user on the same team this read was
+                    // for, so a stale read can never clear the current session's
+                    // list (mirrors syncStoreDevices' own guards).
+                    guard isSignedIn, identityProvider?.currentUserID == requestingUserID,
+                          (await syncTeamIDProvider?() ?? "") == teamID else { return }
                     deviceSyncAuthoritativeTeamID = teamID
                     registryDevices = []
                     return
