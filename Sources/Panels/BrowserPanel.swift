@@ -2018,13 +2018,192 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        guard let requestURL = urlSchemeTask.request.url,
-              let file = registeredFile(for: requestURL) else {
+        guard let requestURL = urlSchemeTask.request.url else {
+            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist))
+            return
+        }
+
+        // Mirror the HTTP server's branch picker routes so the picker works when
+        // a diff viewer surface is restored under the custom scheme (the local
+        // HTTP server is gone after an app restart). The token (request host)
+        // must have an active session before we run any git command.
+        if requestURL.scheme == Self.scheme,
+           let token = requestURL.host,
+           Self.isValidToken(token),
+           hasActiveSession(token: token) {
+            let path = (URLComponents(url: requestURL, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? requestURL.path)
+            if path == "/__cmux_diff_viewer_refs" {
+                handleDiffViewerRefsRoute(requestURL: requestURL, token: token, urlSchemeTask: urlSchemeTask)
+                return
+            }
+            if path == "/__cmux_diff_viewer_branch" {
+                handleDiffViewerBranchRoute(requestURL: requestURL, token: token, urlSchemeTask: urlSchemeTask)
+                return
+            }
+        }
+
+        guard let file = registeredFile(for: requestURL) else {
             urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist))
             return
         }
 
         startStreamingFile(file, requestURL: requestURL, urlSchemeTask: urlSchemeTask)
+    }
+
+    private func diffViewerQueryItems(from url: URL) -> [String: String] {
+        var result: [String: String] = [:]
+        for item in URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [] {
+            if result[item.name] == nil {
+                result[item.name] = item.value ?? ""
+            }
+        }
+        return result
+    }
+
+    /// Path to the bundled `cmux` CLI used to run the headless picker commands.
+    private func bundledCLIURL() -> URL? {
+        if let env = ProcessInfo.processInfo.environment["CMUX_BUNDLED_CLI_PATH"],
+           !env.isEmpty,
+           FileManager.default.isExecutableFile(atPath: env) {
+            return URL(fileURLWithPath: env)
+        }
+        let candidate = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        if FileManager.default.isExecutableFile(atPath: candidate.path) {
+            return candidate
+        }
+        return nil
+    }
+
+    private func runBundledDiffViewerCommand(_ arguments: [String]) -> (status: Int32, stdout: Data)? {
+        guard let cli = bundledCLIURL() else { return nil }
+        let process = Process()
+        process.executableURL = cli
+        process.arguments = arguments
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, data)
+    }
+
+    private func handleDiffViewerRefsRoute(
+        requestURL: URL,
+        token: String,
+        urlSchemeTask: WKURLSchemeTask
+    ) {
+        streamQueue.async { [weak self] in
+            guard let self else { return }
+            let query = self.diffViewerQueryItems(from: requestURL)
+            guard let repo = query["repo"], !repo.isEmpty else {
+                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
+                return
+            }
+            var args = ["__diff-viewer-refs", "--repo", repo]
+            if let base = query["base"], !base.isEmpty {
+                args += ["--base", base]
+            }
+            guard let result = self.runBundledDiffViewerCommand(args), result.status == 0 else {
+                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost))
+                return
+            }
+            self.respondScheme(
+                urlSchemeTask: urlSchemeTask,
+                requestURL: requestURL,
+                statusCode: 200,
+                headers: [
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                    "Cross-Origin-Resource-Policy": "same-origin"
+                ],
+                body: result.stdout
+            )
+        }
+    }
+
+    private func handleDiffViewerBranchRoute(
+        requestURL: URL,
+        token: String,
+        urlSchemeTask: WKURLSchemeTask
+    ) {
+        streamQueue.async { [weak self] in
+            guard let self else { return }
+            let query = self.diffViewerQueryItems(from: requestURL)
+            guard let group = query["group"], !group.isEmpty,
+                  let repo = query["repo"], !repo.isEmpty,
+                  let base = query["base"], !base.isEmpty else {
+                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
+                return
+            }
+            let args = ["__diff-viewer-branch", "--group", group, "--repo", repo, "--base", base]
+            guard let result = self.runBundledDiffViewerCommand(args), result.status == 0,
+                  let viewerURLString = String(data: result.stdout, encoding: .utf8)?
+                      .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !viewerURLString.isEmpty else {
+                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost))
+                return
+            }
+            // WKURLSchemeTask cannot drive a top-level 302 the browser follows, so
+            // return a tiny redirect document that navigates to the new page. The
+            // frontend issues this as a navigation (window.location), so the new
+            // diff viewer page loads in place.
+            let escaped = viewerURLString
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            let html = """
+            <!doctype html><html><head><meta charset="utf-8">\
+            <meta http-equiv="refresh" content="0;url=\(viewerURLString)"></head>\
+            <body><script>window.location.replace("\(escaped)");</script></body></html>
+            """
+            self.respondScheme(
+                urlSchemeTask: urlSchemeTask,
+                requestURL: requestURL,
+                statusCode: 200,
+                headers: [
+                    "Content-Type": "text/html; charset=utf-8",
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                    "Cross-Origin-Resource-Policy": "same-origin"
+                ],
+                body: Data(html.utf8)
+            )
+        }
+    }
+
+    private func respondScheme(
+        urlSchemeTask: WKURLSchemeTask,
+        requestURL: URL,
+        statusCode: Int,
+        headers: [String: String],
+        body: Data
+    ) {
+        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        let state = SchemeTaskState()
+        lock.lock()
+        activeSchemeTasks[taskID] = state
+        lock.unlock()
+
+        var responseHeaders = headers
+        responseHeaders["Content-Length"] = "\(body.count)"
+        let response = HTTPURLResponse(
+            url: requestURL,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: responseHeaders
+        ) ?? URLResponse(url: requestURL, mimeType: headers["Content-Type"], expectedContentLength: body.count, textEncodingName: "utf-8")
+
+        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didReceive(response) }) else { return }
+        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didReceive(body) }) else { return }
+        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didFinish() }) else { return }
+        finishSchemeTask(taskID)
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {

@@ -1,0 +1,446 @@
+import { useEffect, useId, useRef, useState } from "react";
+import { Icon } from "./icons";
+import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
+
+/**
+ * Searchable, uncapped branch base picker. Renders a heavy toolbar button that
+ * opens a command-palette-style popover anchored beneath it. Replaces the capped
+ * base `<select>` when the backend supplies `payload.branchPicker` (FROZEN
+ * CONTRACT). Selecting a ref navigates to the regenerate URL, which replaces the
+ * page; the button only needs to show a transient spinner until that navigation.
+ */
+
+export type BranchPickerPayload = {
+  repoRoot: string;
+  currentRef: string;
+  currentReason: string;
+  confidence: "high" | "low";
+  aheadBehind: { ahead: number; behind: number } | null;
+  refsURL: string;
+  regenerateURLTemplate: string;
+};
+
+type BranchPickerRow = {
+  ref: string;
+  label: string;
+  secondary?: string;
+  reason?: string;
+  confidence?: "high" | "low";
+  current?: boolean;
+  worktreeDir?: string;
+};
+
+type BranchPickerGroup = {
+  id: string;
+  label: string;
+  rows: BranchPickerRow[];
+};
+
+type RefsResponse = { groups: BranchPickerGroup[] };
+
+// A flattened, filtered row paired with its rendered group header. `match`
+// carries the fuzzy-match span for bolding while filtering. `raw` marks the
+// synthetic "Use <query> (raw)" row.
+type FlatRow = {
+  row: BranchPickerRow;
+  groupId: string;
+  groupLabel: string;
+  firstInGroup: boolean;
+  match: [number, number] | null;
+  raw: boolean;
+};
+
+const GROUP_LABEL_KEY: Record<string, DiffViewerLabelKey> = {
+  suggested: "branchPickerGroupSuggested",
+  worktrees: "branchPickerGroupWorktrees",
+  branches: "branchPickerGroupBranches",
+  remotes: "branchPickerGroupRemotes",
+  recent: "branchPickerGroupRecent",
+};
+
+export function BranchBasePicker({
+  label,
+  onNavigate,
+  picker,
+}: {
+  label: DiffViewerLabelResolver;
+  onNavigate: (url: string) => void;
+  picker: BranchPickerPayload;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [groups, setGroups] = useState<BranchPickerGroup[] | null>(null);
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle");
+  const [highlight, setHighlight] = useState(0);
+  const [generatingRef, setGeneratingRef] = useState<string | null>(null);
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const listboxId = useId();
+
+  const flat = buildFlatRows(groups, query, picker, label);
+  const clampedHighlight = flat.length === 0 ? 0 : Math.min(highlight, flat.length - 1);
+
+  const openPopover = () => {
+    setOpen(true);
+    setQuery("");
+    setHighlight(0);
+    if (groups == null && loadState !== "loading") {
+      setLoadState("loading");
+      fetchRefs(picker.refsURL)
+        .then((response) => {
+          setGroups(response.groups);
+          setLoadState("idle");
+        })
+        .catch((error) => {
+          console.warn("cmux diff branch picker refs load failed", error);
+          setLoadState("error");
+        });
+    }
+  };
+
+  const closePopover = () => {
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+
+  const selectRef = (ref: string) => {
+    const trimmed = ref.trim();
+    if (trimmed === "") {
+      return;
+    }
+    setGeneratingRef(trimmed);
+    setOpen(false);
+    onNavigate(picker.regenerateURLTemplate.replace("{ref}", encodeURIComponent(trimmed)));
+  };
+
+  // Outside-click + Escape dismissal while open. Isolated to one effect with a
+  // narrow contract; keyboard nav inside the popover is handled on the input.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onPointerDown = (event: MouseEvent) => {
+      if (event.target instanceof Node && containerRef.current?.contains(event.target)) {
+        return;
+      }
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
+
+  const onInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closePopover();
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (flat.length > 0) {
+        setHighlight((value) => (value + 1) % flat.length);
+      }
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (flat.length > 0) {
+        setHighlight((value) => (value - 1 + flat.length) % flat.length);
+      }
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const target = flat[clampedHighlight];
+      if (target) {
+        selectRef(target.row.ref);
+      }
+      return;
+    }
+  };
+
+  const buttonText = generatingRef != null
+    ? label("branchPickerGenerating").replace("{ref}", generatingRef)
+    : null;
+
+  return (
+    <div id="base-picker" ref={containerRef}>
+      <button
+        ref={buttonRef}
+        id="base-picker-button"
+        type="button"
+        className="base-picker-button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
+        aria-label={label("branchPickerOpen")}
+        title={label("branchPickerOpen")}
+        data-generating={generatingRef != null ? "true" : "false"}
+        disabled={generatingRef != null}
+        onClick={() => (open ? setOpen(false) : openPopover())}
+      >
+        {generatingRef != null ? (
+          <>
+            <span className="base-picker-spinner" aria-hidden="true" />
+            <span className="base-picker-text">{buttonText}</span>
+          </>
+        ) : (
+          <BranchBaseButtonLabel label={label} picker={picker} />
+        )}
+      </button>
+      {open ? (
+        /* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */
+        <div className="base-picker-popover" role="dialog" aria-label={label("branchPickerOpen")}>
+          <div className="base-picker-search">
+            <Icon name="search" />
+            <input
+              ref={inputRef}
+              autoFocus
+              type="text"
+              className="base-picker-input"
+              placeholder={label("branchPickerFilterPlaceholder")}
+              aria-label={label("branchPickerFilterPlaceholder")}
+              aria-controls={listboxId}
+              aria-activedescendant={flat[clampedHighlight] ? rowDomId(listboxId, clampedHighlight) : undefined}
+              value={query}
+              onChange={(event) => {
+                setQuery(event.currentTarget.value);
+                setHighlight(0);
+              }}
+              onKeyDown={onInputKeyDown}
+            />
+          </div>
+          {/* Searchable command-palette listbox; a native select/datalist cannot
+              render grouped rows with secondaries, pills, and matched bolding. */}
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+          <div id={listboxId} className="base-picker-list" role="listbox" aria-label={label("branchPickerOpen")}>
+            {loadState === "loading" ? (
+              <div className="base-picker-status">{label("branchPickerLoading")}</div>
+            ) : loadState === "error" ? (
+              <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
+            ) : flat.length === 0 ? (
+              <div className="base-picker-status">{label("branchPickerNoMatches")}</div>
+            ) : (
+              flat.map((entry, index) => (
+                <BranchPickerRowView
+                  key={`${entry.groupId}:${entry.row.ref}:${index}`}
+                  domId={rowDomId(listboxId, index)}
+                  entry={entry}
+                  label={label}
+                  selected={index === clampedHighlight}
+                  onHover={() => setHighlight(index)}
+                  onSelect={() => selectRef(entry.row.ref)}
+                />
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function BranchBaseButtonLabel({
+  label,
+  picker,
+}: {
+  label: DiffViewerLabelResolver;
+  picker: BranchPickerPayload;
+}) {
+  const low = picker.confidence === "low";
+  const reason = `${low ? "~" : ""}${picker.currentReason}`;
+  const aheadBehind = picker.aheadBehind;
+  return (
+    <span className="base-picker-label">
+      <span className="base-picker-prefix">{label("branchPickerBasePrefix")}</span>
+      <span className="base-picker-ref">{picker.currentRef}</span>
+      {picker.currentReason ? (
+        <span className={low ? "base-picker-reason base-picker-reason-low" : "base-picker-reason"}>
+          ({reason})
+        </span>
+      ) : null}
+      {aheadBehind ? (
+        <span className="base-picker-aheadbehind">
+          +{aheadBehind.ahead} -{aheadBehind.behind}
+        </span>
+      ) : null}
+      <Icon name="expand" />
+    </span>
+  );
+}
+
+function BranchPickerRowView({
+  domId,
+  entry,
+  label,
+  onHover,
+  onSelect,
+  selected,
+}: {
+  domId: string;
+  entry: FlatRow;
+  label: DiffViewerLabelResolver;
+  onHover: () => void;
+  onSelect: () => void;
+  selected: boolean;
+}) {
+  const { row } = entry;
+  const secondary = row.reason ?? row.worktreeDir ?? row.secondary ?? "";
+  return (
+    <>
+      {entry.firstInGroup ? (
+        <div className="base-picker-group-header" role="presentation">
+          {entry.groupLabel}
+        </div>
+      ) : null}
+      {/* Virtual-focus listbox option: focus stays on the search input and is
+          tracked via aria-activedescendant, so the option is not tab-focusable.
+          A native <option> cannot host the row layout / matched-substring bolding. */}
+      <div
+        id={domId}
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        role="option"
+        tabIndex={-1}
+        aria-selected={selected}
+        className={selected ? "base-picker-row base-picker-row-selected" : "base-picker-row"}
+        onMouseMove={onHover}
+        onMouseDown={(event) => {
+          // Keep input focus; select on click without blurring the field.
+          event.preventDefault();
+          onSelect();
+        }}
+      >
+        <span className="base-picker-row-primary">
+          {entry.raw
+            ? label("branchPickerUseRaw").replace("{ref}", row.ref)
+            : renderMatched(row.label, entry.match)}
+        </span>
+        {row.current ? <span className="base-picker-pill">{label("branchPickerCurrent")}</span> : null}
+        {secondary ? <span className="base-picker-row-secondary">{secondary}</span> : null}
+      </div>
+    </>
+  );
+}
+
+function rowDomId(listboxId: string, index: number): string {
+  return `${listboxId}-row-${index}`;
+}
+
+function renderMatched(text: string, match: [number, number] | null) {
+  if (!match) {
+    return text;
+  }
+  const [start, end] = match;
+  return (
+    <>
+      {text.slice(0, start)}
+      <strong>{text.slice(start, end)}</strong>
+      {text.slice(end)}
+    </>
+  );
+}
+
+// Flatten groups into a render list. While filtering, fuzzy-match each row's
+// primary label across all groups, drop non-matches, and compute the matched
+// span for bolding. A synthetic raw row is prepended when the query matches no
+// row. Empty groups are omitted (no header) per LOCKED DECISIONS.
+function buildFlatRows(
+  groups: BranchPickerGroup[] | null,
+  query: string,
+  picker: BranchPickerPayload,
+  label: DiffViewerLabelResolver,
+): FlatRow[] {
+  const trimmed = query.trim();
+  const result: FlatRow[] = [];
+  let anyMatch = false;
+
+  if (groups) {
+    for (const group of groups) {
+      const groupLabel = resolveGroupLabel(group, label);
+      let firstInGroup = true;
+      for (const row of group.rows) {
+        const match = trimmed === "" ? null : fuzzyMatchSpan(row.label, trimmed);
+        if (trimmed !== "" && match == null) {
+          continue;
+        }
+        if (match != null) {
+          anyMatch = true;
+        }
+        result.push({
+          row,
+          groupId: group.id,
+          groupLabel,
+          firstInGroup,
+          match,
+          raw: false,
+        });
+        firstInGroup = false;
+      }
+    }
+  }
+
+  // Raw ref escape hatch: when a non-empty query matches nothing, offer it as a
+  // top synthetic row that selects the typed value verbatim.
+  if (trimmed !== "" && !anyMatch) {
+    result.unshift({
+      row: { ref: trimmed, label: trimmed },
+      groupId: "__raw",
+      groupLabel: "",
+      firstInGroup: false,
+      match: null,
+      raw: true,
+    });
+  }
+  void picker;
+  return result;
+}
+
+function resolveGroupLabel(group: BranchPickerGroup, label: DiffViewerLabelResolver): string {
+  const key = GROUP_LABEL_KEY[group.id];
+  if (key) {
+    return label(key);
+  }
+  return group.label || group.id;
+}
+
+// Subsequence fuzzy match (case-insensitive). Returns the [start, end) span of
+// the first contiguous run that begins the match, used only for bolding; any
+// subsequence hit qualifies the row. Returns null on no match.
+function fuzzyMatchSpan(text: string, query: string): [number, number] | null {
+  const haystack = text.toLowerCase();
+  const needle = query.toLowerCase();
+  const contiguous = haystack.indexOf(needle);
+  if (contiguous >= 0) {
+    return [contiguous, contiguous + needle.length];
+  }
+  // Subsequence fallback: every needle char appears in order.
+  let queryIndex = 0;
+  let firstHit = -1;
+  for (let textIndex = 0; textIndex < haystack.length && queryIndex < needle.length; textIndex += 1) {
+    if (haystack[textIndex] === needle[queryIndex]) {
+      if (firstHit < 0) {
+        firstHit = textIndex;
+      }
+      queryIndex += 1;
+    }
+  }
+  if (queryIndex < needle.length) {
+    return null;
+  }
+  // Bold only the first matched char for subsequence hits (cheap, readable).
+  return firstHit >= 0 ? [firstHit, firstHit + 1] : null;
+}
+
+async function fetchRefs(refsURL: string): Promise<RefsResponse> {
+  const response = await fetch(refsURL, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`refs request failed (${response.status})`);
+  }
+  const data = (await response.json()) as RefsResponse;
+  if (!data || !Array.isArray(data.groups)) {
+    throw new Error("refs response missing groups");
+  }
+  return data;
+}

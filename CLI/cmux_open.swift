@@ -202,6 +202,9 @@ extension CMUXCLI {
         var layoutSource: String
         var appearance: DiffViewerAppearance
         var runtime: URL?
+        // Same-origin base for branchPicker URLs + group key for regeneration.
+        var origin: URL?
+        var groupID: String?
     }
 
     private struct DiffViewerDeferredSourcePage {
@@ -213,6 +216,10 @@ extension CMUXCLI {
         var sourceOptions: [DiffViewerSourceOption]
         var repoOptions: [DiffViewerSourceOption]
         var baseOptions: [DiffViewerSourceOption]
+        // Resolved smart-default base for this branch page (nil for non-branch
+        // pages and non-current bases); rebuilt into the branchPicker payload at
+        // write time so deferred completions reuse the same picker.
+        var branchPickerBase: DiffBranchBase? = nil
         var allowsSourceFallback: Bool = false
         var sourceFallbacks: [DiffSource: DiffViewerDeferredSourceFallback] = [:]
     }
@@ -384,8 +391,30 @@ extension CMUXCLI {
         var executablePath: String?
     }
 
-    private static let diffViewerHTTPServerProtocolVersion = "wait-v2 remote-stream manifest-refresh react-app-v2 executable-bound"
+    private static let diffViewerHTTPServerProtocolVersion = "wait-v2 remote-stream manifest-refresh react-app-v2 executable-bound branch-picker-v1"
     private static let diffViewerHTTPServerHealthResponse = Data("ok \(diffViewerHTTPServerProtocolVersion)\n".utf8)
+
+    /// Persisted, per-group session descriptor for the branch base picker. The
+    /// `/__cmux_diff_viewer_branch` regenerate endpoint runs in the separate
+    /// server process, which has none of the original `cmux diff` invocation's
+    /// in-memory context. This record carries everything needed to regenerate a
+    /// single branch page for an arbitrary base: the mapper token + groupID that
+    /// key the output files into the secure dir, the repo allow-list the request
+    /// is validated against, and the exact layout/appearance/title/workspace
+    /// context so the regenerated page matches the original visually and
+    /// behaviorally. Written next to the manifest as `.branch-session-<group>.json`.
+    private struct DiffViewerBranchSession: Codable {
+        var token: String
+        var groupID: String
+        var repoRoot: String
+        var allowedRepoRoots: [String]
+        var layout: String
+        var layoutSource: String
+        var appearance: DiffViewerAppearance
+        var titleOverride: String?
+        var workspaceId: String?
+        var surfaceId: String?
+    }
 
     private struct DiffViewerLabels {
         var values: [String: String]
@@ -608,12 +637,16 @@ extension CMUXCLI {
         case dark
     }
 
-    private struct DiffViewerAppearance {
+    private struct DiffViewerAppearance: Codable {
         var backgroundOpacity: Double
         var fontFamily: String
         var fontSize: Double
         var lightTheme: DiffViewerTheme
         var darkTheme: DiffViewerTheme
+
+        enum CodingKeys: String, CodingKey {
+            case backgroundOpacity, fontFamily, fontSize, lightTheme, darkTheme
+        }
 
         var lineHeight: Double {
             20
@@ -642,7 +675,7 @@ extension CMUXCLI {
         }
     }
 
-    private struct DiffViewerTheme {
+    private struct DiffViewerTheme: Codable {
         var generatedName: String
         var ghosttyName: String
         var type: String
@@ -651,6 +684,11 @@ extension CMUXCLI {
         var selectionBackground: String
         var selectionForeground: String
         var palette: [Int: String]
+
+        enum CodingKeys: String, CodingKey {
+            case generatedName, ghosttyName, type, background, foreground
+            case selectionBackground, selectionForeground, palette
+        }
 
         var jsonObject: [String: Any] {
             [
@@ -1703,6 +1741,384 @@ extension CMUXCLI {
             throw CLIError(message: "Branch diff base not found in repository: \(baseRef)")
         }
         return baseRef
+    }
+
+    // MARK: - Branch base picker
+
+    /// The chosen diff base plus why it was chosen and how much we trust it. The
+    /// reason is one of the FROZEN-CONTRACT tags ("created from" | "PR base" |
+    /// "fork point" | "default" | "manual"); confidence is "high" or "low".
+    private struct DiffBranchBase {
+        var ref: String
+        var reason: String
+        var confidence: String
+    }
+
+    private enum DiffBranchBaseReason {
+        static let createdFrom = "created from"
+        static let prBase = "PR base"
+        static let forkPoint = "fork point"
+        static let `default` = "default"
+        static let manual = "manual"
+    }
+
+    /// Localized, human-facing rendering of a reason tag for UI rows.
+    private func diffBranchBaseReasonLabel(_ reason: String) -> String {
+        switch reason {
+        case DiffBranchBaseReason.createdFrom:
+            return CMUXDiffViewerLocalization.string("diffViewer.baseReason.createdFrom", defaultValue: "created from")
+        case DiffBranchBaseReason.prBase:
+            return CMUXDiffViewerLocalization.string("diffViewer.baseReason.prBase", defaultValue: "PR base")
+        case DiffBranchBaseReason.forkPoint:
+            return CMUXDiffViewerLocalization.string("diffViewer.baseReason.forkPoint", defaultValue: "fork point")
+        case DiffBranchBaseReason.default:
+            return CMUXDiffViewerLocalization.string("diffViewer.baseReason.default", defaultValue: "default")
+        case DiffBranchBaseReason.manual:
+            return CMUXDiffViewerLocalization.string("diffViewer.baseReason.manual", defaultValue: "manual")
+        default:
+            return reason
+        }
+    }
+
+    /// The current branch short name, or nil for a detached HEAD.
+    private func gitCurrentBranchName(in repoRoot: String) -> String? {
+        guard let name = try? gitSingleLine(["rev-parse", "--abbrev-ref", "HEAD"], in: repoRoot),
+              !name.isEmpty,
+              name != "HEAD" else {
+            return nil
+        }
+        return name
+    }
+
+    private func gitRefExists(_ ref: String, in repoRoot: String) -> Bool {
+        (try? gitStdout(["rev-parse", "--verify", "--quiet", "\(ref)^{commit}"], in: repoRoot)) != nil
+    }
+
+    /// Resolve the smart default diff base for a branch source. When the caller
+    /// passed an explicit `--base`, that is honored as a "manual" high-confidence
+    /// choice. Otherwise walk the heuristic order: recorded cmuxBase -> PR base ->
+    /// merge-base fork point -> origin/HEAD/main/master fallback.
+    private func resolvedDiffBranchBase(_ rawBaseRef: String?, in repoRoot: String) throws -> DiffBranchBase {
+        if let rawBaseRef,
+           !rawBaseRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let ref = try resolvedGitBranchDiffBaseRef(rawBaseRef, in: repoRoot)
+            return DiffBranchBase(ref: ref, reason: DiffBranchBaseReason.manual, confidence: "high")
+        }
+
+        let branchName = gitCurrentBranchName(in: repoRoot)
+
+        // 1. Recorded creation base written by new-cmux-worktree.sh. Read-only.
+        if let branchName,
+           let recorded = try? gitSingleLine(["config", "--get", "branch.\(branchName).cmuxBase"], in: repoRoot),
+           !recorded.isEmpty,
+           gitRefExists(recorded, in: repoRoot) {
+            return DiffBranchBase(ref: recorded, reason: DiffBranchBaseReason.createdFrom, confidence: "high")
+        }
+
+        // 2. PR base via gh, best-effort and tolerant of gh missing / no PR.
+        if let prBase = diffBranchBasePRBaseRef(in: repoRoot) {
+            return DiffBranchBase(ref: prBase, reason: DiffBranchBaseReason.prBase, confidence: "high")
+        }
+
+        // 3. Fork point against the configured upstream (survives rebases).
+        if let forkPoint = try? gitSingleLine(
+            ["merge-base", "--fork-point", "@{upstream}", "HEAD"],
+            in: repoRoot
+        ), !forkPoint.isEmpty {
+            // Prefer a human-readable upstream ref over the raw fork-point SHA.
+            if let upstream = try? gitSingleLine(
+                ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+                in: repoRoot
+            ), !upstream.isEmpty, gitRefExists(upstream, in: repoRoot) {
+                return DiffBranchBase(ref: upstream, reason: DiffBranchBaseReason.forkPoint, confidence: "high")
+            }
+            return DiffBranchBase(ref: forkPoint, reason: DiffBranchBaseReason.forkPoint, confidence: "high")
+        }
+
+        // 4. origin/HEAD -> origin/main -> master fallback. Low confidence: a guess.
+        let fallback = try gitBranchDiffBaseRef(in: repoRoot)
+        return DiffBranchBase(ref: fallback, reason: DiffBranchBaseReason.default, confidence: "low")
+    }
+
+    /// Best-effort PR base branch via `gh pr view`. Returns nil when gh is
+    /// missing, unauthenticated, there is no PR, or the base ref is unknown
+    /// locally. A short timeout keeps the picker responsive offline.
+    private func diffBranchBasePRBaseRef(in repoRoot: String) -> String? {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "gh", "pr", "view",
+                "--json", "baseRefName",
+                "--jq", ".baseRefName"
+            ],
+            currentDirectoryPath: repoRoot,
+            timeout: 4
+        )
+        guard !result.timedOut, result.status == 0 else { return nil }
+        let base = result.stdout
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !base.isEmpty else { return nil }
+        // gh returns the bare base branch name (e.g. "main"); prefer the
+        // remote-tracking ref when present so the diff is against what was pushed.
+        for candidate in ["origin/\(base)", base] {
+            if gitRefExists(candidate, in: repoRoot) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private struct DiffBranchAheadBehind {
+        var ahead: Int
+        var behind: Int
+    }
+
+    /// `git rev-list --left-right --count <base>...HEAD` -> behind (left, in base
+    /// not HEAD) and ahead (right, in HEAD not base). Tolerates failure -> nil.
+    private func diffBranchAheadBehind(base: String, in repoRoot: String) -> DiffBranchAheadBehind? {
+        guard let line = try? gitSingleLine(
+            ["rev-list", "--left-right", "--count", "\(base)...HEAD"],
+            in: repoRoot
+        ) else {
+            return nil
+        }
+        let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        guard parts.count == 2, let behind = Int(parts[0]), let ahead = Int(parts[1]) else {
+            return nil
+        }
+        return DiffBranchAheadBehind(ahead: ahead, behind: behind)
+    }
+
+    // MARK: - Uncapped grouped refs listing
+
+    private struct DiffBranchRefRow {
+        var ref: String
+        var label: String
+        var secondary: String?
+        var reason: String?
+        var confidence: String?
+        var current: Bool?
+        var worktreeDir: String?
+
+        var jsonObject: [String: Any] {
+            var object: [String: Any] = ["ref": ref, "label": label]
+            if let secondary { object["secondary"] = secondary }
+            if let reason { object["reason"] = reason }
+            if let confidence { object["confidence"] = confidence }
+            if let current { object["current"] = current }
+            if let worktreeDir { object["worktreeDir"] = worktreeDir }
+            return object
+        }
+    }
+
+    private struct DiffBranchRefGroup {
+        var id: String
+        var label: String
+        var rows: [DiffBranchRefRow]
+
+        var jsonObject: [String: Any] {
+            ["id": id, "label": label, "rows": rows.map(\.jsonObject)]
+        }
+    }
+
+    /// Build the uncapped, grouped refs listing for the picker. Groups are in the
+    /// FROZEN order suggested|worktrees|branches|remotes|recent; empty groups are
+    /// omitted by the caller's JSON assembly.
+    private func diffBranchRefGroups(in repoRoot: String, selectedBaseRef: String?) -> [DiffBranchRefGroup] {
+        let currentBranch = gitCurrentBranchName(in: repoRoot)
+        var groups: [DiffBranchRefGroup] = []
+
+        // Suggested: the heuristic bases, deduped, each with reason/confidence.
+        var suggestedRows: [DiffBranchRefRow] = []
+        var suggestedSeen: Set<String> = []
+        func appendSuggested(_ base: DiffBranchBase?) {
+            guard let base, !suggestedSeen.contains(base.ref) else { return }
+            suggestedSeen.insert(base.ref)
+            suggestedRows.append(
+                DiffBranchRefRow(
+                    ref: base.ref,
+                    label: base.ref,
+                    secondary: diffBranchBaseReasonLabel(base.reason),
+                    reason: base.reason,
+                    confidence: base.confidence,
+                    current: nil,
+                    worktreeDir: nil
+                )
+            )
+        }
+        if let selectedBaseRef, !selectedBaseRef.isEmpty, gitRefExists(selectedBaseRef, in: repoRoot) {
+            appendSuggested(DiffBranchBase(ref: selectedBaseRef, reason: DiffBranchBaseReason.manual, confidence: "high"))
+        }
+        appendSuggested(try? resolvedDiffBranchBase(nil, in: repoRoot))
+        // Surface each individual heuristic source so cmuxBase and PR base can
+        // both appear when they disagree (LOCKED DECISION).
+        if let branchName = currentBranch,
+           let recorded = try? gitSingleLine(["config", "--get", "branch.\(branchName).cmuxBase"], in: repoRoot),
+           !recorded.isEmpty, gitRefExists(recorded, in: repoRoot) {
+            appendSuggested(DiffBranchBase(ref: recorded, reason: DiffBranchBaseReason.createdFrom, confidence: "high"))
+        }
+        if let prBase = diffBranchBasePRBaseRef(in: repoRoot) {
+            appendSuggested(DiffBranchBase(ref: prBase, reason: DiffBranchBaseReason.prBase, confidence: "high"))
+        }
+        if !suggestedRows.isEmpty {
+            groups.append(
+                DiffBranchRefGroup(
+                    id: "suggested",
+                    label: CMUXDiffViewerLocalization.string("diffViewer.refGroup.suggested", defaultValue: "Suggested"),
+                    rows: suggestedRows
+                )
+            )
+        }
+
+        // Worktrees: sibling task branches, dir basename as worktreeDir. Skip the
+        // current worktree and any bare entry.
+        var worktreeRows: [DiffBranchRefRow] = []
+        if let porcelain = try? gitStdout(["worktree", "list", "--porcelain"], in: repoRoot) {
+            var currentDir: String?
+            var currentBranchRef: String?
+            var isBare = false
+            func flush() {
+                defer { currentDir = nil; currentBranchRef = nil; isBare = false }
+                guard !isBare,
+                      let dir = currentDir,
+                      let branchRef = currentBranchRef else { return }
+                let standardizedDir = URL(fileURLWithPath: dir).standardizedFileURL.resolvingSymlinksInPath().path
+                let standardizedRepo = URL(fileURLWithPath: repoRoot).standardizedFileURL.resolvingSymlinksInPath().path
+                guard standardizedDir != standardizedRepo else { return }
+                let short = branchRef.hasPrefix("refs/heads/")
+                    ? String(branchRef.dropFirst("refs/heads/".count))
+                    : branchRef
+                worktreeRows.append(
+                    DiffBranchRefRow(
+                        ref: short,
+                        label: short,
+                        secondary: URL(fileURLWithPath: dir).lastPathComponent,
+                        reason: nil,
+                        confidence: nil,
+                        current: nil,
+                        worktreeDir: URL(fileURLWithPath: dir).lastPathComponent
+                    )
+                )
+            }
+            for line in porcelain.components(separatedBy: .newlines) {
+                if line.hasPrefix("worktree ") {
+                    flush()
+                    currentDir = String(line.dropFirst("worktree ".count))
+                } else if line.hasPrefix("branch ") {
+                    currentBranchRef = String(line.dropFirst("branch ".count))
+                } else if line == "bare" {
+                    isBare = true
+                } else if line.isEmpty {
+                    flush()
+                }
+            }
+            flush()
+        }
+        if !worktreeRows.isEmpty {
+            groups.append(
+                DiffBranchRefGroup(
+                    id: "worktrees",
+                    label: CMUXDiffViewerLocalization.string("diffViewer.refGroup.worktrees", defaultValue: "Worktrees"),
+                    rows: worktreeRows
+                )
+            )
+        }
+
+        // Branches: local heads with last-commit relative time, current marked.
+        var branchRows: [DiffBranchRefRow] = []
+        if let listing = try? gitStdout(
+            ["for-each-ref", "--format=%(refname:short)%09%(committerdate:relative)", "refs/heads"],
+            in: repoRoot
+        ) {
+            for line in listing.split(whereSeparator: \.isNewline).map(String.init) {
+                let fields = line.components(separatedBy: "\t")
+                let ref = fields.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard !ref.isEmpty else { continue }
+                let relative = fields.count > 1 ? fields[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+                branchRows.append(
+                    DiffBranchRefRow(
+                        ref: ref,
+                        label: ref,
+                        secondary: relative.isEmpty ? nil : relative,
+                        reason: nil,
+                        confidence: nil,
+                        current: ref == currentBranch ? true : nil,
+                        worktreeDir: nil
+                    )
+                )
+            }
+        }
+        if !branchRows.isEmpty {
+            groups.append(
+                DiffBranchRefGroup(
+                    id: "branches",
+                    label: CMUXDiffViewerLocalization.string("diffViewer.refGroup.branches", defaultValue: "Branches"),
+                    rows: branchRows
+                )
+            )
+        }
+
+        // Remotes: refs/remotes minus the */HEAD pointers.
+        var remoteRows: [DiffBranchRefRow] = []
+        if let listing = try? gitStdout(
+            ["for-each-ref", "--format=%(refname:short)", "refs/remotes"],
+            in: repoRoot
+        ) {
+            for line in listing.split(whereSeparator: \.isNewline).map(String.init) {
+                let ref = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !ref.isEmpty, !ref.hasSuffix("/HEAD") else { continue }
+                remoteRows.append(
+                    DiffBranchRefRow(ref: ref, label: ref, secondary: nil, reason: nil, confidence: nil, current: nil, worktreeDir: nil)
+                )
+            }
+        }
+        if !remoteRows.isEmpty {
+            groups.append(
+                DiffBranchRefGroup(
+                    id: "remotes",
+                    label: CMUXDiffViewerLocalization.string("diffViewer.refGroup.remotes", defaultValue: "Remotes"),
+                    rows: remoteRows
+                )
+            )
+        }
+
+        // Recent: distinct branches recently checked out, from reflog. Capped ~8.
+        var recentRows: [DiffBranchRefRow] = []
+        var recentSeen: Set<String> = []
+        if let reflog = try? gitStdout(
+            ["reflog", "--format=%gs", "-n", "200"],
+            in: repoRoot
+        ) {
+            for line in reflog.split(whereSeparator: \.isNewline).map(String.init) {
+                guard recentRows.count < 8 else { break }
+                // "checkout: moving from X to Y" -> Y is the checked-out ref.
+                guard line.hasPrefix("checkout: moving from "),
+                      let range = line.range(of: " to ", options: .backwards) else { continue }
+                let ref = String(line[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !ref.isEmpty,
+                      ref != currentBranch,
+                      !recentSeen.contains(ref),
+                      gitRefExists(ref, in: repoRoot) else { continue }
+                recentSeen.insert(ref)
+                recentRows.append(
+                    DiffBranchRefRow(ref: ref, label: ref, secondary: nil, reason: nil, confidence: nil, current: nil, worktreeDir: nil)
+                )
+            }
+        }
+        if !recentRows.isEmpty {
+            groups.append(
+                DiffBranchRefGroup(
+                    id: "recent",
+                    label: CMUXDiffViewerLocalization.string("diffViewer.refGroup.recent", defaultValue: "Recent"),
+                    rows: recentRows
+                )
+            )
+        }
+
+        return groups
     }
 
     private func gitSingleLine(_ arguments: [String], in directory: String) throws -> String {
@@ -3474,6 +3890,41 @@ extension CMUXCLI {
             urls: baseURLs
         )
 
+        // Smart-default base with reason/confidence for the selected branch page.
+        // Resolve from the originally requested base (not the already-resolved
+        // ref) so the heuristic reason ("created from"/"PR base"/"fork point"/
+        // "default"/"manual") is preserved. Persist a session descriptor keyed by
+        // groupID so the regenerate endpoint in the server process can rebuild a
+        // branch page for any base without the original invocation's context.
+        let selectedBranchBase: DiffBranchBase?
+        if branchBaseForOptions != nil {
+            selectedBranchBase = try? resolvedDiffBranchBase(explicitBranchBaseRef, in: repoRoot)
+            let session = DiffViewerBranchSession(
+                token: mapper.token,
+                groupID: groupID,
+                repoRoot: repoRoot,
+                allowedRepoRoots: repoCandidates.map(\.repoRoot),
+                layout: layout,
+                layoutSource: layoutSource,
+                appearance: appearance,
+                titleOverride: titleOverride,
+                workspaceId: selectedContext.workspaceId,
+                surfaceId: selectedContext.surfaceId
+            )
+            try? writeDiffViewerBranchSession(session, rootDirectory: directory)
+        } else {
+            selectedBranchBase = nil
+        }
+        func branchPicker(forBase base: DiffBranchBase?) -> [String: Any]? {
+            guard let base else { return nil }
+            return diffViewerBranchPickerPayload(
+                base: base,
+                repoRoot: repoRoot,
+                groupID: groupID,
+                origin: mapper.origin
+            )
+        }
+
         var deferredPages: [DiffViewerDeferredSourcePage] = []
         if shouldDeferSelectedSource {
             try writeDiffViewerStatusHTML(
@@ -3491,6 +3942,7 @@ extension CMUXCLI {
                 baseOptions: selectedSource == .branch ? baseOptions : [],
                 repoRoot: repoRoot,
                 branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil,
+                branchPicker: selectedSource == .branch ? branchPicker(forBase: selectedBranchBase) : nil,
                 runtime: target.runtime
             )
             let sourceFallbacks = Dictionary(uniqueKeysWithValues: DiffSource.allCases.compactMap { source -> (DiffSource, DiffViewerDeferredSourceFallback)? in
@@ -3522,6 +3974,7 @@ extension CMUXCLI {
                     sourceOptions: sourceOptions,
                     repoOptions: selectedRepoOptions,
                     baseOptions: selectedSource == .branch ? baseOptions : [],
+                    branchPickerBase: selectedSource == .branch ? selectedBranchBase : nil,
                     allowsSourceFallback: true,
                     sourceFallbacks: sourceFallbacks
                 )
@@ -3556,6 +4009,7 @@ extension CMUXCLI {
                     baseOptions: source == .branch ? baseOptions : [],
                     repoRoot: repoRoot,
                     branchBaseRef: source == .branch ? pageContext.branchBaseRef : nil,
+                    branchPicker: source == .branch ? branchPicker(forBase: selectedBranchBase) : nil,
                     runtime: target.runtime
                 )
                 deferredPages.append(
@@ -3567,7 +4021,8 @@ extension CMUXCLI {
                         context: pageContext,
                         sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
                         repoOptions: repoOptionsForSource(source, selectedRepoRoot: repoRoot),
-                        baseOptions: source == .branch ? baseOptions : []
+                        baseOptions: source == .branch ? baseOptions : [],
+                        branchPickerBase: source == .branch ? selectedBranchBase : nil
                     )
                 )
             }
@@ -3630,6 +4085,7 @@ extension CMUXCLI {
             }
             var pageContext = selectedContext
             pageContext.branchBaseRef = option.ref
+            let optionBase = DiffBranchBase(ref: option.ref, reason: DiffBranchBaseReason.manual, confidence: "high")
             try writeDiffViewerStatusHTML(
                 to: url,
                 title: option.label,
@@ -3649,6 +4105,7 @@ extension CMUXCLI {
                 ),
                 repoRoot: repoRoot,
                 branchBaseRef: option.ref,
+                branchPicker: branchPicker(forBase: optionBase),
                 runtime: target.runtime
             )
             deferredPages.append(
@@ -3664,7 +4121,8 @@ extension CMUXCLI {
                         selectedBaseRef: option.ref,
                         candidates: baseCandidates,
                         urls: baseURLs
-                    )
+                    ),
+                    branchPickerBase: optionBase
                 )
             )
         }
@@ -3685,6 +4143,7 @@ extension CMUXCLI {
                 baseOptions: selectedSource == .branch ? baseOptions : [],
                 repoRoot: repoRoot,
                 branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil,
+                branchPicker: selectedSource == .branch ? branchPicker(forBase: selectedBranchBase) : nil,
                 runtime: target.runtime
             )
         } else if let selectedEmptyMessage {
@@ -3705,6 +4164,7 @@ extension CMUXCLI {
                 baseOptions: selectedSource == .branch ? baseOptions : [],
                 repoRoot: repoRoot,
                 branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil,
+                branchPicker: selectedSource == .branch ? branchPicker(forBase: selectedBranchBase) : nil,
                 runtime: target.runtime
             )
         }
@@ -3747,7 +4207,9 @@ extension CMUXCLI {
                 layout: layout,
                 layoutSource: layoutSource,
                 appearance: appearance,
-                runtime: target.runtime
+                runtime: target.runtime,
+                origin: mapper.origin,
+                groupID: groupID
             )
         )
     }
@@ -3819,6 +4281,28 @@ extension CMUXCLI {
         return selectedCompletion
     }
 
+    /// Reassemble the `branchPicker` payload for a deferred branch page from its
+    /// stored base plus the source set's origin/groupID, or nil when not a
+    /// branch page or the set lacks an origin/group.
+    private func deferredDiffViewerBranchPicker(
+        page: DiffViewerDeferredSourcePage,
+        sourceSet: DiffViewerDeferredSourceSet
+    ) -> [String: Any]? {
+        guard page.source == .branch,
+              let base = page.branchPickerBase,
+              let origin = sourceSet.origin,
+              let groupID = sourceSet.groupID,
+              let repoRoot = page.context.repoRoot else {
+            return nil
+        }
+        return diffViewerBranchPickerPayload(
+            base: base,
+            repoRoot: repoRoot,
+            groupID: groupID,
+            origin: origin
+        )
+    }
+
     private func writeDeferredDiffViewerError(
         _ error: Error,
         page: DiffViewerDeferredSourcePage,
@@ -3840,6 +4324,7 @@ extension CMUXCLI {
             baseOptions: page.baseOptions,
             repoRoot: page.context.repoRoot,
             branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil,
+            branchPicker: deferredDiffViewerBranchPicker(page: page, sourceSet: sourceSet),
             runtime: sourceSet.runtime
         )
     }
@@ -3934,6 +4419,7 @@ extension CMUXCLI {
             baseOptions: page.source == .branch ? page.baseOptions : [],
             repoRoot: page.context.repoRoot,
             branchBaseRef: page.source == .branch ? page.context.branchBaseRef : nil,
+            branchPicker: deferredDiffViewerBranchPicker(page: page, sourceSet: sourceSet),
             runtime: sourceSet.runtime
         )
     }
@@ -3990,6 +4476,7 @@ extension CMUXCLI {
             baseOptions: baseOptions,
             repoRoot: pageContext.repoRoot,
             branchBaseRef: source == .branch ? pageContext.branchBaseRef : nil,
+            branchPicker: deferredDiffViewerBranchPicker(page: page, sourceSet: sourceSet),
             runtime: sourceSet.runtime
         )
         return DiffViewerDeferredCompletion(
@@ -4078,6 +4565,273 @@ extension CMUXCLI {
                 sourceLabel: nil
             )
         }
+    }
+
+    // MARK: - Branch picker session persistence + payload
+
+    private func diffViewerBranchSessionURL(groupID: String, rootDirectory: URL) -> URL {
+        rootDirectory.appendingPathComponent(".branch-session-\(groupID).json", isDirectory: false)
+    }
+
+    private func writeDiffViewerBranchSession(
+        _ session: DiffViewerBranchSession,
+        rootDirectory: URL
+    ) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let url = diffViewerBranchSessionURL(groupID: session.groupID, rootDirectory: rootDirectory)
+        try encoder.encode(session).write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    private func readDiffViewerBranchSession(
+        groupID: String,
+        rootDirectory: URL
+    ) throws -> DiffViewerBranchSession {
+        let url = diffViewerBranchSessionURL(groupID: groupID, rootDirectory: rootDirectory)
+        return try JSONDecoder().decode(DiffViewerBranchSession.self, from: Data(contentsOf: url))
+    }
+
+    private func diffViewerGroupIDIsValid(_ groupID: String) -> Bool {
+        guard (1...64).contains(groupID.count) else { return false }
+        return groupID.unicodeScalars.allSatisfy { scalar in
+            CharacterSet.alphanumerics.contains(scalar) || scalar == "-"
+        }
+    }
+
+    /// The `branchPicker` payload object (FROZEN CONTRACT). Present only for the
+    /// branch source. URLs point at the same origin the page is served from so
+    /// the picker works under both the local HTTP server and the in-app scheme.
+    private func diffViewerBranchPickerPayload(
+        base: DiffBranchBase,
+        repoRoot: String,
+        groupID: String,
+        origin: URL
+    ) -> [String: Any] {
+        let aheadBehind = diffBranchAheadBehind(base: base.ref, in: repoRoot)
+        let refsURL = diffViewerBranchRefsURL(origin: origin, repoRoot: repoRoot)
+        let regenerateTemplate = diffViewerBranchRegenerateURLTemplate(
+            origin: origin,
+            repoRoot: repoRoot,
+            groupID: groupID
+        )
+        var picker: [String: Any] = [
+            "repoRoot": repoRoot,
+            "currentRef": base.ref,
+            "currentReason": base.reason,
+            "confidence": base.confidence,
+            "refsURL": refsURL,
+            "regenerateURLTemplate": regenerateTemplate
+        ]
+        if let aheadBehind {
+            picker["aheadBehind"] = ["ahead": aheadBehind.ahead, "behind": aheadBehind.behind]
+        } else {
+            picker["aheadBehind"] = NSNull()
+        }
+        return picker
+    }
+
+    /// Build a same-origin URL for a picker endpoint. For the HTTP server origin
+    /// (`http://127.0.0.1:<port>`) this yields an absolute URL; for the in-app
+    /// custom scheme (`cmux-diff-viewer://<token>`) it yields a scheme URL whose
+    /// host carries the token, which the in-app handler mirrors.
+    private func diffViewerBranchEndpointURL(
+        origin: URL,
+        path: String,
+        queryItems: [URLQueryItem]
+    ) -> String {
+        var components = URLComponents()
+        components.scheme = origin.scheme
+        components.host = origin.host
+        components.port = origin.port
+        components.path = path
+        components.queryItems = queryItems
+        return components.url?.absoluteString ?? ""
+    }
+
+    private func diffViewerBranchRefsURL(origin: URL, repoRoot: String) -> String {
+        diffViewerBranchEndpointURL(
+            origin: origin,
+            path: "/__cmux_diff_viewer_refs",
+            queryItems: [URLQueryItem(name: "repo", value: repoRoot)]
+        )
+    }
+
+    /// Regenerate URL with a literal `{ref}` placeholder the frontend substitutes
+    /// (URL-encoded). We assemble the encoded query then splice the unescaped
+    /// placeholder in so the frontend owns the final encoding of the ref value.
+    private func diffViewerBranchRegenerateURLTemplate(
+        origin: URL,
+        repoRoot: String,
+        groupID: String
+    ) -> String {
+        let withSentinel = diffViewerBranchEndpointURL(
+            origin: origin,
+            path: "/__cmux_diff_viewer_branch",
+            queryItems: [
+                URLQueryItem(name: "group", value: groupID),
+                URLQueryItem(name: "repo", value: repoRoot),
+                URLQueryItem(name: "base", value: "__CMUX_REF__")
+            ]
+        )
+        return withSentinel.replacingOccurrences(of: "__CMUX_REF__", with: "{ref}")
+    }
+
+    // MARK: - Headless picker commands (for the in-app custom-scheme handler)
+
+    /// `cmux __diff-viewer-refs --repo <root> [--base <ref>]` -> grouped refs JSON
+    /// on stdout. Validates `repo` against the persisted session allow-list so it
+    /// cannot enumerate refs of an arbitrary repository. Used by the in-app
+    /// custom-scheme handler to mirror the HTTP `/__cmux_diff_viewer_refs` route.
+    func runDiffViewerRefsCommand(commandArgs: [String]) throws {
+        var repo: String?
+        var base: String?
+        var index = 0
+        while index < commandArgs.count {
+            switch commandArgs[index] {
+            case "--repo":
+                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-refs --repo requires a path") }
+                repo = commandArgs[index + 1]; index += 2
+            case "--base":
+                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-refs --base requires a ref") }
+                base = commandArgs[index + 1]; index += 2
+            default:
+                throw CLIError(message: "Unexpected __diff-viewer-refs argument: \(commandArgs[index])")
+            }
+        }
+        guard let repo, !repo.isEmpty else {
+            throw CLIError(message: "__diff-viewer-refs requires --repo")
+        }
+        let rootDirectory = try diffViewerDirectory()
+        guard diffViewerRepoIsAllowed(repo, rootDirectory: rootDirectory) else {
+            throw CLIError(message: "Repository is not in the diff viewer allow-list")
+        }
+        let groups = diffBranchRefGroups(in: repo, selectedBaseRef: base)
+        let payload: [String: Any] = ["groups": groups.map(\.jsonObject)]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        cliWriteStdout(data)
+        cliWriteStdout(Data("\n".utf8))
+    }
+
+    /// `cmux __diff-viewer-branch --group <g> --repo <root> --base <ref>` ->
+    /// regenerate the branch page into the secure dir and print the new viewer URL
+    /// (custom-scheme form) on stdout. Used by the in-app custom-scheme handler to
+    /// mirror the HTTP `/__cmux_diff_viewer_branch` route after an app restart,
+    /// when the local HTTP server is gone. Validates repo + base.
+    func runDiffViewerBranchRegenerateCommand(commandArgs: [String]) throws {
+        var group: String?
+        var repo: String?
+        var base: String?
+        var index = 0
+        while index < commandArgs.count {
+            switch commandArgs[index] {
+            case "--group":
+                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-branch --group requires a value") }
+                group = commandArgs[index + 1]; index += 2
+            case "--repo":
+                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-branch --repo requires a path") }
+                repo = commandArgs[index + 1]; index += 2
+            case "--base":
+                guard index + 1 < commandArgs.count else { throw CLIError(message: "__diff-viewer-branch --base requires a ref") }
+                base = commandArgs[index + 1]; index += 2
+            default:
+                throw CLIError(message: "Unexpected __diff-viewer-branch argument: \(commandArgs[index])")
+            }
+        }
+        guard let group, diffViewerGroupIDIsValid(group),
+              let repo, !repo.isEmpty,
+              let base, !base.isEmpty else {
+            throw CLIError(message: "__diff-viewer-branch requires --group, --repo, and --base")
+        }
+        let rootDirectory = try diffViewerDirectory()
+        guard diffViewerRepoIsAllowed(repo, rootDirectory: rootDirectory),
+              gitRefExists(base, in: repo) else {
+            throw CLIError(message: "Invalid diff viewer branch regenerate request")
+        }
+        let session = try readDiffViewerBranchSession(groupID: group, rootDirectory: rootDirectory)
+        // Reuse the secure-dir generation, but emit a custom-scheme viewer URL so
+        // the restored in-app surface can serve it without the HTTP server.
+        let viewerURL = try regenerateDiffViewerBranchPageForScheme(
+            session: session,
+            repoRoot: repo,
+            base: base,
+            rootDirectory: rootDirectory
+        )
+        cliWriteStdout(Data((viewerURL.absoluteString + "\n").utf8))
+    }
+
+    /// Custom-scheme variant of `regenerateDiffViewerBranchPage`. The embedded
+    /// `branchPicker` URLs use the custom scheme (host = token) so the picker
+    /// continues to work against the in-app handler rather than a dead HTTP port.
+    private func regenerateDiffViewerBranchPageForScheme(
+        session: DiffViewerBranchSession,
+        repoRoot: String,
+        base: String,
+        rootDirectory: URL
+    ) throws -> URL {
+        guard let origin = URL(string: "\(DiffViewerURLMapper.scheme)://\(session.token)") else {
+            throw CLIError(message: "Failed to build diff viewer scheme origin")
+        }
+        let mapper = DiffViewerURLMapper(
+            token: session.token,
+            rootDirectory: rootDirectory,
+            origin: origin
+        )
+        let baseSlug = diffViewerBranchBaseSlug(base)
+        let fileURL = rootDirectory.appendingPathComponent(
+            "diff-\(session.groupID)-pick-\(baseSlug).html",
+            isDirectory: false
+        )
+        let viewerURL = try mapper.viewerURL(for: fileURL)
+
+        var context = DiffSourceContext(
+            workspaceId: session.workspaceId,
+            surfaceId: session.surfaceId,
+            repoRoot: repoRoot,
+            branchBaseRef: base
+        )
+        context.branchBaseRef = try resolvedGitBranchDiffBaseRef(base, in: repoRoot)
+
+        let resolvedBase = DiffBranchBase(ref: context.branchBaseRef ?? base, reason: DiffBranchBaseReason.manual, confidence: "high")
+        let picker = diffViewerBranchPickerPayload(
+            base: resolvedBase,
+            repoRoot: repoRoot,
+            groupID: session.groupID,
+            origin: origin
+        )
+
+        let input = try readGitDiffInput(source: .branch, context: context)
+        let runtime = diffViewerExecutableURL(for: nil)
+        try writeDiffViewerHTML(
+            to: fileURL,
+            patch: input.patch,
+            title: session.titleOverride ?? input.defaultTitle,
+            sourceLabel: input.sourceLabel,
+            externalURL: input.externalURL,
+            remotePatchURL: input.remotePatchURL,
+            layout: session.layout,
+            layoutSource: session.layoutSource,
+            appearance: session.appearance,
+            sourceOptions: [],
+            repoOptions: [],
+            baseOptions: [],
+            repoRoot: repoRoot,
+            branchBaseRef: context.branchBaseRef,
+            branchPicker: picker,
+            runtime: runtime
+        )
+        let assets = try ensureDiffViewerAssets(nextTo: fileURL, runtime: runtime)
+        let newFiles = try diffViewerAllowedFiles(
+            pageURLs: [fileURL],
+            assets: assets,
+            mapper: mapper
+        )
+        try appendDiffViewerHTTPManifestFiles(
+            newFiles,
+            token: session.token,
+            rootDirectory: rootDirectory
+        )
+        return viewerURL
     }
 
     private func gitDiffViewerRepoOptions(selectedRepoRoot: String) -> [DiffViewerRepoOption] {
@@ -4486,7 +5240,8 @@ extension CMUXCLI {
                 self.handleDiffViewerHTTPConnection(
                     fileDescriptor: clientFD,
                     port: port,
-                    manifestCache: manifestCache
+                    manifestCache: manifestCache,
+                    rootDirectory: rootDirectory
                 )
             }
         }
@@ -4583,7 +5338,8 @@ extension CMUXCLI {
     private func handleDiffViewerHTTPConnection(
         fileDescriptor fd: Int32,
         port: Int,
-        manifestCache: DiffViewerHTTPManifestCache
+        manifestCache: DiffViewerHTTPManifestCache,
+        rootDirectory: URL
     ) {
         defer { close(fd) }
 
@@ -4610,6 +5366,27 @@ extension CMUXCLI {
                     reason: "OK",
                     headers: ["Content-Type": "text/plain; charset=utf-8"],
                     body: Self.diffViewerHTTPServerHealthResponse,
+                    omitBody: request.method == "HEAD"
+                )
+                return
+            }
+
+            if request.path == "/__cmux_diff_viewer_refs" {
+                try sendDiffViewerHTTPRefs(
+                    request: request,
+                    fileDescriptor: fd,
+                    rootDirectory: rootDirectory,
+                    omitBody: request.method == "HEAD"
+                )
+                return
+            }
+
+            if request.path == "/__cmux_diff_viewer_branch" {
+                try sendDiffViewerHTTPBranchRegenerate(
+                    request: request,
+                    fileDescriptor: fd,
+                    port: port,
+                    rootDirectory: rootDirectory,
                     omitBody: request.method == "HEAD"
                 )
                 return
@@ -4652,9 +5429,249 @@ extension CMUXCLI {
         }
     }
 
+    /// Whether `repoRoot` matches any persisted branch session's allow-list in
+    /// the secure dir. Both sides are standardized so symlinks do not bypass it.
+    private func diffViewerRepoIsAllowed(_ repoRoot: String, rootDirectory: URL) -> Bool {
+        let normalized = URL(fileURLWithPath: repoRoot, isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath().path
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            atPath: rootDirectory.path
+        ) else {
+            return false
+        }
+        for entry in entries where entry.hasPrefix(".branch-session-") && entry.hasSuffix(".json") {
+            guard let data = try? Data(contentsOf: rootDirectory.appendingPathComponent(entry, isDirectory: false)),
+                  let session = try? JSONDecoder().decode(DiffViewerBranchSession.self, from: data) else {
+                continue
+            }
+            for allowed in session.allowedRepoRoots {
+                let allowedNormalized = URL(fileURLWithPath: allowed, isDirectory: true)
+                    .standardizedFileURL.resolvingSymlinksInPath().path
+                if allowedNormalized == normalized {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// `GET /__cmux_diff_viewer_refs?repo=<root>` -> grouped refs JSON. Validates
+    /// `repo` against the persisted session allow-list.
+    private func sendDiffViewerHTTPRefs(
+        request: DiffViewerHTTPRequest,
+        fileDescriptor fd: Int32,
+        rootDirectory: URL,
+        omitBody: Bool
+    ) throws {
+        let query = request.queryItems()
+        guard let repoRoot = query["repo"], !repoRoot.isEmpty,
+              diffViewerRepoIsAllowed(repoRoot, rootDirectory: rootDirectory) else {
+            try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: omitBody)
+            return
+        }
+        let selectedBase = query["base"]
+        let groups = diffBranchRefGroups(in: repoRoot, selectedBaseRef: selectedBase)
+        let payload: [String: Any] = ["groups": groups.map(\.jsonObject)]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        try sendDiffViewerHTTPResponse(
+            fileDescriptor: fd,
+            status: 200,
+            reason: "OK",
+            headers: ["Content-Type": "application/json; charset=utf-8"],
+            body: data,
+            omitBody: omitBody
+        )
+    }
+
+    /// `GET /__cmux_diff_viewer_branch?group=<g>&repo=<root>&base=<ref>` ->
+    /// validate repo + base, regenerate a single branch page for that base into
+    /// the secure dir, 302-redirect to the new viewer URL. Bad base -> 404 page.
+    private func sendDiffViewerHTTPBranchRegenerate(
+        request: DiffViewerHTTPRequest,
+        fileDescriptor fd: Int32,
+        port: Int,
+        rootDirectory: URL,
+        omitBody: Bool
+    ) throws {
+        let query = request.queryItems()
+        guard let groupID = query["group"], diffViewerGroupIDIsValid(groupID),
+              let repoRoot = query["repo"], !repoRoot.isEmpty,
+              let base = query["base"], !base.isEmpty,
+              diffViewerRepoIsAllowed(repoRoot, rootDirectory: rootDirectory),
+              let session = try? readDiffViewerBranchSession(groupID: groupID, rootDirectory: rootDirectory) else {
+            try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: omitBody)
+            return
+        }
+
+        // Validate the base resolves to a commit in this repo before regenerating.
+        guard gitRefExists(base, in: repoRoot) else {
+            try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: omitBody)
+            return
+        }
+
+        do {
+            let viewerURL = try regenerateDiffViewerBranchPage(
+                session: session,
+                repoRoot: repoRoot,
+                base: base,
+                rootDirectory: rootDirectory,
+                port: port
+            )
+            try sendDiffViewerHTTPResponse(
+                fileDescriptor: fd,
+                status: 302,
+                reason: "Found",
+                headers: [
+                    "Location": viewerURL.absoluteString,
+                    "Content-Type": "text/plain; charset=utf-8"
+                ],
+                body: Data("302 Found\n".utf8),
+                omitBody: omitBody
+            )
+        } catch {
+            try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: omitBody)
+        }
+    }
+
+    /// Regenerate one branch diff page for `base` using the persisted session,
+    /// reusing the original token/groupID so the new page is keyed into the same
+    /// secure dir and served by the same manifest. Appends the new page to the
+    /// manifest and returns the viewer URL to redirect to.
+    private func regenerateDiffViewerBranchPage(
+        session: DiffViewerBranchSession,
+        repoRoot: String,
+        base: String,
+        rootDirectory: URL,
+        port: Int
+    ) throws -> URL {
+        guard let origin = URL(string: "http://127.0.0.1:\(port)") else {
+            throw CLIError(message: "Failed to build diff viewer origin")
+        }
+        let mapper = DiffViewerURLMapper(
+            token: session.token,
+            rootDirectory: rootDirectory,
+            origin: origin
+        )
+        // Stable per-(group, base) filename so repeated picks reuse one page.
+        let baseSlug = diffViewerBranchBaseSlug(base)
+        let fileURL = rootDirectory.appendingPathComponent(
+            "diff-\(session.groupID)-pick-\(baseSlug).html",
+            isDirectory: false
+        )
+        let viewerURL = try mapper.viewerURL(for: fileURL)
+
+        var context = DiffSourceContext(
+            workspaceId: session.workspaceId,
+            surfaceId: session.surfaceId,
+            repoRoot: repoRoot,
+            branchBaseRef: base
+        )
+        context.branchBaseRef = try resolvedGitBranchDiffBaseRef(base, in: repoRoot)
+
+        let resolvedBase = DiffBranchBase(ref: context.branchBaseRef ?? base, reason: DiffBranchBaseReason.manual, confidence: "high")
+        let picker = diffViewerBranchPickerPayload(
+            base: resolvedBase,
+            repoRoot: repoRoot,
+            groupID: session.groupID,
+            origin: origin
+        )
+
+        let input = try readGitDiffInput(source: .branch, context: context)
+        let runtime = diffViewerExecutableURL(for: nil)
+        try writeDiffViewerHTML(
+            to: fileURL,
+            patch: input.patch,
+            title: session.titleOverride ?? input.defaultTitle,
+            sourceLabel: input.sourceLabel,
+            externalURL: input.externalURL,
+            remotePatchURL: input.remotePatchURL,
+            layout: session.layout,
+            layoutSource: session.layoutSource,
+            appearance: session.appearance,
+            sourceOptions: [],
+            repoOptions: [],
+            baseOptions: [],
+            repoRoot: repoRoot,
+            branchBaseRef: context.branchBaseRef,
+            branchPicker: picker,
+            runtime: runtime
+        )
+
+        // Append the regenerated page + its assets to the manifest so the file
+        // server and in-app scheme handler will serve it.
+        let assets = try ensureDiffViewerAssets(nextTo: fileURL, runtime: runtime)
+        let newFiles = try diffViewerAllowedFiles(
+            pageURLs: [fileURL],
+            assets: assets,
+            mapper: mapper
+        )
+        try appendDiffViewerHTTPManifestFiles(
+            newFiles,
+            token: session.token,
+            rootDirectory: rootDirectory
+        )
+        return viewerURL
+    }
+
+    private func diffViewerBranchBaseSlug(_ base: String) -> String {
+        let mapped = base.unicodeScalars.map { scalar -> Character in
+            if CharacterSet.alphanumerics.contains(scalar) {
+                return Character(scalar)
+            }
+            return "-"
+        }
+        let slug = String(mapped).prefix(48)
+        return slug.isEmpty ? "base" : String(slug)
+    }
+
+    /// Merge new allowlist entries into a token's existing manifest, deduping by
+    /// request path (existing entries win). Used by on-demand branch regeneration.
+    private func appendDiffViewerHTTPManifestFiles(
+        _ newFiles: [DiffViewerAllowedFile],
+        token: String,
+        rootDirectory: URL
+    ) throws {
+        guard diffViewerHTTPIsValidToken(token) else {
+            throw CLIError(message: "Invalid diff viewer token")
+        }
+        let url = diffViewerHTTPManifestURL(token: token, rootDirectory: rootDirectory)
+        var files: [DiffViewerAllowedFile] = []
+        if let data = try? Data(contentsOf: url),
+           let manifest = try? JSONDecoder().decode(DiffViewerHTTPManifest.self, from: data),
+           manifest.token == token {
+            files = manifest.files
+        }
+        var seen = Set(files.map(\.requestPath))
+        for file in newFiles where !seen.contains(file.requestPath) {
+            seen.insert(file.requestPath)
+            files.append(file)
+        }
+        guard !files.isEmpty, files.count <= 4096 else {
+            throw CLIError(message: "Invalid diff viewer allowlist size")
+        }
+        try writeDiffViewerHTTPManifest(token: token, files: files, rootDirectory: rootDirectory)
+    }
+
     private struct DiffViewerHTTPRequest {
         var method: String
         var path: String
+        // Percent-encoded query string (without the leading "?"), preserved for
+        // the branch picker endpoints. Empty for the file-serving routes, which
+        // ignore it.
+        var rawQuery: String
+
+        func queryItems() -> [String: String] {
+            guard !rawQuery.isEmpty else { return [:] }
+            var components = URLComponents()
+            components.percentEncodedQuery = rawQuery
+            var result: [String: String] = [:]
+            for item in components.queryItems ?? [] {
+                if result[item.name] == nil {
+                    result[item.name] = item.value ?? ""
+                }
+            }
+            return result
+        }
     }
 
     private func readDiffViewerHTTPRequest(fileDescriptor fd: Int32) throws -> DiffViewerHTTPRequest? {
@@ -4697,19 +5714,23 @@ extension CMUXCLI {
 
         let method = String(parts[0]).uppercased()
         var target = String(parts[1])
+        var rawQuery = ""
         if target.hasPrefix("http://") || target.hasPrefix("https://") {
             guard let components = URLComponents(string: target) else {
                 throw CLIError(message: "Invalid diff viewer request target")
             }
+            rawQuery = components.percentEncodedQuery ?? ""
             target = components.percentEncodedPath
-        }
-        if let queryIndex = target.firstIndex(of: "?") {
+        } else if let queryIndex = target.firstIndex(of: "?") {
+            // Preserve the query string for the branch picker endpoints; the
+            // file-serving routes ignore it.
+            rawQuery = String(target[target.index(after: queryIndex)...])
             target = String(target[..<queryIndex])
         }
         guard target.hasPrefix("/") else {
             throw CLIError(message: "Invalid diff viewer request path")
         }
-        return DiffViewerHTTPRequest(method: method, path: target)
+        return DiffViewerHTTPRequest(method: method, path: target, rawQuery: rawQuery)
     }
 
     private func diffViewerHTTPAllowedFile(
@@ -5495,7 +6516,8 @@ extension CMUXCLI {
         repoOptions: [DiffViewerSourceOption] = [],
         baseOptions: [DiffViewerSourceOption] = [],
         repoRoot: String? = nil,
-        branchBaseRef: String? = nil
+        branchBaseRef: String? = nil,
+        branchPicker: [String: Any]? = nil
     ) throws -> URL {
         let directory = try diffViewerDirectory()
 
@@ -5516,7 +6538,8 @@ extension CMUXCLI {
             repoOptions: repoOptions,
             baseOptions: baseOptions,
             repoRoot: repoRoot,
-            branchBaseRef: branchBaseRef
+            branchBaseRef: branchBaseRef,
+            branchPicker: branchPicker
         )
         return viewerURL
     }
@@ -5536,6 +6559,7 @@ extension CMUXCLI {
         baseOptions: [DiffViewerSourceOption] = [],
         repoRoot: String? = nil,
         branchBaseRef: String? = nil,
+        branchPicker: [String: Any]? = nil,
         runtime: URL? = nil
     ) throws {
         try writeDiffViewerHTML(
@@ -5552,6 +6576,7 @@ extension CMUXCLI {
             baseOptions: baseOptions,
             repoRoot: repoRoot,
             branchBaseRef: branchBaseRef,
+            branchPicker: branchPicker,
             statusMessage: message,
             statusIsError: isError,
             pollForReplacement: pollForReplacement,
@@ -5608,6 +6633,7 @@ extension CMUXCLI {
         baseOptions: [DiffViewerSourceOption] = [],
         repoRoot: String? = nil,
         branchBaseRef: String? = nil,
+        branchPicker: [String: Any]? = nil,
         statusMessage: String? = nil,
         statusIsError: Bool = false,
         pollForReplacement: Bool = false,
@@ -5646,6 +6672,9 @@ extension CMUXCLI {
         }
         if let branchBaseRef {
             payload["branchBaseRef"] = branchBaseRef
+        }
+        if let branchPicker {
+            payload["branchPicker"] = branchPicker
         }
         let assets = try ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
         let config: [String: Any] = [
