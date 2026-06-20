@@ -256,19 +256,17 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         defaultWorkspaceDescriptionHeight: CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
     )
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
-    @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
-    @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
-    @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
-    @State private var commandPaletteNucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
-    @State private var commandPaletteSearchIndexBuildTask: Task<Void, Never>?
-    @State private var commandPaletteSearchIndexBuildGeneration: UInt64 = 0
+    // commandPaletteSearchCorpus / commandPaletteSearchCorpusByID /
+    // commandPaletteSearchCommandsByID / commandPaletteNucleoSearchIndex and the
+    // index-build task/generation now live on `commandPaletteCoordinator`
+    // (single-writer @Observable corpus pipeline). See `CommandPaletteCoordinator+SearchCorpus`.
     @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
     @State private var commandPaletteVisibleResults: [CommandPaletteSearchResult] = []
     @State private var commandPaletteVisibleResultsVersion: UInt64 = 0
     @State private var commandPaletteVisibleResultsScope: CommandPaletteListScope?
     @State private var commandPaletteVisibleResultsFingerprint: Int?
-    @State private var cachedCommandPaletteScope: CommandPaletteListScope?
-    @State private var cachedCommandPaletteFingerprint: Int?
+    // cachedCommandPaletteScope / cachedCommandPaletteFingerprint now live on
+    // `commandPaletteCoordinator` (cachedCorpusScope / cachedCorpusFingerprint).
     @State private var cachedDefaultTerminalIsDefault = DefaultTerminalUserAction.currentStatus().isDefault
     @State private var commandPalettePendingDismissFocusTarget: CommandPaletteRestoreFocusTarget?
     @State private var commandPaletteRestoreTimeoutWorkItem: DispatchWorkItem?
@@ -2852,15 +2850,36 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         return searchAllSurfaces && !commandPaletteQueryForMatching(query: query, scope: scope).isEmpty
     }
 
-    private func refreshCommandPaletteSearchCorpus(
-        force: Bool = false,
-        query: String? = nil
-    ) {
-        let effectiveQuery = Self.commandPaletteRefreshQuery(
-            stateQuery: commandPalettePresentation.query,
-            observedQuery: query
+    /// Builds the corpus-pipeline seam value the coordinator drives its corpus
+    /// and nucleo-index build through. The closures keep the irreducible
+    /// app-coupled work (entry building, forkable-agent availability,
+    /// terminal-open targets, fingerprinting, results refresh) in the app
+    /// target while ownership of the corpus/index state lives on the coordinator.
+    private func commandPaletteSearchCorpusHost() -> CommandPaletteSearchCorpusHost {
+        CommandPaletteSearchCorpusHost(
+            isCommandPalettePresented: { isCommandPalettePresented },
+            presentationQuery: { commandPalettePresentation.query },
+            corpusBuildPlan: { scope, effectiveQuery in
+                commandPaletteCorpusBuildPlan(for: scope, effectiveQuery: effectiveQuery)
+            },
+            corpusEntries: { plan in commandPaletteCorpusEntries(for: plan) },
+            scheduleResultsRefresh: { query, preservePendingActivation in
+                scheduleCommandPaletteResultsRefresh(
+                    query: query,
+                    preservePendingActivation: preservePendingActivation
+                )
+            }
         )
-        let scope = Self.commandPaletteListScope(for: effectiveQuery)
+    }
+
+    /// Resolves the corpus-build plan for `scope`, performing the unconditional
+    /// per-refresh side effects (terminal-open targets, forkable-agent
+    /// availability) before the coordinator's rebuild-skip decision, matching
+    /// the legacy `refreshCommandPaletteSearchCorpus` ordering.
+    private func commandPaletteCorpusBuildPlan(
+        for scope: CommandPaletteListScope,
+        effectiveQuery: String
+    ) -> CommandPaletteSearchCorpusBuildPlan {
         let includeSurfaces = Self.commandPaletteSwitcherIncludesSurfaceEntries(
             searchAllSurfaces: commandPaletteSearchAllSurfaces,
             query: effectiveQuery
@@ -2878,38 +2897,35 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
             includeSurfaces: includeSurfaces,
             commandsContext: commandsContext
         )
-        guard force || cachedCommandPaletteScope != scope || cachedCommandPaletteFingerprint != fingerprint else {
-            return
-        }
-
-        let entries = commandPaletteEntries(
-            for: scope,
-            includeSurfaces: includeSurfaces,
-            commandsContext: commandsContext
-        )
-        commandPaletteSearchCommandsByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
-            entries,
-            keyedBy: \.id
-        )
-        let searchCorpus = entries.map { entry in
-            CommandPaletteSearchCorpusEntry(
-                payload: entry.id,
-                rank: entry.rank,
-                title: entry.title,
-                searchableTexts: entry.searchableTexts
-            )
-        }
-        commandPaletteSearchCorpus = searchCorpus
-        commandPaletteSearchCorpusByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
-            searchCorpus,
-            keyedBy: \.payload
-        )
-        cachedCommandPaletteScope = scope
-        cachedCommandPaletteFingerprint = fingerprint
-        scheduleCommandPaletteSearchIndexBuild(
-            entries: searchCorpus,
+        return CommandPaletteSearchCorpusBuildPlan(
             scope: scope,
+            includeSurfaces: includeSurfaces,
             fingerprint: fingerprint
+        )
+    }
+
+    /// Materializes the live palette entries for a resolved corpus-build plan.
+    private func commandPaletteCorpusEntries(
+        for plan: CommandPaletteSearchCorpusBuildPlan
+    ) -> [CommandPaletteCommand] {
+        commandPaletteEntries(
+            for: plan.scope,
+            includeSurfaces: plan.includeSurfaces
+        )
+    }
+
+    private func refreshCommandPaletteSearchCorpus(
+        force: Bool = false,
+        query: String? = nil
+    ) {
+        let effectiveQuery = Self.commandPaletteRefreshQuery(
+            stateQuery: commandPalettePresentation.query,
+            observedQuery: query
+        )
+        commandPaletteCoordinator.refreshSearchCorpus(
+            force: force,
+            query: effectiveQuery,
+            host: commandPaletteSearchCorpusHost()
         )
     }
 
@@ -2919,41 +2935,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
     }
 
     private func cancelCommandPaletteSearchIndexBuild() {
-        commandPaletteSearchIndexBuildTask?.cancel()
-        commandPaletteSearchIndexBuildTask = nil
-        commandPaletteSearchIndexBuildGeneration &+= 1
-    }
-
-    private func scheduleCommandPaletteSearchIndexBuild(
-        entries: [CommandPaletteSearchCorpusEntry<String>],
-        scope: CommandPaletteListScope,
-        fingerprint: Int?
-    ) {
-        cancelCommandPaletteSearchIndexBuild()
-        commandPaletteNucleoSearchIndex = nil
-        let generation = commandPaletteSearchIndexBuildGeneration
-        commandPaletteSearchIndexBuildTask = Task.detached(priority: .userInitiated) {
-            let index = CommandPaletteNucleoSearchIndex(entries: entries)
-            guard !Task.isCancelled else { return }
-
-            await MainActor.run {
-                guard commandPaletteSearchIndexBuildGeneration == generation,
-                      cachedCommandPaletteScope == scope,
-                      cachedCommandPaletteFingerprint == fingerprint else {
-                    return
-                }
-                commandPaletteNucleoSearchIndex = index
-                commandPaletteSearchIndexBuildTask = nil
-                guard index != nil else { return }
-                if isCommandPalettePresented,
-                   Self.commandPaletteListScope(for: commandPalettePresentation.query) == scope {
-                    scheduleCommandPaletteResultsRefresh(
-                        query: commandPalettePresentation.query,
-                        preservePendingActivation: true
-                    )
-                }
-            }
-        }
+        commandPaletteCoordinator.cancelSearchIndexBuild()
     }
 
     nonisolated static func commandPaletteForkPriorityBoost(commandId: String, query: String) -> Int {
@@ -3057,11 +3039,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
 
         commandPaletteSearchRequestID &+= 1
         let requestID = commandPaletteSearchRequestID
-        let fingerprint = cachedCommandPaletteFingerprint
-        let searchCorpus = commandPaletteSearchCorpus
-        let searchCorpusByID = commandPaletteSearchCorpusByID
-        let searchIndex = commandPaletteNucleoSearchIndex
-        let commandsByID = commandPaletteSearchCommandsByID
+        let fingerprint = commandPaletteCoordinator.cachedCorpusFingerprint
+        let searchCorpus = commandPaletteCoordinator.searchCorpus
+        let searchCorpusByID = commandPaletteCoordinator.searchCorpusByID
+        let searchIndex = commandPaletteCoordinator.nucleoSearchIndex
+        let commandsByID = commandPaletteCoordinator.searchCommandsByID
         let usageHistory = commandPalettePresentation.usageHistoryByCommandId
         let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
@@ -3166,7 +3148,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
                     && isCommandPalettePresented
                     && currentScope == scope
                     && currentMatchingQuery == matchingQuery
-                    && cachedCommandPaletteFingerprint == fingerprint
+                    && commandPaletteCoordinator.cachedCorpusFingerprint == fingerprint
                     && isCommandPaletteSearchPending
                 guard shouldApplyPreview else {
                     return
@@ -3177,7 +3159,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
 
                 let previewResults = Self.commandPaletteMaterializedSearchResults(
                     matches: previewMatches,
-                    commandsByID: commandPaletteSearchCommandsByID
+                    commandsByID: commandPaletteCoordinator.searchCommandsByID
                 )
                 setCommandPaletteVisibleResults(
                     previewResults,
@@ -3215,14 +3197,14 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
                     && isCommandPalettePresented
                     && currentScope == scope
                     && currentMatchingQuery == matchingQuery
-                    && cachedCommandPaletteFingerprint == fingerprint
+                    && commandPaletteCoordinator.cachedCorpusFingerprint == fingerprint
                 guard shouldApplyResults else {
                     return
                 }
 
                 cachedCommandPaletteResults = Self.commandPaletteMaterializedSearchResults(
                     matches: matches,
-                    commandsByID: commandPaletteSearchCommandsByID
+                    commandsByID: commandPaletteCoordinator.searchCommandsByID
                 )
                 let resultIDs = cachedCommandPaletteResults.map(\.id)
                 let pendingActivationResolution = Self.commandPalettePendingActivationResolution(
@@ -4030,7 +4012,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         guard cachedDefaultTerminalIsDefault != isDefault else { return }
 
         cachedDefaultTerminalIsDefault = isDefault
-        cachedCommandPaletteFingerprint = nil
+        commandPaletteCoordinator.invalidateSearchCorpusFingerprintCache()
         if refreshSearchCorpusIfPresented, isCommandPalettePresented {
             scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true, preservePendingActivation: true)
             syncCommandPaletteOverlayCommandListState()
@@ -5967,17 +5949,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
-        commandPaletteSearchCorpus = []
-        commandPaletteSearchCorpusByID = [:]
-        commandPaletteSearchCommandsByID = [:]
-        commandPaletteNucleoSearchIndex = nil
+        commandPaletteCoordinator.resetSearchCorpus()
         cachedCommandPaletteResults = []
         commandPaletteVisibleResults = []
         commandPaletteVisibleResultsScope = nil
         commandPaletteVisibleResultsFingerprint = nil
         commandPaletteVisibleResultsVersion &+= 1
-        cachedCommandPaletteScope = nil
-        cachedCommandPaletteFingerprint = nil
         commandPalettePresentation.pendingTextSelectionBehavior = nil
         commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
         commandPaletteResolvedSearchScope = nil

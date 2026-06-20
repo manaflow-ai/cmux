@@ -36,6 +36,35 @@ public final class CommandPaletteCoordinator {
     @ObservationIgnored private var appliedCommandListSequence: UInt64 = 0
     @ObservationIgnored private var appliedCommandListResultsVersion: UInt64 = 0
 
+    /// The current searchable corpus for the active scope.
+    ///
+    /// The coordinator is the single writer of the corpus + nucleo-index state;
+    /// the host (`ContentView`) reads it to drive the results-refresh pipeline.
+    /// All corpus state is `@ObservationIgnored`: it is consumed by the
+    /// imperative search pipeline, not by SwiftUI body reads, and observing it
+    /// would re-render the palette on every background rebuild.
+    @ObservationIgnored public internal(set) var searchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
+
+    /// The corpus keyed by command id, for candidate-restricted lookups.
+    @ObservationIgnored public internal(set) var searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
+
+    /// The active scope's commands keyed by id, for materializing results.
+    @ObservationIgnored public internal(set) var searchCommandsByID: [String: CommandPaletteCommand] = [:]
+
+    /// The nucleo FFI search index for the active corpus, or `nil` while it is
+    /// being (re)built or unavailable.
+    @ObservationIgnored public internal(set) var nucleoSearchIndex: CommandPaletteNucleoSearchIndex<String>?
+
+    /// Scope of the corpus currently cached, for the rebuild-skip decision.
+    @ObservationIgnored public internal(set) var cachedCorpusScope: CommandPaletteListScope?
+
+    /// Fingerprint of the corpus currently cached, for the rebuild-skip
+    /// decision and for the results-refresh apply guards.
+    @ObservationIgnored public internal(set) var cachedCorpusFingerprint: Int?
+
+    @ObservationIgnored var searchIndexBuildTask: Task<Void, Never>?
+    @ObservationIgnored var searchIndexBuildGeneration: UInt64 = 0
+
     /// Creates a coordinator with an empty command list.
     public init() {}
 
