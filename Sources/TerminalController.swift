@@ -29,7 +29,7 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
 }
 
-nonisolated private struct SocketLineProcessingResult: Sendable {
+nonisolated struct SocketLineProcessingResult: Sendable {
     let response: String?
     let authenticated: Bool
 }
@@ -406,7 +406,7 @@ class TerminalController {
                     close(connection.socket)
                     continue
                 }
-                controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
+                controller.spawnConnectionHandler(for: connection)
             }
         }
         serverEventTarget.controller = self
@@ -918,93 +918,17 @@ class TerminalController {
         socketServer.stop()
     }
 
-    private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) -> Bool {
-        let payload = response + "\n"
-        return transport.writeAll(Data(payload.utf8), to: socket)
-    }
-
-    private nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
-        let message = "Authentication required. Send auth <password> first."
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return "ERROR: Authentication required — send auth <password> first"
-        }
-        let id = dict["id"]
-        return v2Error(id: id, code: "auth_required", message: message)
-    }
-
-    private nonisolated func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
-        let lowered = command.lowercased()
-        guard lowered == "auth" || lowered.hasPrefix("auth ") else {
-            return nil
-        }
-        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
-            return "ERROR: Password mode is enabled but no socket password is configured in Settings."
-        }
-
-        let provided: String
-        if lowered == "auth" {
-            provided = ""
-        } else {
-            provided = String(command.dropFirst(5))
-        }
-        guard !provided.isEmpty else {
-            return "ERROR: Missing password. Usage: auth <password>"
-        }
-        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
-            return "ERROR: Invalid password"
-        }
-        authenticated = true
-        return "OK: Authenticated"
-    }
-
-    private nonisolated func passwordLoginV2ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return nil
-        }
-        let id = dict["id"]
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard method == "auth.login" else {
-            return nil
-        }
-
-        guard let params = dict["params"] as? [String: Any],
-              let provided = params["password"] as? String else {
-            return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
-        }
-
-        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
-            return v2Error(
-                id: id,
-                code: "auth_unconfigured",
-                message: "Password mode is enabled but no socket password is configured in Settings."
-            )
-        }
-
-        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
-            return v2Error(id: id, code: "auth_failed", message: "Invalid password")
-        }
-        authenticated = true
-        return v2Ok(id: id, result: ["authenticated": true])
-    }
-
-    private nonisolated func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
-        guard socketServer.accessMode.requiresPasswordAuth else {
-            return nil
-        }
-        if let v2Response = passwordLoginV2ResponseIfNeeded(for: command, authenticated: &authenticated) {
-            return v2Response
-        }
-        if let v1Response = passwordLoginV1ResponseIfNeeded(for: command, authenticated: &authenticated) {
-            return v1Response
-        }
-        if !authenticated {
-            return passwordAuthRequiredResponse(for: command)
-        }
-        return nil
+    /// The control-socket password handshake, bound to the live listener
+    /// access mode. The connection transport pipeline (access control, the
+    /// `events.stream` auth gate, line framing, the write) and the per-command
+    /// auth gate in ``processSocketLine(_:authenticated:)`` share this single
+    /// authenticator — the legacy `authResponseIfNeeded` family, now in
+    /// ``ControlPasswordAuthenticator``.
+    private nonisolated func passwordAuthenticator() -> ControlPasswordAuthenticator {
+        ControlPasswordAuthenticator(
+            passwordStore: passwordStore,
+            accessMode: socketServer.accessMode
+        )
     }
 
     /// Interim bridged view of a decoded `ControlRequest` with Foundation
@@ -1260,14 +1184,23 @@ class TerminalController {
         }
     }
 
-    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
-        Thread.detachNewThread { [weak self] in
-            guard let self else {
-                close(clientSocket)
-                return
-            }
-            self.handleClient(clientSocket, peerPid: peerPid)
-        }
+    /// Spawns the package per-connection handler for `connection` on its own
+    /// detached thread (the legacy `spawnClientHandler` role). The handler owns
+    /// the access-control gate, the password handshake, line framing, and the
+    /// write; command bodies route back here through the
+    /// ``ControlClientCommandDispatching`` conformance.
+    nonisolated func spawnConnectionHandler(for connection: ControlConnection) {
+        let handler = ControlClientConnectionHandler(
+            socket: connection.socket,
+            peerProcessID: connection.peerProcessID,
+            transport: transport,
+            accessMode: { [socketServer] in socketServer.accessMode },
+            selfProcessID: getpid(),
+            isRunning: { [socketServer] in socketServer.isRunning },
+            makeAuthenticator: { [self] in passwordAuthenticator() },
+            dispatcher: self
+        )
+        ControlClientConnectionHandler.spawnDetached(handler)
     }
 
     private nonisolated func scheduleListenerRearm(
@@ -1302,80 +1235,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
-        defer { close(socket) }
-
-        // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
-        // In allowAll mode (env-var only), skip the ancestry check.
-        if socketServer.accessMode == .cmuxOnly {
-            // Use pre-captured peer PID if available (captured in accept loop before
-            // the peer can disconnect), falling back to live lookup.
-            let pid = peerPid ?? transport.peerProcessID(of: socket)
-            if let pid {
-                guard transport.isProcessDescendant(pid, of: getpid()) else {
-                    _ = writeSocketResponse(
-                        "ERROR: Access denied — only processes started inside cmux can connect",
-                        to: socket
-                    )
-                    return
-                }
-            }
-            // If pid is nil, LOCAL_PEERPID failed (peer disconnected before we
-            // could read it — common with ncat --send-only). We still verify the
-            // peer runs as the same user via LOCAL_PEERCRED. This is the same
-            // security boundary as the socket file permissions (0600), so it does
-            // not widen the attack surface. We also require that the peer actually
-            // sent data (checked in the read loop below) — a connect-only probe
-            // with no data is harmless.
-            if pid == nil {
-                guard transport.peerHasSameUID(socket) else {
-                    _ = writeSocketResponse(
-                        "ERROR: Unable to verify client process",
-                        to: socket
-                    )
-                    return
-                }
-            }
-        }
-
-        var authenticated = false
-        let lineReader = ControlClientLineReader(socket: socket)
-
-        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-
-            var shouldCloseSocket = false
-            autoreleasepool {
-                if isEventsStreamRequest(trimmed) {
-                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
-                        if !writeSocketResponse(response, to: socket) {
-                            shouldCloseSocket = true
-                        }
-                        return
-                    }
-                    handleEventsStreamRequest(trimmed, socket: socket)
-                    shouldCloseSocket = true
-                    return
-                }
-
-                let result = processSocketLine(trimmed, authenticated: authenticated)
-                authenticated = result.authenticated
-                if let response = result.response {
-                    let didWriteResponse = writeSocketResponse(response, to: socket)
-                    publishSocketEvents(command: trimmed, response: response)
-                    if !didWriteResponse {
-                        shouldCloseSocket = true
-                    }
-                }
-            }
-            if shouldCloseSocket {
-                return
-            }
-        }
-    }
-
-    private nonisolated func processSocketLine(
+    nonisolated func processSocketLine(
         _ command: String,
         authenticated: Bool
     ) -> SocketLineProcessingResult {
@@ -1389,8 +1249,9 @@ class TerminalController {
             )
         }
 #endif
-        var nextAuthenticated = authenticated
-        if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
+        let authDecision = passwordAuthenticator().response(for: command, authenticated: authenticated)
+        let nextAuthenticated = authDecision.authenticated
+        if let response = authDecision.response {
 #if DEBUG
             Self.debugLogSocketCommandEndIfNeeded(
                 debugInfo: debugInfo,
