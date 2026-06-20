@@ -1,6 +1,6 @@
 #if canImport(AppKit)
 
-import AppKit
+public import AppKit
 public import Observation
 
 /// Owns and sequences the About Titlebar Debug subsystem on behalf of the app.
@@ -28,16 +28,36 @@ public final class DebugWindowsCoordinator {
     #if DEBUG
     @ObservationIgnored
     private var splitButtonLayoutController: SplitButtonLayoutDebugWindowController?
+
+    @ObservationIgnored
+    private var debugWindowControlsController: DebugWindowControlsWindowController?
+
+    @ObservationIgnored
+    private let debugWindowControlsContentProvider: (@MainActor () -> NSView)?
     #endif
 
     /// Creates the coordinator.
     ///
-    /// - Parameter decorator: The window-decoration seam. Held weakly because the
-    ///   app-side conformer (`AppDelegate`) is a singleton that also owns this
-    ///   coordinator.
-    public init(decorator: (any WindowDecorating)?) {
+    /// - Parameters:
+    ///   - decorator: The window-decoration seam. Held weakly because the
+    ///     app-side conformer (`AppDelegate`) is a singleton that also owns this
+    ///     coordinator.
+    ///   - debugWindowControlsContentProvider: Builds the content view for the
+    ///     "Debug Window Controls" panel (DEBUG only). The panel's SwiftUI content
+    ///     is app-coupled (it opens other app-target debug windows and reads
+    ///     app-target settings), so the app target injects it here. `nil` disables
+    ///     ``showDebugWindowControls()`` (no panel is presented).
+    public init(
+        decorator: (any WindowDecorating)?,
+        debugWindowControlsContentProvider: (@MainActor () -> NSView)? = nil
+    ) {
         self.decorator = decorator
         self.aboutTitlebarStore = AboutTitlebarDebugStore(decorator: decorator)
+        #if DEBUG
+        self.debugWindowControlsContentProvider = debugWindowControlsContentProvider
+        #else
+        _ = debugWindowControlsContentProvider
+        #endif
     }
 
     /// Presents the About Titlebar Debug editor, creating its window on first use.
@@ -57,6 +77,20 @@ public final class DebugWindowsCoordinator {
         let controller = splitButtonLayoutController
             ?? SplitButtonLayoutDebugWindowController(decorator: decorator)
         splitButtonLayoutController = controller
+        controller.show()
+    }
+
+    /// Presents the Debug Window Controls panel, creating its window on first use.
+    ///
+    /// No-op when no content provider was injected at construction.
+    public func showDebugWindowControls() {
+        guard let debugWindowControlsContentProvider else { return }
+        let controller = debugWindowControlsController
+            ?? DebugWindowControlsWindowController(
+                decorator: decorator,
+                contentProvider: debugWindowControlsContentProvider
+            )
+        debugWindowControlsController = controller
         controller.show()
     }
     #endif
