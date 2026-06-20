@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34179	CLI/cmux.swift
 13883	Sources/AppDelegate.swift
-12548	Sources/ContentView.swift
+12547	Sources/ContentView.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11950	Sources/Workspace.swift
 11411	Sources/Panels/BrowserPanel.swift
@@ -14,8 +14,8 @@
 7303	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6318	cmuxTests/SessionPersistenceTests.swift
-6077	cmuxTests/GhosttyConfigTests.swift
 6151	CLI/cmux_open.swift
+6077	cmuxTests/GhosttyConfigTests.swift
 6072	Sources/TextBoxInput.swift
 5922	cmuxTests/TerminalAndGhosttyTests.swift
 5849	Sources/TabManager.swift
@@ -65,12 +65,12 @@
 1466	Sources/FileExplorerStore.swift
 1426	Sources/VaultAgentProcessScanner.swift
 1412	Sources/RemoteTmuxControlConnection.swift
-1321	Sources/cmuxApp.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1373	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1361	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
+1321	Sources/cmuxApp.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
 1292	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
