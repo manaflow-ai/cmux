@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — 專為多工處理打造的終端",
+    "title": "cmux — 專為多工處理打造的可程式化終端",
     "description": "基於 Ghostty 的原生 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直分頁、通知環、分割面板和 socket API。",
     "ogDescription": "面向 AI 程式 agent 的原生 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。"
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "開源終端，專為 ",
     "typingCodingAgents": "程式 agent",
     "typingMultitasking": "多工處理",
+    "typingProgrammability": "可程式化",
     "subtitle": "基於 Ghostty 的原生 macOS 終端應用程式。開源免費。垂直分頁、代理需要注意時的通知環、分割窗格，以及用於可程式化的 <cliLink>CLI</cliLink>。",
     "features": "功能",
     "faq": "常見問題",

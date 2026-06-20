@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — Термінал, створений для багатозадачності",
+    "title": "cmux — Програмований термінал, створений для багатозадачності",
     "description": "Нативний термінал для macOS на базі Ghostty. Працює з Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider та будь-яким CLI-інструментом. Вертикальні вкладки, кільця сповіщень, розділені панелі та socket API.",
     "ogDescription": "Нативний термінал для macOS для AI-агентів програмування. Працює з Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider та будь-яким CLI-інструментом."
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "Термінал, створений для ",
     "typingCodingAgents": "агентів програмування",
     "typingMultitasking": "багатозадачності",
+    "typingProgrammability": "програмованості",
     "subtitle": "Нативний застосунок для macOS на базі Ghostty. Вертикальні вкладки, кільця сповіщень, коли агенти потребують уваги, розділені панелі та <cliLink>CLI</cliLink> для програмованості.",
     "features": "Можливості",
     "faq": "Питання та відповіді",
@@ -1482,7 +1483,7 @@
     "title": "Стіна любові",
     "description": "Що люди кажуть про cmux.",
     "metaTitle": "Стіна любові — cmux",
-    "metaDescription": "Що люди кажуть про cmux — термінал, створений для багатозадачності."
+    "metaDescription": "Що люди кажуть про cmux — програмований термінал, створений для багатозадачності."
   },
   "testimonials": {
     "mitchellh": "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",

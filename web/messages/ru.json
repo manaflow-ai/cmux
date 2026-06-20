@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — Терминал для многозадачности",
+    "title": "cmux — Программируемый терминал для многозадачности",
     "description": "Нативный терминал macOS на базе Ghostty. Работает с Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider и любым CLI-инструментом. Вертикальные вкладки, кольца уведомлений, разделённые панели и socket API.",
     "ogDescription": "Нативный терминал macOS для ИИ-агентов программирования. Работает с Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider и любым CLI-инструментом."
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "Терминал, созданный для ",
     "typingCodingAgents": "код-агентов",
     "typingMultitasking": "многозадачности",
+    "typingProgrammability": "программируемости",
     "subtitle": "Нативное macOS-приложение на базе Ghostty. Вертикальные вкладки, кольца уведомлений когда агенты ждут внимания, разделённые панели и <cliLink>CLI</cliLink> для программируемости.",
     "features": "Возможности",
     "faq": "FAQ",

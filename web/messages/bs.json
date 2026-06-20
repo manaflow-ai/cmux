@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — Terminal napravljen za multitasking",
+    "title": "cmux — Programabilni terminal napravljen za multitasking",
     "description": "Nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
     "ogDescription": "Nativni macOS terminal za AI agente za kodiranje. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom."
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "Terminal napravljen za ",
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
+    "typingProgrammability": "programabilnost",
     "subtitle": "Nativna macOS aplikacija izgrađena na Ghostty-ju. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",

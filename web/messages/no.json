@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "cmux — Terminalen bygget for multitasking",
+    "title": "cmux — Den programmerbare terminalen bygget for multitasking",
     "description": "Nativ macOS-terminal bygget på Ghostty. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-verktøy. Vertikale faner, varselsringer, delte paneler og en socket-API.",
     "ogDescription": "Nativ macOS-terminal for AI-kodingsagenter. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-verktøy."
   },
@@ -46,6 +46,7 @@
     "taglinePrefix": "Terminalen bygget for ",
     "typingCodingAgents": "kodeagenter",
     "typingMultitasking": "multitasking",
+    "typingProgrammability": "programmerbarhet",
     "subtitle": "Nativ macOS-app bygget på Ghostty. Vertikale faner, varselsringer når agenter trenger oppmerksomhet, delte paneler og en <cliLink>CLI</cliLink> for programmerbarhet.",
     "features": "Funksjoner",
     "faq": "Vanlige spørsmål",
