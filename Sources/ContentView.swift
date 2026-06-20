@@ -5707,22 +5707,21 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
 #endif
         let postRunFocusTarget = commandPalettePostRunFocusTarget(for: command)
         recordCommandPaletteUsage(command.id)
-        if command.dismissOnRun,
-           Self.commandPaletteShouldDismissBeforeRun(forCommandId: command.id) {
-            if let postRunFocusTarget {
-                dismissCommandPalette(restoreFocus: true, preferredFocusTarget: postRunFocusTarget)
-            } else {
-                dismissCommandPalette(restoreFocus: false)
-            }
-            command.action()
-            return
-        }
-        command.action()
-        if command.dismissOnRun {
-            if let postRunFocusTarget {
-                dismissCommandPalette(restoreFocus: true, preferredFocusTarget: postRunFocusTarget)
-            } else {
-                dismissCommandPalette(restoreFocus: false)
+        let runPlan = CommandPaletteCommandRunPlan(
+            dismissOnRun: command.dismissOnRun,
+            dismissBeforeRun: Self.commandPaletteShouldDismissBeforeRun(forCommandId: command.id),
+            hasFocusTarget: postRunFocusTarget != nil
+        )
+        for step in runPlan.steps {
+            switch step {
+            case .run:
+                command.action()
+            case .dismiss(let restoreFocus):
+                if restoreFocus, let postRunFocusTarget {
+                    dismissCommandPalette(restoreFocus: true, preferredFocusTarget: postRunFocusTarget)
+                } else {
+                    dismissCommandPalette(restoreFocus: false)
+                }
             }
         }
     }
