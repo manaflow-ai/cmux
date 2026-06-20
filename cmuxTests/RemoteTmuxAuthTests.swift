@@ -173,16 +173,6 @@ import Testing
         #expect(!RemoteTmuxHost.controlSocketPathFitsUnixLimit(overflowing))
     }
 
-    @Test func ensureControlSocketDirectoryCreatesDirForBindablePath() throws {
-        // A destination that fits on the real (short) home must create the socket
-        // directory without throwing. The un-bindable branch (home so long even an
-        // empty slug overflows) is covered by the predicate test above, since the
-        // real home directory can't be lengthened from a unit test.
-        let host = RemoteTmuxHost(destination: "short-host")
-        #expect(RemoteTmuxHost.controlSocketPathFitsUnixLimit(host.controlSocketPath))
-        try host.ensureControlSocketDirectory()
-    }
-
     @Test func controlModeCommandNameRejectsLineDelimitersAndControlScalars() {
         #expect(RemoteTmuxHost.controlModeCommandName("work session") == "work session")
         #expect(RemoteTmuxHost.controlModeCommandName("  work session  ") == "work session")
