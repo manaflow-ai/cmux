@@ -951,14 +951,6 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     }
 }
 
-func titlebarShortcutHintShouldShow(
-    shortcut: StoredShortcut,
-    alwaysShowShortcutHints: Bool,
-    modifierPressed: Bool
-) -> Bool {
-    !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
-}
-
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
@@ -984,6 +976,7 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1810,6 +1803,7 @@ struct ContentView: View {
                         isWorkspaceInputActive: isInputActive,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
+                        windowAppearance: appearance,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
                                 workspaceId: tab.id,
@@ -5478,7 +5472,6 @@ struct ContentView: View {
             description: workspace.customDescription
         )
     }
-
     private func commandPaletteSurfaceSearchMetadata(
         for workspace: Workspace,
         panelId: UUID
@@ -5492,7 +5485,6 @@ struct ContentView: View {
             ports: ports
         )
     }
-
     private func commandPaletteSurfaceKindLabel(for panelType: PanelType) -> String {
         switch panelType {
         case .terminal:
@@ -5505,6 +5497,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
         case .rightSidebarTool:
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
+        case .customSidebar:
+            return String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
         case .agentSession:
             return String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")
         case .project:
@@ -5513,7 +5507,6 @@ struct ContentView: View {
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         }
     }
-
     private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
         switch panelType {
         case .terminal:
@@ -5526,6 +5519,8 @@ struct ContentView: View {
             return ["file", "preview", "text", "pdf", "image", "audio", "video"]
         case .rightSidebarTool:
             return ["tool", "files", "find", "vault", "sidebar"]
+        case .customSidebar:
+            return ["custom", "sidebar", "pane"]
         case .agentSession:
             return ["agent", "codex", "claude", "opencode", "react", "solid"]
         case .project:
@@ -5534,13 +5529,11 @@ struct ContentView: View {
             return ["sidebar", "extensions", "extensionkit", "browser"]
         }
     }
-
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
         commandPaletteCommandsContext(
             terminalOpenTargets: commandPaletteTerminalOpenTargetAvailability
         )
     }
-
     private func resolveCommandPaletteTerminalOpenTargets(
         for scope: CommandPaletteListScope
     ) -> Set<TerminalDirectoryOpenTarget> {
@@ -9645,7 +9638,10 @@ enum CmuxExtensionSidebarSelection {
 
     /// Directory custom sidebars are authored into.
     static var customSidebarsDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        #if DEBUG
+        if let override = customSidebarsDirectoryOverrideForTesting { return override }
+        #endif
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
     }
 
@@ -11033,7 +11029,6 @@ struct VerticalTabsSidebar: View {
             )
         }
     }
-
     private func cmuxSidebarSurfaceKind(for panelType: PanelType) -> CmuxSidebarSurfaceKind {
         switch panelType {
         case .terminal:
@@ -11046,6 +11041,8 @@ struct VerticalTabsSidebar: View {
             return .filePreview
         case .rightSidebarTool:
             return .rightSidebarTool
+        case .customSidebar:
+            return .unknown
         case .agentSession:
             return .agentSession
         case .project:
