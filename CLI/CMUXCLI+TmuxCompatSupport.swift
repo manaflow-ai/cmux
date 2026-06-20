@@ -65,47 +65,6 @@ extension CMUXCLI {
         return commandText.isEmpty ? nil : commandText
     }
 
-    /// Shell program names whose `<shell> … -c <arg>` invocation already runs
-    /// `<arg>` through a shell, so cmux must not wrap it a second time.
-    static let tmuxKnownShellNames: Set<String> = [
-        "sh", "bash", "zsh", "dash", "fish", "ksh", "ash", "mksh", "csh", "tcsh",
-    ]
-
-    /// Whether `command` is *exactly* a clean shell invocation — a known shell,
-    /// optional flags, a `-c`-style command flag, and a single command argument
-    /// that is the **last** token (e.g. OMO's `/bin/sh -c "…"`). Such a command
-    /// already runs its argument through a shell, so cmux must not wrap it again.
-    ///
-    /// The `-c` argument must be the final token: a trailing shell operator
-    /// (`… -c "x" && y`, `… -c "x"; y`) makes the whole thing a shell expression
-    /// that still needs the outer wrapper, so those do not qualify. Conservative
-    /// on purpose — an unrecognized form is harmlessly wrapped; only a genuine
-    /// complete `<shell> … -c <arg>` is skipped.
-    func tmuxCommandIsShellInvocation(_ command: String) -> Bool {
-        let words = tmuxShellWords(command)
-        guard let program = words.first.map({ ($0 as NSString).lastPathComponent }),
-              Self.tmuxKnownShellNames.contains(program) else {
-            return false
-        }
-        var index = 1
-        while index < words.count {
-            let word = words[index]
-            // A non-flag token before the `-c` flag means this is not a bare
-            // `<shell> … -c <arg>` form (e.g. `sh foo`), so it is not a clean
-            // invocation.
-            guard word.hasPrefix("-") else { return false }
-            // The command flag is a short cluster ending in `c` (`-c`, `-lc`, …);
-            // long flags like `--norc` are skipped over, not treated as `-c`.
-            if !word.hasPrefix("--"), word.hasSuffix("c") {
-                // Exactly one argument may follow, and it must be the last token —
-                // nothing (such as a trailing `&&` / `;`) after it.
-                return index == words.count - 2
-            }
-            index += 1
-        }
-        return false
-    }
-
     /// Returns a pane start-command that the surface can exec correctly.
     ///
     /// cmux hands a respawn/start command to the surface as the pane's process
@@ -115,16 +74,20 @@ extension CMUXCLI {
     /// Claude Code agent-team teammates respawn with `cd <dir> && env … <claude> …`
     /// — so `exec -l cd …` tries to exec the `cd` builtin as a binary, fails, and
     /// the pane exits before the real command runs; that is why Claude Code
-    /// 2.1.183 teammates never opened a split pane (issue #6447). Commands are run
-    /// through `${SHELL:-/bin/zsh} -lc` (the user's shell, resolved when Ghostty
-    /// execs the wrapper), matching real tmux's `$SHELL -c` semantics, so Ghostty
-    /// execs the shell rather than a builtin/expression/assignment-prefix. The
-    /// only commands left unwrapped are ones that are already a clean shell
-    /// invocation (e.g. OMO's `/bin/sh -c "…"`), which would otherwise be
-    /// redundantly double-wrapped.
+    /// 2.1.183 teammates never opened a split pane (issue #6447).
+    ///
+    /// Every command is run through `${SHELL:-/bin/zsh} -lc '<command>'` (the
+    /// user's shell, resolved when Ghostty execs the wrapper), matching real
+    /// tmux's `$SHELL -c` semantics, so Ghostty execs the shell rather than a
+    /// builtin/expression/assignment-prefix. The whole command is single-quoted,
+    /// so it round-trips verbatim regardless of operators or quoting — there is no
+    /// attempt to classify which commands "need" a shell, which was unreliable
+    /// (tmux shell-commands can hide operators with no surrounding whitespace).
+    /// Commands that are already a shell invocation (e.g. OMO's `/bin/sh -c "…"`)
+    /// are simply run through one more shell, which execs straight into them.
     func tmuxShellInvokedStartCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !tmuxCommandIsShellInvocation(trimmed) else { return command }
+        guard !trimmed.isEmpty else { return command }
         return "${SHELL:-/bin/zsh} -lc \(tmuxShellQuote(trimmed))"
     }
 

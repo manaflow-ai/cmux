@@ -173,9 +173,8 @@ import Testing
     /// src/termio/Exec.zig), which only works for a single executable — a bare shell
     /// expression like `cd … && … claude` makes it try to exec the `cd` builtin as a
     /// binary, the pane exits immediately, and the teammate never gets a visible pane
-    /// (it falls back to in-process). The fix runs tmux shell-commands through the
-    /// user's login shell so Ghostty execs the shell, not the expression, while
-    /// leaving commands that are already a clean shell invocation untouched.
+    /// (it falls back to in-process). The fix runs every tmux respawn shell-command
+    /// through the user's login shell so Ghostty execs the shell, not the expression.
     /// `tmux_start_command` stays the raw command so `#{pane_start_command}` / OMX-HUD
     /// detection keep reporting it.
     @Test func respawnPaneRunsShellExpressionsThroughLoginShell() throws {
@@ -213,21 +212,19 @@ import Testing
             "assignment-prefixed command must be wrapped, got: \(assignmentPrefix.command)"
         )
 
-        // The `/bin/sh -c "…"` form (used by OMO) is already a clean shell
-        // invocation, so it is forwarded unchanged rather than double-wrapped.
-        let alreadyShellInvoked = try respawnPaneForwardedCommand("/bin/sh -c \"opencode attach; sleep 1\"")
+        // A `<shell> -c "…"` form (e.g. OMO) is wrapped too: it is run through one
+        // more shell that execs straight into it, so there is no fragile attempt
+        // to tell "already shelled" commands apart from shell expressions that
+        // hide trailing operators with no whitespace (`-c "x";y`). The original is
+        // carried verbatim inside the wrapper.
+        let shellForm = try respawnPaneForwardedCommand("/bin/sh -c \"opencode attach; sleep 1\"")
         #expect(
-            alreadyShellInvoked.command == "/bin/sh -c \"opencode attach; sleep 1\"",
-            "already-shell-invoked command must not be double-wrapped, got: \(alreadyShellInvoked.command)"
+            shellForm.command.hasPrefix(shellPrefix),
+            "shell-invocation command must be wrapped, got: \(shellForm.command)"
         )
-
-        // A shell invocation with a trailing operator is still a shell expression
-        // (the `&& …` runs after the inner shell), so it must be wrapped — the
-        // `-c` argument is not the last token.
-        let shellInvocationWithTrailer = try respawnPaneForwardedCommand("/bin/sh -c \"setup\" && echo done")
         #expect(
-            shellInvocationWithTrailer.command.hasPrefix(shellPrefix),
-            "shell invocation with a trailing operator must be wrapped, got: \(shellInvocationWithTrailer.command)"
+            shellForm.command.contains("/bin/sh -c \"opencode attach; sleep 1\""),
+            "wrapper must carry the original command verbatim, got: \(shellForm.command)"
         )
     }
 
