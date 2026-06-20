@@ -73,13 +73,13 @@ final class SystemWideHotkeyShortcutPolicyTests {
         )
     }
 
-    private static var shortcutDefaultsKeys: [String] {
+    private nonisolated static var shortcutDefaultsKeys: [String] {
         KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey) + [
             SystemWideHotkeySettings.legacyShortcutKey,
         ]
     }
 
-    private static func defaultsSnapshot() -> [String: Any] {
+    private nonisolated static func defaultsSnapshot() -> [String: Any] {
         let defaults = UserDefaults.standard
         return shortcutDefaultsKeys.reduce(into: [:]) { snapshot, key in
             if let value = defaults.object(forKey: key) {
@@ -88,14 +88,14 @@ final class SystemWideHotkeyShortcutPolicyTests {
         }
     }
 
-    private static func clearShortcutDefaults() {
+    private nonisolated static func clearShortcutDefaults() {
         let defaults = UserDefaults.standard
         for key in shortcutDefaultsKeys {
             defaults.removeObject(forKey: key)
         }
     }
 
-    private static func restoreDefaults(_ snapshot: [String: Any]) {
+    private nonisolated static func restoreDefaults(_ snapshot: [String: Any]) {
         clearShortcutDefaults()
         let defaults = UserDefaults.standard
         for (key, value) in snapshot {
