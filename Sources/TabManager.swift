@@ -477,6 +477,14 @@ class TabManager: ObservableObject {
     // Reorder/pin flows over the workspaces model (CmuxWorkspaces); owns
     // the pure batch-reorder planner.
     let workspaceReordering: WorkspaceReorderCoordinator<Workspace>
+    // Workspace-command menu logic (selected-workspace index math, move/close
+    // tab-list slicing, per-item enablement) over the workspaces model
+    // (CmuxWorkspaces); the irreducible app-coupled effects (pin toggle,
+    // NSAlert close confirmation, cross-window move, notification mark
+    // read/unread, palette rename/edit) invert through WorkspaceCommandHosting
+    // (this file's class body). The cmuxApp @CommandsBuilder menu shell drives
+    // it through `menuState()` + the action methods.
+    let workspaceCommands: WorkspaceCommandCoordinator<Workspace>
     // Workspace-group lifecycle flows over the workspaces model
     // (CmuxWorkspaces); creation/teardown/selection invert through
     // WorkspaceGroupHosting.
@@ -543,6 +551,7 @@ class TabManager: ObservableObject {
     ) {
         self.settings = settings
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
+        workspaceCommands = WorkspaceCommandCoordinator(model: workspaces, reordering: workspaceReordering)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
         workspaceClosing = WorkspaceCloseCoordinator(model: workspaces)
 #if DEBUG
@@ -583,6 +592,7 @@ class TabManager: ObservableObject {
         // observer timing.
         workspaces.attach(host: self)
         workspaceReordering.attach(host: self)
+        workspaceCommands.attach(host: self)
         workspaceGrouping.attach(host: self)
         workspaceClosing.attach(confirming: self)
         addWorkspace(

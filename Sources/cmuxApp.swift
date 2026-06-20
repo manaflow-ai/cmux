@@ -1132,196 +1132,107 @@ struct cmuxApp: App {
         _ = tabManager.createBrowserSplit(direction: direction)
     }
 
-    private func selectedWorkspaceIndex(in manager: TabManager, workspaceId: UUID) -> Int? {
-        manager.tabs.firstIndex { $0.id == workspaceId }
-    }
-
-    private func selectedWorkspaceWindowMoveTargets(in manager: TabManager) -> [AppDelegate.WindowMoveTarget] {
-        let referenceWindowId = AppDelegate.shared?.windowId(for: manager)
-        return AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
-    }
-
-    private func toggleSelectedWorkspacePinned(in manager: TabManager) {
-        if !WorkspacePinCommands.toggleSelectedWorkspace(in: manager) {
-            NSSound.beep()
-        }
-    }
-
-    private func clearSelectedWorkspaceCustomName(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        manager.clearCustomTitle(tabId: workspace.id)
-    }
-
-    private func moveSelectedWorkspace(in manager: TabManager, by delta: Int) {
-        guard let workspace = manager.selectedWorkspace,
-              let currentIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let targetIndex = currentIndex + delta
-        guard targetIndex >= 0, targetIndex < manager.tabs.count else { return }
-        _ = manager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
-        manager.selectWorkspace(workspace)
-    }
-
-    private func moveSelectedWorkspaceToTop(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        manager.moveTabsToTop([workspace.id])
-        manager.selectWorkspace(workspace)
-    }
-
-    private func moveSelectedWorkspace(in manager: TabManager, toWindow windowId: UUID) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: workspace.id, windowId: windowId, focus: true)
-    }
-
-    private func moveSelectedWorkspaceToNewWindow(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        _ = AppDelegate.shared?.moveWorkspaceToNewWindow(workspaceId: workspace.id, focus: true)
-    }
-
-    private func closeWorkspaceIds(
-        _ workspaceIds: [UUID],
-        in manager: TabManager,
-        allowPinned: Bool
-    ) {
-        manager.closeWorkspacesWithConfirmation(workspaceIds, allowPinned: allowPinned)
-    }
-
-    private func closeOtherSelectedWorkspacePeers(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        let workspaceIds = manager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
-    }
-
-    private func closeSelectedWorkspacesBelow(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace,
-              let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let workspaceIds = manager.tabs.suffix(from: anchorIndex + 1).map(\.id)
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
-    }
-
-    private func closeSelectedWorkspacesAbove(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace,
-              let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let workspaceIds = manager.tabs.prefix(upTo: anchorIndex).map(\.id)
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
-    }
-
-    private func selectedWorkspaceCanMarkRead(in manager: TabManager) -> Bool {
-        guard let workspaceId = manager.selectedWorkspace?.id else { return false }
-        return notificationStore.canMarkWorkspaceRead(forTabIds: [workspaceId])
-    }
-
-    private func selectedWorkspaceCanMarkUnread(in manager: TabManager) -> Bool {
-        guard let workspaceId = manager.selectedWorkspace?.id else { return false }
-        return notificationStore.canMarkWorkspaceUnread(forTabIds: [workspaceId])
-    }
-
-    private func markSelectedWorkspaceRead(in manager: TabManager) {
-        guard let workspaceId = manager.selectedWorkspace?.id else { return }
-        notificationStore.markRead(forTabId: workspaceId)
-    }
-
-    private func markSelectedWorkspaceUnread(in manager: TabManager) {
-        guard let workspaceId = manager.selectedWorkspace?.id else { return }
-        notificationStore.markUnread(forTabId: workspaceId)
-    }
-
     @ViewBuilder
     private func workspaceCommandMenuContent(manager: TabManager) -> some View {
-        let workspace = manager.selectedWorkspace
-        let workspaceIndex = workspace.flatMap { selectedWorkspaceIndex(in: manager, workspaceId: $0.id) }
-        let windowMoveTargets = selectedWorkspaceWindowMoveTargets(in: manager)
-        let pinState = WorkspacePinCommands.selectedWorkspacePinState(in: manager)
+        // The workspace-command logic (selected-workspace index math, move/close
+        // tab-list slicing, per-item enablement, pin/mark labels, window-move
+        // targets) lives in `WorkspaceCommandCoordinator` (CmuxWorkspaces). The
+        // menu shell stays here because a SwiftUI `@CommandsBuilder` body cannot
+        // move into a package; it only places buttons and reads the resolved
+        // `WorkspaceCommandMenuState`.
+        let commands = manager.workspaceCommands
+        let state = commands.menuState()
 
-        Button(WorkspacePinCommands.selectedWorkspaceMenuLabel(in: manager, pinState: pinState)) {
-            toggleSelectedWorkspacePinned(in: manager)
+        Button(state.pinToggleLabel) {
+            commands.toggleSelectedWorkspacePinned()
         }
-        .disabled(pinState == nil)
+        .disabled(!state.pinToggleEnabled)
 
         Button(String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…")) {
-            _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
+            commands.renameSelectedWorkspace()
         }
-        .disabled(workspace == nil)
+        .disabled(!state.hasSelectedWorkspace)
 
         Button(String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
-            _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+            commands.editSelectedWorkspaceDescription()
         }
-        .disabled(workspace == nil)
+        .disabled(!state.hasSelectedWorkspace)
 
-        if workspace?.hasCustomTitle == true {
+        if state.selectedWorkspaceHasCustomTitle {
             Button(String(localized: "contextMenu.removeCustomWorkspaceName", defaultValue: "Remove Custom Workspace Name")) {
-                clearSelectedWorkspaceCustomName(in: manager)
+                commands.clearSelectedWorkspaceCustomName()
             }
         }
 
         Divider()
 
         Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
-            moveSelectedWorkspace(in: manager, by: -1)
+            commands.moveSelectedWorkspace(by: -1)
         }
-        .disabled(workspaceIndex == nil || workspaceIndex == 0)
+        .disabled(!state.canMoveUp)
 
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
-            moveSelectedWorkspace(in: manager, by: 1)
+            commands.moveSelectedWorkspace(by: 1)
         }
-        .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
+        .disabled(!state.canMoveDown)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
-            moveSelectedWorkspaceToTop(in: manager)
+            commands.moveSelectedWorkspaceToTop()
         }
-        .disabled(workspace == nil || workspaceIndex == 0)
+        .disabled(!state.canMoveToTop)
 
         Menu(String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
-                moveSelectedWorkspaceToNewWindow(in: manager)
+                commands.moveSelectedWorkspaceToNewWindow()
             }
-            .disabled(workspace == nil)
+            .disabled(!state.hasSelectedWorkspace)
 
-            if !windowMoveTargets.isEmpty {
+            if !state.windowMoveTargets.isEmpty {
                 Divider()
             }
 
-            ForEach(windowMoveTargets) { target in
+            ForEach(state.windowMoveTargets) { target in
                 Button(target.label) {
-                    moveSelectedWorkspace(in: manager, toWindow: target.windowId)
+                    commands.moveSelectedWorkspace(toWindow: target.windowId)
                 }
-                .disabled(target.isCurrentWindow || workspace == nil)
+                .disabled(target.isCurrentWindow || !state.hasSelectedWorkspace)
             }
         }
-        .disabled(workspace == nil)
+        .disabled(!state.hasSelectedWorkspace)
 
         Divider()
 
         Button(String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace")) {
-            manager.closeCurrentWorkspaceWithConfirmation()
+            commands.closeSelectedWorkspace()
         }
-        .disabled(workspace == nil)
+        .disabled(!state.hasSelectedWorkspace)
 
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
-            closeOtherSelectedWorkspacePeers(in: manager)
+            commands.closeOtherSelectedWorkspacePeers()
         }
-        .disabled(workspace == nil || manager.tabs.count <= 1)
+        .disabled(!state.canCloseOthers)
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
-            closeSelectedWorkspacesBelow(in: manager)
+            commands.closeSelectedWorkspacesBelow()
         }
-        .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
+        .disabled(!state.canCloseBelow)
 
         Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
-            closeSelectedWorkspacesAbove(in: manager)
+            commands.closeSelectedWorkspacesAbove()
         }
-        .disabled(workspaceIndex == nil || workspaceIndex == 0)
+        .disabled(!state.canCloseAbove)
 
         Divider()
 
         Button(String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read")) {
-            markSelectedWorkspaceRead(in: manager)
+            commands.markSelectedWorkspaceRead()
         }
-        .disabled(!selectedWorkspaceCanMarkRead(in: manager))
+        .disabled(!state.canMarkRead)
 
         Button(String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread")) {
-            markSelectedWorkspaceUnread(in: manager)
+            commands.markSelectedWorkspaceUnread()
         }
-        .disabled(!selectedWorkspaceCanMarkUnread(in: manager))
+        .disabled(!state.canMarkUnread)
     }
 
     @ViewBuilder
