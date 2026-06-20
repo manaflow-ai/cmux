@@ -557,7 +557,11 @@ class TabManager: ObservableObject {
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 guard let change = GhosttyTitleChange(notification: notification) else { return }
-                enqueuePanelTitleUpdate(tabId: change.tabId, panelId: change.surfaceId, title: change.title)
+                enqueuePanelTitleUpdate(
+                    tabId: change.tabId,
+                    panelId: change.surfaceId,
+                    title: Self.stableTerminalPanelTitle(change.title)
+                )
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -3296,13 +3300,21 @@ class TabManager: ObservableObject {
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
+        if pendingPanelTitleUpdates[key] == trimmed {
+            return
+        }
+        if let tab = tabs.first(where: { $0.id == tabId }),
+           tab.alreadyReflectsPanelTitleUpdate(panelId: panelId, title: trimmed),
+           selectedTabId != tabId {
+            return
+        }
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
             "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
         )
 #endif
-        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
         panelTitleUpdateCoalescer.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()
@@ -3317,6 +3329,32 @@ class TabManager: ObservableObject {
             updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: title)
         }
     }
+
+    /// Strips a leading spinner glyph (frame-by-frame Unicode braille spinner
+    /// characters from pnpm and similar CLI tools) from a terminal panel
+    /// title so each spinner frame does not enqueue a fresh panel title
+    /// update that thrashes the sidebar.
+    private static func stableTerminalPanelTitle(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first,
+              terminalTitleSpinnerCharacters.contains(first) else {
+            return title
+        }
+
+        let afterSpinner = trimmed.index(after: trimmed.startIndex)
+        guard afterSpinner < trimmed.endIndex,
+              trimmed[afterSpinner].isWhitespace else {
+            return title
+        }
+
+        let remainderStart = trimmed[afterSpinner...].firstIndex { !$0.isWhitespace }
+        guard let remainderStart else { return title }
+        return String(trimmed[remainderStart...])
+    }
+
+    private static let terminalTitleSpinnerCharacters = Set<Character>(
+        "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    )
 
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }

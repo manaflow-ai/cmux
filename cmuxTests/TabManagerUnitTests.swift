@@ -845,6 +845,65 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertNil(workspace.customTitle)
         XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
     }
+
+    func testCodexSpinnerTerminalTitlesCollapseToStablePanelTitle() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "⠋ cmux-ctrixin"
+            ]
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                workspace.panelTitles[focusedPanelId] == "cmux-ctrixin" &&
+                    workspace.title == "cmux-ctrixin"
+            }
+        )
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "⠹ cmux-ctrixin"
+            ]
+        )
+
+        drainMainQueue()
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                workspace.panelTitles[focusedPanelId] == "cmux-ctrixin" &&
+                    workspace.title == "cmux-ctrixin"
+            }
+        )
+
+        workspace.title = "stale title"
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "⠼ cmux-ctrixin"
+            ]
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                workspace.panelTitles[focusedPanelId] == "cmux-ctrixin" &&
+                    workspace.title == "cmux-ctrixin"
+            }
+        )
+    }
 }
 
 @MainActor
