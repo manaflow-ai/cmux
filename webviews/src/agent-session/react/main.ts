@@ -984,7 +984,7 @@ const TranscriptThread = React.memo(function TranscriptThread({
   );
 });
 
-const TranscriptTurn = React.memo(function TranscriptTurn({
+export const TranscriptTurn = React.memo(function TranscriptTurn({
   copy,
   entry,
 }: {
