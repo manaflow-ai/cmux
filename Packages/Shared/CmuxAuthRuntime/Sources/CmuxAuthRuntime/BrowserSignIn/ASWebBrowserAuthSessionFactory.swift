@@ -45,7 +45,7 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
     ) -> @Sendable (URL?, (any Error)?) -> Void {
         let log = self.log
         return { callbackURL, error in
-            let result = Self.sessionResult(callbackURL: callbackURL, error: error)
+            let result = self.sessionResult(callbackURL: callbackURL, error: error)
             Task { @MainActor in
                 if let error {
                     let nsError = error as NSError
@@ -59,7 +59,7 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
         }
     }
 
-    nonisolated private static func sessionResult(
+    nonisolated private func sessionResult(
         callbackURL: URL?,
         error: (any Error)?
     ) -> HostBrowserAuthSessionResult {
