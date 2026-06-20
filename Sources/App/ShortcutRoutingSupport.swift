@@ -524,6 +524,50 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
+
+// Ghostty-owned terminal commands that should win while a Ghostty surface owns
+// first responder. `space` entries carry explicit key codes for physical keys
+// that cmux's recorder model does not otherwise name (Home, PageUp, Backspace).
+private let ghosttyTerminalOwnedShortcutsBeforeAppShortcut = [
+    StoredShortcut(first: ShortcutStroke(key: "k", command: true, shift: false, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "a", command: true, shift: false, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "z", command: true, shift: false, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "z", command: true, shift: true, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "j", command: true, shift: false, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "j", command: true, shift: true, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "j", command: true, shift: true, option: false, control: true)),
+    StoredShortcut(first: ShortcutStroke(key: "j", command: true, shift: true, option: true, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "space", command: true, shift: false, option: false, control: false, keyCode: 115)),
+    StoredShortcut(first: ShortcutStroke(key: "space", command: true, shift: false, option: false, control: false, keyCode: 119)),
+    StoredShortcut(first: ShortcutStroke(key: "space", command: true, shift: false, option: false, control: false, keyCode: 116)),
+    StoredShortcut(first: ShortcutStroke(key: "space", command: true, shift: false, option: false, control: false, keyCode: 121)),
+    StoredShortcut(first: ShortcutStroke(key: "↑", command: true, shift: false, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "↓", command: true, shift: false, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "↑", command: true, shift: true, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "↓", command: true, shift: true, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "↑", command: true, shift: false, option: false, control: true)),
+    StoredShortcut(first: ShortcutStroke(key: "↓", command: true, shift: false, option: false, control: true)),
+    StoredShortcut(first: ShortcutStroke(key: "←", command: true, shift: false, option: false, control: true)),
+    StoredShortcut(first: ShortcutStroke(key: "→", command: true, shift: false, option: false, control: true)),
+    StoredShortcut(first: ShortcutStroke(key: "g", command: true, shift: false, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "g", command: true, shift: true, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "i", command: true, shift: false, option: true, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "v", command: true, shift: true, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "→", command: true, shift: false, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "←", command: true, shift: false, option: false, control: false)),
+    StoredShortcut(first: ShortcutStroke(key: "space", command: true, shift: false, option: false, control: false, keyCode: 51)),
+]
+
+func shouldRouteGhosttyTerminalOwnedShortcutBeforeAppShortcut(_ event: NSEvent) -> Bool {
+    guard event.type == .keyDown else { return false }
+    let normalizedFlags = event.modifierFlags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags.contains(.command) else { return false }
+
+    return ghosttyTerminalOwnedShortcutsBeforeAppShortcut.contains { $0.matches(event: event) }
+}
+
 // Main-actor isolated: TerminalSurface.searchState carries the legacy
 // main-thread-only contract as compiler-enforced isolation after the
 // CmuxTerminal lift; both callers (TabManager, overlay tests) are @MainActor.

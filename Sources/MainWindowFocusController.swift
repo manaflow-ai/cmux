@@ -52,6 +52,7 @@ final class MainWindowFocusController {
     private weak var window: NSWindow?
     private weak var tabManager: TabManager?
     private weak var fileExplorerState: FileExplorerState?
+    private weak var workspaceSidebarHost: WorkspaceSidebarKeyboardFocusView?
     private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
     private weak var fileExplorerHost: FileExplorerContainerView?
     private weak var fileSearchHost: FileExplorerContainerView?
@@ -102,6 +103,8 @@ final class MainWindowFocusController {
         syncBonsplitTabShortcutHintEligibility()
         publishFeedFocusSnapshot()
     }
+
+    func registerWorkspaceSidebarHost(_ host: WorkspaceSidebarKeyboardFocusView) { workspaceSidebarHost = host }
 
     func registerRightSidebarHost(_ host: RightSidebarKeyboardFocusView) {
         rightSidebarHost = host
@@ -207,6 +210,23 @@ final class MainWindowFocusController {
         return false
     }
 
+    func ownsWorkspaceSidebarFocus(_ responder: NSResponder) -> Bool { workspaceSidebarHost?.ownsKeyboardFocus(responder) == true }
+
+    @discardableResult
+    func focusWorkspaceSidebar() -> Bool {
+        guard let host = workspaceSidebarHost, let hostWindow = window, host.window === hostWindow else { return false }
+        guard hostWindow.makeFirstResponder(host) else { return false }
+        syncAfterResponderChange(responder: hostWindow.firstResponder)
+        return true
+    }
+
+    func noteWorkspaceSidebarInteraction() {
+        rightSidebarFocusState = .inactive
+        intent = nil
+        feedSelectedItemId = nil
+        publishFeedFocusSnapshot()
+    }
+
     func shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: NSResponder?) -> Bool {
         if case .rightSidebar = intent {
             return true
@@ -254,6 +274,42 @@ final class MainWindowFocusController {
         if let window,
            let responder,
            ownsRightSidebarFocus(responder) {
+            _ = window.makeFirstResponder(nil)
+        }
+        publishFeedFocusSnapshot()
+        workspace.focusPanel(panelId)
+        return panel.restoreFocusIntent(panel.preferredFocusIntentForActivation())
+    }
+
+    @discardableResult
+    func restoreFocusedPanelFocusFromWorkspaceSidebarIfNeeded(currentResponder: NSResponder? = nil) -> Bool {
+        let responder = currentResponder ?? window?.firstResponder
+        guard responder.map(ownsWorkspaceSidebarFocus) ?? false else {
+            return false
+        }
+
+        guard let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let panel = workspace.panels[panelId] else {
+            if let window,
+               let responder,
+               ownsWorkspaceSidebarFocus(responder) {
+                window.makeFirstResponder(nil)
+            }
+            return false
+        }
+
+        rightSidebarFocusState = .inactive
+
+        if panel is TerminalPanel {
+            return focusTerminal()
+        }
+
+        intent = .mainPanel(workspaceId: workspace.id, panelId: panelId)
+        if let window,
+           let responder,
+           ownsWorkspaceSidebarFocus(responder) {
             _ = window.makeFirstResponder(nil)
         }
         publishFeedFocusSnapshot()
@@ -350,6 +406,10 @@ final class MainWindowFocusController {
                 feedSelectedItemId = nil
             }
             publishFeedFocusSnapshot()
+            return
+        }
+        if ownsWorkspaceSidebarFocus(responder) {
+            noteWorkspaceSidebarInteraction()
             return
         }
         if rightSidebarFocusState.request != nil {

@@ -5439,8 +5439,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // never re-route the keystroke to the terminal. Symmetric with
         // applyFirstResponderIfNeeded's foreign focus guard.
         if let firstResponder,
-           shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               isRightSidebarFocusResponder($0, in: window)
+           shouldRespectForeignFirstResponder(firstResponder, in: window, isNonTerminalFocusOwner: {
+               isNonTerminalFocusResponder($0, in: window)
            }) {
             return
         }
@@ -6667,6 +6667,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (issue #5269).
         guard let window, (responder as? NSView)?.window === window else { return false }
         return keyboardFocusCoordinator(for: window)?.ownsRightSidebarFocus(responder) == true
+    }
+
+    func isWorkspaceSidebarFocusResponder(_ responder: NSResponder, in window: NSWindow?) -> Bool {
+        // Match the right-sidebar stranded-responder guard: a detached or reparented sidebar host
+        // is not a legitimate keyboard owner for this window.
+        guard let window, (responder as? NSView)?.window === window else { return false }
+        return keyboardFocusCoordinator(for: window)?.ownsWorkspaceSidebarFocus(responder) == true
+    }
+
+    func isNonTerminalFocusResponder(_ responder: NSResponder, in window: NSWindow?) -> Bool {
+        isRightSidebarFocusResponder(responder, in: window) ||
+            isWorkspaceSidebarFocusResponder(responder, in: window)
+    }
+
+    @discardableResult
+    func focusWorkspaceSidebar(in window: NSWindow?) -> Bool {
+        keyboardFocusCoordinator(for: window)?.focusWorkspaceSidebar() ?? false
+    }
+
+    func shouldRouteWorkspaceSidebarShortcut(in window: NSWindow?) -> Bool {
+        guard let window,
+              let responder = window.firstResponder else {
+            return false
+        }
+        return isWorkspaceSidebarFocusResponder(responder, in: window)
+    }
+
+    func focusedTerminalGhosttyView(for event: NSEvent, in window: NSWindow? = nil) -> GhosttyNSView? {
+        let targetWindow = window ?? mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let responder = targetWindow?.firstResponder
+            ?? NSApp.keyWindow?.firstResponder
+            ?? NSApp.mainWindow?.firstResponder
+        return cmuxOwningGhosttyView(for: responder)
+    }
+
+    func shouldRouteFocusedTerminalGhosttyOwnedShortcut(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+        guard focusedTerminalGhosttyView(for: event, in: window) != nil else {
+            return false
+        }
+        return shouldRouteGhosttyTerminalOwnedShortcutBeforeAppShortcut(event)
+    }
+
+    func focusedTerminalHasGhosttyOwnedShortcutBinding(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+        guard shouldRouteGhosttyTerminalOwnedShortcutBeforeAppShortcut(event),
+              let ghosttyView = focusedTerminalGhosttyView(for: event, in: window) else {
+            return false
+        }
+        return ghosttyView.hasGhosttyBindingKeyEquivalentBeforeAppShortcut(with: event)
     }
 
     func shouldRouteRightSidebarModeShortcut(in window: NSWindow?) -> Bool {
@@ -12874,6 +12922,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           focusedTerminalHasGhosttyOwnedShortcutBinding(event),
+           !configuredShortcutChordPrefixMatchesCurrentEvent(event: event) {
+            return false
+        }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
@@ -13229,9 +13282,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .groupSelectedWorkspaces) {
             // Only consume the event when grouping actually happened; otherwise
-            // fall through so the dispatcher reaches the later
-            // `.toggleReactGrab` check (default ⌘⇧G collides with React Grab
-            // and grouping returns false when no multi-selection exists).
+            // fall through so the dispatcher reaches the later Find Previous
+            // handling (default ⌘⇧G is shared by grouping and terminal search
+            // previous).
             if handleGroupSelectedWorkspacesShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             ) {
@@ -13609,8 +13662,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleReactGrab) {
+            if let findPreviousResult = handleFindPreviousCollisionBeforeReactGrab(event: event) {
+                return findPreviousResult
+            }
             let didHandle = tabManager?.toggleReactGrabFromCurrentFocus() ?? false
-            if !didHandle { NSSound.beep() }
+            if didHandle {
+                return true
+            }
+            if focusedTerminalShortcutContext(
+                preferredWindow: mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            ) != nil {
+                return false
+            }
+            NSSound.beep()
             return true
         }
 
@@ -14471,6 +14535,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // looking at. Fall back to the app-level tabManager only if no window
         // context resolves.
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        guard shouldRouteWorkspaceSidebarShortcut(in: targetWindow) else {
+            return false
+        }
         let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
         guard let tabManager = resolvedTabManager else { return false }
         let selectedSet = tabManager.sidebarSelectedWorkspaceIds
@@ -14482,9 +14549,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
         // Only consume the shortcut when there's an explicit sidebar
         // multi-selection. Anything ≤ 1 falls through so ⌘⇧G keeps working as
-        // React Grab's default in browser/terminal contexts. A single-tab
-        // group can still be created via right-click → New Group from
-        // Workspace. `sidebarSelectedWorkspaceIds` is normally synced to the
+        // the default Find Previous chord outside an eligible workspace-sidebar
+        // grouping action. A single-tab group can still be created via
+        // right-click → New Group from Workspace.
+        // `sidebarSelectedWorkspaceIds` is normally synced to the
         // focused workspace (clearSidebarMultiSelection sets it to a
         // singleton after keyboard nav), so the singleton case must be
         // treated the same as "no selection."
@@ -14499,8 +14567,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard eligibleIds.count >= 2 else {
             // Don't consume the event — let it propagate to the next handler
-            // (e.g. toggleReactGrab on the default Cmd+Shift+G binding) so
-            // the user gets the next-best action instead of a dead key. The
+            // (e.g. Find Previous on the default Cmd+Shift+G binding) so the
+            // user gets the next-best action instead of a dead key. The
             // shortcut contract is "multi-select then ⌘⇧G"; single-workspace
             // groups are only created from the right-click context menu, so
             // a 2-row sidebar selection where only one survives the
@@ -14787,6 +14855,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
         }
+        return false
+    }
+
+    private func configuredShortcutChordPrefixMatchesCurrentEvent(event: NSEvent) -> Bool {
+        let shortcutContext = shortcutEventFocusContext(event).shortcutContext
+        for action in currentConfiguredShortcutChordActions() {
+            guard KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext) else {
+                continue
+            }
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard shortcut.hasChord,
+                  matchShortcutStroke(event: event, stroke: shortcut.firstStroke) else {
+                continue
+            }
+            return true
+        }
+
+        let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
+        for action in configuredCmuxShortcutActions(for: configuredCmuxShortcutContext) {
+            guard let shortcut = action.shortcut,
+                  shortcut.hasChord,
+                  matchShortcutStroke(event: event, stroke: shortcut.firstStroke) else {
+                continue
+            }
+            return true
+        }
+
         return false
     }
 
@@ -15636,6 +15731,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             responder: shortcutResponder,
             owningWebView: owningWebView
         )
+    }
+
+    private func handleFindPreviousCollisionBeforeReactGrab(event: NSEvent) -> Bool? {
+        guard matchConfiguredShortcut(event: event, action: .findPrevious) else {
+            return nil
+        }
+        if shouldLetFocusedBrowserOwnFindShortcut(event) {
+            return false
+        }
+        guard tabManager?.isFindVisible == true else {
+            return nil
+        }
+        restoreFocusedMainPanelFocusForShortcut(event: event)
+        tabManager?.findPrevious()
+        return true
     }
 
     private func browserPanelOwning(_ webView: CmuxWebView) -> BrowserPanel? {
@@ -16908,6 +17018,15 @@ private extension NSWindow {
                     return true
                 }
                 return false
+            }
+
+            if AppDelegate.shared?.shouldRouteFocusedTerminalGhosttyOwnedShortcut(event, in: self) == true {
+                if ghosttyView.performGhosttyBindingKeyEquivalentBeforeAppShortcut(with: event) {
+#if DEBUG
+                    cmuxDebugLog("  → terminal Ghostty-owned shortcut routed to Ghostty")
+#endif
+                    return true
+                }
             }
         }
 
