@@ -145,6 +145,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         switch content {
         case .terminal(let panel):
             let hostedView = panel.hostedView
+            hostedView.setActive(false)
             hostedView.setFocusHandler(nil)
             hostedView.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
             panel.surface.setOcclusion(true)
