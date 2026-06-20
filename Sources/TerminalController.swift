@@ -108,10 +108,6 @@ class TerminalController {
     private static let mobileViewportReportTTL: TimeInterval = 5
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
-#if DEBUG
-    private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
-    private nonisolated static let socketCommandSlowThresholdMs: Double = 500
-#endif
     static var terminalProcessExitedMessage: String {
         String(
             localized: "socket.terminal.processExited",
@@ -1240,252 +1236,49 @@ class TerminalController {
         authenticated: Bool
     ) -> SocketLineProcessingResult {
 #if DEBUG
-        let debugInfo = Self.socketCommandDebugInfo(command)
+        // Per-command debug-log classification (begin/end lines, slow/error
+        // gating, method-token sanitization, JSON status scan) lives in
+        // CmuxControlSocket's `ControlSocketCommandLog`; the debug sink
+        // (`cmuxDebugLog`) stays app-side, so this path logs whatever non-nil
+        // message the classifier returns, exactly where the legacy code did.
+        let commandLog = ControlSocketCommandLog()
+        let debugInfo = commandLog.info(forCommand: command)
         let debugStart = DispatchTime.now().uptimeNanoseconds
-        let debugLoggingEnabled = Self.socketCommandDebugLoggingEnabled()
+        let debugLoggingEnabled = commandLog.isLoggingEnabled
         if debugLoggingEnabled {
-            Self.debugLogSocketCommand(
-                "socket.command.begin proto=\(debugInfo.protocolName) method=\(debugInfo.commandKey)"
-            )
+            cmuxDebugLog(commandLog.beginMessage(for: debugInfo))
         }
 #endif
         let authDecision = passwordAuthenticator().response(for: command, authenticated: authenticated)
         let nextAuthenticated = authDecision.authenticated
         if let response = authDecision.response {
 #if DEBUG
-            Self.debugLogSocketCommandEndIfNeeded(
-                debugInfo: debugInfo,
-                startedAt: debugStart,
+            if let endMessage = commandLog.endMessageIfNeeded(
+                info: debugInfo,
+                startedAtUptimeNanos: debugStart,
                 response: response,
                 loggingEnabled: debugLoggingEnabled
-            )
+            ) {
+                cmuxDebugLog(endMessage)
+            }
 #endif
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
 #if DEBUG
-        if let response {
-            Self.debugLogSocketCommandEndIfNeeded(
-                debugInfo: debugInfo,
-                startedAt: debugStart,
-                response: response,
-                loggingEnabled: debugLoggingEnabled
-            )
+        if let response,
+           let endMessage = commandLog.endMessageIfNeeded(
+            info: debugInfo,
+            startedAtUptimeNanos: debugStart,
+            response: response,
+            loggingEnabled: debugLoggingEnabled
+           ) {
+            cmuxDebugLog(endMessage)
         }
 #endif
         return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
-
-#if DEBUG
-    private struct SocketCommandDebugInfo {
-        let protocolName: String
-        let commandKey: String
-    }
-
-    private nonisolated static func socketCommandDebugLoggingEnabled(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        guard let rawValue = environment[socketCommandDebugLogEnvironmentKey] else {
-            return false
-        }
-        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "1", "true", "yes", "on":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private nonisolated static func socketCommandDebugInfo(_ command: String) -> SocketCommandDebugInfo {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{"),
-              let data = trimmed.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any],
-              let method = dict["method"] as? String else {
-            let commandKey = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init) ?? "<empty>"
-            return SocketCommandDebugInfo(protocolName: "v1", commandKey: sanitizedSocketDebugToken(commandKey))
-        }
-        return SocketCommandDebugInfo(protocolName: "v2", commandKey: sanitizedSocketDebugToken(method))
-    }
-
-    private nonisolated static func sanitizedSocketDebugToken(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:")
-        let scalars = trimmed.unicodeScalars.map { scalar -> Character in
-            allowed.contains(scalar) ? Character(scalar) : "_"
-        }
-        let sanitized = String(scalars).prefix(96)
-        return sanitized.isEmpty ? "<empty>" : String(sanitized)
-    }
-
-    private nonisolated static func socketCommandDebugStatus(response: String) -> String {
-        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("ERROR:") {
-            return "error"
-        }
-        if trimmed.hasPrefix("{") {
-            let prefix = trimmed.prefix(4096)
-            if topLevelJSONResponseStatus(in: prefix) == "error" {
-                return "error"
-            }
-        }
-        return "ok"
-    }
-
-    private nonisolated static func topLevelJSONResponseStatus(in text: Substring) -> String? {
-        var index = text.startIndex
-        skipJSONWhitespace(in: text, index: &index)
-        guard index < text.endIndex, text[index] == "{" else { return nil }
-        index = text.index(after: index)
-
-        while index < text.endIndex {
-            skipJSONWhitespace(in: text, index: &index)
-            if index >= text.endIndex { return nil }
-            if text[index] == "}" { return nil }
-            if text[index] == "," {
-                index = text.index(after: index)
-                continue
-            }
-            guard text[index] == "\"",
-                  let key = scanJSONString(in: text, index: &index) else {
-                return nil
-            }
-            skipJSONWhitespace(in: text, index: &index)
-            guard index < text.endIndex, text[index] == ":" else { return nil }
-            index = text.index(after: index)
-            skipJSONWhitespace(in: text, index: &index)
-
-            if key == "error" {
-                return "error"
-            }
-            if key == "ok" {
-                if text[index...].hasPrefix("false") {
-                    return "error"
-                }
-                if text[index...].hasPrefix("true") {
-                    return "ok"
-                }
-            }
-            guard skipJSONValue(in: text, index: &index) else {
-                return nil
-            }
-        }
-        return nil
-    }
-
-    private nonisolated static func scanJSONString(in text: Substring, index: inout String.Index) -> String? {
-        guard index < text.endIndex, text[index] == "\"" else { return nil }
-        index = text.index(after: index)
-        var result = ""
-        var isEscaped = false
-        while index < text.endIndex {
-            let char = text[index]
-            index = text.index(after: index)
-            if isEscaped {
-                result.append(char)
-                isEscaped = false
-                continue
-            }
-            if char == "\\" {
-                isEscaped = true
-                continue
-            }
-            if char == "\"" {
-                return result
-            }
-            result.append(char)
-        }
-        return nil
-    }
-
-    private nonisolated static func skipJSONValue(in text: Substring, index: inout String.Index) -> Bool {
-        guard index < text.endIndex else { return false }
-        switch text[index] {
-        case "\"":
-            return scanJSONString(in: text, index: &index) != nil
-        case "{", "[":
-            return skipJSONContainer(in: text, index: &index)
-        default:
-            while index < text.endIndex {
-                switch text[index] {
-                case ",", "}":
-                    return true
-                default:
-                    index = text.index(after: index)
-                }
-            }
-            return true
-        }
-    }
-
-    private nonisolated static func skipJSONContainer(in text: Substring, index: inout String.Index) -> Bool {
-        guard index < text.endIndex else { return false }
-        let opener = text[index]
-        let closer: Character = opener == "{" ? "}" : "]"
-        var depth = 1
-        index = text.index(after: index)
-        var isInString = false
-        var isEscaped = false
-        while index < text.endIndex {
-            let char = text[index]
-            index = text.index(after: index)
-            if isInString {
-                if isEscaped {
-                    isEscaped = false
-                } else if char == "\\" {
-                    isEscaped = true
-                } else if char == "\"" {
-                    isInString = false
-                }
-                continue
-            }
-            if char == "\"" {
-                isInString = true
-            } else if char == opener {
-                depth += 1
-            } else if char == closer {
-                depth -= 1
-                if depth == 0 {
-                    return true
-                }
-            }
-        }
-        return false
-    }
-
-    private nonisolated static func skipJSONWhitespace(in text: Substring, index: inout String.Index) {
-        while index < text.endIndex {
-            switch text[index] {
-            case " ", "\t", "\n", "\r":
-                index = text.index(after: index)
-            default:
-                return
-            }
-        }
-    }
-
-    private nonisolated static func debugLogSocketCommandEndIfNeeded(
-        debugInfo: SocketCommandDebugInfo,
-        startedAt: UInt64,
-        response: String,
-        loggingEnabled: Bool
-    ) {
-        let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
-        let status = socketCommandDebugStatus(response: response)
-        guard loggingEnabled || elapsedMs >= socketCommandSlowThresholdMs || status != "ok" else {
-            return
-        }
-        let elapsedText = String(format: "%.2f", elapsedMs)
-        debugLogSocketCommand(
-            "socket.command.end proto=\(debugInfo.protocolName) method=\(debugInfo.commandKey) status=\(status) ms=\(elapsedText) bytes=\(response.utf8.count)"
-        )
-    }
-
-    private nonisolated static func debugLogSocketCommand(_ message: @autoclosure () -> String) {
-        cmuxDebugLog(message())
-    }
-#endif
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
         if Thread.isMainThread,
