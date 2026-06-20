@@ -535,7 +535,14 @@ class TabManager: ObservableObject {
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
-    private var agentPIDSweepTimer: DispatchSourceTimer?
+    /// Periodic agent-PID liveness sweep (extracted to CmuxWorkspaces).
+    /// TabManager constructs the service, implements
+    /// `AgentPIDLivenessSweepHosting` (see
+    /// `TabManager+AgentPIDLivenessSweepHosting.swift`) to supply the
+    /// per-workspace agent-PID snapshot and apply the stale clears, and starts
+    /// it in `init`. The service self-cancels via its `[weak self]` periodic
+    /// task when this TabManager deallocates.
+    private let agentPIDLivenessSweep = AgentPIDLivenessSweepService()
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -713,7 +720,11 @@ class TabManager: ObservableObject {
             }
         })
 
-        startAgentPIDSweepTimer()
+        // Wire and arm the agent-PID liveness sweep. Attached after the first
+        // workspace is added (matching the legacy call site at the end of init),
+        // so the first sweep one interval later sees the initial workspace.
+        agentPIDLivenessSweep.attach(host: self)
+        agentPIDLivenessSweep.start()
         observers.append(NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -739,29 +750,14 @@ class TabManager: ObservableObject {
         // (CmuxWorkspaces); it deallocates with this TabManager and its task's
         // `[weak self]` guard no-ops after dealloc, so no explicit cancel is
         // needed from this nonisolated deinit.
-        agentPIDSweepTimer?.cancel()
+        // The agent-PID liveness sweep service deallocates with this TabManager;
+        // its repeating task's `[weak self]` guard no-ops after dealloc, so no
+        // explicit cancel is needed from this nonisolated deinit (same as the
+        // workspace-cycle cooldown task above and the sidebar git/PR services
+        // below).
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
         // and refresh tasks in their deinits; they deallocate with this
         // TabManager (the host back-references are weak).
-    }
-
-    // MARK: - Agent PID Sweep
-
-    /// Periodically checks agent PIDs associated with status entries.
-    /// If a process has exited (SIGKILL, crash, etc.), clears the stale status entry.
-    /// This is the safety net for cases where no hook fires (e.g. SIGKILL).
-    private func startAgentPIDSweepTimer() {
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        timer.schedule(deadline: .now() + 30, repeating: 30)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.sweepStaleAgentPIDs()
-            }
-        }
-        timer.resume()
-        agentPIDSweepTimer = timer
     }
 
     // MARK: - Sidebar git/PR forwarders (subsystem extracted to CmuxSidebarGit)
@@ -811,35 +807,6 @@ class TabManager: ObservableObject {
         pullRequestProbing.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId)
     }
 
-
-    private func sweepStaleAgentPIDs() {
-        for tab in tabs {
-            var keysToRemove: [String] = []
-            for (key, pid) in tab.agentPIDs {
-                guard pid > 0 else {
-                    keysToRemove.append(key)
-                    continue
-                }
-                // kill(pid, 0) probes process liveness without sending a signal.
-                // ESRCH = process doesn't exist (stale). EPERM = process exists
-                // but we lack permission (not stale, keep tracking).
-                errno = 0
-                if kill(pid, 0) == -1, POSIXErrorCode(rawValue: errno) == .ESRCH {
-                    keysToRemove.append(key)
-                }
-            }
-            if !keysToRemove.isEmpty {
-                for key in keysToRemove {
-                    tab.clearAgentPID(key: key, clearStatus: true, refreshPorts: false)
-                }
-                let remainingAgentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-                PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: remainingAgentPIDs)
-                // Also clear stale notifications (e.g. "Doing well, thanks!")
-                // left behind when Claude was killed without SessionEnd firing.
-                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
-            }
-        }
-    }
 
     func scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
         workspaceId: UUID,
