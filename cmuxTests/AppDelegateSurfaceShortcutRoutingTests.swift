@@ -21,7 +21,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
-            let window = try #require(window(withId: windowId))
+            let window = try #require(mainWindow(for: windowId))
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
             let panelId = try #require(workspace.focusedPanelId)
@@ -70,7 +70,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
-            let window = try #require(window(withId: windowId))
+            let window = try #require(mainWindow(for: windowId))
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
             appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
@@ -114,7 +114,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 
             let firstManager = try #require(appDelegate.tabManagerFor(windowId: firstWindowId))
             let secondManager = try #require(appDelegate.tabManagerFor(windowId: secondWindowId))
-            let secondWindow = try #require(window(withId: secondWindowId))
+            let secondWindow = try #require(mainWindow(for: secondWindowId))
             let firstWorkspace = try #require(firstManager.selectedWorkspace)
             let secondWorkspace = try #require(secondManager.selectedWorkspace)
             _ = try #require(secondWorkspace.newTerminalSurfaceInFocusedPane(focus: true))
@@ -224,12 +224,12 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         try body()
     }
 
-    private func window(withId windowId: UUID) -> NSWindow? {
+    private func mainWindow(for windowId: UUID) -> NSWindow? {
         AppDelegate.shared?.windowForMainWindowId(windowId)
     }
 
     private func closeWindow(withId windowId: UUID) {
-        guard let window = window(withId: windowId) else { return }
+        guard let window = mainWindow(for: windowId) else { return }
         window.close()
     }
 }
