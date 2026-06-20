@@ -43,7 +43,11 @@ extension TerminalController {
     /// failure category. Reproduces the `v2BrowserWithPanel` head exactly
     /// (`v2ResolveTabManager` → `v2ResolveWorkspace` → `v2ResolveBrowserSurfaceId`
     /// → `Workspace.browserPanel(for:)`), all on the main actor.
-    private func browserResolvePanelTyped(
+    ///
+    /// `internal` (not `private`): the addscript/addstyle/addinitscript/dialog
+    /// witnesses in `TerminalController.swift` share the same `v2BrowserWithPanel`
+    /// head and reuse this resolver.
+    func browserResolvePanelTyped(
         params: [String: Any]
     ) -> BrowserPanelResolution {
         guard let tabManager = v2ResolveTabManager(params: params) else {

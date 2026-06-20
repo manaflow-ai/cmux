@@ -59,6 +59,18 @@ extension ControlCommandCoordinator {
             return browserStorageSet(request.params)
         case "browser.storage.clear":
             return browserStorageClear(request.params)
+        case "browser.addinitscript":
+            return browserAddInitScript(request.params)
+        case "browser.addscript":
+            return browserAddScript(request.params)
+        case "browser.addstyle":
+            return browserAddStyle(request.params)
+        case "browser.dialog.accept":
+            return browserDialogRespond(request.params, accept: true)
+        case "browser.dialog.dismiss":
+            return browserDialogRespond(request.params, accept: false)
+        case "browser.import.dialog":
+            return browserImportDialog(request.params)
         default:
             return nil
         }

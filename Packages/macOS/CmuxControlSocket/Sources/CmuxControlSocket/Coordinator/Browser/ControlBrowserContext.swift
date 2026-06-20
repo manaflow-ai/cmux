@@ -190,4 +190,47 @@ public protocol ControlBrowserContext: AnyObject {
     /// `v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []`), as wire
     /// values. Empty when nothing has been recorded for the surface.
     func controlBrowserUnsupportedNetworkRequests(surfaceID: UUID) -> [JSONValue]
+
+    /// `browser.addinitscript` — register a document-start init script on the
+    /// resolved browser and evaluate it once. `script` is the validated, present
+    /// `script`/`content` param. The witness resolves the panel through the
+    /// shared `v2BrowserWithPanel` head, appends to the per-surface init-script
+    /// cache, registers the `WKUserScript`, and runs the script once.
+    func controlBrowserAddInitScript(
+        params: [String: JSONValue],
+        script: String
+    ) -> ControlBrowserAddInitScriptResolution
+
+    /// `browser.addscript` — evaluate a one-shot script on the resolved browser.
+    /// `script` is the validated, present `script`/`content` param.
+    func controlBrowserAddScript(
+        params: [String: JSONValue],
+        script: String
+    ) -> ControlBrowserAddScriptResolution
+
+    /// `browser.addstyle` — register a document-start `<style>`-injecting init
+    /// script on the resolved browser and evaluate it once. `css` is the
+    /// validated, present `css`/`style`/`content` param.
+    func controlBrowserAddStyle(
+        params: [String: JSONValue],
+        css: String
+    ) -> ControlBrowserAddStyleResolution
+
+    /// `browser.dialog.accept` / `browser.dialog.dismiss` — shift the front entry
+    /// off the resolved browser's in-page dialog queue and record the chosen
+    /// default. `accept` is the accept/dismiss intent; `text` is the optional
+    /// `text`/`prompt_text` param used as the prompt default when accepting.
+    func controlBrowserDialogRespond(
+        params: [String: JSONValue],
+        accept: Bool,
+        text: String?
+    ) -> ControlBrowserDialogRespondResolution
+
+    /// `browser.import.dialog` — validate the `scope` / `destination_profile`
+    /// params and schedule the browser data-import dialog presentation. The
+    /// witness owns all validation and the `BrowserProfileStore` lookup/create;
+    /// the coordinator only re-emits the typed failure categories.
+    func controlBrowserImportDialog(
+        params: [String: JSONValue]
+    ) -> ControlBrowserImportDialogResolution
 }
