@@ -15,5 +15,6 @@
 bool ghostty_surface_clear_selection(void *surface);
 void *ghostty_surface_quicklook_font(void *surface);
 bool ghostty_config_get(void *config, void *out, const char *key, uintptr_t len);
+void ghostty_set_window_background_blur(void *app, void *window);
 
 #endif

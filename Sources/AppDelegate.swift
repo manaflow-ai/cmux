@@ -1030,9 +1030,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         method_exchangeImplementations(originalMethod, swizzledMethod)
     }()
 
-    /// Live `cmux diff` viewer subprocesses, keyed by pid, retained until they exit.
-    /// Declared outside `#if DEBUG` because process retention is production behavior.
-    private var diffViewerProcesses: [Int32: Process] = [:]
+    /// Diff-viewer launch capability (CmuxWorkspaces); composition-root owned.
+    /// It spawns the bundled `cmux diff` CLI and owns the live-subprocess
+    /// registry (formerly `diffViewerProcesses` on this delegate), retained
+    /// until each child exits. The app injects its shared bounded
+    /// `ProcessOutputCollector`, the process environment, the nonzero-exit beep,
+    /// and the DEBUG trace sink so the service names none of those app types.
+    private let diffViewerLaunchService: any DiffViewerLaunching = {
+#if DEBUG
+        let debugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
+#else
+        let debugLog: @Sendable (String) -> Void = { _ in }
+#endif
+        return DiffViewerLaunchService(
+            makeOutputDrainer: { stdout, stderr in
+                ProcessOutputCollector(stdout: stdout, stderr: stderr)
+            },
+            environment: { ProcessInfo.processInfo.environment },
+            beep: { NSSound.beep() },
+            debugLog: debugLog
+        )
+    }()
 
 #if DEBUG
     private var jumpUnreadUITestRecorder: JumpUnreadUITestRecorder?
@@ -4883,89 +4901,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let cwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
-        return launchDiffViewerProcess(
+        return diffViewerLaunchService.launch(
             cliURL: cliURL,
             socketPath: socketPath,
             cwd: cwd,
             workspaceId: workspace.id,
             surfaceId: workspace.focusedPanelId
         )
-    }
-
-    @discardableResult
-    private func launchDiffViewerProcess(
-        cliURL: URL,
-        socketPath: String,
-        cwd: String,
-        workspaceId: UUID,
-        surfaceId: UUID?
-    ) -> Bool {
-        let process = Process()
-        process.executableURL = cliURL
-        var arguments = [
-            "--socket", socketPath,
-            "diff",
-            "--unstaged",
-            "--cwd", cwd,
-            "--workspace", workspaceId.uuidString,
-            "--focus", "true",
-        ]
-        if let surfaceId {
-            arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
-        }
-        process.arguments = arguments
-        process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
-        environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
-        if let surfaceId {
-            environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
-        }
-        environment.removeValue(forKey: "CMUX_SOCKET")
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        let outputCollector = ProcessOutputCollector(stdout: stdoutPipe, stderr: stderrPipe)
-        outputCollector.start()
-        process.terminationHandler = { terminatedProcess in
-            let output = outputCollector.finish()
-            let processIdentifier = terminatedProcess.processIdentifier
-            let terminationStatus = terminatedProcess.terminationStatus
-            Task { @MainActor in
-                AppDelegate.shared?.diffViewerProcesses.removeValue(forKey: processIdentifier)
-                guard terminationStatus != 0 else { return }
-#if DEBUG
-                // Log only non-sensitive metadata: the child's stdout/stderr can echo
-                // repo paths and file contents, so report a byte count, not the text.
-                cmuxDebugLog("openDiffViewer exited status=\(terminationStatus) outputBytes=\(output.utf8.count)")
-#endif
-                NSSound.beep()
-            }
-        }
-
-        do {
-            try process.run()
-            let processIdentifier = process.processIdentifier
-            diffViewerProcesses[processIdentifier] = process
-            if !process.isRunning {
-                diffViewerProcesses.removeValue(forKey: processIdentifier)
-            }
-#if DEBUG
-            cmuxDebugLog("openDiffViewer pid=\(process.processIdentifier)")
-#endif
-            return true
-        } catch {
-            outputCollector.cancel()
-#if DEBUG
-            cmuxDebugLog("openDiffViewer failed errorType=\(type(of: error))")
-#endif
-            return false
-        }
     }
 
     func allMainWindowTabManagersForDebug() -> [TabManager] {
