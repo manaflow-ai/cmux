@@ -910,7 +910,7 @@ class TerminalController {
     /// (`Any`) field shapes, so the existing command bodies keep their
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
     /// ControlCommandCoordinator stage.
-    private struct V2SocketRequest {
+    struct V2SocketRequest {
         let id: Any?
         let method: String
         let params: [String: Any]
@@ -970,26 +970,6 @@ class TerminalController {
         }
     }
 
-    private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
-        guard let rawTimeout = params["wait_timeout_seconds"] else {
-            return 0
-        }
-        let seconds: Double?
-        if let number = rawTimeout as? NSNumber {
-            seconds = number.doubleValue
-        } else if let value = rawTimeout as? Double {
-            seconds = value
-        } else if let value = rawTimeout as? Int {
-            seconds = Double(value)
-        } else {
-            seconds = nil
-        }
-        guard let seconds, seconds.isFinite, seconds >= 0, seconds <= 120 else {
-            return nil
-        }
-        return seconds
-    }
-
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
         case "auth.status":
@@ -1042,6 +1022,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "helper.visible":
+            return v2HelperVisibleResponse(request)
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -2088,6 +2070,7 @@ class TerminalController {
             "surface.read_text",
             "surface.clear_history",
             "surface.trigger_flash",
+            "helper.visible",
             "pane.list",
             "pane.focus",
             "pane.surfaces",
