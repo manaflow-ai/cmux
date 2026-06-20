@@ -152,8 +152,9 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
                 params: ["name": sidebarName, "workspace_id": workspace.id.uuidString, "focus": true]
             ) {
             case .ok(let payload):
-                XCTAssertEqual(payload["opened_name"] as? String, sidebarName)
-                XCTAssertEqual(payload["type"] as? String, PanelType.customSidebar.rawValue)
+                let dictionary = try XCTUnwrap(payload as? [String: Any])
+                XCTAssertEqual(dictionary["opened_name"] as? String, sidebarName)
+                XCTAssertEqual(dictionary["type"] as? String, PanelType.customSidebar.rawValue)
             case .err(let code, let message, _):
                 XCTFail("Expected fallback open to succeed, got \(code): \(message)")
             }
