@@ -24,8 +24,6 @@ struct MobileNavTitleWidth {
     static let chatToggleReserve: CGFloat = 56
     /// Fallback before the pane width has been measured.
     static let unmeasuredFallback: CGFloat = 180
-    /// Never shrink the pill below this, so a tiny pane still shows some title.
-    static let floor: CGFloat = 96
 
     /// Max width for the centered title pill.
     /// - Parameters:
@@ -35,6 +33,6 @@ struct MobileNavTitleWidth {
         guard contentWidth > 0 else { return unmeasuredFallback }
         let trailing = trailingReserveBase + terminalOverviewReserve + (hasChatToggle ? chatToggleReserve : 0)
         let widerSide = max(leadingReserve, trailing)
-        return max(floor, contentWidth - 2 * widerSide)
+        return max(0, contentWidth - 2 * widerSide)
     }
 }
