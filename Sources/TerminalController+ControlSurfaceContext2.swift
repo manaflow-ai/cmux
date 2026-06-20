@@ -306,6 +306,9 @@ extension TerminalController {
         if case .invalid(let raw) = placement {
             return .invalidPlacement(rawValue: raw)
         }
+        if case .dock = placement, !RightSidebarMode.dock.isAvailable() {
+            return .dockUnavailable(message: dockUnavailableMessage())
+        }
 
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
