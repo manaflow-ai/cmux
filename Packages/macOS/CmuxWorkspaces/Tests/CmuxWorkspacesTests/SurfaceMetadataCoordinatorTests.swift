@@ -9,20 +9,62 @@ private final class MetadataStubTab: WorkspaceTabRepresenting {
     var isPinned: Bool
     var currentDirectory: String
     var title: String
+    var focusedPanelId: UUID?
+    var panelTitles: [UUID: String] = [:]
     private(set) var shellActivityUpdates: [(panelId: UUID, state: PanelShellActivityState)] = []
+    private(set) var panelTitleUpdates: [(panelId: UUID, title: String)] = []
+    private(set) var appliedProcessTitles: [String] = []
 
-    init(id: UUID = UUID(), title: String = "") {
+    init(id: UUID = UUID(), title: String = "", focusedPanelId: UUID? = nil) {
         self.id = id
         self.groupId = nil
         self.isPinned = false
         self.currentDirectory = "/tmp"
         self.title = title
+        self.focusedPanelId = focusedPanelId
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         shellActivityUpdates.append((panelId, state))
     }
     func setCustomColor(_ hex: String?) {}
+
+    @discardableResult
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool {
+        panelTitleUpdates.append((panelId, title))
+        let changed = panelTitles[panelId] != title
+        panelTitles[panelId] = title
+        return changed
+    }
+
+    func applyProcessTitle(_ title: String) {
+        appliedProcessTitles.append(title)
+    }
+}
+
+/// Records the app-coupled title effects the coordinator forwards through
+/// ``SurfaceMetadataTitleHosting`` and lets a test drive the coalescer flush
+/// synchronously.
+@MainActor
+private final class TitleHostSpy: SurfaceMetadataTitleHosting {
+    private(set) var scheduledFlushes: [() -> Void] = []
+    private(set) var windowTitleRefreshWorkspaceIds: [UUID] = []
+    private(set) var enqueueLogs: [(workspaceId: UUID, panelId: UUID, title: String)] = []
+
+    func surfaceMetadataScheduleTitleFlush(_ flush: @escaping () -> Void) {
+        scheduledFlushes.append(flush)
+    }
+    func surfaceMetadataUpdateWindowTitleIfSelected(workspaceId: UUID) {
+        windowTitleRefreshWorkspaceIds.append(workspaceId)
+    }
+    func surfaceMetadataLogPanelTitleEnqueue(workspaceId: UUID, panelId: UUID, title: String) {
+        enqueueLogs.append((workspaceId, panelId, title))
+    }
+
+    /// Runs the most recently scheduled flush, mirroring one coalescer tick.
+    func runLatestFlush() {
+        scheduledFlushes.last?()
+    }
 }
 
 @MainActor
@@ -97,5 +139,114 @@ struct SurfaceMetadataCoordinatorTests {
 
         #expect(!shouldRefresh)
         #expect(present.shellActivityUpdates.isEmpty)
+    }
+
+    @Test
+    func enqueueDropsEmptyTitleWithoutSchedulingOrLogging() {
+        let tab = MetadataStubTab()
+        let (coordinator, _) = makeCoordinator([tab])
+        let host = TitleHostSpy()
+        coordinator.attach(titleHost: host)
+
+        coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: UUID(), title: "   \n ")
+
+        #expect(host.scheduledFlushes.isEmpty)
+        #expect(host.enqueueLogs.isEmpty)
+    }
+
+    @Test
+    func enqueueTrimsTitleSchedulesFlushAndLogsTrimmedValue() {
+        let tab = MetadataStubTab()
+        let (coordinator, _) = makeCoordinator([tab])
+        let host = TitleHostSpy()
+        coordinator.attach(titleHost: host)
+        let panelId = UUID()
+
+        coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: panelId, title: "  zsh  ")
+
+        #expect(host.scheduledFlushes.count == 1)
+        #expect(host.enqueueLogs.count == 1)
+        #expect(host.enqueueLogs.first?.title == "zsh")
+        #expect(host.enqueueLogs.first?.panelId == panelId)
+    }
+
+    @Test
+    func flushAppliesLatestCoalescedTitlePerPanelAndRefreshesFocusedSelectedTitle() {
+        let panelId = UUID()
+        let tab = MetadataStubTab(focusedPanelId: panelId)
+        let (coordinator, _) = makeCoordinator([tab])
+        let host = TitleHostSpy()
+        coordinator.attach(titleHost: host)
+
+        coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: panelId, title: "first")
+        coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: panelId, title: "second")
+        host.runLatestFlush()
+
+        // Only the latest title for the panel is applied (coalesced).
+        #expect(tab.panelTitleUpdates.map(\.title) == ["second"])
+        // Focused panel -> process title applied and window-title refresh requested.
+        #expect(tab.appliedProcessTitles == ["second"])
+        #expect(host.windowTitleRefreshWorkspaceIds == [tab.id])
+    }
+
+    @Test
+    func flushDoesNotApplyProcessTitleForUnfocusedPanel() {
+        let focused = UUID()
+        let other = UUID()
+        let tab = MetadataStubTab(focusedPanelId: focused)
+        let (coordinator, _) = makeCoordinator([tab])
+        let host = TitleHostSpy()
+        coordinator.attach(titleHost: host)
+
+        coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: other, title: "bg")
+        host.runLatestFlush()
+
+        #expect(tab.panelTitleUpdates.map(\.title) == ["bg"])
+        #expect(tab.appliedProcessTitles.isEmpty)
+        #expect(host.windowTitleRefreshWorkspaceIds.isEmpty)
+    }
+
+    @Test
+    func resetPendingDropsQueuedUpdatesSoFlushIsANoOp() {
+        let panelId = UUID()
+        let tab = MetadataStubTab(focusedPanelId: panelId)
+        let (coordinator, _) = makeCoordinator([tab])
+        let host = TitleHostSpy()
+        coordinator.attach(titleHost: host)
+
+        coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: panelId, title: "pending")
+        coordinator.resetPendingPanelTitleUpdates()
+        host.runLatestFlush()
+
+        #expect(tab.panelTitleUpdates.isEmpty)
+        #expect(tab.appliedProcessTitles.isEmpty)
+    }
+
+    @Test
+    func focusedSurfaceTitleDidChangeReappliesFocusedPanelTitle() {
+        let panelId = UUID()
+        let tab = MetadataStubTab(focusedPanelId: panelId)
+        tab.panelTitles[panelId] = "vim"
+        let (coordinator, _) = makeCoordinator([tab])
+        let host = TitleHostSpy()
+        coordinator.attach(titleHost: host)
+
+        coordinator.focusedSurfaceTitleDidChange(tabId: tab.id)
+
+        #expect(tab.appliedProcessTitles == ["vim"])
+        #expect(host.windowTitleRefreshWorkspaceIds == [tab.id])
+    }
+
+    @Test
+    func focusedSurfaceTitleDidChangeNoOpsWithoutFocusOrTitle() {
+        let tab = MetadataStubTab(focusedPanelId: nil)
+        let (coordinator, _) = makeCoordinator([tab])
+        let host = TitleHostSpy()
+        coordinator.attach(titleHost: host)
+
+        coordinator.focusedSurfaceTitleDidChange(tabId: tab.id)
+
+        #expect(tab.appliedProcessTitles.isEmpty)
+        #expect(host.windowTitleRefreshWorkspaceIds.isEmpty)
     }
 }

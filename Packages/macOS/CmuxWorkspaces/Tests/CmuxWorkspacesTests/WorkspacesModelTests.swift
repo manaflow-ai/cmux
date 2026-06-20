@@ -29,6 +29,10 @@ private final class StubTab: WorkspaceTabRepresenting {
         shellActivityUpdates.append((panelId, state))
     }
     func setCustomColor(_ hex: String?) {}
+    var focusedPanelId: UUID?
+    var panelTitles: [UUID: String] = [:]
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool { false }
+    func applyProcessTitle(_ title: String) {}
 }
 
 @MainActor

@@ -20,6 +20,10 @@ private final class CommandStubTab: WorkspaceTabRepresenting {
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {}
     func setCustomColor(_ hex: String?) {}
+    var focusedPanelId: UUID?
+    var panelTitles: [UUID: String] = [:]
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool { false }
+    func applyProcessTitle(_ title: String) {}
 }
 
 /// Minimal `WorkspacesHosting` so the model's selection didSet has somewhere to
