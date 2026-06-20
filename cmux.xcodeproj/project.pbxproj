@@ -263,6 +263,7 @@
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
 		C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */; };
+		E3B7A40000000000000005D4 /* CmuxLayoutNode+WorkspaceCustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005D5 /* CmuxLayoutNode+WorkspaceCustomLayout.swift */; };
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
@@ -958,6 +959,7 @@
 		E3B7A4000000000000000A10 /* Workspace+SplitMoveReorderHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */; };
 		E3B7A40000000000000005C0 /* Workspace+SurfaceLifecycleHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */; };
 		E3D000000000000000000001 /* Workspace+SurfaceSplitWorkspaceHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D000000000000000000002 /* Workspace+SurfaceSplitWorkspaceHandle.swift */; };
+		E3B7A40000000000000005D2 /* Workspace+WorkspaceLayoutHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */; };
 		E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */; };
@@ -1314,6 +1316,7 @@
 		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
 		C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXInstalledExtensionSidebarHostView.swift; sourceTree = "<group>"; };
+		E3B7A40000000000000005D5 /* CmuxLayoutNode+WorkspaceCustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxLayoutNode+WorkspaceCustomLayout.swift"; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxModalAlertPresentation.swift; sourceTree = "<group>"; };
@@ -1969,6 +1972,7 @@
 		E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitMoveReorderHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceLifecycleHosting.swift"; sourceTree = "<group>"; };
 		E3D000000000000000000002 /* Workspace+SurfaceSplitWorkspaceHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceSplitWorkspaceHandle.swift"; sourceTree = "<group>"; };
+		E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceLayoutHosting.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceSurfaceTreeReading.swift"; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionDispatcher.swift; sourceTree = "<group>"; };
@@ -2439,6 +2443,8 @@
 				E3B7A4000000000000000F23 /* TabManager+WorkspaceHandoffHosting.swift */,
 				E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */,
 				E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */,
+				E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */,
+				E3B7A40000000000000005D5 /* CmuxLayoutNode+WorkspaceCustomLayout.swift */,
 				E3B7A4000000000000000CB1 /* Workspace+ClosedBrowserRestoreStagingHosting.swift */,
 				E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */,
 				E3B7A4000000000000000C11 /* Workspace+SplitCloseHosting.swift */,
@@ -3718,6 +3724,7 @@
 				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
 				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
 				C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */,
+				E3B7A40000000000000005D4 /* CmuxLayoutNode+WorkspaceCustomLayout.swift in Sources */,
 				E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */,
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */,
@@ -4166,6 +4173,7 @@
 				E3B7A4000000000000000A10 /* Workspace+SplitMoveReorderHosting.swift in Sources */,
 				E3B7A40000000000000005C0 /* Workspace+SurfaceLifecycleHosting.swift in Sources */,
 				E3D000000000000000000001 /* Workspace+SurfaceSplitWorkspaceHandle.swift in Sources */,
+				E3B7A40000000000000005D2 /* Workspace+WorkspaceLayoutHosting.swift in Sources */,
 				E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */,
 				A5001406 /* Workspace.swift in Sources */,
 				7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */,
