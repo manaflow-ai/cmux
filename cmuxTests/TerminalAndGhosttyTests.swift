@@ -1390,6 +1390,20 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
 
+        let defaults = UserDefaults.standard
+        let settings = AppCatalogSection()
+        let originalWarnBeforeClosingTab = defaults.object(forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+        let originalWarnBeforeClosingTabXButton = defaults.object(forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        let originalHideTabCloseButton = defaults.object(forKey: settings.hideTabCloseButton.userDefaultsKey)
+        defaults.set(false, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+        defaults.set(false, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        defaults.set(false, forKey: settings.hideTabCloseButton.userDefaultsKey)
+        defer {
+            restoreUserDefault(originalWarnBeforeClosingTab, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
+            restoreUserDefault(originalWarnBeforeClosingTabXButton, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+            restoreUserDefault(originalHideTabCloseButton, forKey: settings.hideTabCloseButton.userDefaultsKey)
+        }
+
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let firstPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
         let paneID = try XCTUnwrap(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
@@ -1435,11 +1449,14 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         let settings = AppCatalogSection()
         let originalWarnBeforeClosingTab = defaults.object(forKey: settings.warnBeforeClosingTab.userDefaultsKey)
         let originalWarnBeforeClosingTabXButton = defaults.object(forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        let originalHideTabCloseButton = defaults.object(forKey: settings.hideTabCloseButton.userDefaultsKey)
         defaults.set(true, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
         defaults.set(false, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        defaults.set(false, forKey: settings.hideTabCloseButton.userDefaultsKey)
         defer {
             restoreUserDefault(originalWarnBeforeClosingTab, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
             restoreUserDefault(originalWarnBeforeClosingTabXButton, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+            restoreUserDefault(originalHideTabCloseButton, forKey: settings.hideTabCloseButton.userDefaultsKey)
         }
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1572,11 +1589,14 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         let settings = AppCatalogSection()
         let originalWarnBeforeClosingTab = defaults.object(forKey: settings.warnBeforeClosingTab.userDefaultsKey)
         let originalWarnBeforeClosingTabXButton = defaults.object(forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        let originalHideTabCloseButton = defaults.object(forKey: settings.hideTabCloseButton.userDefaultsKey)
         defaults.set(true, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
         defaults.set(false, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+        defaults.set(false, forKey: settings.hideTabCloseButton.userDefaultsKey)
         defer {
             restoreUserDefault(originalWarnBeforeClosingTab, forKey: settings.warnBeforeClosingTab.userDefaultsKey)
             restoreUserDefault(originalWarnBeforeClosingTabXButton, forKey: settings.warnBeforeClosingTabXButton.userDefaultsKey)
+            restoreUserDefault(originalHideTabCloseButton, forKey: settings.hideTabCloseButton.userDefaultsKey)
         }
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)

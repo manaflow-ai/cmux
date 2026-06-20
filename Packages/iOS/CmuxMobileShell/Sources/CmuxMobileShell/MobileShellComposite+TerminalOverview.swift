@@ -29,9 +29,7 @@ extension MobileShellComposite {
         guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else {
             return
         }
-        let liveTerminalIDs = Set(workspace.terminals.map(\.id))
-        terminalOverviewPreviewLinesByID = terminalOverviewPreviewLinesByID.filter { liveTerminalIDs.contains($0.key) }
-        terminalOverviewPreviewUpdatedAtByID = terminalOverviewPreviewUpdatedAtByID.filter { liveTerminalIDs.contains($0.key) }
+        pruneTerminalOverviewPreviewCacheForLiveTerminals()
         let now = runtimeNow()
         let terminalsNeedingReplay = workspace.terminals.filter { terminal in
             terminal.isReady && shouldRefreshTerminalOverviewPreview(for: terminal.id, now: now)
