@@ -42,7 +42,11 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
             listeningPorts: listeningPorts,
-            finderDirectoryPath: snapshot.finderDirectoryPath
+            finderDirectoryPath: snapshot.finderDirectoryPath,
+            // Media-activity glyphs are not toggled by the context menu, so keep
+            // the displayed baseline's value frozen while the menu is open (same
+            // treatment as the other telemetry-driven fields above).
+            mediaActivity: mediaActivity
         )
     }
 }

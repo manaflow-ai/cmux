@@ -103,7 +103,8 @@ import Testing
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = [],
-        finderDirectoryPath: String? = nil
+        finderDirectoryPath: String? = nil,
+        mediaActivity: BrowserMediaActivity = BrowserMediaActivity()
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -128,7 +129,8 @@ import Testing
             branchLinesContainBranch: false,
             pullRequestRows: [],
             listeningPorts: listeningPorts,
-            finderDirectoryPath: finderDirectoryPath
+            finderDirectoryPath: finderDirectoryPath,
+            mediaActivity: mediaActivity
         )
     }
 
