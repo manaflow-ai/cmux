@@ -764,6 +764,88 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testClaudeActivityAccumulatorTracksThinkingBlockLifecycle() {
+        var accumulator = ClaudeActivityAccumulator()
+
+        let started = accumulator.consumeLine(
+            #"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}}"#
+        )
+        expectEqual(started.count, 1)
+        expectEqual(started.first?["activityId"] as? String, "thinking:1")
+        expectEqual(started.first?["status"] as? String, "inProgress")
+        expectEqual(started.first?["kind"] as? String, "other")
+
+        // A thinking_delta carries reasoning text, not an activity transition.
+        expectEqual(
+            accumulator.consumeLine(
+                #"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}}"#
+            ).count,
+            0
+        )
+
+        let stopped = accumulator.consumeLine(
+            #"{"type":"stream_event","event":{"type":"content_block_stop","index":0}}"#
+        )
+        expectEqual(stopped.count, 1)
+        expectEqual(stopped.first?["activityId"] as? String, "thinking:1")
+        expectEqual(stopped.first?["status"] as? String, "completed")
+    }
+
+    @Test
+    func testClaudeActivityAccumulatorTracksToolCallThroughResult() {
+        var accumulator = ClaudeActivityAccumulator()
+
+        // content_block_start carries the tool id + name; the row opens in progress.
+        let started = accumulator.consumeLine(
+            #"{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"Read"}}}"#
+        )
+        expectEqual(started.first?["activityId"] as? String, "toolu_1")
+        expectEqual(started.first?["status"] as? String, "inProgress")
+        expectEqual(started.first?["action"] as? String, "Read")
+        expectEqual(started.first?["kind"] as? String, "other")
+
+        // Streamed arguments accumulate silently until the block stops.
+        expectEqual(
+            accumulator.consumeLine(
+                #"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"file_path\": \"/a/b/package.json\"}"}}}"#
+            ).count,
+            0
+        )
+
+        let refined = accumulator.consumeLine(
+            #"{"type":"stream_event","event":{"type":"content_block_stop","index":1}}"#
+        )
+        expectEqual(refined.first?["activityId"] as? String, "toolu_1")
+        expectEqual(refined.first?["status"] as? String, "inProgress")
+        expectEqual(refined.first?["action"] as? String, "Read · package.json")
+
+        // The tool_result arrives later, in a separate top-level user message, and
+        // finalizes the same activity row by its tool-use id.
+        let completed = accumulator.consumeLine(
+            #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"file body"}]}}"#
+        )
+        expectEqual(completed.first?["activityId"] as? String, "toolu_1")
+        expectEqual(completed.first?["status"] as? String, "completed")
+        expectEqual(completed.first?["action"] as? String, "Read · package.json")
+        expectEqual(completed.first?["outputDelta"] as? String, "file body")
+    }
+
+    @Test
+    func testClaudeActivityAccumulatorMarksErroredToolResultAsFailed() {
+        var accumulator = ClaudeActivityAccumulator()
+
+        _ = accumulator.consumeLine(
+            #"{"type":"stream_event","event":{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_2","name":"Bash"}}}"#
+        )
+        let failed = accumulator.consumeLine(
+            #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2","is_error":true,"content":"boom"}]}}"#
+        )
+        expectEqual(failed.first?["activityId"] as? String, "toolu_2")
+        expectEqual(failed.first?["status"] as? String, "failed")
+        expectEqual(failed.first?["kind"] as? String, "command")
+    }
+
+    @Test
     func testEncodesPromptAsJSONRPCInsteadOfRawStdin() async throws {
         var sentLines: [String] = []
         let session = CodexAppServerSession(
