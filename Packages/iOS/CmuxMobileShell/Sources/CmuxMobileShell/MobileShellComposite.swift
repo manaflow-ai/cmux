@@ -1963,8 +1963,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// successful connect, and on failure the previously-active Mac (still the
     /// active row) is reconnected. A no-op when already connected to that Mac.
     /// - Parameter macDeviceID: The stored Mac to switch to.
-    public func switchToMac(macDeviceID: String) async {
-        guard let pairedMacStore else { return }
+    /// - Returns: `true` if the foreground connection now targets that Mac (or
+    ///   already did), `false` if the switch could not connect — so callers like
+    ///   `openWorkspace` can avoid selecting a workspace whose Mac is not live.
+    @discardableResult
+    public func switchToMac(macDeviceID: String) async -> Bool {
+        guard let pairedMacStore else { return false }
         // Refresh routes from the per-user backup so a Mac that relaunched on a
         // new port is reachable — the same freshness guarantee auto-connect and
         // aggregation use — then resolve the target from the STORE (authoritative).
@@ -1977,8 +1981,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let storeMacs = (try? await pairedMacStore.loadAll(stackUserID: identityProvider?.currentUserID)) ?? []
         guard let refreshedTarget = storeMacs.first(where: { $0.macDeviceID == macDeviceID })
-            ?? pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return }
-        if refreshedTarget.isActive, connectionState == .connected { return }
+            ?? pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return false }
+        if refreshedTarget.isActive, connectionState == .connected { return true }
         // The currently-active Mac to fall back to if the switch fails.
         let previousActive = storeMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
             ?? pairedMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
@@ -1989,17 +1993,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
-            return
+            return false
         }
         await connectManualHost(name: refreshedTarget.displayName ?? host, host: host, port: port)
-        // Persist the active row only if the live connection is to THIS Mac's
-        // route. A different switch tapped while this connect was in flight
-        // supersedes it via `beginPairingAttempt`, leaving `connectionState`
-        // `.connected` for the other Mac; matching the live route prevents this
-        // superseded task from persisting a stale active target.
-        if connectionState == .connected,
-           case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
-           liveHost == normalizedHost, livePort == port {
+        // The switch succeeded only if the live connection is to THIS Mac's route.
+        // A different switch tapped while this connect was in flight supersedes it
+        // via `beginPairingAttempt`, leaving `connectionState` `.connected` for the
+        // other Mac; matching the live route prevents this superseded task from
+        // persisting a stale active target or reporting a false success.
+        let switched = connectionState == .connected
+            && {
+                if case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint {
+                    return liveHost == normalizedHost && livePort == port
+                }
+                return false
+            }()
+        if switched {
             do {
                 try await pairedMacStore.setActive(macDeviceID: macDeviceID)
             } catch {
@@ -2012,6 +2021,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
         }
         await loadPairedMacs()
+        return switched
     }
 
     /// Forget `macDeviceID`. Always removes the selected stored row by its real
@@ -2024,6 +2034,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if isActiveMac, connectionState == .connected {
             disconnectLiveConnection()
         }
+        // Tear down any live SECONDARY (non-foreground) connection + its aggregated
+        // workspace rows for this Mac, so forgetting it removes its workspaces from
+        // the list immediately instead of leaving a dead, still-updating entry that
+        // taps route into until the next aggregation pass. (The active/foreground
+        // Mac's teardown is handled by disconnectLiveConnection above.)
+        if let subscription = secondaryMacSubscriptions[macDeviceID] {
+            subscription.cancel()
+            secondaryMacSubscriptions[macDeviceID] = nil
+        }
+        workspacesByMac[macDeviceID] = nil
         do {
             try await pairedMacStore?.remove(macDeviceID: macDeviceID)
         } catch {
@@ -3157,7 +3177,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            let macDeviceID = workspace?.macDeviceID,
            !macDeviceID.isEmpty,
            macDeviceID != foregroundMacDeviceID {
-            await switchToMac(macDeviceID: macDeviceID)
+            // Only proceed if that Mac actually became the foreground connection.
+            // Selecting a workspace whose Mac never connected would focus a dead
+            // workspace and route terminal input to the wrong (or no) live client;
+            // leave the user on the list (the offline row's Reconnect / the next
+            // aggregation pass recovers it).
+            guard await switchToMac(macDeviceID: macDeviceID) else {
+                mobileShellLog.error("openWorkspace: switch to mac failed, not selecting mac=\(macDeviceID, privacy: .public)")
+                return
+            }
         }
         analytics.capture("ios_workspace_opened", [
             "terminal_count": .int(workspace?.terminals.count ?? 0),
