@@ -648,6 +648,11 @@ class TabManager: ObservableObject {
         workspaceGrouping.attach(host: self)
         workspaceClosing.attach(confirming: self)
         workspaceClosing.attach(host: self)
+        // Wire the creation host before the first addWorkspace so the initial
+        // workspace's creation effects (chrome inheritance, lifecycle publish,
+        // git-metadata schedule, welcome send) reach the host with the legacy
+        // in-class timing.
+        workspaceCreating.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
@@ -1055,6 +1060,9 @@ class TabManager: ObservableObject {
     }
 #endif
 
+    // Creation orchestration lives in WorkspaceCreationCoordinator (CmuxWorkspaces);
+    // this forwarder keeps the legacy entry point. Every app-coupled effect
+    // inverts back through WorkspaceCreationHosting (witnesses below).
     @discardableResult
     func addWorkspace(
         title: String? = nil,
@@ -1072,132 +1080,22 @@ class TabManager: ObservableObject {
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true
     ) -> Workspace {
-        let sourceWorkspace = selectedWorkspace
-        let capturedTabs = tabs
-        // Snapshot the selected tab from the pinned workspace instead of rereading the
-        // @Published selectedTabId storage after the inheritance helpers. The arm64 Nightly
-        // Cmd+N crash is in PublishedSubject.value.getter on that second getter read.
-        let capturedSelectedTabId = sourceWorkspace?.id
-        // Keep both the source workspace and the pre-creation workspace array alive for the
-        // entire creation path. Release ARC can otherwise drop retains early across the
-        // helper/insertion chain, which reintroduces use-after-free crashes in optimized builds.
-        return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
-            let dir = inheritWorkingDirectory
-                ? implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
-                : nil
-            let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
-            let snapshot = workspaceCreationSnapshotLite(
-                currentTabs: capturedTabs,
-                currentSelectedTabId: capturedSelectedTabId,
-                preferredWorkingDirectory: dir,
-                inheritedTerminalFontPoints: font
-            )
-            didCaptureWorkspaceCreationSnapshot()
-#if DEBUG
-            maybeMutateSelectionDuringWorkspaceCreationForDev(snapshot: snapshot)
-#endif
-            let nextTabCount = snapshot.tabs.count + 1
-            sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
-            let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
-            let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
-            let inheritedConfig = workspaceCreationConfigTemplate(
-                inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
-            )
-            // Resolve placement against the pre-creation snapshot before Workspace init
-            // boots terminal state. The ssh/new-workspace path can otherwise crash while
-            // reading @Published placement state from existing workspaces mid-creation.
-            let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
-            let defaultTitle: String
-            switch initialSurface {
-            case .terminal:
-                defaultTitle = "Terminal \(nextTabCount)"
-            case .browser:
-                // Match the browser surface's blank new-tab title; the
-                // single-panel title sync keeps the workspace title following
-                // the page title once the user navigates.
-                defaultTitle = String(localized: "browser.newTab", defaultValue: "New tab")
-            }
-            let newWorkspace = makeWorkspaceForCreation(
-                title: title ?? defaultTitle,
-                workingDirectory: workingDirectory,
-                portOrdinal: ordinal,
-                configTemplate: inheritedConfig,
-                initialSurface: initialSurface,
-                initialTerminalCommand: initialTerminalCommand,
-                initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment,
-                workspaceEnvironment: workspaceEnvironment
-            )
-            applyCreationChromeInheritance(
-                to: newWorkspace,
-                from: sourceWorkspace ?? capturedTabs.first
-            )
-            newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
-            }
-            wireClosedBrowserTracking(for: newWorkspace)
-            if eagerLoadTerminal && !select {
-                requestBackgroundWorkspaceLoad(for: newWorkspace.id)
-            }
-            // Apply insertion to the current live array so post-snapshot closes/reorders
-            // are preserved instead of reintroducing stale workspace instances.
-            var updatedTabs = tabs
-            if insertIndex >= 0 && insertIndex <= updatedTabs.count {
-                updatedTabs.insert(newWorkspace, at: insertIndex)
-            } else {
-                updatedTabs.append(newWorkspace)
-            }
-            tabs = updatedTabs
-            // The global insertion-index rules don't know about group sections.
-            // Re-run the group-aware normalize so a freshly-added workspace
-            // can't land inside another group's contiguous section.
-            if normalizeWorkspaceGroupsAfterInsert, !workspaceGroups.isEmpty {
-                workspaces.normalizeWorkspaceGroupContiguity()
-            }
-            if autoRefreshMetadata, let terminalPanel = newWorkspace.focusedTerminalPanel {
-                scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
-                    workspaceId: newWorkspace.id,
-                    panelId: terminalPanel.id
-                )
-            }
-            if eagerLoadTerminal {
-                if select {
-                    newWorkspace.focusedTerminalPanel?.surface.requestBackgroundSurfaceStartIfNeeded()
-                }
-            }
-            publishCmuxWorkspaceCreated(newWorkspace, selected: select)
-            publishCmuxInitialSurfaceCreated(newWorkspace, selected: select)
-            if select {
-#if DEBUG
-                debugPrimeWorkspaceSwitchTrigger("create", to: newWorkspace.id)
-#endif
-                selectedTabId = newWorkspace.id
-                NotificationCenter.default.post(
-                    name: .ghosttyDidFocusTab,
-                    object: nil,
-                    userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
-                )
-            }
-#if DEBUG
-            UITestRecorder.incrementInt("addTabInvocations")
-            UITestRecorder.record([
-                "tabCount": String(updatedTabs.count),
-                "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
-            ])
-#endif
-            if autoWelcomeIfNeeded && select && initialSurface == .terminal
-                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
-                } else {
-                    sendWelcomeWhenReady(to: newWorkspace)
-                }
-            }
-            return newWorkspace
-        }
+        workspaceCreating.addWorkspace(
+            title: title,
+            workingDirectory: overrideWorkingDirectory,
+            initialSurface: initialSurface,
+            initialTerminalCommand: initialTerminalCommand,
+            initialTerminalInput: initialTerminalInput,
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            workspaceEnvironment: workspaceEnvironment,
+            inheritWorkingDirectory: inheritWorkingDirectory,
+            select: select,
+            eagerLoadTerminal: eagerLoadTerminal,
+            placementOverride: placementOverride,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            autoRefreshMetadata: autoRefreshMetadata,
+            normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert
+        )
     }
 
     @MainActor
@@ -1320,10 +1218,10 @@ class TabManager: ObservableObject {
         }
     }
 
-    // Keep addTab as convenience alias
+    // Keep addTab as convenience alias (forwards through the creation coordinator).
     @discardableResult
     func addTab(select: Bool = true, eagerLoadTerminal: Bool = false) -> Workspace {
-        addWorkspace(select: select, eagerLoadTerminal: eagerLoadTerminal)
+        workspaceCreating.addTab(select: select, eagerLoadTerminal: eagerLoadTerminal)
     }
 
     func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
@@ -2369,6 +2267,149 @@ class TabManager: ObservableObject {
     func addReplacementWorkspaceForEmptyWindow() {
         _ = addWorkspace()
     }
+
+    // MARK: - WorkspaceCreationHosting (WorkspaceCreationCoordinator's effect seam)
+    // The creation orchestration lives in WorkspaceCreationCoordinator; these
+    // witnesses perform each app-coupled effect against the Workspace god object /
+    // AppDelegate, lifted verbatim from the legacy in-class addWorkspace body.
+    // Shared inheritance helpers (makeWorkspaceForCreation /
+    // applyCreationChromeInheritance / etc.) stay in the class body for
+    // TabManager+DetachedWorkspace and the test subclasses; these forward to them.
+    // See TabManager+WorkspaceCreationHosting.swift for the full mapping.
+
+    func creationSourceWorkspace() -> Workspace? {
+        selectedWorkspace
+    }
+
+    func implicitWorkingDirectory(inheritWorkingDirectory: Bool, from source: Workspace?) -> String? {
+        inheritWorkingDirectory
+            ? implicitWorkingDirectoryForNewWorkspace(from: source)
+            : nil
+    }
+
+    func inheritedTerminalFontPoints(from source: Workspace?) -> Float? {
+        inheritedTerminalFontPointsForNewWorkspace(workspace: source)
+    }
+
+    func recordWorkspaceCreateBreadcrumb(tabCount: Int) {
+        sentryBreadcrumb("workspace.create", data: ["tabCount": tabCount])
+    }
+
+    func defaultWorkspaceTitle(initialSurface: NewWorkspaceInitialSurface, tabNumber: Int) -> String {
+        switch initialSurface {
+        case .terminal:
+            return "Terminal \(tabNumber)"
+        case .browser:
+            // Match the browser surface's blank new-tab title; the
+            // single-panel title sync keeps the workspace title following
+            // the page title once the user navigates.
+            return String(localized: "browser.newTab", defaultValue: "New tab")
+        }
+    }
+
+    func makeWorkspaceForCreation(
+        title: String,
+        explicitTitle: String?,
+        workingDirectory: String?,
+        portOrdinal: Int,
+        inheritedTerminalFontPoints: Float?,
+        initialSurface: NewWorkspaceInitialSurface,
+        initialTerminalCommand: String?,
+        initialTerminalInput: String?,
+        initialTerminalEnvironment: [String: String],
+        workspaceEnvironment: [String: String],
+        chromeInheritanceSource: Workspace?
+    ) -> Workspace {
+        let inheritedConfig = workspaceCreationConfigTemplate(
+            inheritedTerminalFontPoints: inheritedTerminalFontPoints
+        )
+        let newWorkspace = makeWorkspaceForCreation(
+            title: title,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            configTemplate: inheritedConfig,
+            initialSurface: initialSurface,
+            initialTerminalCommand: initialTerminalCommand,
+            initialTerminalInput: initialTerminalInput,
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            workspaceEnvironment: workspaceEnvironment
+        )
+        applyCreationChromeInheritance(
+            to: newWorkspace,
+            from: chromeInheritanceSource
+        )
+        newWorkspace.owningTabManager = self
+        if explicitTitle != nil {
+            newWorkspace.setCustomTitle(explicitTitle)
+        }
+        wireClosedBrowserTracking(for: newWorkspace)
+        return newWorkspace
+    }
+
+    func nextPortOrdinal() -> Int {
+        let ordinal = Self.nextPortOrdinal
+        Self.nextPortOrdinal += 1
+        return ordinal
+    }
+
+    func requestBackgroundWorkspaceLoad(workspaceId: UUID) {
+        requestBackgroundWorkspaceLoad(for: workspaceId)
+    }
+
+    func scheduleInitialWorkspaceGitMetadataRefreshIfPossible(_ tab: Workspace) {
+        if let terminalPanel = tab.focusedTerminalPanel {
+            scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: tab.id,
+                panelId: terminalPanel.id
+            )
+        }
+    }
+
+    func requestBackgroundSurfaceStartIfNeeded(_ tab: Workspace) {
+        tab.focusedTerminalPanel?.surface.requestBackgroundSurfaceStartIfNeeded()
+    }
+
+    func publishWorkspaceCreated(_ tab: Workspace, selected: Bool) {
+        publishCmuxWorkspaceCreated(tab, selected: selected)
+    }
+
+    func publishInitialSurfaceCreated(_ tab: Workspace, selected: Bool) {
+        publishCmuxInitialSurfaceCreated(tab, selected: selected)
+    }
+
+    func postDidFocusTab(workspaceId: UUID) {
+        NotificationCenter.default.post(
+            name: .ghosttyDidFocusTab,
+            object: nil,
+            userInfo: [GhosttyNotificationKey.tabId: workspaceId]
+        )
+    }
+
+    func shouldSendWelcomeCommand() -> Bool {
+        !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
+    }
+
+    func sendWelcomeCommandWhenReady(to tab: Workspace) {
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.sendWelcomeCommandWhenReady(to: tab, markShownOnSend: true)
+        } else {
+            sendWelcomeWhenReady(to: tab)
+        }
+    }
+
+#if DEBUG
+    func debugPrimeWorkspaceSwitchTrigger(to workspaceId: UUID) {
+        debugPrimeWorkspaceSwitchTrigger("create", to: workspaceId)
+    }
+
+    func recordAddTabUITestTelemetry(tabCount: Int, selectedTabId: String) {
+        UITestRecorder.incrementInt("addTabInvocations")
+        UITestRecorder.record([
+            "tabCount": String(tabCount),
+            "selectedTabId": selectedTabId
+        ])
+    }
+#endif
 
     private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
         // Presentation (activate + sheet-on-main-window, else app-modal) is
