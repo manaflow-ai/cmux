@@ -6050,6 +6050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private struct OpenDiffViewerAgentContext {
         var cwd: String
         var useLastTurnSource: Bool
+        var sessionId: String?
     }
 
     /// Opens the diff viewer for the focused workspace of `tabManager` by spawning the
@@ -6102,7 +6103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cwd: cwd,
             workspaceId: workspace.id,
             surfaceId: workspace.focusedPanelId,
-            useLastTurnSource: agentDiffContext?.useLastTurnSource == true
+            useLastTurnSource: agentDiffContext?.useLastTurnSource == true,
+            sessionId: agentDiffContext?.sessionId
         )
     }
 
@@ -6111,19 +6113,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
             return nil
         }
-        let sessionId = normalizedOpenDiffViewerIdentifier(snapshot.sessionId)
+        let sessionId = normalizedOpenDiffViewerSessionId(snapshot.sessionId)
         if let sessionId,
            let repoRoot = latestAgentTurnDiffRepoRoot(
             workspaceId: workspace.id,
             surfaceId: surfaceId,
             sessionId: sessionId
            ) {
-            return OpenDiffViewerAgentContext(cwd: repoRoot, useLastTurnSource: true)
+            return OpenDiffViewerAgentContext(cwd: repoRoot, useLastTurnSource: true, sessionId: sessionId)
         }
         if let workingDirectory = normalizedOpenDiffViewerPath(
             snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
            ) {
-            return OpenDiffViewerAgentContext(cwd: workingDirectory, useLastTurnSource: false)
+            return OpenDiffViewerAgentContext(cwd: workingDirectory, useLastTurnSource: false, sessionId: sessionId)
         }
         return nil
     }
@@ -6140,7 +6142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let candidates = records.compactMap { record -> (repoRoot: String, capturedAt: TimeInterval)? in
             guard let recordWorkspace = normalizedOpenDiffViewerIdentifier(record["workspaceId"] as? String),
                   let recordSurface = normalizedOpenDiffViewerIdentifier(record["surfaceId"] as? String),
-                  let recordSession = normalizedOpenDiffViewerIdentifier(record["sessionId"] as? String),
+                  let recordSession = normalizedOpenDiffViewerSessionId(record["sessionId"] as? String),
                   recordWorkspace == workspaceKey,
                   recordSurface == surfaceKey,
                   recordSession == sessionId,
@@ -6177,6 +6179,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .nilIfEmpty
     }
 
+    private func normalizedOpenDiffViewerSessionId(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
     private func normalizedOpenDiffViewerPath(_ value: String?) -> String? {
         value?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6190,7 +6198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cwd: String,
         workspaceId: UUID,
         surfaceId: UUID?,
-        useLastTurnSource: Bool
+        useLastTurnSource: Bool,
+        sessionId: String?
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
@@ -6204,6 +6213,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ]
         if let surfaceId {
             arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
+        }
+        if useLastTurnSource, let sessionId {
+            arguments.append(contentsOf: ["--session", sessionId])
         }
         process.arguments = arguments
         process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
