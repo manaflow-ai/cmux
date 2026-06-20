@@ -1,6 +1,5 @@
 import AppKit
 import CMUXMobileCore
-import CmuxFileOpen
 import CmuxSettings
 import CmuxWorkspaces
 import CmuxSettingsUI
