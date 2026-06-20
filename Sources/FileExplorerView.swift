@@ -38,6 +38,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var lastRootNodeCount: Int = -1
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
+        private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
         init(store: FileExplorerStore, state: FileExplorerState) {
             self.store = store
@@ -47,12 +48,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
             styleObserver = NotificationCenter.default.addObserver(
                 forName: .fileExplorerStyleDidChange, object: nil, queue: .main
             ) { [weak self] _ in
-                guard let self, let outlineView = self.outlineView else { return }
-                let style = FileExplorerStyle.current
-                outlineView.indentationPerLevel = style.indentation
-                outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
-                outlineView.reloadData()
-                self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
+                self?.refreshOutlineAppearance()
+            }
+            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+                self?.refreshOutlineAppearance()
             }
         }
 
@@ -60,6 +59,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
+        }
+
+        private func refreshOutlineAppearance() {
+            guard let outlineView else { return }
+            let style = FileExplorerStyle.current
+            outlineView.indentationPerLevel = style.indentation
+            outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
+            outlineView.reloadData()
+            restoreExpansionState(store.expandedPaths, in: outlineView)
         }
 
         private func observeStore() {
@@ -308,6 +316,7 @@ final class FileExplorerContainerView: NSView {
     private let outlineView: FileExplorerNSOutlineView
     private let emptyLabel: NSTextField
     private let loadingIndicator: NSProgressIndicator
+    private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
     init(coordinator: FileExplorerPanelView.Coordinator) {
         headerView = FileExplorerHeaderView()
@@ -324,7 +333,6 @@ final class FileExplorerContainerView: NSView {
 
         // Empty state label
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        emptyLabel.font = .systemFont(ofSize: 13)
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
         emptyLabel.isHidden = true
@@ -357,6 +365,11 @@ final class FileExplorerContainerView: NSView {
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         coordinator.outlineView = outlineView
+
+        applyGlobalFont()
+        globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyGlobalFont()
+        }
 
         // Context menu
         let menu = NSMenu()
@@ -391,6 +404,10 @@ final class FileExplorerContainerView: NSView {
         ])
     }
 
+    private func applyGlobalFont() {
+        emptyLabel.font = GlobalFontMagnification.systemFont(ofSize: 13)
+    }
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -418,6 +435,7 @@ final class FileExplorerContainerView: NSView {
 final class FileExplorerHeaderView: NSView {
     private let iconView = NSImageView()
     private let pathLabel = NSTextField(labelWithString: "")
+    private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -436,7 +454,6 @@ final class FileExplorerHeaderView: NSView {
         iconView.contentTintColor = .secondaryLabelColor
 
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.font = .systemFont(ofSize: 11, weight: .medium)
         pathLabel.textColor = .secondaryLabelColor
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.maximumNumberOfLines = 1
@@ -457,10 +474,19 @@ final class FileExplorerHeaderView: NSView {
             pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
+
+        applyGlobalFont()
+        globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyGlobalFont()
+        }
     }
 
     func update(displayPath: String) {
         pathLabel.stringValue = displayPath
+    }
+
+    private func applyGlobalFont() {
+        pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
     }
 }
 
@@ -665,6 +691,4 @@ final class FileExplorerRowView: NSTableRowView {
         isSelected ? .emphasized : .normal
     }
 }
-
-
 

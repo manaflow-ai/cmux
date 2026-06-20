@@ -315,7 +315,6 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
         textView.isEditable = isEditable
         textView.isSelectable = true
         textView.string = text
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.textColor = .textColor
         textView.backgroundColor = .textBackgroundColor
         textView.insertionPointColor = .textColor
@@ -331,6 +330,7 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
             height: CGFloat.greatestFiniteMagnitude
         )
         textView.delegate = context.coordinator
+        context.coordinator.installGlobalFontObserver(for: textView)
 
         scrollView.documentView = textView
         return scrollView
@@ -348,13 +348,27 @@ private struct ConfigSettingsTextView: NSViewRepresentable {
         textView.backgroundColor = .textBackgroundColor
         textView.textColor = .textColor
         textView.insertionPointColor = .textColor
+        context.coordinator.applyGlobalFont(to: textView)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
+        var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
         init(text: Binding<String>) {
             self.text = text
+        }
+
+        func installGlobalFontObserver(for textView: NSTextView) {
+            applyGlobalFont(to: textView)
+            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.applyGlobalFont(to: textView)
+            }
+        }
+
+        func applyGlobalFont(to textView: NSTextView) {
+            textView.font = GlobalFontMagnification.monospacedSystemFont(ofSize: 12, weight: .regular)
         }
 
         func textDidChange(_ notification: Notification) {

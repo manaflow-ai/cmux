@@ -2387,6 +2387,7 @@ final class ShortcutRecorderNSButton: NSButton {
     private var pendingChordStart: ShortcutStroke?
     private var hasRegisteredRecordingActivity = false
     private weak var previousFirstResponder: NSResponder?
+    private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
     override var acceptsFirstResponder: Bool {
         true
@@ -2428,7 +2429,15 @@ final class ShortcutRecorderNSButton: NSButton {
             name: KeyboardShortcutRecorderActivity.stopAllNotification,
             object: nil
         )
+        applyGlobalFont()
+        globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyGlobalFont()
+        }
         updateTitle()
+    }
+
+    private func applyGlobalFont() {
+        font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
     }
 
     func updateTitle() {

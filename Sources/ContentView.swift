@@ -4366,6 +4366,7 @@ struct ContentView: View {
             var pendingFocusRequest: Bool?
             var editorTextDidChangeObserver: NSObjectProtocol?
             weak var observedEditor: NSTextView?
+            var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
             init(parent: CommandPaletteSearchFieldRepresentable) {
                 self.parent = parent
@@ -4474,6 +4475,22 @@ struct ContentView: View {
                 }
                 observedEditor = nil
             }
+
+            func installGlobalFontObserver(for field: CommandPaletteNativeTextField) {
+                applyGlobalFont(to: field)
+                globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self, weak field] in
+                    guard let self, let field else { return }
+                    self.applyGlobalFont(to: field)
+                }
+            }
+
+            func applyGlobalFont(to field: CommandPaletteNativeTextField) {
+                let font = GlobalFontMagnification.systemFont(ofSize: 13)
+                field.font = font
+                if let editor = field.currentEditor() as? NSTextView {
+                    editor.font = font
+                }
+            }
         }
 
         func makeCoordinator() -> Coordinator {
@@ -4482,7 +4499,6 @@ struct ContentView: View {
 
         func makeNSView(context: Context) -> CommandPaletteNativeTextField {
             let field = CommandPaletteNativeTextField(frame: .zero)
-            field.font = .systemFont(ofSize: 13)
             field.placeholderString = placeholder
             field.setAccessibilityIdentifier("CommandPaletteSearchField")
             field.delegate = context.coordinator
@@ -4494,12 +4510,14 @@ struct ContentView: View {
                 coordinator?.handleKeyEvent(event, editor: editor) ?? false
             }
             context.coordinator.parentField = field
+            context.coordinator.installGlobalFontObserver(for: field)
             return field
         }
 
         func updateNSView(_ nsView: CommandPaletteNativeTextField, context: Context) {
             context.coordinator.parent = self
             context.coordinator.parentField = nsView
+            context.coordinator.applyGlobalFont(to: nsView)
             nsView.placeholderString = placeholder
 
             if let editor = nsView.currentEditor() as? NSTextView {
@@ -4682,16 +4700,19 @@ struct ContentView: View {
     }
 
     private final class CommandPaletteMultilineTextEditorView: NSView {
-        private static let font = NSFont.systemFont(ofSize: 13)
+        private static var font: NSFont {
+            GlobalFontMagnification.systemFont(ofSize: 13)
+        }
         private static let textInset = NSSize(width: 0, height: 2)
-        static let defaultMinimumHeight: CGFloat = {
+        static var defaultMinimumHeight: CGFloat {
             let lineHeight = ceil(font.ascender - font.descender + font.leading)
             return lineHeight * 5 + textInset.height * 2
-        }()
+        }
 
         private let scrollView = NSScrollView(frame: .zero)
         let textView = CommandPaletteMultilineTextView(frame: .zero)
         private let placeholderField = CommandPalettePassthroughLabel(labelWithString: "")
+        private var globalFontObserver: GlobalFontMagnificationChangeObserver?
         var onMeasuredHeightChange: ((CGFloat) -> Void)?
         private var lastReportedHeight: CGFloat?
         var maximumHeight: CGFloat = .greatestFiniteMagnitude {
@@ -4727,7 +4748,6 @@ struct ContentView: View {
             textView.isVerticallyResizable = true
             textView.backgroundColor = .clear
             textView.drawsBackground = false
-            textView.font = Self.font
             textView.textColor = .labelColor
             textView.insertionPointColor = .labelColor
             textView.textContainerInset = Self.textInset
@@ -4742,7 +4762,6 @@ struct ContentView: View {
             scrollView.documentView = textView
 
             placeholderField.translatesAutoresizingMaskIntoConstraints = false
-            placeholderField.font = Self.font
             placeholderField.textColor = .secondaryLabelColor
             placeholderField.lineBreakMode = .byWordWrapping
             placeholderField.maximumNumberOfLines = 0
@@ -4754,6 +4773,12 @@ struct ContentView: View {
                 name: NSText.didChangeNotification,
                 object: textView
             )
+
+            applyGlobalFont()
+            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+                self?.applyGlobalFont()
+                self?.refreshMetrics()
+            }
 
             NSLayoutConstraint.activate([
                 scrollView.topAnchor.constraint(equalTo: topAnchor),
@@ -4788,6 +4813,13 @@ struct ContentView: View {
             needsLayout = true
             layoutSubtreeIfNeeded()
             reportMeasuredHeightIfNeeded()
+        }
+
+        private func applyGlobalFont() {
+            let font = Self.font
+            textView.font = font
+            placeholderField.font = font
+            textView.minSize = NSSize(width: 0, height: Self.defaultMinimumHeight)
         }
 
         func focusIfNeeded() {
@@ -4887,7 +4919,7 @@ struct ContentView: View {
     }
 
     private struct CommandPaletteMultilineTextEditorRepresentable: NSViewRepresentable {
-        static let defaultMinimumHeight = CommandPaletteMultilineTextEditorView.defaultMinimumHeight
+        static var defaultMinimumHeight: CGFloat { CommandPaletteMultilineTextEditorView.defaultMinimumHeight }
 
         let placeholder: String
         let accessibilityLabel: String
@@ -10364,6 +10396,7 @@ private final class FeedbackComposerMessageEditorView: NSView {
     let scrollView = FeedbackComposerMessageScrollView()
     let textView = NSTextView()
     private let placeholderField = FeedbackComposerPassthroughLabel(labelWithString: "")
+    private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
     var placeholder: String = "" {
         didSet {
@@ -10398,7 +10431,6 @@ private final class FeedbackComposerMessageEditorView: NSView {
         textView.autoresizingMask = [.width]
         textView.backgroundColor = .clear
         textView.drawsBackground = false
-        textView.font = .systemFont(ofSize: 12)
         textView.textColor = .labelColor
         textView.insertionPointColor = .labelColor
         textView.textContainerInset = Self.textInset
@@ -10415,7 +10447,6 @@ private final class FeedbackComposerMessageEditorView: NSView {
         addSubview(scrollView)
 
         placeholderField.translatesAutoresizingMaskIntoConstraints = false
-        placeholderField.font = .systemFont(ofSize: 12)
         placeholderField.textColor = .secondaryLabelColor
         placeholderField.lineBreakMode = .byWordWrapping
         placeholderField.maximumNumberOfLines = 0
@@ -10427,6 +10458,11 @@ private final class FeedbackComposerMessageEditorView: NSView {
             name: NSText.didChangeNotification,
             object: textView
         )
+
+        applyGlobalFont()
+        globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyGlobalFont()
+        }
 
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: topAnchor),
@@ -10471,6 +10507,12 @@ private final class FeedbackComposerMessageEditorView: NSView {
 
     private func updatePlaceholderVisibility() {
         placeholderField.isHidden = textView.string.isEmpty == false
+    }
+
+    private func applyGlobalFont() {
+        let font = GlobalFontMagnification.systemFont(ofSize: 12)
+        textView.font = font
+        placeholderField.font = font
     }
 
     private func syncTextViewFrameToContentSize() {
@@ -11574,7 +11616,9 @@ enum SidebarPathFormatter {
 }
 
 enum SidebarWorkspaceShortcutHintMetrics {
-    private static let measurementFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
+    private static var measurementFont: NSFont {
+        GlobalFontMagnification.systemFont(ofSize: 10, weight: .semibold)
+    }
     private static let minimumSlotWidth: CGFloat = 28
     private static let horizontalPadding: CGFloat = 12
     private static let lock = NSLock()
@@ -11590,8 +11634,9 @@ enum SidebarWorkspaceShortcutHintMetrics {
     }
 
     static func hintWidth(for label: String) -> CGFloat {
+        let cacheKey = "\(GlobalFontMagnification.storedPercent)|\(label)"
         lock.lock()
-        if let cached = cachedHintWidths[label] {
+        if let cached = cachedHintWidths[cacheKey] {
             lock.unlock()
             return cached
         }
@@ -11601,7 +11646,7 @@ enum SidebarWorkspaceShortcutHintMetrics {
         let measuredWidth = ceil(textWidth) + horizontalPadding
 
         lock.lock()
-        cachedHintWidths[label] = measuredWidth
+        cachedHintWidths[cacheKey] = measuredWidth
         #if DEBUG
         measurementCount += 1
         #endif
@@ -13308,6 +13353,7 @@ private struct TabItemView: View, Equatable {
 
         let seed = tab.customColor ?? WorkspaceTabColorSettings.customPaletteEntries().first?.hex ?? ""
         let input = NSTextField(string: seed)
+        input.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         input.placeholderString = "#1565C0"
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
@@ -13349,6 +13395,7 @@ private struct TabItemView: View, Equatable {
         alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
         alert.informativeText = String(localized: "alert.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
         let input = NSTextField(string: tab.customTitle ?? tab.title)
+        input.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         input.placeholderString = String(localized: "alert.renameWorkspace.placeholder", defaultValue: "Workspace name")
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input

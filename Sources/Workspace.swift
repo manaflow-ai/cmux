@@ -11319,6 +11319,7 @@ final class Workspace: Identifiable, ObservableObject {
         alert.informativeText = String(localized: "alert.renameTab.message", defaultValue: "Enter a custom name for this tab.")
         let currentTitle = panelCustomTitles[panelId] ?? panelTitles[panelId] ?? panel.displayTitle
         let input = NSTextField(string: currentTitle)
+        input.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         input.placeholderString = String(localized: "alert.renameTab.placeholder", defaultValue: "Tab name")
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
@@ -11363,6 +11364,7 @@ final class Workspace: Identifiable, ObservableObject {
         alert.messageText = String(localized: "alert.moveTab.title", defaultValue: "Move Tab")
         alert.informativeText = String(localized: "alert.moveTab.message", defaultValue: "Choose a destination for this tab.")
         let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 26), pullsDown: false)
+        popup.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         for option in options {
             popup.addItem(withTitle: option.title)
         }

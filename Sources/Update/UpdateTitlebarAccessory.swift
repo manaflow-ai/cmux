@@ -482,7 +482,7 @@ struct TitlebarControlsView: View {
     }
 
     private func titlebarHintWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: max(8, config.iconSize - 4), weight: .semibold)
+        let font = GlobalFontMagnification.systemFont(ofSize: max(8, config.iconSize - 4), weight: .semibold)
         let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: font]).width
         return ceil(textWidth) + 12
     }

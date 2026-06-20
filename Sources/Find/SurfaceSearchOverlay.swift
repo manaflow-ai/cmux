@@ -240,6 +240,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         weak var parentField: SearchNativeTextField?
         var pendingFocusRequest: Bool?
         var searchFocusObserver: NSObjectProtocol?
+        var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
         init(parent: SearchTextFieldRepresentable) {
             self.parent = parent
@@ -248,6 +249,22 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         deinit {
             if let searchFocusObserver {
                 NotificationCenter.default.removeObserver(searchFocusObserver)
+            }
+        }
+
+        func installGlobalFontObserver(for field: SearchNativeTextField) {
+            applyGlobalFont(to: field)
+            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self, weak field] in
+                guard let self, let field else { return }
+                self.applyGlobalFont(to: field)
+            }
+        }
+
+        func applyGlobalFont(to field: SearchNativeTextField) {
+            let font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
+            field.font = font
+            if let editor = field.currentEditor() as? NSTextView {
+                editor.font = font
             }
         }
 
@@ -305,12 +322,12 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> SearchNativeTextField {
         let field = SearchNativeTextField(frame: .zero)
-        field.font = .systemFont(ofSize: NSFont.systemFontSize)
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.setAccessibilityIdentifier("TerminalFindSearchTextField")
         field.delegate = context.coordinator
         field.stringValue = text
         context.coordinator.parentField = field
+        context.coordinator.installGlobalFontObserver(for: field)
 
         // Observe .ghosttySearchFocus to immediately focus from AppKit level.
         // This is the primary mechanism for restoring focus after window switches.
@@ -353,6 +370,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: SearchNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
+        context.coordinator.applyGlobalFont(to: nsView)
 
         // Sync text from binding to field (skip during active IME composition)
         if let editor = nsView.currentEditor() as? NSTextView {

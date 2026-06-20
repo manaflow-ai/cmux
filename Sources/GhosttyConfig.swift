@@ -829,6 +829,26 @@ enum GlobalFontMagnification {
         max(1, base * scale)
     }
 
+    static func scaledSize(_ baseSize: CGFloat) -> CGFloat {
+        scaled(baseSize)
+    }
+
+    static func systemFont(ofSize baseSize: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        NSFont.systemFont(ofSize: scaledSize(baseSize), weight: weight)
+    }
+
+    static func monospacedSystemFont(ofSize baseSize: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        NSFont.monospacedSystemFont(ofSize: scaledSize(baseSize), weight: weight)
+    }
+
+    static func menuFont(ofSize baseSize: CGFloat = NSFont.systemFontSize) -> NSFont {
+        NSFont.menuFont(ofSize: scaledSize(baseSize))
+    }
+
+    static func font(name: String, size baseSize: CGFloat) -> NSFont? {
+        NSFont(name: name, size: scaledSize(baseSize))
+    }
+
     static func clamp(_ percent: Int) -> Int {
         Swift.max(minimumPercent, Swift.min(maximumPercent, percent))
     }
@@ -848,5 +868,27 @@ enum GlobalFontMagnification {
     static func resetToDefault() {
         UserDefaults.standard.set(defaultPercent, forKey: percentKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
+    }
+}
+
+final class GlobalFontMagnificationChangeObserver {
+    private let notificationCenter: NotificationCenter
+    private var notificationObserver: NSObjectProtocol?
+
+    init(notificationCenter: NotificationCenter = .default, handler: @escaping () -> Void) {
+        self.notificationCenter = notificationCenter
+        notificationObserver = notificationCenter.addObserver(
+            forName: GlobalFontMagnification.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            handler()
+        }
+    }
+
+    deinit {
+        if let notificationObserver {
+            notificationCenter.removeObserver(notificationObserver)
+        }
     }
 }

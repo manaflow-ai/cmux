@@ -1920,6 +1920,7 @@ struct BrowserPanelView: View {
         alert.informativeText = String(localized: "browser.profile.new.message", defaultValue: "Create a separate browser profile for cookies, history, and local storage.")
 
         let input = NSTextField(string: "")
+        input.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         input.placeholderString = String(localized: "browser.profile.new.placeholder", defaultValue: "Profile name")
         input.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
         alert.accessoryView = input
@@ -1953,6 +1954,7 @@ struct BrowserPanelView: View {
         alert.informativeText = String(localized: "browser.profile.rename.message", defaultValue: "Choose a new name for this browser profile.")
 
         let input = NSTextField(string: profile.displayName)
+        input.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         input.placeholderString = String(localized: "browser.profile.new.placeholder", defaultValue: "Profile name")
         input.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
         alert.accessoryView = input
@@ -3497,6 +3499,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         var lastPublishedHasMarkedText: Bool = false
         /// Guards against infinite focus loops: `true` = focus requested, `false` = blur requested, `nil` = idle.
         var pendingFocusRequest: Bool?
+        var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
         init(parent: OmnibarTextFieldRepresentable) {
             self.parent = parent
@@ -3534,6 +3537,22 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         deinit {
             if let selectionObserver {
                 NotificationCenter.default.removeObserver(selectionObserver)
+            }
+        }
+
+        func installGlobalFontObserver(for field: OmnibarNativeTextField) {
+            applyGlobalFont(to: field)
+            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self, weak field] in
+                guard let self, let field else { return }
+                self.applyGlobalFont(to: field)
+            }
+        }
+
+        func applyGlobalFont(to field: OmnibarNativeTextField) {
+            let font = GlobalFontMagnification.systemFont(ofSize: 12)
+            field.font = font
+            if let editor = field.currentEditor() as? NSTextView {
+                editor.font = font
             }
         }
 
@@ -3955,7 +3974,6 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> OmnibarNativeTextField {
         let field = OmnibarNativeTextField(frame: .zero)
         field.identifier = browserOmnibarTextFieldIdentifier
-        field.font = .systemFont(ofSize: 12)
         field.placeholderString = placeholder
         field.delegate = context.coordinator
         field.target = nil
@@ -3971,12 +3989,14 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             coordinator?.handleKeyEvent(event, editor: editor) ?? false
         }
         context.coordinator.parentField = field
+        context.coordinator.installGlobalFontObserver(for: field)
         return field
     }
 
     func updateNSView(_ nsView: OmnibarNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
+        context.coordinator.applyGlobalFont(to: nsView)
         nsView.placeholderString = placeholder
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(

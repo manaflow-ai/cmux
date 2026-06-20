@@ -14,6 +14,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let onOpenPreferences: () -> Void
     private let onQuitApp: () -> Void
     private var notificationsCancellable: AnyCancellable?
+    private var globalFontObserver: GlobalFontMagnificationChangeObserver?
     private let buildHintTitle: String?
 
     private let stateHintItem = NSMenuItem(title: String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications"), action: nil, keyEquivalent: "")
@@ -65,6 +66,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             .sink { [weak self] _ in
                 self?.refreshUI()
             }
+
+        globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.refreshUI()
+            }
+        }
 
         refreshUI()
     }
@@ -155,6 +162,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         jumpToUnreadItem.isEnabled = snapshot.hasUnreadNotifications
         markAllReadItem.isEnabled = snapshot.hasUnreadNotifications
         clearAllItem.isEnabled = snapshot.hasNotifications
+        applyStaticMenuItemTypography()
 
         rebuildInlineNotificationItems(recentNotifications: snapshot.recentNotifications)
 
@@ -166,6 +174,34 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
                     ? "cmux: " + String(localized: "statusMenu.tooltip.unread.one", defaultValue: "1 unread notification")
                     : "cmux: " + String(localized: "statusMenu.tooltip.unread.other", defaultValue: "\(displayedUnreadCount) unread notifications")
         }
+    }
+
+    private func applyStaticMenuItemTypography() {
+        let items = [
+            stateHintItem,
+            buildHintItem,
+            showNotificationsItem,
+            jumpToUnreadItem,
+            markAllReadItem,
+            clearAllItem,
+            checkForUpdatesItem,
+            preferencesItem,
+            quitItem,
+        ]
+        for item in items where !item.title.isEmpty {
+            applyScaledMenuTitle(to: item)
+        }
+    }
+
+    private func applyScaledMenuTitle(to item: NSMenuItem) {
+        let color: NSColor = item.isEnabled ? .labelColor : .secondaryLabelColor
+        item.attributedTitle = NSAttributedString(
+            string: item.title,
+            attributes: [
+                .font: GlobalFontMagnification.menuFont(ofSize: NSFont.systemFontSize),
+                .foregroundColor: color,
+            ]
+        )
     }
 
     private func applyShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {
@@ -346,7 +382,7 @@ enum MenuBarNotificationLineFormatter {
         return NSAttributedString(
             string: menuTitle(notification: notification, tabTitle: tabTitle),
             attributes: [
-                .font: NSFont.menuFont(ofSize: NSFont.systemFontSize),
+                .font: GlobalFontMagnification.menuFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: NSColor.labelColor,
                 .paragraphStyle: paragraph,
             ]
@@ -360,7 +396,7 @@ enum MenuBarNotificationLineFormatter {
     private static func wrappedAndTruncated(_ text: String, maxWidth: CGFloat, maxLines: Int) -> String {
         let width = max(60, maxWidth)
         let lines = max(1, maxLines)
-        let font = NSFont.menuFont(ofSize: NSFont.systemFontSize)
+        let font = GlobalFontMagnification.menuFont(ofSize: NSFont.systemFontSize)
         let wrapped = wrappedLines(for: text, maxWidth: width, font: font)
         guard wrapped.count > lines else { return wrapped.joined(separator: "\n") }
 
@@ -646,7 +682,7 @@ enum MenuBarIconRenderer {
         paragraph.alignment = .center
         let fontSize: CGFloat = text.count > 1 ? config.multiDigitFontSize : config.singleDigitFontSize
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+            .font: GlobalFontMagnification.systemFont(ofSize: fontSize, weight: .bold),
             .foregroundColor: NSColor.systemBlue,
             .paragraphStyle: paragraph,
         ]

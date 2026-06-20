@@ -211,6 +211,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         weak var parentField: BrowserSearchNativeTextField?
         var pendingFocusRequest: Bool?
         var searchFocusObserver: NSObjectProtocol?
+        var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
         init(parent: BrowserSearchTextFieldRepresentable) {
             self.parent = parent
@@ -219,6 +220,22 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         deinit {
             if let searchFocusObserver {
                 NotificationCenter.default.removeObserver(searchFocusObserver)
+            }
+        }
+
+        func installGlobalFontObserver(for field: BrowserSearchNativeTextField) {
+            applyGlobalFont(to: field)
+            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self, weak field] in
+                guard let self, let field else { return }
+                self.applyGlobalFont(to: field)
+            }
+        }
+
+        func applyGlobalFont(to field: BrowserSearchNativeTextField) {
+            let font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
+            field.font = font
+            if let editor = field.currentEditor() as? NSTextView {
+                editor.font = font
             }
         }
 
@@ -278,7 +295,6 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> BrowserSearchNativeTextField {
         let field = BrowserSearchNativeTextField(frame: .zero)
-        field.font = .systemFont(ofSize: NSFont.systemFontSize)
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.setAccessibilityIdentifier("BrowserFindSearchTextField")
         field.delegate = context.coordinator
@@ -289,6 +305,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
         field.isEnabled = true
         field.stringValue = text
         context.coordinator.parentField = field
+        context.coordinator.installGlobalFontObserver(for: field)
         context.coordinator.searchFocusObserver = NotificationCenter.default.addObserver(
             forName: .browserSearchFocus,
             object: nil,
@@ -312,6 +329,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: BrowserSearchNativeTextField, context: Context) {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
+        context.coordinator.applyGlobalFont(to: nsView)
 
         if let editor = nsView.currentEditor() as? NSTextView {
             if editor.string != text, !editor.hasMarkedText() {

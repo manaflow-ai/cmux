@@ -80,6 +80,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let popupNavigationDelegate: PopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
+    private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
     private static var associatedObjectKey: UInt8 = 0
 
@@ -177,10 +178,15 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // --- URL label for phishing protection ---
         urlLabel.translatesAutoresizingMaskIntoConstraints = false
-        urlLabel.font = .systemFont(ofSize: 11)
         urlLabel.textColor = .secondaryLabelColor
         urlLabel.lineBreakMode = .byTruncatingMiddle
         urlLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        applyGlobalFont()
+        globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.applyGlobalFont()
+            }
+        }
 
         let containerView = NSView()
         containerView.translatesAutoresizingMaskIntoConstraints = false
@@ -243,6 +249,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         #endif
 
         panel.makeKeyAndOrderFront(self)
+    }
+
+    private func applyGlobalFont() {
+        urlLabel.font = GlobalFontMagnification.systemFont(ofSize: 11)
     }
 
     // MARK: - Child popup tracking
@@ -503,6 +513,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         field.stringValue = defaultText ?? ""
         alert.accessoryView = field
 

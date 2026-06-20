@@ -7,7 +7,9 @@ struct UpdatePill: View {
     @ObservedObject var model: UpdateViewModel
     @State private var showPopover = false
 
-    private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    private var textFont: NSFont {
+        GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
+    }
 
     var body: some View {
         if model.showsPill {
@@ -30,7 +32,7 @@ struct UpdatePill: View {
                     .frame(width: 14, height: 14)
 
                 Text(model.text)
-                    .font(Font(textFont))
+                    .cmuxFont(size: 11, weight: .medium)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: textWidth, alignment: .leading)
