@@ -7397,12 +7397,15 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.desiredShowsActivePaneBoundary = showsActivePaneBoundary
         coordinator.desiredActivePaneBoundaryColor = activePaneBoundaryColor
         coordinator.attachGeneration += 1
-        let shouldShowLocalInlineActivePaneBoundary =
-            showsActivePaneBoundary && !shouldPreserveExternalFullscreenHost
-        let applyLocalInlineActivePaneBoundary = {
+        let generation = coordinator.attachGeneration
+        let applyLocalInlineActivePaneBoundary = { [weak coordinator] in
+            guard let coordinator,
+                  coordinator.attachGeneration == generation else { return }
+            let shouldShowLocalInlineActivePaneBoundary =
+                coordinator.desiredShowsActivePaneBoundary && !shouldPreserveExternalFullscreenHost
             slotView.setActivePaneBoundary(
                 visible: shouldShowLocalInlineActivePaneBoundary && !slotView.isHidden,
-                color: activePaneBoundaryColor
+                color: coordinator.desiredActivePaneBoundaryColor
             )
         }
 
