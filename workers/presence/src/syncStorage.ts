@@ -187,12 +187,21 @@ export async function upsertRecord<P>(
   payload: P,
   nowMs: number,
   shapeEqual: (stored: P, next: P) => boolean = defaultPayloadEqual,
+  freshnessOf?: (payload: P) => number,
 ): Promise<SyncWriteResult<P>> {
   const head = await readHead(storage, collection);
   const stored = await readRecord<P>(storage, collection, id);
   if (stored !== undefined && !stored.deleted && shapeEqual(stored.payload, payload)) {
     // No list-shape change: keep the rev, do not broadcast. This is what keeps
-    // the cursor quiet through steady-state heartbeats.
+    // the cursor quiet through steady-state heartbeats. Optionally refresh
+    // freshness metadata (e.g. `lastSeenAt`) IN PLACE — same rev, no delta — so a
+    // consumer that orders/LWW-merges by it (the iOS paired-Mac restore) sees a
+    // republish of the same live shape as fresh, instead of skipping the backup
+    // and keeping a stale local route.
+    if (freshnessOf && freshnessOf(payload) > freshnessOf(stored.payload)) {
+      const refreshed: StoredSyncRecord<P> = { ...stored, payload, updatedAt: nowMs };
+      await storage.put({ [recordKey(collection, id)]: refreshed });
+    }
     return { delta: null, head };
   }
   const rev = head + 1;

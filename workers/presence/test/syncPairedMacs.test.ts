@@ -138,6 +138,11 @@ describe("applyBackupOps", () => {
     const drift = { ...rec, lastSeenAt: rec.lastSeenAt + 60_000 };
     const second = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: drift }], T0 + 1000);
     expect(second).toHaveLength(0);
+    // ...but the stored freshness DOES advance in place (no rev/delta), so the iOS
+    // LWW restore treats a republish of the same live route as fresh instead of
+    // skipping the backup and keeping a stale local route.
+    const afterDrift = await listLiveBackup(storage, "user-1");
+    expect(afterDrift.find((r) => r.macDeviceID === "mac-a")?.lastSeenAt).toBe(drift.lastSeenAt);
     // A real route change DOES produce a delta.
     const changed = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "192.168.1.99", 22) }], T0 + 2000);
     expect(changed).toHaveLength(1);

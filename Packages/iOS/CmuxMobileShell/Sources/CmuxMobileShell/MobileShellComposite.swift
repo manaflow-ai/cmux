@@ -619,6 +619,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// phone->Mac connections; the same per-Mac entries would be fed by one
     /// phone->Durable Object stream in the planned end-state.
     private var secondaryMacSubscriptions: [String: SecondaryMacSubscription] = [:]
+    /// The in-flight multi-Mac aggregation pass, tracked so sign-out / account
+    /// switch can cancel it; its scope guards then bail before any cross-account
+    /// write. Replaced (cancelling the prior) on each scheduled pass.
+    private var secondaryAggregationTask: Task<Void, Never>?
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -884,6 +888,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = false
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
+        // Tear down secondary-Mac aggregation at the account boundary: cancel any
+        // in-flight aggregation pass and every live secondary subscription so the
+        // previous user's Macs/workspaces cannot be re-seeded into the next
+        // account after the reset below.
+        teardownSecondaryMacSubscriptions()
         rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
         // Local preview / disconnected placeholder: seed the foreground (anonymous)
@@ -914,7 +923,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
         if Self.multiMacAggregationEnabled, connectionState == .connected {
-            Task { [weak self] in await self?.refreshSecondaryMacWorkspaces() }
+            self.scheduleSecondaryAggregation()
         }
     }
 
@@ -2639,6 +2648,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``workspacesByMac`` entry current via `workspace.updated` (slice 3); the
     /// derived ``workspaces`` recomputes automatically. Idempotent and best-effort:
     /// safe to call repeatedly (attach, pull-to-refresh, foreground).
+    /// True while the multi-Mac aggregation is still running for `account` and was
+    /// not cancelled: signed in, the signed-in user is unchanged, and the owning
+    /// task is live. Mutating per-Mac aggregation state (`secondaryMacSubscriptions`
+    /// / `workspacesByMac`) after a sign-out or account switch would leak the
+    /// previous user's Macs and workspaces into the signed-out / new-account UI, so
+    /// every mutation below is gated on this after each await.
+    private func isAggregationScopeValid(_ account: String?) -> Bool {
+        !Task.isCancelled && isSignedIn && identityProvider?.currentUserID == account
+    }
+
+    /// Launch the multi-Mac aggregation in a tracked task so sign-out / account
+    /// switch can cancel it (its scope guards then bail before any cross-account
+    /// write). Replaces any prior in-flight pass.
+    private func scheduleSecondaryAggregation() {
+        secondaryAggregationTask?.cancel()
+        secondaryAggregationTask = Task { [weak self] in await self?.refreshSecondaryMacWorkspaces() }
+    }
+
     func refreshSecondaryMacWorkspaces() async {
         guard let pairedMacStore, Self.multiMacAggregationEnabled else { return }
         let account = identityProvider?.currentUserID
@@ -2647,7 +2674,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: account)
         }
+        guard isAggregationScopeValid(account) else { return }
         let macs = (try? await pairedMacStore.loadAll(stackUserID: account)) ?? []
+        guard isAggregationScopeValid(account) else { return }
         let wanted = Set(macs.map(\.macDeviceID))
             .subtracting(foregroundMacDeviceID.map { [$0] } ?? [])
             .subtracting([""])
@@ -2663,8 +2692,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // suspended while backgrounded or whose pushes never started. If the
         // existing client is dead, recreate the subscription.
         for mac in macs where wanted.contains(mac.macDeviceID) {
+            // Re-check before each Mac so a sign-out / account switch mid-loop stops
+            // us before we connect to or write state for another account.
+            guard isAggregationScopeValid(account) else { return }
             if let existing = secondaryMacSubscriptions[mac.macDeviceID] {
-                if let previews = await fetchSecondaryWorkspaces(on: existing.client, macDeviceID: mac.macDeviceID) {
+                let previews = await fetchSecondaryWorkspaces(on: existing.client, macDeviceID: mac.macDeviceID)
+                guard isAggregationScopeValid(account) else { return }
+                if let previews {
                     workspacesByMac[mac.macDeviceID] = MacWorkspaceState(
                         macDeviceID: mac.macDeviceID,
                         displayName: mac.displayName,
@@ -2674,10 +2708,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 } else {
                     existing.cancel()
                     secondaryMacSubscriptions[mac.macDeviceID] = nil
-                    await establishSecondaryMacSubscription(for: mac)
+                    await establishSecondaryMacSubscription(for: mac, account: account)
                 }
             } else {
-                await establishSecondaryMacSubscription(for: mac)
+                await establishSecondaryMacSubscription(for: mac, account: account)
             }
         }
     }
@@ -2687,20 +2721,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// each change. Fully best-effort: on any failure the entry is torn down and
     /// the pull-to-refresh / foreground re-aggregate path remains the fallback, so
     /// a secondary subscription can never crash or block the foreground.
-    private func establishSecondaryMacSubscription(for mac: MobilePairedMac) async {
+    private func establishSecondaryMacSubscription(for mac: MobilePairedMac, account: String?) async {
         let macID = mac.macDeviceID
         guard secondaryMacSubscriptions[macID] == nil,
               let client = await makeSecondaryClient(for: mac) else { return }
         // Re-check after the async client build so a concurrent refresh cannot
-        // open a duplicate connection; the loser disconnects its client.
-        guard secondaryMacSubscriptions[macID] == nil else {
+        // open a duplicate connection, AND so a sign-out / account switch during
+        // the connect does not leave a previous account's connection live or write
+        // its state; the loser disconnects its client.
+        guard secondaryMacSubscriptions[macID] == nil, isAggregationScopeValid(account) else {
             await client.disconnect()
             return
         }
         let subscription = SecondaryMacSubscription(macDeviceID: macID, client: client)
         secondaryMacSubscriptions[macID] = subscription
         let displayName = mac.displayName
-        if let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID) {
+        let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
+        // The fetch await is another sign-out window: drop the just-opened
+        // connection and entry rather than seed another account's workspaces.
+        guard isAggregationScopeValid(account),
+              secondaryMacSubscriptions[macID] === subscription else {
+            subscription.cancel()
+            if secondaryMacSubscriptions[macID] === subscription {
+                secondaryMacSubscriptions[macID] = nil
+            }
+            return
+        }
+        if let previews {
             workspacesByMac[macID] = MacWorkspaceState(
                 macDeviceID: macID, displayName: displayName, workspaces: previews, status: .connected
             )
@@ -2776,8 +2823,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ = try? await client.sendRequest(request)
     }
 
-    /// Cancel and disconnect every secondary subscription (sign-out / full reset).
+    /// Cancel and disconnect every secondary subscription (sign-out / full reset),
+    /// and cancel any in-flight aggregation pass so it cannot resume and re-seed
+    /// the torn-down entries for a now-signed-out / switched account.
     private func teardownSecondaryMacSubscriptions() {
+        secondaryAggregationTask?.cancel()
+        secondaryAggregationTask = nil
         for (_, subscription) in secondaryMacSubscriptions { subscription.cancel() }
         secondaryMacSubscriptions.removeAll()
     }
@@ -3861,7 +3912,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // background (no-op / off in Release). Best-effort; never
                     // blocks the foreground connect.
                     if Self.multiMacAggregationEnabled {
-                        Task { [weak self] in await self?.refreshSecondaryMacWorkspaces() }
+                        self.scheduleSecondaryAggregation()
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {

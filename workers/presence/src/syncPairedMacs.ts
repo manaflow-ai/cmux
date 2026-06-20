@@ -245,6 +245,10 @@ export async function applyBackupOps(
       op.record,
       nowMs,
       pairedMacShapeEqual,
+      // Refresh `lastSeenAt` in place on a same-shape republish (no rev/delta), so
+      // the iOS LWW restore treats a Mac re-confirming its current live route as
+      // fresh rather than skipping it and dialing a dead local route.
+      (record) => record.lastSeenAt,
     );
     if (res.delta !== null) {
       if (isNew) liveCount += 1;
