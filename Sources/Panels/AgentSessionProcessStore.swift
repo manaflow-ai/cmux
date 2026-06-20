@@ -124,6 +124,9 @@ final class AgentSessionProcessStore {
 
         do {
             try process.run()
+#if DEBUG
+            cmuxDebugLog("agentSession.process.run provider=\(plan.provider.rawValue) pid=\(process.processIdentifier)")
+#endif
             emitActiveProviderStateIfNeeded()
             try await running.codexAppServerSession?.start()
         } catch {

@@ -95,6 +95,17 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = false
+        // The React renderer ships as ES modules: `agent-session.html` loads
+        // `./main.mjs`, which dynamically imports `./surfaces/*.mjs` and shared
+        // `./chunks/*.mjs`. Over `file://` the document origin is `null`, so WebKit
+        // rejects those cross-origin module fetches ("Origin null is not allowed by
+        // Access-Control-Allow-Origin") and the React app never mounts (blank
+        // panel). The Solid renderer sidesteps this by shipping a single inlined
+        // bundle. Mirror `KanbanWebRendererCoordinator`, which hit the same wall:
+        // let file URLs read sibling files. KVC SPI, consistent with the
+        // `drawsBackground` access just below.
+        configuration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        configuration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
         configuration.userContentController.addScriptMessageHandler(
             self,
             contentWorld: .page,
@@ -193,9 +204,15 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         Task { @MainActor in
             do {
                 let request = try AgentSessionBridgeRequest(body: message.body)
+#if DEBUG
+                cmuxDebugLog("agentSession.bridge.request method=\(request.method) live=\(isLiveSession)")
+#endif
                 let reply = try await self.handle(request)
                 replyHandler(["ok": true, "value": reply], nil)
             } catch let error as AgentExecutableResolverError {
+#if DEBUG
+                cmuxDebugLog("agentSession.bridge.error.resolverMissing message=\(error.message)")
+#endif
                 replyHandler(["ok": false, "error": ["userMessage": error.message]], nil)
             } catch let error as AgentSessionBridgeError {
                 replyHandler(["ok": false, "error": ["code": error.code, "userMessage": error.localizedDescription]], nil)
@@ -613,6 +630,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 let resolver = AgentExecutableResolver(configuredExecutablePaths: configuredExecutablePaths)
                 return try resolver.resolve(provider)
             }.value
+#if DEBUG
+            cmuxDebugLog("agentSession.provider.resolve.ok provider=\(provider.rawValue) path=\(plan.executableURL.path)")
+#endif
             guard !isClosed else {
                 throw AgentSessionBridgeError.invalidRequest
             }
