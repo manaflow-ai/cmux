@@ -4588,7 +4588,6 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func resetSidebarContext(reason: String = "unspecified") {
-        statusEntries.removeAll()
         agentPIDs.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
@@ -4597,15 +4596,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         latestConversationMessage = nil
         latestSubmittedMessage = nil
         latestSubmittedAt = nil
-        logEntries.removeAll()
-        progress = nil
-        gitBranch = nil
-        panelGitBranches.removeAll()
-        pullRequest = nil
-        panelPullRequests.removeAll()
         surfaceListeningPorts.removeAll()
         listeningPorts.removeAll()
-        metadataBlocks.removeAll()
+        // Clears statusEntries, logEntries, progress, gitBranch,
+        // panelGitBranches, pullRequest, panelPullRequests, and metadataBlocks
+        // (the sidebar-metadata fields owned by `sidebarMetadata`), in the same
+        // relative order and with the same unconditional assignments the legacy
+        // inline body used.
+        sidebarMetadata.reset()
         resetBrowserPanelsForContextChange(reason: reason)
     }
 
