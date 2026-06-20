@@ -6309,7 +6309,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        let tracksRemoteTerminalSurface = surfaceCreation.tracksRemoteTerminalSurface(remoteStartupCommand: remoteTerminalStartupCommand, normalizedRemotePTYSessionID: normalizedRemotePTYSessionID)
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -6566,7 +6566,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        let tracksRemoteTerminalSurface = surfaceCreation.tracksRemoteTerminalSurface(remoteStartupCommand: remoteTerminalStartupCommand, normalizedRemotePTYSessionID: normalizedRemotePTYSessionID)
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -9789,8 +9789,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         remoteStartupCommand: String? = nil
     ) -> TerminalPanel? {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
-        let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
+        let startupCommand = surfaceCreation.normalizedExplicitInitialCommand(remoteStartupCommand)
         let effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironmentMergingWorkspaceEnvironment([:]),
             remoteStartupCommand: startupCommand

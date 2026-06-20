@@ -151,6 +151,37 @@ public final class SurfaceCreationCoordinator {
         return (requested?.isEmpty == false) ? requested : nil
     }
 
+    /// Decides whether a freshly created terminal surface must be tracked as a
+    /// remote terminal surface, mirroring the byte-identical inline derivation
+    /// shared by `newTerminalSplitLocal` and `newTerminalSurfaceLocal`:
+    ///
+    /// ```swift
+    /// let tracksRemoteTerminalSurface =
+    ///     remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+    /// ```
+    ///
+    /// A surface is remote-tracked when it is launched with a remote startup
+    /// command OR it carries a remote-PTY session id; either makes it a remote
+    /// terminal the workspace must track (and untrack on a failed insert). The
+    /// live reads (the workspace's resolved remote startup command and the
+    /// already-normalized session id) stay on the workspace, which passes the
+    /// resolved values here; this method owns only the pure OR decision so both
+    /// creation paths apply the identical rule.
+    ///
+    /// - Parameters:
+    ///   - remoteStartupCommand: the resolved remote startup command for the new
+    ///     surface, or `nil` when none is in effect.
+    ///   - normalizedRemotePTYSessionID: the already-normalized remote-PTY session
+    ///     id (via ``normalizedRemotePTYSessionID(_:)``), or `nil` when absent.
+    /// - Returns: `true` when either input is non-`nil`, matching the legacy
+    ///   `remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil`.
+    public nonisolated func tracksRemoteTerminalSurface(
+        remoteStartupCommand: String?,
+        normalizedRemotePTYSessionID: String?
+    ) -> Bool {
+        remoteStartupCommand != nil || normalizedRemotePTYSessionID != nil
+    }
+
     /// Resolves the startup command and the environment-fold remote command from
     /// the already-normalized explicit and remote commands, mirroring the
     /// byte-identical inline derivation shared by `newTerminalSplitLocal` and
