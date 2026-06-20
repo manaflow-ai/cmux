@@ -36,6 +36,24 @@ public protocol ControlSystemContext: AnyObject {
         workspaceFilter: UUID?
     ) -> ControlSystemTreeResolution
 
+    /// Builds one `system.top` / `system.memory` workspace node from live
+    /// `Workspace` state (panes, surfaces, browser webviews, status tags),
+    /// mirroring the legacy `v2TopWorkspaceNode` tree walk. The coordinator
+    /// shapes the returned node into the payload dictionary via
+    /// ``ControlCommandCoordinator/systemTopWorkspacePayload(_:)``.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The workspace to snapshot.
+    ///   - index: The workspace's index within its window's tab list.
+    ///   - selected: Whether this is the window's selected workspace.
+    /// - Returns: The workspace node, or `nil` when the workspace no longer
+    ///   resolves.
+    func controlSystemTopWorkspaceNode(
+        workspaceID: UUID,
+        index: Int,
+        selected: Bool
+    ) -> ControlSystemTopWorkspaceNode?
+
     /// Whether the socket access mode requires password auth, for the
     /// `auth.login` payload's `required` field.
     func controlAuthPasswordRequired() -> Bool
