@@ -14,27 +14,20 @@ final class SSHPTYAttachReconnectInputFilterControl: Sendable {
         Darwin.close(stopAcknowledgementReadFD)
     }
 
-    func stopFiltering() {
+    @discardableResult
+    func stopFiltering(timeoutMilliseconds: Int32? = nil) -> Bool {
         if stopAcknowledgementReady() {
-            waitForStopAcknowledgement()
-            return
+            return waitForStopAcknowledgement(timeoutMilliseconds: timeoutMilliseconds)
         }
         signalStopFiltering()
-        waitForStopAcknowledgement()
+        return waitForStopAcknowledgement(timeoutMilliseconds: timeoutMilliseconds)
     }
 
-    func requestStopFiltering() {
-        guard !stopAcknowledgementReady() else {
-            return
-        }
-        signalStopFiltering()
-    }
-
-    func requestStopFiltering(unlessAlreadyRequested alreadyRequested: inout Bool) {
+    func stopFilteringBeforeFirstOutput(unlessAlreadyRequested alreadyRequested: inout Bool) {
         guard !alreadyRequested else {
             return
         }
-        requestStopFiltering()
+        stopFiltering(timeoutMilliseconds: 250)
         alreadyRequested = true
     }
 
@@ -67,14 +60,35 @@ final class SSHPTYAttachReconnectInputFilterControl: Sendable {
         }
     }
 
-    private func waitForStopAcknowledgement() {
+    private func waitForStopAcknowledgement(timeoutMilliseconds: Int32?) -> Bool {
+        if let timeoutMilliseconds,
+           !stopAcknowledgementReady(timeoutMilliseconds: timeoutMilliseconds) {
+            return false
+        }
         var byte: UInt8 = 0
         while true {
             let count = withUnsafeMutablePointer(to: &byte) { pointer in
                 Darwin.read(stopAcknowledgementReadFD, pointer, 1)
             }
             if count > 0 || count == 0 || errno != EINTR {
-                return
+                return true
+            }
+        }
+    }
+
+    private func stopAcknowledgementReady(timeoutMilliseconds: Int32) -> Bool {
+        let events = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
+        var pollFD = pollfd(fd: stopAcknowledgementReadFD, events: events, revents: 0)
+        while true {
+            let result = Darwin.poll(&pollFD, 1, timeoutMilliseconds)
+            if result > 0 {
+                return (pollFD.revents & events) != 0
+            }
+            if result == 0 {
+                return false
+            }
+            if errno != EINTR {
+                return true
             }
         }
     }

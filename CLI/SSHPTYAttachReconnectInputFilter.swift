@@ -144,16 +144,10 @@ final class SSHPTYAttachReconnectInputFilter {
             acknowledgeStopFiltering()
         }
 
-        func stopReconnectFiltering() async -> Bool {
+        func stopReconnectFiltering() -> Bool {
             defer {
                 acknowledgeStopFiltering()
                 closeStopSignal()
-            }
-            guard let filter = reconnectInputFilter else {
-                return true
-            }
-            guard await writeOrShutdown(filter.stopFiltering()) else {
-                return false
             }
             reconnectInputFilter = nil
             return true
@@ -173,7 +167,7 @@ final class SSHPTYAttachReconnectInputFilter {
             }
 
             if readiness.stopRequested, !readiness.inputReady {
-                guard await stopReconnectFiltering() else {
+                guard stopReconnectFiltering() else {
                     return
                 }
                 continue
@@ -203,7 +197,7 @@ final class SSHPTYAttachReconnectInputFilter {
                     return
                 }
                 if readiness.stopRequested {
-                    guard await stopReconnectFiltering() else {
+                    guard stopReconnectFiltering() else {
                         return
                     }
                 }
