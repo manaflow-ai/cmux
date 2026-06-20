@@ -47,6 +47,13 @@ public struct PairedMacRestore: Sendable {
         guard let remote = await backup.fetchAll() else {
             return RestoreOutcome(completed: false, restored: 0)
         }
+        // Sign-out (or any wipe) can race this restore: if the owning task was
+        // cancelled while the network fetch was suspended, do NOT write the
+        // previous account's Macs back into the just-emptied local store. Report
+        // `completed: false` so the caller does not memoize a non-restore.
+        if Task.isCancelled {
+            return RestoreOutcome(completed: false, restored: 0)
+        }
         guard !remote.isEmpty else { return RestoreOutcome(completed: true, restored: 0) }
 
         let local = (try? await store.loadAll(stackUserID: accountID)) ?? []

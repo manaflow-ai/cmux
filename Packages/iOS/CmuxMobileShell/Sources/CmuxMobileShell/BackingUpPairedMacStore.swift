@@ -133,6 +133,11 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // restores again rather than reading the just-emptied store.
         try await inner.removeAll()
         restoredScopes.removeAll()
+        // Cancel in-flight restores so a backup fetch suspended across this wipe
+        // cannot resume and re-upsert the previous account's Macs into the just-
+        // emptied local store (sign-out privacy boundary). `PairedMacRestore.run`
+        // checks `Task.isCancelled` after its fetch and skips the writes.
+        for (_, task) in inFlight { task.cancel() }
         inFlight.removeAll()
         lastSignedInAccount = nil
     }

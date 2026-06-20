@@ -231,6 +231,23 @@ private actor MutableBackup: PairedMacBackingUp {
         #expect(try await inner.activeMac(stackUserID: "user-1")?.macDeviceID == "mac-a")
     }
 
+    @Test func cancelledRestoreDoesNotWriteAfterWipe() async throws {
+        // Regression: a sign-out wipe cancels in-flight restores; a restore whose
+        // fetch was suspended across the wipe must not write the previous
+        // account's Macs back into the emptied local store.
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup(records: [
+            try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true),
+        ])
+        let restore = PairedMacRestore(store: inner, backup: backup)
+        let task = Task { await restore.run(accountID: "user-1") }
+        task.cancel()
+        let outcome = await task.value
+        #expect(!outcome.completed) // cancelled restore is not a completed restore
+        #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty) // nothing written
+    }
+
     @Test func emptyBackupLeavesLocalUntouched() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
