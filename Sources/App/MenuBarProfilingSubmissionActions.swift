@@ -33,7 +33,6 @@ extension MenuBarProfilingProgressWindowController {
         )
 
         let process = Process()
-        let errorPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [submitterURL.path] + MenuBarProfilingProfilePreview.submitArguments(
             profileURL: outputURL,
@@ -41,15 +40,13 @@ extension MenuBarProfilingProgressWindowController {
             note: noteTextView.string,
             send: true
         )
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errorPipe
         process.terminationHandler = { [weak self] process in
             Task { @MainActor [weak self] in
                 self?.finishSubmit(terminationStatus: process.terminationStatus)
             }
         }
 
-        runSubmitProcess(process, outputPipe: nil, errorPipe: errorPipe)
+        runSubmitProcess(process)
     }
 
     func packageArchive(profileURL: URL, openPreview: Bool) {
@@ -71,19 +68,15 @@ extension MenuBarProfilingProgressWindowController {
         )
 
         let process = Process()
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [submitterURL.path] + MenuBarProfilingProfilePreview.packageArguments(profileURL: profileURL)
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
         process.terminationHandler = { [weak self] process in
             Task { @MainActor [weak self] in
                 self?.finishPackage(terminationStatus: process.terminationStatus)
             }
         }
 
-        runSubmitProcess(process, outputPipe: outputPipe, errorPipe: errorPipe)
+        runSubmitProcess(process)
     }
 
     private func prepareSubmit() {
@@ -93,18 +86,21 @@ extension MenuBarProfilingProgressWindowController {
         openFolderButton.isEnabled = false
     }
 
-    private func runSubmitProcess(_ process: Process, outputPipe: Pipe?, errorPipe: Pipe) {
+    private func runSubmitProcess(_ process: Process) {
         do {
+            let outputLog = try makeTemporaryLogFile(prefix: "cmux-profile-submit-output")
+            let errorLog = try makeTemporaryLogFile(prefix: "cmux-profile-submit-error")
+            submitOutputLogURL = outputLog.0
+            submitOutputLogHandle = outputLog.1
+            submitErrorLogURL = errorLog.0
+            submitErrorLogHandle = errorLog.1
+            process.standardOutput = outputLog.1
+            process.standardError = errorLog.1
             submitProcess = process
-            submitOutputPipe = outputPipe
-            submitErrorPipe = errorPipe
             try process.run()
         } catch {
             submitProcess = nil
-            submitOutputPipe?.fileHandleForReading.readabilityHandler = nil
-            submitErrorPipe?.fileHandleForReading.readabilityHandler = nil
-            submitOutputPipe = nil
-            submitErrorPipe = nil
+            clearSubmitLogs()
             submitButton.title = String(localized: "statusMenu.profiling.sendEmail", defaultValue: "Send Email")
             openFolderButton.title = String(localized: "statusMenu.profiling.previewAttachment", defaultValue: "Preview Attachment")
             statusLabel.stringValue = String(
@@ -117,7 +113,7 @@ extension MenuBarProfilingProgressWindowController {
     }
 
     private func finishPackage(terminationStatus: Int32) {
-        drainSubmitPipes()
+        drainSubmitLogs()
         clearSubmitProcess()
         openFolderButton.title = String(localized: "statusMenu.profiling.previewAttachment", defaultValue: "Preview Attachment")
 
@@ -144,7 +140,7 @@ extension MenuBarProfilingProgressWindowController {
     }
 
     private func finishSubmit(terminationStatus: Int32) {
-        drainSubmitPipes()
+        drainSubmitLogs()
         clearSubmitProcess()
         submitButton.title = String(localized: "statusMenu.profiling.sendEmail", defaultValue: "Send Email")
 
@@ -159,36 +155,28 @@ extension MenuBarProfilingProgressWindowController {
     }
 
     private func clearSubmitProcess() {
-        submitOutputPipe?.fileHandleForReading.readabilityHandler = nil
-        submitErrorPipe?.fileHandleForReading.readabilityHandler = nil
-        submitOutputPipe = nil
-        submitErrorPipe = nil
+        clearSubmitLogs()
         submitProcess = nil
     }
 
-    private func drainSubmitPipes() {
-        submitOutputPipe?.fileHandleForReading.readabilityHandler = nil
-        submitErrorPipe?.fileHandleForReading.readabilityHandler = nil
-        appendRemainingSubmitOutput(from: submitOutputPipe)
-        appendRemainingSubmitError(from: submitErrorPipe)
+    private func drainSubmitLogs() {
+        submitOutputLogHandle?.closeFile()
+        submitErrorLogHandle?.closeFile()
+        submitOutputLogHandle = nil
+        submitErrorLogHandle = nil
+        submitOutput += readLogText(from: submitOutputLogURL)
+        submitErrorOutput += readLogText(from: submitErrorLogURL)
     }
 
-    private func appendRemainingSubmitOutput(from pipe: Pipe?) {
-        guard let data = pipe?.fileHandleForReading.readDataToEndOfFile(), !data.isEmpty else {
-            return
-        }
-        if let text = String(data: data, encoding: .utf8) {
-            submitOutput += text
-        }
-    }
-
-    private func appendRemainingSubmitError(from pipe: Pipe?) {
-        guard let data = pipe?.fileHandleForReading.readDataToEndOfFile(), !data.isEmpty else {
-            return
-        }
-        if let text = String(data: data, encoding: .utf8) {
-            submitErrorOutput += text
-        }
+    private func clearSubmitLogs() {
+        submitOutputLogHandle?.closeFile()
+        submitErrorLogHandle?.closeFile()
+        submitOutputLogHandle = nil
+        submitErrorLogHandle = nil
+        removeLogFile(submitOutputLogURL)
+        removeLogFile(submitErrorLogURL)
+        submitOutputLogURL = nil
+        submitErrorLogURL = nil
     }
 
     private func archiveURLFromSubmitOutput() -> URL? {

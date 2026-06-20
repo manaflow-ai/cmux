@@ -6,7 +6,6 @@ import Foundation
 final class MenuBarProfilingProgressWindowController: NSWindowController {
     static let shared = MenuBarProfilingProgressWindowController()
 
-    nonisolated let scriptOutputBuffer = MenuBarProfilingOutputBuffer()
     let feedbackSettings = FeedbackComposerSettings()
     let titleLabel = NSTextField(labelWithString: "")
     let countdownLabel = NSTextField(labelWithString: "")
@@ -25,10 +24,14 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
 
     private var process: Process?
     var submitProcess: Process?
-    private var outputPipe: Pipe?
-    private var errorPipe: Pipe?
-    var submitOutputPipe: Pipe?
-    var submitErrorPipe: Pipe?
+    var outputLogURL: URL?
+    var errorLogURL: URL?
+    var outputLogHandle: FileHandle?
+    var errorLogHandle: FileHandle?
+    var submitOutputLogURL: URL?
+    var submitErrorLogURL: URL?
+    var submitOutputLogHandle: FileHandle?
+    var submitErrorLogHandle: FileHandle?
     private var countdownTimer: Timer?
     private var startedAt: Date?
     private var scriptOutput = ""
@@ -84,29 +87,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         }
 
         let process = Process()
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [scriptURL.path] + MenuBarProfilingLauncher.arguments(pid: pid, submitProfile: false)
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            self?.scriptOutputBuffer.append(text)
-            Task { @MainActor [weak self] in
-                self?.appendScriptOutput(text)
-            }
-        }
-        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            self?.scriptOutputBuffer.append(text)
-            Task { @MainActor [weak self] in
-                self?.appendScriptOutput(text)
-            }
-        }
         process.terminationHandler = { [weak self] process in
             Task { @MainActor [weak self] in
                 self?.finish(terminationStatus: process.terminationStatus)
@@ -114,8 +96,14 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         }
 
         do {
-            self.outputPipe = outputPipe
-            self.errorPipe = errorPipe
+            let outputLog = try makeTemporaryLogFile(prefix: "cmux-profile-output")
+            let errorLog = try makeTemporaryLogFile(prefix: "cmux-profile-error")
+            outputLogURL = outputLog.0
+            outputLogHandle = outputLog.1
+            errorLogURL = errorLog.0
+            errorLogHandle = errorLog.1
+            process.standardOutput = outputLog.1
+            process.standardError = errorLog.1
             self.process = process
             startedAt = Date()
             startCountdownTimer()
@@ -235,8 +223,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
     }
 
     private func resetInterface() {
+        clearScriptLogs()
         scriptOutput = ""
-        scriptOutputBuffer.reset()
         submitOutput = ""
         submitErrorOutput = ""
         outputURL = nil
@@ -328,8 +316,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
     private func finish(terminationStatus: Int32) {
         countdownTimer?.invalidate()
         countdownTimer = nil
-        drainScriptPipes()
-        clearReadabilityHandlers()
+        drainScriptLogs()
+        clearScriptLogs()
         process = nil
         progressIndicator.doubleValue = Double(estimatedSeconds)
 
@@ -353,7 +341,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
     private func finishWithLaunchFailure(_ message: String) {
         countdownTimer?.invalidate()
         countdownTimer = nil
-        clearReadabilityHandlers()
+        clearScriptLogs()
         process = nil
         progressIndicator.doubleValue = 0
         countdownLabel.stringValue = String(localized: "statusMenu.profiling.failedTitle", defaultValue: "Profiling failed")
@@ -364,29 +352,24 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         NSSound.beep()
     }
 
-    private func clearReadabilityHandlers() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
-        errorPipe?.fileHandleForReading.readabilityHandler = nil
-        outputPipe = nil
-        errorPipe = nil
-    }
-
-    private func drainScriptPipes() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
-        errorPipe?.fileHandleForReading.readabilityHandler = nil
-        appendRemainingData(from: outputPipe)
-        appendRemainingData(from: errorPipe)
-        scriptOutput = scriptOutputBuffer.snapshot()
+    private func drainScriptLogs() {
+        outputLogHandle?.closeFile()
+        errorLogHandle?.closeFile()
+        outputLogHandle = nil
+        errorLogHandle = nil
+        scriptOutput = readLogText(from: outputLogURL) + readLogText(from: errorLogURL)
         parseOutputURL(from: scriptOutput)
     }
 
-    private func appendRemainingData(from pipe: Pipe?) {
-        guard let data = pipe?.fileHandleForReading.readDataToEndOfFile(), !data.isEmpty else {
-            return
-        }
-        if let text = String(data: data, encoding: .utf8) {
-            scriptOutputBuffer.append(text)
-        }
+    private func clearScriptLogs() {
+        outputLogHandle?.closeFile()
+        errorLogHandle?.closeFile()
+        outputLogHandle = nil
+        errorLogHandle = nil
+        removeLogFile(outputLogURL)
+        removeLogFile(errorLogURL)
+        outputLogURL = nil
+        errorLogURL = nil
     }
 
     private func failureMessage() -> String {
