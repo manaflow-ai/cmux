@@ -126,6 +126,51 @@ import Testing
         _ = try? await firstTask.value
     }
 
+    @Test func timedOutRPCClosesSlowConnectionBeforeSendingAuthenticatedRequest() async throws {
+        let transport = SlowConnectTimeoutTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59124)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: SlowConnectTimeoutTransportFactory(transport: transport),
+            rpcRequestTimeoutNanoseconds: 10_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "terminal.input",
+            params: [
+                "workspace_id": "workspace-main",
+                "terminal_id": "terminal-main",
+                "text": "stale",
+            ],
+            id: "stale-input"
+        )
+
+        do {
+            _ = try await client.sendRequest(request)
+            Issue.record("Expected timed-out RPC request to throw")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+
+        #expect(await transport.waitUntilClosed())
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(try await transport.sentRequests().isEmpty)
+    }
+
     @Test func workspaceListResponseDecodesSnakeCaseWireShape() throws {
         let json = Data("""
         {

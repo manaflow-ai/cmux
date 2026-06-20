@@ -223,6 +223,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
         ) {
             try await self.session.send(payload: authenticated, requestID: id)
+        } cancelOperation: {
+            await self.session.tearDown(error: .connectionClosed)
         }
     }
 
@@ -400,7 +402,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     private static func withRequestTimeout<T: Sendable>(
         timeoutNanoseconds: UInt64,
-        operation: @escaping @Sendable () async throws -> T
+        operation: @escaping @Sendable () async throws -> T,
+        cancelOperation: @escaping @Sendable () async -> Void = {}
     ) async throws -> T {
         try Task.checkCancellation()
         let state = RPCRequestTimeoutState<T>()
@@ -420,6 +423,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                     } catch {
                         return
                     }
+                    await cancelOperation()
                     state.resume(throwing: MobileShellConnectionError.requestTimedOut)
                 }
                 state.setCancelHandler {
@@ -429,6 +433,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             }
         } onCancel: {
             state.cancel()
+            Task {
+                await cancelOperation()
+            }
         }
     }
 }

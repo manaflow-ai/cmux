@@ -153,8 +153,15 @@ actor MobileCoreRPCSession {
             let candidate = try makeTransport()
             connectionID = UUID()
             task = Task {
-                try await candidate.connect()
-                return candidate
+                try await withTaskCancellationHandler {
+                    try await candidate.connect()
+                    try Task.checkCancellation()
+                    return candidate
+                } onCancel: {
+                    Task {
+                        await candidate.close()
+                    }
+                }
             }
             connectionTask = (id: connectionID, task: task)
         }
