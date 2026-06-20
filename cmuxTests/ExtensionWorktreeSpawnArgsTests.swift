@@ -114,8 +114,7 @@ struct ExtensionWorktreeManagementTests {
     func cleanRemovalRespectsSuppression() {
         let clean = CmuxExtensionWorktreeRemovalSafety(
             hasUncommittedChanges: false,
-            unpushedCommitCount: 0,
-            branchName: "cmux-sidebar-1"
+            unpushedCommitCount: 0
         )
         #expect(clean.isClean)
         #expect(clean.requiresForce == false)
@@ -127,8 +126,7 @@ struct ExtensionWorktreeManagementTests {
     func unsafeRemovalAlwaysConfirms() {
         let dirty = CmuxExtensionWorktreeRemovalSafety(
             hasUncommittedChanges: true,
-            unpushedCommitCount: 0,
-            branchName: nil
+            unpushedCommitCount: 0
         )
         #expect(dirty.requiresForce)
         // Suppression must never bypass a data-loss prompt.
@@ -136,8 +134,7 @@ struct ExtensionWorktreeManagementTests {
 
         let unpushed = CmuxExtensionWorktreeRemovalSafety(
             hasUncommittedChanges: false,
-            unpushedCommitCount: 2,
-            branchName: nil
+            unpushedCommitCount: 2
         )
         #expect(unpushed.hasUnpushedCommits)
         #expect(unpushed.requiresForce == false)
@@ -149,7 +146,6 @@ struct ExtensionWorktreeManagementTests {
         let unknown = CmuxExtensionWorktreeRemovalSafety(
             hasUncommittedChanges: false,
             unpushedCommitCount: 0,
-            branchName: nil,
             inspectionFailed: true
         )
         #expect(!unknown.isClean)

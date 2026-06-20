@@ -80,7 +80,6 @@ struct CmuxExtensionWorktreeIdentity: Sendable, Equatable {
 struct CmuxExtensionWorktreeRemovalSafety: Sendable, Equatable {
     var hasUncommittedChanges: Bool
     var unpushedCommitCount: Int
-    var branchName: String?
     /// True when the safety probe itself failed (git error / not a worktree).
     /// An unknown state is treated as *not* clean: removal always confirms and
     /// the confirmation can't be suppressed, so a stale "don't ask again"
@@ -248,10 +247,6 @@ enum CmuxExtensionWorktreePrototype {
     static func inspectRemovalSafety(worktreePath: String) async throws -> CmuxExtensionWorktreeRemovalSafety {
         try await Task.detached(priority: .userInitiated) {
             let worktree = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL.path
-            // Only trust the branch name on success; stderr is merged into the
-            // same stream, so a detached-HEAD failure would otherwise surface a
-            // "fatal: ..." string as the branch.
-            let branch = await currentBranch(worktreePath: worktree)
 
             let statusOutput = try await runGitTrimmed(
                 ["-C", worktree, "status", "--porcelain"],
@@ -278,17 +273,17 @@ enum CmuxExtensionWorktreePrototype {
 
             return CmuxExtensionWorktreeRemovalSafety(
                 hasUncommittedChanges: hasUncommittedChanges,
-                unpushedCommitCount: unpushedCommitCount,
-                branchName: branch.isEmpty ? nil : branch
+                unpushedCommitCount: unpushedCommitCount
             )
         }.value
     }
 
     /// Removes a worktree: `git worktree remove` (with `--force` only when the
     /// caller authorized destroying uncommitted changes) followed by
-    /// `git worktree prune` in the parent repository. The branch is then
-    /// best-effort deleted with `git branch -d`, which refuses to delete
-    /// unmerged branches — so committed work is never silently destroyed.
+    /// `git worktree prune` in the parent repository. The branch is left
+    /// intact — `git worktree remove` only deletes the working directory, so
+    /// committed work stays recoverable from the branch, matching the
+    /// confirmation copy. Branch deletion is intentionally not performed here.
     static func removeWorktree(worktreePath: String, force: Bool) async throws {
         try await Task.detached(priority: .userInitiated) {
             let worktree = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL.path
@@ -317,23 +312,18 @@ enum CmuxExtensionWorktreePrototype {
                 .deletingLastPathComponent()
                 .standardizedFileURL.path
 
-            // Capture the branch before removal so it can be cleaned up after.
-            // Only on probe success — see currentBranch(worktreePath:).
-            let branch = await currentBranch(worktreePath: worktree)
-
             var removeArgs = ["-C", parentRepo, "worktree", "remove"]
             if force { removeArgs.append("--force") }
             removeArgs.append(worktree)
             _ = try await runGitTrimmed(removeArgs, failureDescription: "Could not remove the worktree.")
 
             // Prune stale administrative entries in the parent repository.
+            // The branch itself is deliberately NOT deleted: the confirmation
+            // promises committed work on the branch is kept, so removal only
+            // ever discards the working directory (and uncommitted changes when
+            // forced). Branch cleanup, if ever wanted, must be its own
+            // explicitly-confirmed action.
             _ = await runAllowingFailure(["-C", parentRepo, "worktree", "prune"])
-
-            // Best-effort branch cleanup. `-d` (not `-D`) refuses to delete a
-            // branch with unmerged commits, so unpushed work is preserved.
-            if !branch.isEmpty {
-                _ = await runAllowingFailure(["-C", parentRepo, "branch", "-d", branch])
-            }
         }.value
     }
 
@@ -431,16 +421,6 @@ enum CmuxExtensionWorktreePrototype {
     ) async throws -> String {
         let data = try await runCapturingOutput("git", arguments, failureDescription: failureDescription)
         return (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Returns the worktree's current branch name, or `""` when HEAD is
-    /// detached or the probe fails. Crucially, the branch is read only on a
-    /// zero exit: `runProcess` merges stderr into stdout, so a failed
-    /// `symbolic-ref` (e.g. detached HEAD prints `fatal: ...`) must not be
-    /// mistaken for a branch named "fatal: ...".
-    private static func currentBranch(worktreePath: String) async -> String {
-        let result = await runAllowingFailure(["-C", worktreePath, "symbolic-ref", "--quiet", "--short", "HEAD"])
-        return result.status == 0 ? result.stdout : ""
     }
 
     /// Runs `git` without throwing, returning the exit status and trimmed

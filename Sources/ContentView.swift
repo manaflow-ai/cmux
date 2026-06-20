@@ -11953,7 +11953,6 @@ struct VerticalTabsSidebar: View {
                 safety = CmuxExtensionWorktreeRemovalSafety(
                     hasUncommittedChanges: false,
                     unpushedCommitCount: 0,
-                    branchName: nil,
                     inspectionFailed: true
                 )
             }
