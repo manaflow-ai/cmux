@@ -543,6 +543,23 @@ struct SettingsWindowPresenterTests {
         }
     }
 
+    @Test func scheduledVerificationCanAdvanceWithoutRealWaiting() async throws {
+        try await withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter(openVerificationDelay: .zero)
+            var openRequests = 0
+
+            presenter.show(openWindowOverride: { openRequests += 1 })
+            #expect(openRequests == 1)
+
+            for _ in 0..<20 {
+                if openRequests == 2 { break }
+                await Task.yield()
+            }
+
+            #expect(openRequests == 2)
+        }
+    }
+
     @Test func giveUpClearsOpeningFlagSoNextShowCanRequestAgain() async throws {
         try await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()

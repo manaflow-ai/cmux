@@ -12,11 +12,13 @@ struct SettingsWindowPresenter {
     /// Release-safe diagnostics so intermittent "Settings won't open" reports
     /// (https://github.com/manaflow-ai/cmux/issues/5770) become attributable
     /// from `log show --predicate 'subsystem == "com.cmuxterm.app" && category == "Settings"'`.
-    private static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+    private nonisolated static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
     /// Number of times to re-request the SwiftUI window when an open request
     /// produces no window. The single `Window` scene's `openWindow(id:)` can
     /// silently no-op mid-teardown, which is the "nothing happens" symptom.
     static let maxOpenAttempts = 2
+
+    private let openVerificationDelay: Duration
 
     private final class State: NSObject {
         var openWindow: (@MainActor () -> Void)?
@@ -57,7 +59,8 @@ struct SettingsWindowPresenter {
 
     private let state: State
 
-    init() {
+    init(openVerificationDelay: Duration = .milliseconds(500)) {
+        self.openVerificationDelay = openVerificationDelay
         state = State()
     }
 
@@ -255,10 +258,9 @@ struct SettingsWindowPresenter {
     ) {
         guard state.openVerificationTask == nil else { return }
         state.openVerificationTask = Task { @MainActor in
-            // Bounded deadline for a real `openWindow(id:)` no-op; cancelled
-            // by `configure(window:)` as soon as AppKit provides the signal.
             do {
-                try await Task.sleep(nanoseconds: 500_000_000)
+                // Intentional bounded deadline; `configure(window:)` cancels it on success.
+                try await ContinuousClock().sleep(for: openVerificationDelay)
             } catch {
                 return
             }
@@ -270,7 +272,7 @@ struct SettingsWindowPresenter {
     func resolveOpenVerification(
         attempt: Int,
         opener: @escaping @MainActor () -> Void
-    ) -> OpenOutcome {
+    ) -> SettingsWindowOpenOutcome {
         cancelOpenVerification()
         let existingWindow = existingWindow()
         let outcome = Self.openOutcome(windowExists: existingWindow != nil, attempt: attempt)
@@ -312,15 +314,7 @@ struct SettingsWindowPresenter {
         state.openVerificationTask = nil
     }
 
-    /// Pure recovery policy for a settings-window open request, factored out so
-    /// the retry behavior is unit-testable without driving SwiftUI scenes.
-    enum OpenOutcome: Equatable {
-        case materialized
-        case retry
-        case giveUp
-    }
-
-    static func openOutcome(windowExists: Bool, attempt: Int) -> OpenOutcome {
+    static func openOutcome(windowExists: Bool, attempt: Int) -> SettingsWindowOpenOutcome {
         if windowExists {
             return .materialized
         }
