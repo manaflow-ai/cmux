@@ -10,6 +10,8 @@ nonisolated private let terminalOverviewLog = Logger(
 )
 
 extension MobileShellComposite {
+    private static var terminalOverviewPreviewRefreshInterval: TimeInterval { 10 }
+
     /// Returns the latest cached plain-text thumbnail rows for a terminal overview card.
     /// - Parameter terminalID: The terminal whose overview preview should be read.
     /// - Returns: Cached rows when a replay or live render-grid frame has populated them.
@@ -29,8 +31,10 @@ extension MobileShellComposite {
         }
         let liveTerminalIDs = Set(workspace.terminals.map(\.id))
         terminalOverviewPreviewLinesByID = terminalOverviewPreviewLinesByID.filter { liveTerminalIDs.contains($0.key) }
+        terminalOverviewPreviewUpdatedAtByID = terminalOverviewPreviewUpdatedAtByID.filter { liveTerminalIDs.contains($0.key) }
+        let now = runtime?.now() ?? Date()
         let terminalsNeedingReplay = workspace.terminals.filter { terminal in
-            terminal.isReady && terminalOverviewPreviewLinesByID[terminal.id] == nil
+            terminal.isReady && shouldRefreshTerminalOverviewPreview(for: terminal.id, now: now)
         }
         guard !terminalsNeedingReplay.isEmpty else {
             return
@@ -48,6 +52,7 @@ extension MobileShellComposite {
                 )
                 guard remoteClient === client, connectionState == .connected else { return }
                 terminalOverviewPreviewLinesByID[terminal.id] = lines
+                terminalOverviewPreviewUpdatedAtByID[terminal.id] = runtime?.now() ?? Date()
             } catch {
                 guard remoteClient === client, connectionState == .connected else { return }
                 guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
@@ -90,6 +95,18 @@ extension MobileShellComposite {
     func pruneTerminalOverviewPreviewCacheForLiveTerminals() {
         let liveTerminalIDs = Set(workspaces.flatMap { $0.terminals.map(\.id) })
         terminalOverviewPreviewLinesByID = terminalOverviewPreviewLinesByID.filter { liveTerminalIDs.contains($0.key) }
+        terminalOverviewPreviewUpdatedAtByID = terminalOverviewPreviewUpdatedAtByID.filter { liveTerminalIDs.contains($0.key) }
+    }
+
+    private func shouldRefreshTerminalOverviewPreview(
+        for terminalID: MobileTerminalPreview.ID,
+        now: Date
+    ) -> Bool {
+        guard terminalOverviewPreviewLinesByID[terminalID] != nil,
+              let updatedAt = terminalOverviewPreviewUpdatedAtByID[terminalID] else {
+            return true
+        }
+        return now.timeIntervalSince(updatedAt) >= Self.terminalOverviewPreviewRefreshInterval
     }
 
     // Keep RPC send/decode work off MobileShellComposite's main-actor state owner.
@@ -130,6 +147,7 @@ extension MobileShellComposite {
                   connectionState == .connected,
                   !Task.isCancelled else { return }
             terminalOverviewPreviewLinesByID[terminalID] = nil
+            terminalOverviewPreviewUpdatedAtByID[terminalID] = nil
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
         } catch {
             guard remoteClient === client, !Task.isCancelled else { return }
@@ -173,6 +191,7 @@ extension MobileShellComposite {
         }
         workspaces[workspaceIndex].terminals.remove(at: closingIndex)
         terminalOverviewPreviewLinesByID[terminalID] = nil
+        terminalOverviewPreviewUpdatedAtByID[terminalID] = nil
         if selectedWorkspaceID == workspaceID, selectedTerminalID == terminalID {
             let remaining = workspaces[workspaceIndex].terminals
             let replacementIndex = min(closingIndex, remaining.count - 1)

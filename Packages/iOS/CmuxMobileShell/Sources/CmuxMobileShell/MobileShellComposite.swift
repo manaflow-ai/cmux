@@ -603,6 +603,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
     var terminalOverviewPreviewLinesByID: [MobileTerminalPreview.ID: [String]] = [:]
+    var terminalOverviewPreviewUpdatedAtByID: [MobileTerminalPreview.ID: Date] = [:]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
