@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import CmuxSettings
+import CmuxSidebar
 import CmuxSwiftRenderUI
 import Foundation
 
@@ -100,7 +101,7 @@ struct TerminalControllerSidebarCustomReading: ControlSidebarCustomReading {
         let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
         await MainActor.run {
             UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
-            CmuxExtensionSidebarSelection.setProviderId(providerId)
+            CmuxExtensionSidebarSelection().setProviderId(providerId)
             NotificationCenter.default.post(
                 name: .customSidebarReloadRequested,
                 object: nil,
@@ -115,7 +116,7 @@ struct TerminalControllerSidebarCustomReading: ControlSidebarCustomReading {
     /// Runs the `CustomSidebarValidator` against the custom-sidebars directory
     /// (the byte-faithful twin of the former `v2CustomSidebarValidationReport`).
     private func validationReport(name: String?) -> CustomSidebarValidationReport {
-        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
+        let directory = CmuxExtensionSidebarSelection().customSidebarsDirectory
         return CustomSidebarValidator().validate(directory: directory, name: name)
     }
 
@@ -124,7 +125,7 @@ struct TerminalControllerSidebarCustomReading: ControlSidebarCustomReading {
     /// onto the wire).
     private func reportSnapshot(_ report: CustomSidebarValidationReport) -> ControlSidebarCustomReport {
         ControlSidebarCustomReport(
-            directoryPath: CmuxExtensionSidebarSelection.customSidebarsDirectory.path,
+            directoryPath: CmuxExtensionSidebarSelection().customSidebarsDirectory.path,
             entries: report.entries.map { entry in
                 ControlSidebarCustomReportEntry(
                     name: entry.name,

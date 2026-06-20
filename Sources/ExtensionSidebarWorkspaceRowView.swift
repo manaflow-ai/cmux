@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSidebar
 import CmuxSidebarProviderKit
 import SwiftUI
 import WebKit
@@ -114,7 +115,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         case .plain(let value):
             return value
         case .localized(let localized):
-            return CmuxExtensionSidebarSelection.localizedText(localized)
+            return CmuxExtensionSidebarSelection().localizedText(localized)
         case .relativeDate(let date, _):
             return CmuxExtensionRelativeTimeFormatter.string(from: date, to: relativeNow)
         }
