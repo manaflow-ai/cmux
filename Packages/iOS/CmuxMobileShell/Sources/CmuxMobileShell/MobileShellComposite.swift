@@ -1515,8 +1515,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     syncSubscriptionTeamID = nil
                     evaluateSyncSubscription()
                 }
-                await reloadDeviceListFromSyncStore(teamID: teamID)
-                if !registryDevices.isEmpty { return }
+                // Serve the durable list when present. A non-mutating read so an
+                // EMPTY store does not clear the current list before falling
+                // through — otherwise a transient registry failure (a no-op that
+                // is meant to keep the tree) would surface as a blank tree.
+                if let devices = await syncStoreDevices(teamID: teamID), !devices.isEmpty {
+                    registryDevices = devices
+                    return
+                }
             }
             // Empty store or unresolved team: fall through to the registry fallback.
         }
@@ -1723,13 +1729,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Reload ``registryDevices`` from the local sync store (no network), with
-    /// the same connected-first / most-recently-seen sort and the same
-    /// signed-in-user guard as ``loadRegistryDevices()``. The presence online dot
-    /// is overlaid by the UI on top, exactly as for the registry path.
-    /// Internal (not private) so the stale-team overwrite guard is unit-testable.
-    func reloadDeviceListFromSyncStore(teamID: String) async {
-        guard deviceListLocalFirst, let syncStore else { return }
+    /// Read + guard + sort the device list from the local sync store (no
+    /// network), with the same connected-first / most-recently-seen sort as the
+    /// registry path. Returns the rendered list (possibly empty) when the read is
+    /// still valid for the current user + team, or `nil` when it must be
+    /// discarded: a different signed-in user, or a team switch mid-stream (so a
+    /// late old-team frame can never overwrite the current team's list), or a
+    /// read error. Non-mutating, so callers choose whether an empty result clears
+    /// the list (a committed frame did) or falls through (a launch read must not
+    /// blank a populated tree).
+    private func syncStoreDevices(teamID: String) async -> [RegistryDevice]? {
+        guard deviceListLocalFirst, let syncStore else { return nil }
         let requestingUserID = identityProvider?.currentUserID
         let loaded: [RegistryDevice]
         do {
@@ -1738,21 +1748,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.debug(
                 "device sync facade read failed: \(String(describing: error), privacy: .public)"
             )
-            return
+            return nil
         }
-        // The facade read suspended the main actor. Drop the result unless we are
-        // still the same signed-in user AND the selected team is still the one
-        // this read was for, so a late old-team frame (a team switch mid-stream)
-        // can never overwrite the current team's list. Mirrors loadRegistryDevices's
-        // user guard, extended for the team a long-lived sync socket is pinned to.
-        guard isSignedIn, identityProvider?.currentUserID == requestingUserID else { return }
-        guard (await syncTeamIDProvider?() ?? "") == teamID else { return }
+        guard isSignedIn, identityProvider?.currentUserID == requestingUserID else { return nil }
+        guard (await syncTeamIDProvider?() ?? "") == teamID else { return nil }
         let connectedID = connectedMacDeviceID
-        registryDevices = loaded.sorted { lhs, rhs in
+        return loaded.sorted { lhs, rhs in
             let lhsConnected = lhs.deviceId == connectedID
             let rhsConnected = rhs.deviceId == connectedID
             if lhsConnected != rhsConnected { return lhsConnected }
             return lhs.lastSeenAt > rhs.lastSeenAt
+        }
+    }
+
+    /// Assign ``registryDevices`` from the local sync store. Used by the sync
+    /// subscription's apply callback, where an empty result is authoritative (a
+    /// delta tombstoned the last device). Internal (not private) so the
+    /// stale-team overwrite guard is unit-testable.
+    func reloadDeviceListFromSyncStore(teamID: String) async {
+        if let devices = await syncStoreDevices(teamID: teamID) {
+            registryDevices = devices
         }
     }
 
