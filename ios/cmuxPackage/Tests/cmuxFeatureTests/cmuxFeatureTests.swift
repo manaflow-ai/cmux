@@ -85,7 +85,7 @@ final class TerminalOutputCollector {
 // Auth error mapping + cached-session recovery are now owned and tested by
 // CmuxAuthRuntime (AuthErrorMapperTests). The display-safe error and
 // cached-session-validation assertions moved there with the AuthCoordinator
-// lift; see Packages/CmuxAuthRuntime/Tests.
+// lift; see Packages/Shared/CmuxAuthRuntime/Tests.
 
 @Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
     let runtime = CMUXMobileRuntime(
@@ -180,7 +180,12 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
-    await store.connectPairingURL(try payload.encodedURL().absoluteString)
+    let result = await store.connectPairingURLResult(try payload.encodedURL().absoluteString)
+
+    #expect(result == .needsUserApproval)
+    #expect(store.pairingVersionWarning?.contains("unknown compatibility") == true)
+
+    await store.acceptPairingVersionWarning()
 
     #expect(store.phase == .workspaces)
     #expect(store.connectedHostName == "Test Mac")
@@ -500,7 +505,8 @@ final class TerminalOutputCollector {
 
     #expect(store.phase == .workspaces)
     #expect(store.connectionError == nil)
-    #expect(store.activeTicket == ticket)
+    let expectedTicket = try ticket.withCurrentMacPairingCompatibilityVersionForTest()
+    #expect(store.activeTicket == expectedTicket)
     #expect(store.activeRoute == route)
 }
 
@@ -834,6 +840,7 @@ final class TerminalOutputCollector {
         terminalID: nil,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
+        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: ticketExpiresAt,
         authToken: "ticket-secret"
@@ -1436,6 +1443,7 @@ final class TerminalOutputCollector {
         terminalID: nil,
         macDeviceID: "qr-mac",
         macDisplayName: "QR Mac",
+        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: mintedAt.addingTimeInterval(600),
         authToken: "minted-but-never-in-the-qr"
@@ -2654,8 +2662,31 @@ private func testRuntime(
 private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
-    let payload = base64URLEncode(try encoder.encode(ticket))
+    let payload = base64URLEncode(try encoder.encode(ticket.withCurrentMacPairingCompatibilityVersionForTest()))
     return try #require(URL(string: "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"))
+}
+
+private extension CmxAttachTicket {
+    func withCurrentMacPairingCompatibilityVersionForTest() throws -> CmxAttachTicket {
+        guard macPairingCompatibilityVersion == nil else {
+            return self
+        }
+        return try CmxAttachTicket(
+            version: version,
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            macDeviceID: macDeviceID,
+            macDisplayName: macDisplayName,
+            macUserEmail: macUserEmail,
+            macUserID: macUserID,
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: macAppVersion,
+            macAppBuild: macAppBuild,
+            routes: routes,
+            expiresAt: expiresAt,
+            authToken: authToken
+        )
+    }
 }
 
 private func base64URLEncode(_ data: Data) -> String {
@@ -2969,6 +3000,7 @@ private func rpcAttachTicketFrame(
         terminalID: terminalID,
         macDeviceID: "test-mac",
         macDisplayName: nil,
+        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
         authToken: "ticket-secret"

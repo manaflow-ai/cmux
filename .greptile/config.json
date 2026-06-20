@@ -73,6 +73,18 @@
       "severity": "high"
     },
     {
+      "id": "cmux-swiftpm-package-resolved",
+      "rule": "Flag SwiftPM package, Xcode project, .gitignore, workflow, and dependency changes that violate cmux's Package.resolved policy: cmux-owned package .gitignore files must not ignore Package.resolved, external SwiftPM dependency resolution changes must include the relevant package-local Package.resolved diff, and Xcode project package-reference changes must include the root Xcode Package.resolved diff. The root Xcode project lockfile is not sufficient proof for standalone package resolution. Pass for vendored third-party directories preserving upstream policy.",
+      "scope": ["**/Package.swift", "**/Package.resolved", "**/.gitignore", "cmux.xcodeproj/**", ".github/workflows/**"],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-no-test-debug-seam-in-production-source",
+      "rule": "Flag Swift files under a production Sources path (matching **/Sources/** and not under **/Tests/**) that add a test-only or debug-only seam: a #if DEBUG (or other test-build-guarded) extension/member exposing internal state only for tests or a debugger with no production caller, a member named like debug…/…ForTesting/…ForTests/testOnly…/…TestHook/…TestSeam/_test…, or visibility widened together with a wrapper accessor added so a test can call it. Prefer observing internal state from the test target via @testable import after widening private to internal, or isolating a genuinely debug-only facility in a dedicated debug file or folder (canonical fix: cmux PR 6452). Pass for #if DEBUG blocks that gate real product behavior, scaffolding inside Tests/ or a test-support module, and existing seams not worsened by the PR.",
+      "scope": ["**/Sources/**/*.swift"],
+      "severity": "high"
+    },
+    {
       "id": "cmux-source-control-artifacts",
       "rule": "Flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, release, or test-system reason. Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, generated files that are already part of the repo's source-of-truth model, and PRs that only remove or ignore existing accidental artifacts.",
       "scope": ["**/*"],

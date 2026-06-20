@@ -1,5 +1,5 @@
 import AppKit
-import CmuxWorkspaceNavigation
+import CmuxWorkspaces
 import SwiftUI
 
 extension cmuxApp {
