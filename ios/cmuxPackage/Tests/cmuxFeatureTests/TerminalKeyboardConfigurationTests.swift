@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import Foundation
 import Testing
 import UIKit
@@ -169,3 +170,4 @@ struct TerminalKeyboardConfigurationTests {
         }
     }
 }
+#endif
