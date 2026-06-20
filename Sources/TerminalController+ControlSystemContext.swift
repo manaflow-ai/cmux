@@ -204,6 +204,16 @@ extension TerminalController: ControlSystemContext {
         socketServer.accessMode.requiresPasswordAuth
     }
 
+    // MARK: - system.capabilities live state
+
+    func controlSystemSocketPath() -> String {
+        socketServer.currentSocketPath
+    }
+
+    func controlSystemAccessModeRawValue() -> String {
+        socketServer.accessMode.rawValue
+    }
+
     func controlSessionRestorePrevious() -> ControlSessionRestoreResolution {
         let restored = AppDelegate.shared?.reopenPreviousSession(shouldActivate: false) ?? false
         guard restored else {

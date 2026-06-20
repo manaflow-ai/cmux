@@ -1188,10 +1188,11 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
-        case "system.ping":
-            return v2Ok(id: request.id, result: ["pong": true])
-        case "system.capabilities":
-            return v2Ok(id: request.id, result: v2Capabilities())
+        case "system.ping", "system.capabilities":
+            // The two `mainThreadCallable` probes; bodies live in CmuxControlSocket's
+            // ``ControlSystemProbe`` (shared with the coordinator). Built here with
+            // no main hop, exactly as the legacy inline bodies did.
+            return Self.v2Encoder.response(id: request.control.id, systemProbeResponse(request.method))
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
@@ -1801,10 +1802,9 @@ class TerminalController {
             }
 
             switch method {
-        case "system.ping":
-            return v2Ok(id: id, result: ["pong": true])
-        case "system.capabilities":
-            return v2Ok(id: id, result: v2Capabilities())
+        // system.ping / system.capabilities are handled above by
+        // ControlCommandCoordinator (handleSystem via ControlSystemProbe); the
+        // worker lane builds the same probe responses directly.
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
         // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
         // handled by ControlCommandCoordinator (bodies stay; shared with
@@ -1936,24 +1936,23 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2Capabilities() -> [String: Any] {
-        // The frozen method-name catalog moved to
-        // CmuxControlSocket.ControlCapabilitiesManifest; this body still owns
-        // the live socket_path/access_mode and the sorted-emit contract.
-        let manifest = ControlCapabilitiesManifest.frozen
-#if DEBUG
-        let methods = manifest.releaseMethods + manifest.debugMethods
-#else
-        let methods = manifest.releaseMethods
-#endif
-
-        return [
-            "protocol": "cmux-socket",
-            "version": 2,
-            "socket_path": socketServer.currentSocketPath,
-            "access_mode": socketServer.accessMode.rawValue,
-            "methods": methods.sorted()
-        ]
+    /// Builds the `system.ping` / `system.capabilities` worker-lane result via
+    /// CmuxControlSocket's ``ControlSystemProbe`` (shared with the coordinator).
+    /// The probe owns the catalog/DEBUG-split/sorted-emit contract; this seam
+    /// supplies only the live `socket_path` / `access_mode` (nonisolated reads).
+    /// `method` is always one of the two probe verbs, so the `default` ping arm
+    /// is the byte-faithful fall-through for `system.ping`.
+    private nonisolated func systemProbeResponse(_ method: String) -> ControlCallResult {
+        let probe = ControlSystemProbe()
+        switch method {
+        case "system.capabilities":
+            return probe.capabilities(
+                socketPath: socketServer.currentSocketPath,
+                accessModeRawValue: socketServer.accessMode.rawValue
+            )
+        default:
+            return probe.ping()
+        }
     }
 
     func v2Identify(params: [String: Any]) -> [String: Any] {

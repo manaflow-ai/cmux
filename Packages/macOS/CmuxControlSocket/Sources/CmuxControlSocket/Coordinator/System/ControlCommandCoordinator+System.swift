@@ -1,6 +1,7 @@
 internal import Foundation
 
-/// The system/misc domain (`system.identify`, `system.tree`, `auth.login`,
+/// The system/misc domain (`system.ping`, `system.capabilities`,
+/// `system.identify`, `system.tree`, `auth.login`,
 /// `session.restore_previous`, `settings.open`, `feedback.open`,
 /// `extension.sidebar.snapshot`, `workspace.action`, `surface.action` /
 /// `tab.action`, `surface.drag_to_split` / `surface.split_off`, and the
@@ -19,6 +20,10 @@ extension ControlCommandCoordinator {
     /// `nil` for anything else so the core `handle(_:)` can fall through.
     func handleSystem(_ request: ControlRequest) -> ControlCallResult? {
         switch request.method {
+        case "system.ping":
+            return systemPing()
+        case "system.capabilities":
+            return systemCapabilities()
         case "system.identify":
             return systemIdentify(request.params)
         case "system.tree":
@@ -46,6 +51,22 @@ extension ControlCommandCoordinator {
         default:
             return nil
         }
+    }
+
+    /// `system.ping` — the trivial `{"pong": true}` acknowledgement, built by
+    /// the shared ``ControlSystemProbe`` (the same value the worker lane uses).
+    func systemPing() -> ControlCallResult {
+        ControlSystemProbe().ping()
+    }
+
+    /// `system.capabilities` — the protocol banner plus the live
+    /// `socket_path` / `access_mode` and the sorted method catalog, built by the
+    /// shared ``ControlSystemProbe`` over the seam's live server state.
+    func systemCapabilities() -> ControlCallResult {
+        ControlSystemProbe().capabilities(
+            socketPath: systemContext?.controlSystemSocketPath() ?? "",
+            accessModeRawValue: systemContext?.controlSystemAccessModeRawValue() ?? ""
+        )
     }
 
     /// `system.identify` — the shared identify payload (always ok).

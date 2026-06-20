@@ -22,6 +22,8 @@ extension ControlSystemContext {
         )
     }
     func controlAuthPasswordRequired() -> Bool { false }
+    func controlSystemSocketPath() -> String { "" }
+    func controlSystemAccessModeRawValue() -> String { "" }
     func controlSessionRestorePrevious() -> ControlSessionRestoreResolution {
         .noSnapshot(message: "No previous session snapshot available")
     }

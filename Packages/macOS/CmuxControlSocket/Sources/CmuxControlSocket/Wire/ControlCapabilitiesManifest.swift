@@ -2,13 +2,12 @@
 /// `system.capabilities` (was the inline method-name array built inside
 /// `TerminalController.v2Capabilities`).
 ///
-/// A `Sendable` value holding the frozen method-name catalog. The app-side
-/// `system.capabilities` body still owns assembling the wire payload (it adds
-/// the live `socket_path` / `access_mode` and emits the methods `.sorted()`);
-/// this value only owns the method-name set so it lives with the protocol it
-/// describes rather than inside the god object. Use ``frozen`` for the shipped
-/// catalog; the memberwise init exists so tests can construct alternative
-/// catalogs.
+/// A `Sendable` value holding the frozen method-name catalog. ``ControlSystemProbe``
+/// owns assembling the wire payload (it adds the live `socket_path` /
+/// `access_mode` and emits the methods `.sorted()`); this value only owns the
+/// method-name set so it lives with the protocol it describes rather than inside
+/// the god object. Use ``frozen`` for the shipped catalog; the memberwise init
+/// exists so tests can construct alternative catalogs.
 ///
 /// The wire output is the sorted union of ``releaseMethods`` and (in DEBUG
 /// builds) ``debugMethods``. Ordering within these arrays is not observable —
