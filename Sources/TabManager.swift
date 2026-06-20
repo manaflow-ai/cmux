@@ -4243,202 +4243,12 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Witness for ``UITestScaffoldRunning``: forwards the split-then-close-right
+    /// harness to the lifted ``SplitCloseRightScaffoldRunner``, which owns the
+    /// orchestration. `self` supplies the live actions via
+    /// ``SplitCloseRightScaffoldDriving``.
     func runSplitCloseRightUITest(_ config: UITestSplitScaffoldPlan.SplitCloseRightConfig) {
-        let path = config.path
-        let visualMode = config.visualMode
-        let shotsDir = config.shotsDir
-        let visualIterations = config.visualIterations
-        let burstFrames = config.burstFrames
-        let closeDelayMs = config.closeDelayMs
-        let pattern = config.pattern
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard let tab = self.selectedWorkspace else {
-                    self.writeSplitCloseRightTestData(["setupError": "Missing selected workspace"], at: path)
-                    return
-                }
-
-                guard let topLeftPanelId = tab.focusedPanelId else {
-                    self.writeSplitCloseRightTestData(["setupError": "Missing initial focused panel"], at: path)
-                    return
-                }
-                let initialTerminalReadiness = await self.waitForTerminalPanelReadyForUITest(
-                    tab: tab,
-                    panelId: topLeftPanelId
-                )
-
-                guard initialTerminalReadiness.attached,
-                      initialTerminalReadiness.hasSurface,
-                      let terminal = tab.terminalPanel(for: topLeftPanelId) else {
-                    self.writeSplitCloseRightTestData([
-                        "preTerminalAttached": initialTerminalReadiness.attached ? "1" : "0",
-                        "preTerminalSurfaceNil": initialTerminalReadiness.hasSurface ? "0" : "1",
-                        "setupError": "Initial terminal not ready (not attached or surface nil)"
-                    ], at: path)
-                    return
-                }
-
-                self.writeSplitCloseRightTestData([
-                    "preTerminalAttached": "1",
-                    "preTerminalSurfaceNil": terminal.surface.surface == nil ? "1" : "0"
-                ], at: path)
-
-                if visualMode {
-                    // Visual repro mode: repeat the split/close sequence many times and write
-                    // screenshots to `shotsDir`. This avoids relying on XCUITest to click hover-only
-                    // close buttons, while still exercising the "close unfocused right tabs" path.
-                    self.writeSplitCloseRightTestData([
-                        "visualMode": "1",
-                        "visualIterations": String(visualIterations),
-                        "visualDone": "0"
-                    ], at: path)
-
-                    await self.runSplitCloseRightVisualRepro(
-                        tab: tab,
-                        topLeftPanelId: topLeftPanelId,
-                        path: path,
-                        shotsDir: shotsDir,
-                        iterations: max(1, min(visualIterations, 60)),
-                        burstFrames: max(0, min(burstFrames, 80)),
-                        closeDelayMs: max(0, min(closeDelayMs, 500)),
-                        pattern: pattern
-                    )
-
-                    self.writeSplitCloseRightTestData(["visualDone": "1"], at: path)
-                    return
-                }
-
-                // Layout goal: 2x2 grid (2 top, 2 bottom), then close both right panels.
-                // Order matters: split down first, then split right in each row (matches UI shortcut repro).
-                guard let bottomLeft = tab.newTerminalSplit(from: topLeftPanelId, orientation: .vertical) else {
-                    self.writeSplitCloseRightTestData(["setupError": "Failed to create bottom-left split"], at: path)
-                    return
-                }
-                guard let bottomRight = tab.newTerminalSplit(from: bottomLeft.id, orientation: .horizontal) else {
-                    self.writeSplitCloseRightTestData(["setupError": "Failed to create bottom-right split"], at: path)
-                    return
-                }
-                tab.focusPanel(topLeftPanelId)
-                guard let topRight = tab.newTerminalSplit(from: topLeftPanelId, orientation: .horizontal) else {
-                    self.writeSplitCloseRightTestData(["setupError": "Failed to create top-right split"], at: path)
-                    return
-                }
-
-                self.writeSplitCloseRightTestData([
-                    "tabId": tab.id.uuidString,
-                    "topLeftPanelId": topLeftPanelId.uuidString,
-                    "bottomLeftPanelId": bottomLeft.id.uuidString,
-                    "topRightPanelId": topRight.id.uuidString,
-                    "bottomRightPanelId": bottomRight.id.uuidString,
-                    "createdPaneCount": String(tab.bonsplitController.allPaneIds.count),
-                    "createdPanelCount": String(tab.panels.count)
-                ], at: path)
-
-                DebugUIEventCounters.resetEmptyPanelAppearCount()
-
-                // Close the two right panes via the same path as the Close Tab shortcut.
-                tab.focusPanel(topRight.id)
-                tab.closePanel(topRight.id, force: true)
-                tab.focusPanel(bottomRight.id)
-                tab.closePanel(bottomRight.id, force: true)
-
-
-                // Capture final state after Bonsplit/AppKit/Ghostty geometry reconciliation.
-                // We avoid sleep-based timing and converge over a few main-actor turns.
-                 @MainActor func collectSplitCloseRightState() -> (data: [String: String], settled: Bool) {
-                    let paneIds = tab.bonsplitController.allPaneIds
-                    let bonsplitTabCount = tab.bonsplitController.allTabIds.count
-                    let panelCount = tab.panels.count
-
-                    var missingSelectedTabCount = 0
-                    var missingPanelMappingCount = 0
-                    var selectedTerminalCount = 0
-                    var selectedTerminalAttachedCount = 0
-                    var selectedTerminalZeroSizeCount = 0
-                    var selectedTerminalSurfaceNilCount = 0
-
-                    for paneId in paneIds {
-                        guard let selected = tab.bonsplitController.selectedTab(inPane: paneId) else {
-                            missingSelectedTabCount += 1
-                            continue
-                        }
-                        guard let panel = tab.panel(for: selected.id) else {
-                            missingPanelMappingCount += 1
-                            continue
-                        }
-                        if let terminal = panel as? TerminalPanel {
-                            selectedTerminalCount += 1
-                            if terminal.surface.isViewInWindow {
-                                selectedTerminalAttachedCount += 1
-                            }
-                            let size = terminal.hostedView.bounds.size
-                            if size.width < 5 || size.height < 5 {
-                                selectedTerminalZeroSizeCount += 1
-                            }
-                            if terminal.surface.surface == nil {
-                                selectedTerminalSurfaceNilCount += 1
-                            }
-                        }
-                    }
-
-                    let settled =
-                        paneIds.count == 2 &&
-                        missingSelectedTabCount == 0 &&
-                        missingPanelMappingCount == 0 &&
-                        DebugUIEventCounters.emptyPanelAppearCount == 0 &&
-                        selectedTerminalCount == 2 &&
-                        selectedTerminalAttachedCount == 2 &&
-                        selectedTerminalZeroSizeCount == 0 &&
-                        selectedTerminalSurfaceNilCount == 0
-
-                    return (
-                        data: [
-                            "finalPaneCount": String(paneIds.count),
-                            "finalBonsplitTabCount": String(bonsplitTabCount),
-                            "finalPanelCount": String(panelCount),
-                            "missingSelectedTabCount": String(missingSelectedTabCount),
-                            "missingPanelMappingCount": String(missingPanelMappingCount),
-                            "emptyPanelAppearCount": String(DebugUIEventCounters.emptyPanelAppearCount),
-                            "selectedTerminalCount": String(selectedTerminalCount),
-                            "selectedTerminalAttachedCount": String(selectedTerminalAttachedCount),
-                            "selectedTerminalZeroSizeCount": String(selectedTerminalZeroSizeCount),
-                            "selectedTerminalSurfaceNilCount": String(selectedTerminalSurfaceNilCount),
-                        ],
-                        settled: settled
-                    )
-                }
-                 @MainActor func reconcileVisibleTerminalGeometry() {
-                    NSApp.windows.forEach { window in
-                        window.contentView?.layoutSubtreeIfNeeded()
-                        window.contentView?.displayIfNeeded()
-                    }
-                    for paneId in tab.bonsplitController.allPaneIds {
-                        guard let selected = tab.bonsplitController.selectedTab(inPane: paneId),
-                              let terminal = tab.panel(for: selected.id) as? TerminalPanel else {
-                            continue
-                        }
-                        terminal.hostedView.reconcileGeometryNow()
-                        terminal.surface.forceRefresh()
-                    }
-                }
-
-                var finalState = collectSplitCloseRightState()
-                for attempt in 1...8 {
-                    reconcileVisibleTerminalGeometry()
-                    await Task.yield()
-                    finalState = collectSplitCloseRightState()
-                    var payload = finalState.data
-                    payload["finalAttempt"] = String(attempt)
-                    self.writeSplitCloseRightTestData(payload, at: path)
-                    if finalState.settled {
-                        break
-                    }
-                }
-            }
-        }
+        SplitCloseRightScaffoldRunner(driver: self).run(config: config)
     }
 
 	    @MainActor
@@ -4446,13 +4256,14 @@ class TabManager: ObservableObject {
 	        tab: Workspace,
 	        topLeftPanelId: UUID,
 	        path: String,
-	        shotsDir: String,
-	        iterations: Int,
-	        burstFrames: Int,
-	        closeDelayMs: Int,
-	        pattern: String
+	        config: UITestSplitScaffoldPlan.SplitCloseRightConfig
 	    ) async {
-        _ = shotsDir // legacy: screenshots removed in favor of IOSurface sampling
+        // Clamp exactly as the legacy `runSplitCloseRightUITest` caller did
+        // before driving the repro; the parsed config carries the raw values.
+        let iterations = max(1, min(config.visualIterations, 60))
+        let burstFrames = max(0, min(config.burstFrames, 80))
+        let closeDelayMs = max(0, min(config.closeDelayMs, 500))
+        let pattern = config.pattern
 
         func sendText(_ panelId: UUID, _ text: String) {
             guard let tp = tab.terminalPanel(for: panelId) else { return }
@@ -5235,6 +5046,139 @@ class TabManager: ObservableObject {
 /// bodies stay here because they drive AppKit / Bonsplit / Ghostty surface state
 /// that cannot cross the package boundary.
 extension TabManager: UITestScaffoldRunning {}
+
+/// The split-close-right driver seam: the live workspace / Bonsplit / Ghostty /
+/// `NSApp` actions that `SplitCloseRightScaffoldRunner` (in `CmuxTestSupport`)
+/// sequences. The runner owns the harness orchestration; these witnesses are the
+/// irreducible live reads/mutations that cannot cross the package boundary. The
+/// CVDisplayLink visual repro stays here per the TabManager decomposition plan.
+extension TabManager: SplitCloseRightScaffoldDriving {
+    var workspaceIdString: String {
+        selectedWorkspace?.id.uuidString ?? ""
+    }
+
+    func prepareSplitCloseRight() async -> SplitCloseRightSetup {
+        guard let tab = selectedWorkspace else {
+            return .failed(captureFields: ["setupError": "Missing selected workspace"])
+        }
+        guard let topLeftPanelId = tab.focusedPanelId else {
+            return .failed(captureFields: ["setupError": "Missing initial focused panel"])
+        }
+        let initialTerminalReadiness = await waitForTerminalPanelReadyForUITest(
+            tab: tab,
+            panelId: topLeftPanelId
+        )
+        guard initialTerminalReadiness.attached,
+              initialTerminalReadiness.hasSurface,
+              let terminal = tab.terminalPanel(for: topLeftPanelId) else {
+            return .failed(captureFields: [
+                "preTerminalAttached": initialTerminalReadiness.attached ? "1" : "0",
+                "preTerminalSurfaceNil": initialTerminalReadiness.hasSurface ? "0" : "1",
+                "setupError": "Initial terminal not ready (not attached or surface nil)"
+            ])
+        }
+        return .ready(
+            topLeftPanelId: topLeftPanelId,
+            captureFields: [
+                "preTerminalAttached": "1",
+                "preTerminalSurfaceNil": terminal.surface.surface == nil ? "1" : "0"
+            ]
+        )
+    }
+
+    func splitDown(from panelId: UUID) -> UUID? {
+        selectedWorkspace?.newTerminalSplit(from: panelId, orientation: .vertical)?.id
+    }
+
+    func splitRight(from panelId: UUID) -> UUID? {
+        selectedWorkspace?.newTerminalSplit(from: panelId, orientation: .horizontal)?.id
+    }
+
+    func focusPanel(_ panelId: UUID) {
+        selectedWorkspace?.focusPanel(panelId)
+    }
+
+    func closePanel(_ panelId: UUID) {
+        selectedWorkspace?.closePanel(panelId, force: true)
+    }
+
+    var paneCount: Int {
+        selectedWorkspace?.bonsplitController.allPaneIds.count ?? 0
+    }
+
+    var panelCount: Int {
+        selectedWorkspace?.panels.count ?? 0
+    }
+
+    var bonsplitTabCount: Int {
+        selectedWorkspace?.bonsplitController.allTabIds.count ?? 0
+    }
+
+    func resetEmptyPanelAppearCount() {
+        DebugUIEventCounters.resetEmptyPanelAppearCount()
+    }
+
+    var emptyPanelAppearCount: Int {
+        DebugUIEventCounters.emptyPanelAppearCount
+    }
+
+    func reconcileVisibleTerminalGeometry() {
+        guard let tab = selectedWorkspace else { return }
+        NSApp.windows.forEach { window in
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.contentView?.displayIfNeeded()
+        }
+        for paneId in tab.bonsplitController.allPaneIds {
+            guard let selected = tab.bonsplitController.selectedTab(inPane: paneId),
+                  let terminal = tab.panel(for: selected.id) as? TerminalPanel else {
+                continue
+            }
+            terminal.hostedView.reconcileGeometryNow()
+            terminal.surface.forceRefresh()
+        }
+    }
+
+    func paneSnapshots() -> [SplitCloseRightPaneSnapshot] {
+        guard let tab = selectedWorkspace else { return [] }
+        return tab.bonsplitController.allPaneIds.map { paneId in
+            guard let selected = tab.bonsplitController.selectedTab(inPane: paneId) else {
+                return SplitCloseRightPaneSnapshot(hasSelectedTab: false)
+            }
+            guard let panel = tab.panel(for: selected.id) else {
+                return SplitCloseRightPaneSnapshot(hasSelectedTab: true, hasPanelMapping: false)
+            }
+            guard let terminal = panel as? TerminalPanel else {
+                return SplitCloseRightPaneSnapshot(
+                    hasSelectedTab: true,
+                    hasPanelMapping: true,
+                    isTerminal: false
+                )
+            }
+            let size = terminal.hostedView.bounds.size
+            return SplitCloseRightPaneSnapshot(
+                hasSelectedTab: true,
+                hasPanelMapping: true,
+                isTerminal: true,
+                isAttached: terminal.surface.isViewInWindow,
+                isZeroSize: size.width < 5 || size.height < 5,
+                isSurfaceNil: terminal.surface.surface == nil
+            )
+        }
+    }
+
+    func runVisualRepro(
+        topLeftPanelId: UUID,
+        config: UITestSplitScaffoldPlan.SplitCloseRightConfig
+    ) async {
+        guard let tab = selectedWorkspace else { return }
+        await runSplitCloseRightVisualRepro(
+            tab: tab,
+            topLeftPanelId: topLeftPanelId,
+            path: config.path,
+            config: config
+        )
+    }
+}
 #endif
 
 extension TabManager {
