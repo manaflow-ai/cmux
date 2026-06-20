@@ -1304,6 +1304,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let serviceOpenResolver: any ServiceOpenResolving = ServiceOpenPasteboardResolver(
         fileURLReader: PasteboardServiceFileURLReader()
     )
+    /// Deep-link open planner (CmuxWindowing); composition-root owned. The
+    /// `application(_:open:)` entry forwards the classified file URLs and
+    /// directories here for the partitioned ``DeepLinkOpenPlan``, then executes
+    /// each plan step against the live window/workspace routing.
+    private let deepLinkRouter: any DeepLinkRouting = DeepLinkOpenPlanner()
     /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
     /// owned. The `NSApplication` AX swizzle forwards to it behind
     /// ``AccessibilityWindowCaching``.
@@ -1450,29 +1455,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
         }
 
-        let externalFileURLs = externalOpenFileURLs(from: urls)
-        let terminalFileRequests = TerminalDefaultFileOpenRequest.requests(from: externalFileURLs)
-        let terminalFilePaths = Set(terminalFileRequests.map { $0.fileURL.path(percentEncoded: false) })
-        let fileURLs = externalFileURLs.filter { url in
-            !terminalFilePaths.contains(url.standardizedFileURL.path(percentEncoded: false))
-        }
-        let directories = externalOpenDirectories(from: urls.filter { externalOpenURLIsDirectory($0) })
-        guard !terminalFileRequests.isEmpty || !fileURLs.isEmpty || !directories.isEmpty else { return }
+        let plan = deepLinkRouter.openPlan(
+            externalFileURLs: externalOpenURLClassifier.fileURLs(from: urls),
+            directories: externalOpenURLClassifier.directories(
+                from: urls.filter { externalOpenURLClassifier.isDirectory($0) }
+            )
+        )
+        guard !plan.isEmpty else { return }
 
         prepareForExplicitOpenIntentAtStartup()
-        for request in terminalFileRequests {
+        for request in plan.terminalFileRequests {
             openTerminalDefaultFileRequest(
                 request,
                 debugSource: "application.openURLs.defaultTerminal"
             )
         }
-        for fileURL in fileURLs {
+        for filePath in plan.filePreviewPaths {
             _ = openFilePreviewInPreferredMainWindow(
-                filePath: fileURL.path(percentEncoded: false),
+                filePath: filePath,
                 debugSource: "application.openURLs"
             )
         }
-        for directory in directories {
+        for directory in plan.directories {
             openWorkspaceForExternalDirectory(
                 workingDirectory: directory,
                 debugSource: "application.openURLs"
@@ -6413,7 +6417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let directories = externalOpenDirectories(from: pathURLs)
+        let directories = externalOpenURLClassifier.directories(from: pathURLs)
         guard !directories.isEmpty else {
             error.pointee = Self.serviceErrorNoPath
             return
@@ -6447,18 +6451,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             startupSessionSnapshot = nil
             didAttemptStartupSessionRestore = true
         }
-    }
-
-    private func externalOpenDirectories(from urls: [URL]) -> [String] {
-        externalOpenURLClassifier.directories(from: urls)
-    }
-
-    private func externalOpenFileURLs(from urls: [URL]) -> [URL] {
-        externalOpenURLClassifier.fileURLs(from: urls)
-    }
-
-    private func externalOpenURLIsDirectory(_ url: URL) -> Bool {
-        externalOpenURLClassifier.isDirectory(url)
     }
 
     private func openWorkspaceForExternalDirectory(
