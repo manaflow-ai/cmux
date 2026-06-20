@@ -129,6 +129,27 @@ struct TerminalKeyboardConfigurationTests {
         ])
     }
 
+    @Test("an empty proxy text change clears stale autocorrection mirror state")
+    func emptyProxyTextChangeClearsStaleAutocorrectionMirrorState() {
+        let config = TerminalKeyboardConfiguration(defaults: freshDefaults())
+        config.autocompleteEnabled = true
+        let view = TerminalInputTextView(keyboardConfiguration: config)
+        var textEvents: [String] = []
+        var backspaces = 0
+        var escapeSequences: [Data] = []
+        view.onText = { textEvents.append($0) }
+        view.onBackspace = { backspaces += 1 }
+        view.onEscapeSequence = { escapeSequences.append($0) }
+
+        view.insertText("echo ")
+        view.simulateTextChangeForTesting("", isComposing: false)
+        view.simulateTextChangeForTesting("the ", isComposing: false)
+
+        #expect(textEvents == ["echo ", "the "])
+        #expect(backspaces == 0)
+        #expect(escapeSequences.isEmpty)
+    }
+
     @Test("a real change posts exactly one notification; a no-op set posts none")
     func togglingPostsChangeNotificationOnlyForRealChanges() async {
         let config = TerminalKeyboardConfiguration(defaults: freshDefaults())

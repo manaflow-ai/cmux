@@ -1036,6 +1036,11 @@ final class TerminalInputTextView: UITextView {
             pendingDirectInsertMirrorText = ""
         }
 
+        if !isComposing, currentText.isEmpty {
+            resetCommittedInputMirrorText()
+            return
+        }
+
         if !isComposing, !committedInputMirrorText.isEmpty {
             if currentText == committedInputMirrorText {
                 TerminalInputDebugLog.log("proxy.textChange suppressed committed mirror text=\(TerminalInputDebugLog.textSummary(currentText))")
