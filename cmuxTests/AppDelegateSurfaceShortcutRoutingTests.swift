@@ -83,6 +83,11 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             #expect(window.makeFirstResponder(unrelatedResponder))
             #expect(window.firstResponder === unrelatedResponder)
 
+            KeyboardShortcutSettings.clearShortcut(for: .selectSurfaceByNumber)
+#if DEBUG
+            appDelegate.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+
             let event = try #require(makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: window.windowNumber))
 #if DEBUG
             _ = appDelegate.debugHandleCustomShortcut(event: event)
