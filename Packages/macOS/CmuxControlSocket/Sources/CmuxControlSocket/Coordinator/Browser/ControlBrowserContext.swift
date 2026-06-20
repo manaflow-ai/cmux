@@ -309,4 +309,44 @@ public protocol ControlBrowserContext: AnyObject {
         params: [String: JSONValue],
         path: String
     ) -> ControlBrowserStateLoadResolution
+
+    /// `browser.tab.list` — enumerate the routed workspace's ordered browser
+    /// panels. The witness reproduces the `v2ResolveTabManager` →
+    /// `v2ResolveWorkspace` head and reads each panel's id/title/url/focus plus
+    /// its owning pane; the coordinator shapes the identity payload plus the
+    /// `tabs` array.
+    func controlBrowserTabList(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors
+    ) -> ControlBrowserTabListResolution
+
+    /// `browser.tab.new` — create a browser surface in the routed workspace's
+    /// target pane. `rawURLString` is the raw `url` param; the witness parses it,
+    /// applies the disabled-browser external-open fallback, resolves the target
+    /// pane (`pane_id`/`target_pane_id`/`surface_id`-owning pane/focused), and
+    /// creates the surface. The coordinator shapes the identity payload.
+    func controlBrowserTabNew(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors,
+        rawURLString: String?
+    ) -> ControlBrowserTabNewResolution
+
+    /// `browser.tab.switch` — focus a target browser surface in the routed
+    /// workspace. The witness reproduces the head, resolves the target
+    /// (explicit `target_surface_id`/`tab_id`, then `index`, then `surface_id`),
+    /// and focuses it; the coordinator shapes the identity payload.
+    func controlBrowserTabSwitch(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors
+    ) -> ControlBrowserTabSwitchResolution
+
+    /// `browser.tab.close` — close a target browser surface in the routed
+    /// workspace, recording history. The witness reproduces the head, resolves
+    /// the target (explicit `target_surface_id`/`tab_id`, then `index`, then
+    /// `surface_id`, then the focused panel), enforces the last-surface guard,
+    /// and closes it; the coordinator shapes the identity payload.
+    func controlBrowserTabClose(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors
+    ) -> ControlBrowserTabCloseResolution
 }
