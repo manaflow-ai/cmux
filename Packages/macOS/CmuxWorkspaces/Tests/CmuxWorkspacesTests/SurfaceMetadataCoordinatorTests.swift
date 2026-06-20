@@ -46,22 +46,29 @@ private final class MetadataStubTab: WorkspaceTabRepresenting {
 }
 
 /// Records the app-coupled title effects the coordinator forwards through
-/// ``SurfaceMetadataTitleHosting`` and lets a test drive the coalescer flush
-/// synchronously.
+/// ``SurfaceMetadataTitleHosting``.
 @MainActor
 private final class TitleHostSpy: SurfaceMetadataTitleHosting {
-    private(set) var scheduledFlushes: [() -> Void] = []
     private(set) var windowTitleRefreshWorkspaceIds: [UUID] = []
     private(set) var enqueueLogs: [(workspaceId: UUID, panelId: UUID, title: String)] = []
 
-    func surfaceMetadataScheduleTitleFlush(_ flush: @escaping () -> Void) {
-        scheduledFlushes.append(flush)
-    }
     func surfaceMetadataUpdateWindowTitleIfSelected(workspaceId: UUID) {
         windowTitleRefreshWorkspaceIds.append(workspaceId)
     }
     func surfaceMetadataLogPanelTitleEnqueue(workspaceId: UUID, panelId: UUID, title: String) {
         enqueueLogs.append((workspaceId, panelId, title))
+    }
+}
+
+/// Captures the flush actions the coordinator schedules through its
+/// ``TitleFlushScheduling`` seam so a test can drive the coalescer tick
+/// synchronously instead of waiting on the real `1.0 / 30.0` delay.
+@MainActor
+private final class FlushSchedulerSpy: TitleFlushScheduling {
+    private(set) var scheduledFlushes: [() -> Void] = []
+
+    func signal(_ action: @escaping () -> Void) {
+        scheduledFlushes.append(action)
     }
 
     /// Runs the most recently scheduled flush, mirroring one coalescer tick.
@@ -74,23 +81,29 @@ private final class TitleHostSpy: SurfaceMetadataTitleHosting {
 struct SurfaceMetadataCoordinatorTests {
     private func makeCoordinator(
         _ tabs: [MetadataStubTab]
-    ) -> (SurfaceMetadataCoordinator<MetadataStubTab>, WorkspacesModel<MetadataStubTab>) {
+    ) -> (
+        SurfaceMetadataCoordinator<MetadataStubTab>,
+        WorkspacesModel<MetadataStubTab>,
+        FlushSchedulerSpy
+    ) {
         let model = WorkspacesModel<MetadataStubTab>()
         model.tabs = tabs
-        return (SurfaceMetadataCoordinator(model: model), model)
+        let scheduler = FlushSchedulerSpy()
+        let coordinator = SurfaceMetadataCoordinator(model: model, titleFlushScheduler: scheduler)
+        return (coordinator, model, scheduler)
     }
 
     @Test
     func titleForTabReturnsTheMatchingWorkspaceTitle() {
         let tab = MetadataStubTab(title: "feat-x")
-        let (coordinator, _) = makeCoordinator([MetadataStubTab(title: "other"), tab])
+        let (coordinator, _, _) = makeCoordinator([MetadataStubTab(title: "other"), tab])
 
         #expect(coordinator.titleForTab(tab.id) == "feat-x")
     }
 
     @Test
     func titleForTabReturnsNilForUnknownWorkspace() {
-        let (coordinator, _) = makeCoordinator([MetadataStubTab(title: "a")])
+        let (coordinator, _, _) = makeCoordinator([MetadataStubTab(title: "a")])
 
         #expect(coordinator.titleForTab(UUID()) == nil)
     }
@@ -98,7 +111,7 @@ struct SurfaceMetadataCoordinatorTests {
     @Test
     func applyShellActivityMutatesOwningWorkspaceAndReportsRefreshOnPromptIdle() {
         let tab = MetadataStubTab()
-        let (coordinator, _) = makeCoordinator([tab])
+        let (coordinator, _, _) = makeCoordinator([tab])
         let surfaceId = UUID()
 
         let shouldRefresh = coordinator.applySurfaceShellActivity(
@@ -116,7 +129,7 @@ struct SurfaceMetadataCoordinatorTests {
     @Test
     func applyShellActivityMutatesButDoesNotRefreshForNonPromptIdle() {
         let tab = MetadataStubTab()
-        let (coordinator, _) = makeCoordinator([tab])
+        let (coordinator, _, _) = makeCoordinator([tab])
         let surfaceId = UUID()
 
         let shouldRefresh = coordinator.applySurfaceShellActivity(
@@ -132,7 +145,7 @@ struct SurfaceMetadataCoordinatorTests {
     @Test
     func applyShellActivityNoOpsAndDoesNotRefreshWhenWorkspaceIsMissing() {
         let present = MetadataStubTab()
-        let (coordinator, _) = makeCoordinator([present])
+        let (coordinator, _, _) = makeCoordinator([present])
 
         let shouldRefresh = coordinator.applySurfaceShellActivity(
             tabId: UUID(),
@@ -147,27 +160,27 @@ struct SurfaceMetadataCoordinatorTests {
     @Test
     func enqueueDropsEmptyTitleWithoutSchedulingOrLogging() {
         let tab = MetadataStubTab()
-        let (coordinator, _) = makeCoordinator([tab])
+        let (coordinator, _, scheduler) = makeCoordinator([tab])
         let host = TitleHostSpy()
         coordinator.attach(titleHost: host)
 
         coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: UUID(), title: "   \n ")
 
-        #expect(host.scheduledFlushes.isEmpty)
+        #expect(scheduler.scheduledFlushes.isEmpty)
         #expect(host.enqueueLogs.isEmpty)
     }
 
     @Test
     func enqueueTrimsTitleSchedulesFlushAndLogsTrimmedValue() {
         let tab = MetadataStubTab()
-        let (coordinator, _) = makeCoordinator([tab])
+        let (coordinator, _, scheduler) = makeCoordinator([tab])
         let host = TitleHostSpy()
         coordinator.attach(titleHost: host)
         let panelId = UUID()
 
         coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: panelId, title: "  zsh  ")
 
-        #expect(host.scheduledFlushes.count == 1)
+        #expect(scheduler.scheduledFlushes.count == 1)
         #expect(host.enqueueLogs.count == 1)
         #expect(host.enqueueLogs.first?.title == "zsh")
         #expect(host.enqueueLogs.first?.panelId == panelId)
@@ -177,13 +190,13 @@ struct SurfaceMetadataCoordinatorTests {
     func flushAppliesLatestCoalescedTitlePerPanelAndRefreshesFocusedSelectedTitle() {
         let panelId = UUID()
         let tab = MetadataStubTab(focusedPanelId: panelId)
-        let (coordinator, _) = makeCoordinator([tab])
+        let (coordinator, _, scheduler) = makeCoordinator([tab])
         let host = TitleHostSpy()
         coordinator.attach(titleHost: host)
 
         coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: panelId, title: "first")
         coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: panelId, title: "second")
-        host.runLatestFlush()
+        scheduler.runLatestFlush()
 
         // Only the latest title for the panel is applied (coalesced).
         #expect(tab.panelTitleUpdates.map(\.title) == ["second"])
@@ -197,12 +210,12 @@ struct SurfaceMetadataCoordinatorTests {
         let focused = UUID()
         let other = UUID()
         let tab = MetadataStubTab(focusedPanelId: focused)
-        let (coordinator, _) = makeCoordinator([tab])
+        let (coordinator, _, scheduler) = makeCoordinator([tab])
         let host = TitleHostSpy()
         coordinator.attach(titleHost: host)
 
         coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: other, title: "bg")
-        host.runLatestFlush()
+        scheduler.runLatestFlush()
 
         #expect(tab.panelTitleUpdates.map(\.title) == ["bg"])
         #expect(tab.appliedProcessTitles.isEmpty)
@@ -213,13 +226,13 @@ struct SurfaceMetadataCoordinatorTests {
     func resetPendingDropsQueuedUpdatesSoFlushIsANoOp() {
         let panelId = UUID()
         let tab = MetadataStubTab(focusedPanelId: panelId)
-        let (coordinator, _) = makeCoordinator([tab])
+        let (coordinator, _, scheduler) = makeCoordinator([tab])
         let host = TitleHostSpy()
         coordinator.attach(titleHost: host)
 
         coordinator.enqueuePanelTitleUpdate(tabId: tab.id, panelId: panelId, title: "pending")
         coordinator.resetPendingPanelTitleUpdates()
-        host.runLatestFlush()
+        scheduler.runLatestFlush()
 
         #expect(tab.panelTitleUpdates.isEmpty)
         #expect(tab.appliedProcessTitles.isEmpty)
@@ -230,7 +243,7 @@ struct SurfaceMetadataCoordinatorTests {
         let panelId = UUID()
         let tab = MetadataStubTab(focusedPanelId: panelId)
         tab.panelTitles[panelId] = "vim"
-        let (coordinator, _) = makeCoordinator([tab])
+        let (coordinator, _, _) = makeCoordinator([tab])
         let host = TitleHostSpy()
         coordinator.attach(titleHost: host)
 
@@ -243,7 +256,7 @@ struct SurfaceMetadataCoordinatorTests {
     @Test
     func focusedSurfaceTitleDidChangeNoOpsWithoutFocusOrTitle() {
         let tab = MetadataStubTab(focusedPanelId: nil)
-        let (coordinator, _) = makeCoordinator([tab])
+        let (coordinator, _, _) = makeCoordinator([tab])
         let host = TitleHostSpy()
         coordinator.attach(titleHost: host)
 
