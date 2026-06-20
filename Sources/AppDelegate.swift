@@ -956,6 +956,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Live `cmux diff` viewer subprocesses, keyed by pid, retained until they exit.
     /// Declared outside `#if DEBUG` because process retention is production behavior.
     private var diffViewerProcesses: [Int32: Process] = [:]
+    /// In-flight agent-aware diff launches, keyed so repeated shortcuts do not fan out large baseline parses.
+    private var openDiffViewerAgentContextTasks: [String: Task<Void, Never>] = [:]
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -6087,7 +6089,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             let storeURL = Self.agentTurnDiffBaselineStoreURL()
             let workspaceId = workspace.id
-            Task.detached(priority: .userInitiated) {
+            let taskKey = Self.openDiffViewerAgentContextTaskKey(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
+            if openDiffViewerAgentContextTasks[taskKey] != nil {
+                return true
+            }
+            openDiffViewerAgentContextTasks[taskKey] = Task.detached(priority: .userInitiated) {
                 let repoRoot = Self.latestAgentTurnDiffRepoRoot(
                     storeURL: storeURL,
                     workspaceId: workspaceId,
@@ -6097,7 +6107,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let cwd = repoRoot ?? snapshotWorkingDirectory ?? fallbackCwd
                 let useLastTurnSource = repoRoot != nil
                 await MainActor.run {
-                    guard AppDelegate.shared?.launchDiffViewerProcess(
+                    guard let appDelegate = AppDelegate.shared else { return }
+                    appDelegate.openDiffViewerAgentContextTasks.removeValue(forKey: taskKey)
+                    guard appDelegate.openDiffViewerFocusedContextStillMatches(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    ) else {
+                        return
+                    }
+                    guard appDelegate.launchDiffViewerProcess(
                         cliURL: cliURL,
                         socketPath: socketPath,
                         cwd: cwd,
@@ -6139,6 +6157,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    private func openDiffViewerFocusedContextStillMatches(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        mainWindowContexts.values.contains { context in
+            context.tabManager.selectedWorkspace?.id == workspaceId &&
+                context.tabManager.selectedWorkspace?.focusedPanelId == surfaceId
+        }
+    }
+
     nonisolated private static func latestAgentTurnDiffRepoRoot(
         storeURL: URL,
         workspaceId: UUID,
@@ -6171,6 +6196,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return (repoRoot, capturedAt)
         }
         return candidates.max(by: { $0.capturedAt < $1.capturedAt })?.repoRoot
+    }
+
+    nonisolated private static func openDiffViewerAgentContextTaskKey(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        sessionId: String
+    ) -> String {
+        [
+            workspaceId.uuidString.lowercased(),
+            surfaceId.uuidString.lowercased(),
+            sessionId
+        ].joined(separator: ":")
     }
 
     nonisolated private static func agentTurnDiffBaselineStoreURL() -> URL {
