@@ -57,6 +57,12 @@ public struct PairedMacRestore: Sendable {
         guard !remote.isEmpty else { return RestoreOutcome(completed: true, restored: 0) }
 
         let local = (try? await store.loadAll(stackUserID: accountID)) ?? []
+        // The fetch is not the only sign-out window: re-check after the load too,
+        // before we start writing (a wipe between fetch and load must not be
+        // overwritten with the old account's Macs).
+        if Task.isCancelled {
+            return RestoreOutcome(completed: false, restored: 0)
+        }
         var localByID: [String: MobilePairedMac] = [:]
         for mac in local { localByID[mac.macDeviceID] = mac }
         // On a fresh install (no local active host) honor the backup's active
@@ -66,6 +72,12 @@ public struct PairedMacRestore: Sendable {
 
         var restored = 0
         for record in remote {
+            // Re-check before EVERY write: a sign-out wipe can land between any two
+            // upserts, and writes after it would reinsert the previous account's
+            // Macs into the emptied store. Stop the moment we are cancelled.
+            if Task.isCancelled {
+                return RestoreOutcome(completed: false, restored: restored)
+            }
             let backupSeconds = record.lastSeenAt / 1000.0
             if let existing = localByID[record.macDeviceID],
                existing.lastSeenAt.timeIntervalSince1970 >= backupSeconds {

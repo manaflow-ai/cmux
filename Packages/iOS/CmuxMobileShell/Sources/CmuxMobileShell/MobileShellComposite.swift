@@ -1956,20 +1956,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// active row) is reconnected. A no-op when already connected to that Mac.
     /// - Parameter macDeviceID: The stored Mac to switch to.
     public func switchToMac(macDeviceID: String) async {
-        guard let pairedMacStore,
-              let target = pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return }
-        if target.isActive, connectionState == .connected { return }
-        // The currently-active Mac to fall back to if the switch fails.
-        let previousActive = pairedMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
+        guard let pairedMacStore else { return }
         // Refresh routes from the per-user backup so a Mac that relaunched on a
         // new port is reachable — the same freshness guarantee auto-connect and
-        // aggregation use. Re-read the target from the store afterwards; fall back
-        // to the in-memory snapshot if the refresh or re-read yields nothing.
+        // aggregation use — then resolve the target from the STORE (authoritative).
+        // The multi-Mac aggregation reads Macs straight from the store and can
+        // surface a Mac (a freshly restored secondary) that the in-memory
+        // `pairedMacs` cache has not loaded yet; gating on that cache would no-op
+        // the open and strand the user on a workspace whose Mac never connected.
         if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: identityProvider?.currentUserID)
         }
-        let refreshedTarget = (try? await pairedMacStore.loadAll(stackUserID: identityProvider?.currentUserID))?
-            .first { $0.macDeviceID == macDeviceID } ?? target
+        let storeMacs = (try? await pairedMacStore.loadAll(stackUserID: identityProvider?.currentUserID)) ?? []
+        guard let refreshedTarget = storeMacs.first(where: { $0.macDeviceID == macDeviceID })
+            ?? pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return }
+        if refreshedTarget.isActive, connectionState == .connected { return }
+        // The currently-active Mac to fall back to if the switch fails.
+        let previousActive = storeMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
+            ?? pairedMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let (host, port) = Self.firstReconnectHostPortRoute(
             refreshedTarget.routes,
