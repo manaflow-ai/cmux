@@ -538,30 +538,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
             ... CGFloat(SessionPersistencePolicy.sidebarMinimumWidthRange.upperBound)
     )
 
-    static func clampedSidebarWidth(
-        _ candidate: CGFloat,
-        maximumWidth: CGFloat,
-        minimumWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultMinimumSidebarWidth)
-    ) -> CGFloat {
-        widthPolicy.clampLeftSidebarWidth(
-            candidate,
-            maximumWidth: maximumWidth,
-            minimumWidth: minimumWidth
-        )
-    }
-
-    static func clampedRightSidebarWidth(
-        _ candidate: CGFloat,
-        availableWidth: CGFloat,
-        configuredMaximumWidth: CGFloat? = nil
-    ) -> CGFloat {
-        widthPolicy.clampRightSidebarWidth(
-            candidate,
-            availableWidth: availableWidth,
-            configuredMaximumWidth: configuredMaximumWidth
-        )
-    }
-
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
         let nextWidth = Self.resizerGeometryPolicy.normalizedSidebarWidth(
             sidebarWidth,
