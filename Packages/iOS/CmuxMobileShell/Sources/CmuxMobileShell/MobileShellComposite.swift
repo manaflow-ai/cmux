@@ -1495,21 +1495,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// leads with the host the user is on. Mirrors ``loadPairedMacs()``: signed
     /// out yields an empty list.
     public func loadRegistryDevices() async {
-        // Local-first: when the flag is on and a sync store is wired, the device
-        // list is the durable, DO-synced, cross-device collection read from the
-        // local store (no network). The background sync subscription keeps it
-        // fresh; this just serves the instant launch read. Flag OFF keeps the
-        // `/api/devices` path below verbatim.
-        if deviceListLocalFirst, syncStore != nil {
-            guard isSignedIn else {
-                registryDevices = []
-                return
-            }
+        // Local-first: when the flag is on AND a sync store + transport are wired
+        // (so a subscription can actually populate the store), the device list is
+        // the durable, DO-synced, cross-device collection read from the local
+        // store (no network). The read swap is gated on the SAME transport
+        // availability as `evaluateSyncSubscription()`, so enabling the flag
+        // without a presence URL never disables the registry with nothing feeding
+        // the store. If the store is still empty (DO unreachable, pre-seed), fall
+        // through to the `/api/devices` registry path below rather than show an
+        // empty tree. Flag OFF keeps the registry path verbatim.
+        if deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil, isSignedIn {
             let teamID = (await syncTeamIDProvider?()) ?? ""
             if !teamID.isEmpty {
+                // Team switched while a socket was pinned to the old team: restart
+                // the subscription so the new team streams + seeds.
+                if let active = syncSubscriptionTeamID, active != teamID {
+                    syncTask?.cancel()
+                    syncTask = nil
+                    syncSubscriptionTeamID = nil
+                    evaluateSyncSubscription()
+                }
                 await reloadDeviceListFromSyncStore(teamID: teamID)
+                if !registryDevices.isEmpty { return }
             }
-            return
+            // Empty store or unresolved team: fall through to the registry fallback.
         }
         guard isSignedIn, let deviceRegistry else {
             registryDevices = []
@@ -1624,6 +1633,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``presenceTask``: it runs while signed in with the flag on and a store
     /// injected, and is torn down on sign-out.
     private var syncTask: Task<Void, Never>?
+    /// The team the running ``syncTask`` is bound to (its socket + applier are
+    /// pinned to one team). Used to restart the subscription on a team switch.
+    private var syncSubscriptionTeamID: String?
+    /// Teams already seeded from the local paired-Mac store this session, so a
+    /// team switch re-seeds the new team (the per-team migration marker also
+    /// makes the underlying seed idempotent).
+    private var seededSyncTeams: Set<String> = []
 
     /// Start or stop the device-list sync to match the session + flag. Called
     /// from the `isSignedIn` edge and `resumeForegroundRefresh()`, exactly like
@@ -1634,6 +1650,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             syncTask?.cancel()
             syncTask = nil
+            syncSubscriptionTeamID = nil
+            seededSyncTeams = []
         }
     }
 
@@ -1648,7 +1666,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         syncTask = Task { @MainActor [weak self] in
             let clock = ContinuousClock()
             var backoff: Duration = .seconds(1)
-            var didSeed = false
             while !Task.isCancelled {
                 guard let self else { return }
                 let teamID = (await self.syncTeamIDProvider?()) ?? ""
@@ -1657,15 +1674,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     guard (try? await clock.sleep(for: .seconds(1))) != nil else { return }
                     continue
                 }
-                // One-time transparent local→DO seed (DESIGN.md §6): provisional
-                // rev==0 rows from the existing paired-Mac store render instantly
-                // before any frame and survive snapshot reconciliation. Idempotent.
-                if !didSeed, let pairedMacStore = self.pairedMacStore,
+                self.syncSubscriptionTeamID = teamID
+                // Transparent local→DO seed (DESIGN.md §6), once per team:
+                // provisional rev==0 rows from the existing paired-Mac store
+                // render instantly before any frame and survive snapshot
+                // reconciliation. Idempotent (per-team marker + INSERT OR IGNORE).
+                if !self.seededSyncTeams.contains(teamID), let pairedMacStore = self.pairedMacStore,
                    let accountID = self.identityProvider?.currentUserID {
                     do {
                         _ = try await PairedMacMigration(pairedStore: pairedMacStore, syncStore: syncStore)
                             .runIfNeeded(accountID: accountID, teamID: teamID)
-                        didSeed = true
+                        self.seededSyncTeams.insert(teamID)
                         await self.reloadDeviceListFromSyncStore(teamID: teamID)
                     } catch {
                         mobileShellLog.debug(
@@ -1708,7 +1727,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the same connected-first / most-recently-seen sort and the same
     /// signed-in-user guard as ``loadRegistryDevices()``. The presence online dot
     /// is overlaid by the UI on top, exactly as for the registry path.
-    private func reloadDeviceListFromSyncStore(teamID: String) async {
+    /// Internal (not private) so the stale-team overwrite guard is unit-testable.
+    func reloadDeviceListFromSyncStore(teamID: String) async {
         guard deviceListLocalFirst, let syncStore else { return }
         let requestingUserID = identityProvider?.currentUserID
         let loaded: [RegistryDevice]
@@ -1720,7 +1740,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return
         }
+        // The facade read suspended the main actor. Drop the result unless we are
+        // still the same signed-in user AND the selected team is still the one
+        // this read was for, so a late old-team frame (a team switch mid-stream)
+        // can never overwrite the current team's list. Mirrors loadRegistryDevices's
+        // user guard, extended for the team a long-lived sync socket is pinned to.
         guard isSignedIn, identityProvider?.currentUserID == requestingUserID else { return }
+        guard (await syncTeamIDProvider?() ?? "") == teamID else { return }
         let connectedID = connectedMacDeviceID
         registryDevices = loaded.sorted { lhs, rhs in
             let lhsConnected = lhs.deviceId == connectedID
