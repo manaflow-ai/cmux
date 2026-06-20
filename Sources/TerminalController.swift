@@ -322,6 +322,13 @@ class TerminalController {
     /// shared instance serves every call; read from the nonisolated socket-worker
     /// lane via `v2AwaitCallback`.
     private nonisolated static let browserEvalAwaiter = ControlBrowserEvalAwaiter()
+    /// The cookie source-of-truth for the `browser cookies.*` commands
+    /// (`WKHTTPCookieStore` reads/writes/deletes plus `HTTPCookie` ↔ wire-dict
+    /// mapping), extracted to `CmuxBrowser`. Stateless and `Sendable`; it blocks
+    /// the store callbacks on the same `browserEvalAwaiter` the JS-eval lane uses.
+    nonisolated let v2BrowserCookieRepository = BrowserCookieRepository(
+        awaiter: TerminalController.browserEvalAwaiter
+    )
 
     private var browserDownloadObserver: NSObjectProtocol?
 
@@ -6118,84 +6125,28 @@ class TerminalController {
     // `TerminalController+ControlBrowserConsoleErrorsStateContext.swift` encodes
     // each saved cookie as its byte-identical wire dictionary through this helper,
     // matching the cookies/storage cross-file witness pattern.
+    // Forwards to `BrowserCookieRepository` (CmuxBrowser), which owns the cookie
+    // wire mapping and `WKHTTPCookieStore` I/O. Kept as `internal` (not `private`)
+    // shims because the cookies/storage and state.save witnesses in the two
+    // `TerminalController+ControlBrowser*Context.swift` files call them.
     func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
-        var out: [String: Any] = [
-            "name": cookie.name,
-            "value": cookie.value,
-            "domain": cookie.domain,
-            "path": cookie.path,
-            "secure": cookie.isSecure,
-            "session_only": cookie.isSessionOnly
-        ]
-        if let expiresDate = cookie.expiresDate {
-            out["expires"] = Int(expiresDate.timeIntervalSince1970)
-        } else {
-            out["expires"] = NSNull()
-        }
-        return out
+        v2BrowserCookieRepository.cookieDictionary(from: cookie)
     }
 
     func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
-        v2AwaitCallback(timeout: timeout) { finish in
-            store.getAllCookies { items in
-                finish(items)
-            }
-        }
+        v2BrowserCookieRepository.allCookies(in: store, timeout: timeout)
     }
 
     func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
-        v2AwaitCallback(timeout: timeout) { finish in
-            store.setCookie(cookie) {
-                finish(true)
-            }
-        } ?? false
+        v2BrowserCookieRepository.setCookie(cookie, in: store, timeout: timeout)
     }
 
     func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
-        v2AwaitCallback(timeout: timeout) { finish in
-            store.delete(cookie) {
-                finish(true)
-            }
-        } ?? false
+        v2BrowserCookieRepository.deleteCookie(cookie, in: store, timeout: timeout)
     }
 
     func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
-        var props: [HTTPCookiePropertyKey: Any] = [:]
-        if let name = raw["name"] as? String {
-            props[.name] = name
-        }
-        if let value = raw["value"] as? String {
-            props[.value] = value
-        }
-
-        if let urlStr = raw["url"] as? String, let url = URL(string: urlStr) {
-            props[.originURL] = url
-        } else if let fallbackURL {
-            props[.originURL] = fallbackURL
-        }
-
-        if let domain = raw["domain"] as? String {
-            props[.domain] = domain
-        } else if let host = fallbackURL?.host {
-            props[.domain] = host
-        }
-
-        if let path = raw["path"] as? String {
-            props[.path] = path
-        } else {
-            props[.path] = "/"
-        }
-
-        if let secure = raw["secure"] as? Bool, secure {
-            props[.secure] = "TRUE"
-        }
-        if let expires = raw["expires"] as? TimeInterval {
-            props[.expires] = Date(timeIntervalSince1970: expires)
-        } else if let expiresInt = raw["expires"] as? Int {
-            props[.expires] = Date(timeIntervalSince1970: TimeInterval(expiresInt))
-        }
-
-        return HTTPCookie(properties: props)
+        v2BrowserCookieRepository.cookie(from: raw, fallbackURL: fallbackURL)
     }
 
 
