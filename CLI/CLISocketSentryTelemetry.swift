@@ -3,6 +3,9 @@ import Darwin
 import Foundation
 
 #if canImport(Sentry)
+// Sentry Cocoa 9.3.0 is pinned in Package.resolved. This SPI stores the
+// envelope durably without blocking short-lived CLI commands; verify it before
+// any Sentry SDK upgrade.
 @_spi(Private) import Sentry
 #endif
 
