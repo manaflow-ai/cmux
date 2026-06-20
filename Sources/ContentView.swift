@@ -540,7 +540,6 @@ struct ContentView: View {
     nonisolated private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
-    private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
     private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
     private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
@@ -609,13 +608,19 @@ struct ContentView: View {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+            return Self.widthPolicy.maximumLeftSidebarWidth(
+                availableWidth: resolvedAvailableWidth,
+                minimumWidth: minimumSidebarWidth
+            )
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
             ?? NSScreen.main?.frame.width
             ?? 1920
-        return max(minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
+        return Self.widthPolicy.maximumLeftSidebarWidth(
+            availableWidth: fallbackScreenWidth,
+            minimumWidth: minimumSidebarWidth
+        )
     }
 
     /// The pure width-clamp policy for both sidebar dividers, configured with the
@@ -626,6 +631,14 @@ struct ContentView: View {
         minimumRightSidebarWidth: Self.minimumRightSidebarWidth,
         maximumRightSidebarWidth: Self.maximumRightSidebarWidth,
         minimumTerminalWidthWithRightSidebar: Self.minimumTerminalWidthWithRightSidebar
+    )
+
+    /// The pure resizer hit-band geometry for both dividers, configured with the
+    /// app's `SidebarResizeInteraction` hit-width constants. The math lives in
+    /// `CmuxSidebar`; this is the production composition of its bounds.
+    static let bandPolicy = SidebarResizerBandPolicy(
+        sidebarSideHitWidth: SidebarResizeInteraction.sidebarSideHitWidth,
+        contentSideHitWidth: SidebarResizeInteraction.contentSideHitWidth
     )
 
     static func clampedSidebarWidth(
@@ -753,15 +766,14 @@ struct ContentView: View {
     }
 
     private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
-        guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        if sidebarState.isVisible,
-           SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
-            return true
-        }
-
-        let rightDividerX = contentBounds.maxX - rightSidebarWidth
-        return rightSidebarVisible &&
-            SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightDividerX).contains(point.x)
+        Self.bandPolicy.bandContains(
+            point: point,
+            contentBounds: contentBounds,
+            leftDividerVisible: sidebarState.isVisible,
+            leftDividerX: sidebarWidth,
+            rightDividerVisible: rightSidebarVisible,
+            rightDividerX: contentBounds.maxX - rightSidebarWidth
+        )
     }
 
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {

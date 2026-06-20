@@ -73,4 +73,14 @@ import Testing
         // the 276 minimum, so the clamp floors it to 276.
         #expect(policy.clampRightSidebarWidth(.nan, availableWidth: .infinity) == 276)
     }
+
+    @Test func maximumLeftWidthIsOneThirdOfAvailable() {
+        // 1/3 of 1200 = 400, above the minimum, so it wins.
+        #expect(policy.maximumLeftSidebarWidth(availableWidth: 1200, minimumWidth: 216) == 400)
+    }
+
+    @Test func maximumLeftWidthFloorsAtMinimum() {
+        // 1/3 of 300 = 100, below the 216 minimum, so the minimum floors it.
+        #expect(policy.maximumLeftSidebarWidth(availableWidth: 300, minimumWidth: 216) == 216)
+    }
 }
