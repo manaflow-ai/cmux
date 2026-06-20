@@ -45,8 +45,12 @@ struct LastSurfaceClosePreferenceTests {
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
             let secondSurfaceId = try #require(secondWorkspace.surfaceIdFromPanelId(secondPanelId))
 
-            secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
-            #expect(secondWorkspace.closePanel(secondPanelId))
+            var didClose = false
+            secondWorkspace.withClosedPanelHistorySuppressed {
+                secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
+                didClose = secondWorkspace.closePanel(secondPanelId)
+            }
+            #expect(didClose)
             drainMainQueue()
             drainMainQueue()
 
@@ -55,27 +59,6 @@ struct LastSurfaceClosePreferenceTests {
             #expect(secondWorkspace.panels[secondPanelId] == nil)
             #expect(secondWorkspace.panels.count == 1)
             #expect(secondWorkspace.focusedPanelId != secondPanelId)
-        }
-    }
-
-    @Test
-    func tabCloseButtonKeepOpenRecordsClosedSurfaceHistory() throws {
-        try withManager(closeWorkspaceOnLastSurface: false) { manager in
-            let secondWorkspace = manager.addWorkspace()
-            manager.selectWorkspace(secondWorkspace)
-
-            let secondPanelId = try #require(secondWorkspace.focusedPanelId)
-            let secondSurfaceId = try #require(secondWorkspace.surfaceIdFromPanelId(secondPanelId))
-            secondWorkspace.setPanelCustomTitle(panelId: secondPanelId, title: "Closed Last Surface")
-
-            secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
-            #expect(secondWorkspace.closePanel(secondPanelId))
-            drainMainQueue()
-            drainMainQueue()
-
-            let item = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
-            #expect(item.title == "Closed Last Surface")
-            #expect(item.detail == "Tab")
         }
     }
 
@@ -111,8 +94,12 @@ struct LastSurfaceClosePreferenceTests {
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
             let secondSurfaceId = try #require(secondWorkspace.surfaceIdFromPanelId(secondPanelId))
 
-            secondWorkspace.markTabStripMiddleClickClose(surfaceId: secondSurfaceId)
-            #expect(secondWorkspace.closePanel(secondPanelId))
+            var didClose = false
+            secondWorkspace.withClosedPanelHistorySuppressed {
+                secondWorkspace.markTabStripMiddleClickClose(surfaceId: secondSurfaceId)
+                didClose = secondWorkspace.closePanel(secondPanelId)
+            }
+            #expect(didClose)
             drainMainQueue()
             drainMainQueue()
 
@@ -143,11 +130,9 @@ struct LastSurfaceClosePreferenceTests {
         )
         warningDefaults.set(false, forKey: catalog.warnBeforeClosingTab.userDefaultsKey)
         warningDefaults.set(false, forKey: catalog.warnBeforeClosingTabXButton.userDefaultsKey)
-        ClosedItemHistoryStore.shared.removeAll()
         defer {
             restore(originalWarnBeforeClosingTab, forKey: catalog.warnBeforeClosingTab.userDefaultsKey)
             restore(originalWarnBeforeClosingTabXButton, forKey: catalog.warnBeforeClosingTabXButton.userDefaultsKey)
-            ClosedItemHistoryStore.shared.removeAll()
         }
         try run(TabManager(settings: settings))
     }

@@ -1,5 +1,7 @@
+import Foundation
 import XCTest
 import Bonsplit
+import CmuxSettings
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -10,6 +12,8 @@ import CmuxTerminal
 
 @MainActor
 final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
+    private let closeWorkspaceOnLastSurfaceKey = "closeWorkspaceOnLastSurfaceShortcut"
+
     override func setUp() {
         super.setUp()
         ClosedItemHistoryStore.shared.removeAll()
@@ -69,6 +73,31 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         XCTAssertEqual(entry.detail, "Tab")
     }
 
+    func testTabCloseButtonKeepOpenRecordsClosedSurfaceHistoryForLastSurface() throws {
+        try withManager(closeWorkspaceOnLastSurface: false) { manager in
+            let workspace = manager.addWorkspace()
+            manager.selectWorkspace(workspace)
+
+            let panelId = try XCTUnwrap(workspace.focusedPanelId)
+            let surfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(panelId))
+            workspace.setPanelCustomTitle(panelId: panelId, title: "Closed Last Surface")
+            manager.confirmCloseHandler = { _, _, _ in true }
+
+            workspace.markTabCloseButtonClose(surfaceId: surfaceId)
+            _ = workspace.closePanel(panelId)
+            drainMainQueue()
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertNil(workspace.panels[panelId])
+            XCTAssertEqual(workspace.panels.count, 1)
+
+            let item = try XCTUnwrap(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
+            XCTAssertEqual(item.title, "Closed Last Surface")
+            XCTAssertEqual(item.detail, "Tab")
+        }
+    }
+
     func testRepeatedCloseAttemptDuringPendingConfirmationPreservesRecentlyClosedHistory() throws {
         let fixture = try makeWorkspaceWithFourConfirmingTabs()
         let tabId = fixture.tabIds[2]
@@ -126,6 +155,17 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         }
 
         return Fixture(manager: manager, workspace: workspace, paneId: paneId, tabIds: tabIds)
+    }
+
+    private func withManager(
+        closeWorkspaceOnLastSurface: Bool,
+        run: (TabManager) throws -> Void
+    ) throws {
+        let suiteName = "WorkspaceCloseTabsContextMenuTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(closeWorkspaceOnLastSurface, forKey: closeWorkspaceOnLastSurfaceKey)
+        try run(TabManager(settings: UserDefaultsSettingsClient(defaults: defaults)))
     }
 
     private func invoke(_ action: TabContextAction, anchorTabId: TabID, fixture: Fixture) throws {
