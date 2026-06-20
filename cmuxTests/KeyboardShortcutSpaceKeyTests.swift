@@ -8,6 +8,29 @@ import AppKit
 #endif
 
 final class KeyboardShortcutSpaceKeyTests: XCTestCase {
+    func testShortcutConfigParsingRoundTripsReturnKey() throws {
+        let shortcut = try XCTUnwrap(StoredShortcut.parseConfig("return", allowBareFirstStroke: true))
+
+        XCTAssertEqual(shortcut.key, "\r")
+        XCTAssertFalse(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+        XCTAssertEqual(shortcut.configIdentifier, "return")
+        XCTAssertEqual(StoredShortcut.parseConfig("enter", allowBareFirstStroke: true), shortcut)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut.configIdentifier,
+            "return"
+        )
+        XCTAssertEqual(
+            StoredShortcut.parseConfig(
+                KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut.configIdentifier,
+                allowBareFirstStroke: true
+            ),
+            KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut
+        )
+    }
+
     func testShortcutConfigParsingRoundTripsSpaceKey() throws {
         let spaceKeyCode = UInt16(0x31)
         let shortcut = try XCTUnwrap(StoredShortcut.parseConfig("cmd+shift+space"))

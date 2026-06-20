@@ -2435,12 +2435,11 @@ extension ShortcutStroke {
     }
 
     private func configKeyString(preserveDigit: Bool) -> String {
-        if preserveDigit {
-            return key
-        }
         if let digit = Int(key), (1...9).contains(digit) {
-            return "1"
+            return preserveDigit ? key : "1"
         }
+        if key == "\r" { return "return" }
+        if key == "\t" { return "tab" }
         return key
     }
 
