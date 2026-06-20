@@ -561,7 +561,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     NotificationCenter.default.post(name: .fileExplorerStyleDidChange, object: nil)
                 }
             ))
-        }
+        },
+        startupAppearanceDebugWindowTitle: String(
+            localized: "debug.startupAppearance.window.title",
+            defaultValue: "Startup Appearance Debug"
+        ),
+        startupAppearanceDebugContentProvider: { NSHostingView(rootView: StartupAppearanceDebugView()) }
     )
     #else
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
