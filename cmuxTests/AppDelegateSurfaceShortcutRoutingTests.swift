@@ -7,6 +7,10 @@ import Testing
 @testable import cmux
 #endif
 
+private final class ShortcutUnrelatedResponderView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+}
+
 @MainActor
 @Suite(.serialized)
 struct AppDelegateSurfaceShortcutRoutingTests {
@@ -56,6 +60,44 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                     )
                 }
             }
+        }
+    }
+
+    @Test func rightSidebarModeShortcutsDoNotUseStaleIntentForUnrelatedResponder() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(window(withId: windowId))
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
+            let fileExplorerState = try #require(appDelegate.fileExplorerState)
+            fileExplorerState.mode = .sessions
+
+            let unrelatedResponder = ShortcutUnrelatedResponderView(frame: NSRect(x: 0, y: 0, width: 8, height: 8))
+            window.contentView?.addSubview(unrelatedResponder)
+            defer { unrelatedResponder.removeFromSuperview() }
+            #expect(window.makeFirstResponder(unrelatedResponder))
+            #expect(window.firstResponder === unrelatedResponder)
+
+            let event = try #require(makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: window.windowNumber))
+#if DEBUG
+            _ = appDelegate.debugHandleCustomShortcut(event: event)
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(
+                fileExplorerState.mode == .sessions,
+                "Ctrl+1 should not switch right-sidebar mode when a non-sidebar responder owns focus"
+            )
+            #expect(
+                window.firstResponder === unrelatedResponder,
+                "Ctrl+1 should not move focus away from the unrelated responder"
+            )
         }
     }
 
