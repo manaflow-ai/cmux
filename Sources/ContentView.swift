@@ -526,13 +526,11 @@ struct ContentView: View {
         minimumTerminalWidthWithRightSidebar: Self.minimumTerminalWidthWithRightSidebar
     )
 
-    /// The pure resizer hit-band geometry for both dividers, configured with the
-    /// app's `SidebarResizeInteraction` hit-width constants. The math lives in
-    /// `CmuxSidebar`; this is the production composition of its bounds.
-    static let bandPolicy = SidebarResizerBandPolicy(
-        sidebarSideHitWidth: SidebarResizeInteraction.sidebarSideHitWidth,
-        contentSideHitWidth: SidebarResizeInteraction.contentSideHitWidth
-    )
+    /// The pure resizer hit-band geometry for both dividers. The math lives in
+    /// `CmuxSidebar`; `SidebarResizeInteraction.bandPolicy` is the single
+    /// composition of its bounds from the app's hit-width constants, shared with
+    /// the portal hit-test paths so the geometry lives in exactly one place.
+    static let bandPolicy = SidebarResizeInteraction.bandPolicy
 
     static func clampedSidebarWidth(
         _ candidate: CGFloat,
