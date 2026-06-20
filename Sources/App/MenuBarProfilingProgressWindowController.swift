@@ -58,6 +58,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         window.title = String(localized: "statusMenu.profiling.title", defaultValue: "Profiling cmux")
         window.isReleasedWhenClosed = false
         super.init(window: window)
+        window.delegate = self
         buildInterface()
     }
 
@@ -452,5 +453,25 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
 
     @objc private func closeWindow() {
         window?.close()
+    }
+
+    func clearCompletedCaptureState() {
+        guard process == nil, submitProcess == nil, captureComplete else { return }
+        scriptOutput = ""
+        submitOutput = ""
+        submitErrorOutput = ""
+        outputURL = nil
+        archiveURL = nil
+        captureComplete = false
+        emailSent = false
+        clearScriptLogs()
+    }
+}
+
+extension MenuBarProfilingProgressWindowController: NSWindowDelegate {
+    nonisolated func windowWillClose(_ notification: Notification) {
+        Task { @MainActor in
+            MenuBarProfilingProgressWindowController.shared.clearCompletedCaptureState()
+        }
     }
 }
