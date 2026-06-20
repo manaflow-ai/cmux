@@ -1267,6 +1267,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the registry asks this delegate (via MainWindowRouteRetiring) to
         // sweep recoverable main-window routes after a surface unregisters.
         GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
+        // Inverts TerminalSurface.owningWorkspace()'s legacy AppDelegate.shared
+        // reach-up: the surface resolves its owning Workspace through this
+        // injected WorkspaceResolving seam instead of the global singleton.
+        GhosttyApp.workspaceResolver = self
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
