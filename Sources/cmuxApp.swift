@@ -1311,82 +1311,6 @@ private struct MainWindowBootstrapView: View {
 }
 
 
-private enum DebugWindowConfigSnapshot {
-    static func copyCombinedToPasteboard(defaults: UserDefaults = .standard) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(combinedPayload(defaults: defaults), forType: .string)
-    }
-
-    static func combinedPayload(defaults: UserDefaults = .standard) -> String {
-        let sidebarPayload = """
-        sidebarPreset=\(stringValue(defaults, key: "sidebarPreset", fallback: SidebarPresetOption.nativeSidebar.rawValue))
-        sidebarMaterial=\(stringValue(defaults, key: "sidebarMaterial", fallback: SidebarMaterialOption.sidebar.rawValue))
-        sidebarBlendMode=\(stringValue(defaults, key: "sidebarBlendMode", fallback: SidebarBlendModeOption.withinWindow.rawValue))
-        sidebarState=\(stringValue(defaults, key: "sidebarState", fallback: SidebarStateOption.followWindow.rawValue))
-        sidebarBlurOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarBlurOpacity", fallback: 1.0)))
-        sidebarTintHex=\(stringValue(defaults, key: "sidebarTintHex", fallback: "#000000"))
-        sidebarTintHexLight=\(stringValue(defaults, key: "sidebarTintHexLight", fallback: "(nil)"))
-        sidebarTintHexDark=\(stringValue(defaults, key: "sidebarTintHexDark", fallback: "(nil)"))
-        sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
-        sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
-        sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarCatalogSection().branchVerticalLayout.userDefaultsKey, fallback: SidebarCatalogSection().branchVerticalLayout.defaultValue))
-        sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarCatalogSection().stackBranchDirectory.userDefaultsKey, fallback: SidebarCatalogSection().stackBranchDirectory.defaultValue))
-        sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey, fallback: SidebarCatalogSection().pathLastSegmentOnly.defaultValue))
-        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey, fallback: WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue))
-        sidebarDevBuildBannerVisible=\(boolValue(defaults, key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
-        sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
-        """
-
-        let backgroundPayload = """
-        bgGlassEnabled=\(boolValue(defaults, key: "bgGlassEnabled", fallback: false))
-        bgGlassMaterial=\(stringValue(defaults, key: "bgGlassMaterial", fallback: "hudWindow"))
-        bgGlassTintHex=\(stringValue(defaults, key: "bgGlassTintHex", fallback: "#000000"))
-        bgGlassTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "bgGlassTintOpacity", fallback: 0.03)))
-        """
-
-        let menuBarPayload = MenuBarIconDebugSettings.copyPayload(defaults: defaults)
-        let browserDevToolsPayload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
-        let titlebarLayoutPayload = TitlebarLayoutDebugSettingsSnapshot.copyPayload(defaults: defaults)
-
-        return """
-        # Sidebar Debug
-        \(sidebarPayload)
-
-        # Titlebar Layout Debug
-        \(titlebarLayoutPayload)
-
-        # Background Debug
-        \(backgroundPayload)
-
-        # Menu Bar Extra Debug
-        \(menuBarPayload)
-
-        # Browser DevTools Button
-        \(browserDevToolsPayload)
-        """
-    }
-
-    private static func stringValue(_ defaults: UserDefaults, key: String, fallback: String) -> String {
-        defaults.string(forKey: key) ?? fallback
-    }
-
-    private static func doubleValue(_ defaults: UserDefaults, key: String, fallback: Double) -> Double {
-        if let value = defaults.object(forKey: key) as? NSNumber {
-            return value.doubleValue
-        }
-        if let text = defaults.string(forKey: key), let parsed = Double(text) {
-            return parsed
-        }
-        return fallback
-    }
-
-    private static func boolValue(_ defaults: UserDefaults, key: String, fallback: Bool) -> Bool {
-        guard defaults.object(forKey: key) != nil else { return fallback }
-        return defaults.bool(forKey: key)
-    }
-}
-
 // The "Debug Window Controls" panel's window/lifecycle shell now lives in
 // CmuxAppKitSupportUI (`DebugWindowControlsWindowController`), presented via
 // `AppDelegate.shared?.debugWindowsCoordinator.showDebugWindowControls()`. This
@@ -1589,7 +1513,7 @@ struct DebugWindowControlsView: View {
                 GroupBox("Copy") {
                     VStack(alignment: .leading, spacing: 8) {
                         Button("Copy All Debug Config") {
-                            DebugWindowConfigSnapshot.copyCombinedToPasteboard()
+                            copyAllDebugConfig()
                         }
                         Text("Copies sidebar, background, menu bar, and browser devtools settings as one payload.")
                             .font(.caption)
@@ -1617,6 +1541,74 @@ struct DebugWindowControlsView: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(payload, forType: .string)
+    }
+
+    // Copies the combined sidebar/titlebar/background/menu-bar/browser-devtools
+    // snapshot via the package `DebugWindowConfigSnapshotService`. The service owns
+    // the generic UserDefaults-coercion helpers and the pasteboard plumbing; the
+    // combined payload text stays here because it interpolates app-target settings
+    // enums and catalog-section keys, so it is supplied through the injected
+    // closure (the service is captured to reuse its coercion helpers).
+    private func copyAllDebugConfig() {
+        var service: DebugWindowConfigSnapshotService?
+        let built = DebugWindowConfigSnapshotService(defaults: .standard) {
+            guard let service else { return "" }
+            return DebugWindowControlsView.combinedDebugConfigPayload(using: service)
+        }
+        service = built
+        built.copyCombinedToPasteboard()
+    }
+
+    private static func combinedDebugConfigPayload(
+        using service: DebugWindowConfigSnapshotService
+    ) -> String {
+        let defaults = service.defaults
+        let sidebarPayload = """
+        sidebarPreset=\(service.stringValue(key: "sidebarPreset", fallback: SidebarPresetOption.nativeSidebar.rawValue))
+        sidebarMaterial=\(service.stringValue(key: "sidebarMaterial", fallback: SidebarMaterialOption.sidebar.rawValue))
+        sidebarBlendMode=\(service.stringValue(key: "sidebarBlendMode", fallback: SidebarBlendModeOption.withinWindow.rawValue))
+        sidebarState=\(service.stringValue(key: "sidebarState", fallback: SidebarStateOption.followWindow.rawValue))
+        sidebarBlurOpacity=\(String(format: "%.2f", service.doubleValue(key: "sidebarBlurOpacity", fallback: 1.0)))
+        sidebarTintHex=\(service.stringValue(key: "sidebarTintHex", fallback: "#000000"))
+        sidebarTintHexLight=\(service.stringValue(key: "sidebarTintHexLight", fallback: "(nil)"))
+        sidebarTintHexDark=\(service.stringValue(key: "sidebarTintHexDark", fallback: "(nil)"))
+        sidebarTintOpacity=\(String(format: "%.2f", service.doubleValue(key: "sidebarTintOpacity", fallback: 0.18)))
+        sidebarCornerRadius=\(String(format: "%.1f", service.doubleValue(key: "sidebarCornerRadius", fallback: 0.0)))
+        sidebarBranchVerticalLayout=\(service.boolValue(key: SidebarCatalogSection().branchVerticalLayout.userDefaultsKey, fallback: SidebarCatalogSection().branchVerticalLayout.defaultValue))
+        sidebarBranchDirectoryStacked=\(service.boolValue(key: SidebarCatalogSection().stackBranchDirectory.userDefaultsKey, fallback: SidebarCatalogSection().stackBranchDirectory.defaultValue))
+        sidebarPathLastSegmentOnly=\(service.boolValue(key: SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey, fallback: SidebarCatalogSection().pathLastSegmentOnly.defaultValue))
+        sidebarActiveTabIndicatorStyle=\(service.stringValue(key: WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey, fallback: WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue))
+        sidebarDevBuildBannerVisible=\(service.boolValue(key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
+        sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
+        """
+
+        let backgroundPayload = """
+        bgGlassEnabled=\(service.boolValue(key: "bgGlassEnabled", fallback: false))
+        bgGlassMaterial=\(service.stringValue(key: "bgGlassMaterial", fallback: "hudWindow"))
+        bgGlassTintHex=\(service.stringValue(key: "bgGlassTintHex", fallback: "#000000"))
+        bgGlassTintOpacity=\(String(format: "%.2f", service.doubleValue(key: "bgGlassTintOpacity", fallback: 0.03)))
+        """
+
+        let menuBarPayload = MenuBarIconDebugSettings.copyPayload(defaults: defaults)
+        let browserDevToolsPayload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
+        let titlebarLayoutPayload = TitlebarLayoutDebugSettingsSnapshot.copyPayload(defaults: defaults)
+
+        return """
+        # Sidebar Debug
+        \(sidebarPayload)
+
+        # Titlebar Layout Debug
+        \(titlebarLayoutPayload)
+
+        # Background Debug
+        \(backgroundPayload)
+
+        # Menu Bar Extra Debug
+        \(menuBarPayload)
+
+        # Browser DevTools Button
+        \(browserDevToolsPayload)
+        """
     }
 }
 #endif
