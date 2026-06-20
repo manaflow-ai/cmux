@@ -16,6 +16,13 @@ import Foundation
 /// sibling; the cache keeps repeat body evaluations cheap (agent-heavy rows
 /// re-evaluate often) and is bounded so long sessions with churning metadata
 /// cannot grow it without limit.
+///
+// lint:allow namespace-type — sanctioned process-wide @MainActor LRU memo cache
+// read synchronously from `SidebarMetadataMarkdownBlockRow.body`. The
+// snapshot-boundary rule (no held store reference below a lazy list boundary)
+// forbids injecting a per-row instance, and the faithful lift must preserve the
+// process-wide cache lifetime/sharing across all metadata rows. Lifted
+// byte-identical from the app target.
 @MainActor
 enum SidebarMetadataMarkdownRenderer {
     private static var cache: [String: AttributedString?] = [:]

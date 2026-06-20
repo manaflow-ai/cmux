@@ -15,12 +15,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxSidebar"),
+        .package(path: "../CmuxFoundation"),
     ],
     targets: [
         .target(
             name: "CmuxSidebarUI",
             dependencies: [
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

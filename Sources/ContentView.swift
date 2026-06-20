@@ -10113,6 +10113,27 @@ struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
 
+    // DEBUG-only sidebar-description render log, injected into the lifted
+    // `SidebarWorkspaceDescriptionText` package view so the app keeps emitting
+    // the `sidebar.description.render` events. `nil` in release, matching the
+    // original `#if DEBUG` log block.
+#if DEBUG
+    private static let sidebarDescriptionDebugLog: ((_ phase: String, _ markdown: String) -> Void)? = { phase, value in
+        let workspaceState = phase == "appear" ? "appear" : "change"
+        let newlineCount = value.reduce(into: 0) { count, character in
+            if character == "\n" { count += 1 }
+        }
+        cmuxDebugLog(
+            "sidebar.description.render workspaceState=\(workspaceState) " +
+            "len=\((value as NSString).length) " +
+            "newlines=\(newlineCount) " +
+            "text=\"\((value).commandPaletteDebugPreview())\""
+        )
+    }
+#else
+    private static let sidebarDescriptionDebugLog: ((_ phase: String, _ markdown: String) -> Void)? = nil
+#endif
+
     // Closures, Bindings, and object references are excluded from ==
     // because they're recreated every parent eval but don't affect rendering.
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
@@ -10614,7 +10635,8 @@ struct TabItemView: View, Equatable {
                     markdown: description,
                     isActive: usesInvertedActiveForeground,
                     activeForegroundColor: activeSecondaryColor(0.84),
-                    fontScale: fontScale
+                    fontScale: fontScale,
+                    debugLog: Self.sidebarDescriptionDebugLog
                 )
             }
 
@@ -12062,326 +12084,6 @@ struct TabItemView: View, Equatable {
         tabManager.selectTab(tab)
         setSelectionToTabs()
         _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
-    }
-}
-
-private struct SidebarWorkspaceDescriptionText: View {
-    let markdown: String
-    let isActive: Bool
-    let activeForegroundColor: Color
-    let fontScale: CGFloat
-    private static let maxDisplayedLines = 12
-    private static let maxDisplayedCharacters = 4096
-
-    var body: some View {
-        let displayMarkdown = markdown.sidebarBoundedDisplayString(
-            maxDisplayedLines: Self.maxDisplayedLines,
-            maxDisplayedCharacters: Self.maxDisplayedCharacters
-        )
-        let renderedMarkdown = SidebarMarkdownRenderer(markdown: displayMarkdown).workspaceDescription
-        Group {
-            if let renderedMarkdown {
-                Text(renderedMarkdown)
-            } else {
-                Text(displayMarkdown)
-            }
-        }
-        .font(.system(size: 10.5 * fontScale))
-        .foregroundColor(foregroundColor)
-        .multilineTextAlignment(.leading)
-        .lineLimit(Self.maxDisplayedLines)
-        .truncationMode(.tail)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityIdentifier("SidebarWorkspaceDescriptionText")
-        .accessibilityLabel(accessibilityText(renderedMarkdown: renderedMarkdown, displayMarkdown: displayMarkdown))
-        .onAppear {
-#if DEBUG
-            let newlineCount = markdown.reduce(into: 0) { count, character in
-                if character == "\n" { count += 1 }
-            }
-            cmuxDebugLog(
-                "sidebar.description.render workspaceState=appear " +
-                "len=\((markdown as NSString).length) " +
-                "newlines=\(newlineCount) " +
-                "text=\"\((markdown).commandPaletteDebugPreview())\""
-            )
-#endif
-        }
-        .onChange(of: markdown) { newValue in
-#if DEBUG
-            let newlineCount = newValue.reduce(into: 0) { count, character in
-                if character == "\n" { count += 1 }
-            }
-            cmuxDebugLog(
-                "sidebar.description.render workspaceState=change " +
-                "len=\((newValue as NSString).length) " +
-                "newlines=\(newlineCount) " +
-                "text=\"\((newValue).commandPaletteDebugPreview())\""
-            )
-#endif
-        }
-    }
-
-    private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary.opacity(0.95)
-    }
-
-    private func accessibilityText(renderedMarkdown: AttributedString?, displayMarkdown: String) -> String {
-        if let renderedMarkdown {
-            return String(renderedMarkdown.characters)
-        }
-        return displayMarkdown
-    }
-}
-
-private struct SidebarMetadataRows: View {
-    let entries: [SidebarStatusEntry]
-    let isActive: Bool
-    let activeForegroundColor: Color
-    let activeSecondaryForegroundColor: Color
-    let fontScale: CGFloat
-    let onFocus: () -> Void
-
-    @State private var isExpanded: Bool = false
-    private let collapsedEntryLimit = 3
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(visibleEntries, id: \.key) { entry in
-                SidebarMetadataEntryRow(
-                    entry: entry,
-                    isActive: isActive,
-                    activeForegroundColor: activeForegroundColor,
-                    fontScale: fontScale,
-                    onFocus: onFocus
-                )
-            }
-
-            if shouldShowToggle {
-                Button(isExpanded ? String(localized: "sidebar.metadata.showLess", defaultValue: "Show less") : String(localized: "sidebar.metadata.showMore", defaultValue: "Show more")) {
-                    onFocus()
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isExpanded.toggle()
-                    }
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 10 * fontScale, weight: .semibold))
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .safeHelp(helpText)
-    }
-
-    private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
-        return Array(entries.prefix(collapsedEntryLimit))
-    }
-
-    private var helpText: String {
-        entries.map { entry in
-            let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? entry.key : trimmed
-        }
-        .joined(separator: "\n")
-    }
-
-    private var shouldShowToggle: Bool {
-        entries.count > collapsedEntryLimit
-    }
-}
-
-private struct SidebarMetadataEntryRow: View {
-    let entry: SidebarStatusEntry
-    let isActive: Bool
-    let activeForegroundColor: Color
-    let fontScale: CGFloat
-    let onFocus: () -> Void
-
-    var body: some View {
-        Group {
-            if let url = entry.url {
-                Button {
-                    onFocus()
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    rowContent(underlined: true)
-                }
-                .buttonStyle(.plain)
-                .safeHelp(url.absoluteString)
-            } else {
-                rowContent(underlined: false)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onFocus() }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func rowContent(underlined: Bool) -> some View {
-        HStack(spacing: 4) {
-            if let icon = iconView {
-                icon
-                    .foregroundColor(foregroundColor.opacity(0.95))
-            }
-            metadataText(underlined: underlined)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-        }
-        .font(.system(size: 10 * fontScale))
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var foregroundColor: Color {
-        if isActive,
-           let raw = entry.color,
-           Color(hex: raw) != nil {
-            return activeForegroundColor
-        }
-        if let raw = entry.color, let explicit = Color(hex: raw) {
-            return explicit
-        }
-        return isActive ? activeForegroundColor.opacity(0.84) : .secondary
-    }
-
-    private var iconView: AnyView? {
-        guard let iconRaw = entry.icon?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !iconRaw.isEmpty else {
-            return nil
-        }
-        if iconRaw.hasPrefix("emoji:") {
-            let value = String(iconRaw.dropFirst("emoji:".count))
-            guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).font(.system(size: 9 * fontScale)))
-        }
-        if iconRaw.hasPrefix("text:") {
-            let value = String(iconRaw.dropFirst("text:".count))
-            guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).font(.system(size: 8 * fontScale, weight: .semibold)))
-        }
-        let symbolName: String
-        if iconRaw.hasPrefix("sf:") {
-            symbolName = String(iconRaw.dropFirst("sf:".count))
-        } else {
-            symbolName = iconRaw
-        }
-        guard !symbolName.isEmpty else { return nil }
-        return AnyView(Image(systemName: symbolName).cmuxSymbolRasterSize(8 * fontScale, weight: .medium))
-    }
-
-    @ViewBuilder
-    private func metadataText(underlined: Bool) -> some View {
-        let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let display = trimmed.isEmpty ? entry.key : trimmed
-        if entry.format == .markdown,
-           let attributed = try? AttributedString(
-                markdown: display,
-                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-           ) {
-            Text(attributed)
-                .underline(underlined)
-                .foregroundColor(foregroundColor)
-        } else {
-            Text(display)
-                .underline(underlined)
-                .foregroundColor(foregroundColor)
-        }
-    }
-}
-
-private struct SidebarMetadataMarkdownBlocks: View {
-    let blocks: [SidebarMetadataBlock]
-    let isActive: Bool
-    let activeForegroundColor: Color
-    let activeSecondaryForegroundColor: Color
-    let fontScale: CGFloat
-    let onFocus: () -> Void
-
-    @State private var isExpanded: Bool = false
-    private let collapsedBlockLimit = 1
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(visibleBlocks, id: \.key) { block in
-                SidebarMetadataMarkdownBlockRow(
-                    block: block,
-                    isActive: isActive,
-                    activeForegroundColor: activeForegroundColor,
-                    fontScale: fontScale,
-                    onFocus: onFocus
-                )
-            }
-
-            if shouldShowToggle {
-                Button(isExpanded ? String(localized: "sidebar.metadata.showLessDetails", defaultValue: "Show less details") : String(localized: "sidebar.metadata.showMoreDetails", defaultValue: "Show more details")) {
-                    onFocus()
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isExpanded.toggle()
-                    }
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 10 * fontScale, weight: .semibold))
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    private var visibleBlocks: [SidebarMetadataBlock] {
-        guard !isExpanded, blocks.count > collapsedBlockLimit else { return blocks }
-        return Array(blocks.prefix(collapsedBlockLimit))
-    }
-
-    private var shouldShowToggle: Bool {
-        blocks.count > collapsedBlockLimit
-    }
-}
-
-private struct SidebarMetadataMarkdownBlockRow: View {
-    let block: SidebarMetadataBlock
-    let isActive: Bool
-    let activeForegroundColor: Color
-    let fontScale: CGFloat
-    let onFocus: () -> Void
-    private static let maxDisplayedLines = 12
-    private static let maxDisplayedCharacters = 4096
-
-    var body: some View {
-        // Render inline (memoized) so the FIRST render is already attributed.
-        // Parsing in onAppear into @State performed a guaranteed nil ->
-        // attributed swap on every first appearance, changing the row's height
-        // mid-scroll and re-feeding the sidebar-wide layout cycle (#5764).
-        let displayMarkdown = Self.displayMarkdown(from: block.markdown)
-        let renderedMarkdown = SidebarMetadataMarkdownRenderer.rendered(displayMarkdown)
-        Group {
-            if let renderedMarkdown {
-                Text(renderedMarkdown)
-                    .foregroundColor(foregroundColor)
-            } else {
-                Text(displayMarkdown)
-                    .foregroundColor(foregroundColor)
-            }
-        }
-        .font(.system(size: 10 * fontScale))
-        .multilineTextAlignment(.leading)
-        .lineLimit(Self.maxDisplayedLines)
-        .truncationMode(.tail)
-        .fixedSize(horizontal: false, vertical: true)
-        .contentShape(Rectangle())
-        .onTapGesture { onFocus() }
-    }
-
-    private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary
-    }
-
-    private static func displayMarkdown(from markdown: String) -> String {
-        markdown.sidebarBoundedDisplayString(
-            maxDisplayedLines: maxDisplayedLines,
-            maxDisplayedCharacters: maxDisplayedCharacters
-        )
     }
 }
 
