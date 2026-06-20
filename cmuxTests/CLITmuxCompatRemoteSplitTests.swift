@@ -239,17 +239,19 @@ import Testing
     /// which looked like the teammate "failing to start". Claude Code short-circuits
     /// that gate on `CLAUDE_CODE_SANDBOXED`. Teammate panes are respawned by cmux
     /// (not by `cmux claude-teams`), so they do not inherit the launcher env and must
-    /// be re-supplied it. cmux injects it ONLY in a claude-teams context (detected via
-    /// `CMUX_CLAUDE_TEAMS_CMUX_BIN`); OMO and the public `respawn-pane` are unchanged.
+    /// be re-supplied it. Because the gate is a real safety boundary, cmux waives it
+    /// only when the user already opted into skipping prompts: the teammate command
+    /// carries `--dangerously-skip-permissions` (Claude Code adds it only in bypass
+    /// mode). It is scoped to claude-teams (`CMUX_CLAUDE_TEAMS_CMUX_BIN`); OMO and the
+    /// public `respawn-pane` are unchanged.
     @Test func respawnPaneInjectsClaudeTeamsTrustBypass() throws {
-        let teammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"
+        let teamsEnv = ["CMUX_CLAUDE_TEAMS_CMUX_BIN": "/opt/cmux/bin/cmux"]
+        let bypassTeammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice --dangerously-skip-permissions"
 
-        // claude-teams context: the trust-bypass var is exported ahead of the
-        // original command, still inside the /bin/sh -c wrapper.
-        let inTeams = try respawnPaneForwardedCommand(
-            teammate,
-            extraEnvironment: ["CMUX_CLAUDE_TEAMS_CMUX_BIN": "/opt/cmux/bin/cmux"]
-        )
+        // claude-teams context + the user's --dangerously-skip-permissions opt-in:
+        // the trust-bypass var is exported ahead of the original command, still
+        // inside the /bin/sh -c wrapper.
+        let inTeams = try respawnPaneForwardedCommand(bypassTeammate, extraEnvironment: teamsEnv)
         #expect(
             inTeams.command.hasPrefix("/bin/sh -c "),
             "claude-teams respawn must still run through /bin/sh -c, got: \(inTeams.command)"
@@ -259,16 +261,25 @@ import Testing
             "claude-teams respawn must export CLAUDE_CODE_SANDBOXED so the teammate skips the trust gate, got: \(inTeams.command)"
         )
         #expect(
-            inTeams.command.contains(teammate),
+            inTeams.command.contains(bypassTeammate),
             "the original teammate command must still be carried verbatim, got: \(inTeams.command)"
         )
         #expect(
-            inTeams.startCommand == teammate,
+            inTeams.startCommand == bypassTeammate,
             "tmux_start_command must stay the raw command (no injected env), got: \(inTeams.startCommand)"
         )
 
+        // claude-teams context but NO --dangerously-skip-permissions: the trust gate
+        // stays in place, so the bypass var must NOT be injected.
+        let safeTeammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice --permission-mode acceptEdits"
+        let gated = try respawnPaneForwardedCommand(safeTeammate, extraEnvironment: teamsEnv)
+        #expect(
+            !gated.command.contains("CLAUDE_CODE_SANDBOXED"),
+            "without --dangerously-skip-permissions the trust bypass must not be injected, got: \(gated.command)"
+        )
+
         // No claude-teams context (OMO / public respawn-pane): no injection.
-        let outsideTeams = try respawnPaneForwardedCommand(teammate)
+        let outsideTeams = try respawnPaneForwardedCommand(bypassTeammate)
         #expect(
             !outsideTeams.command.contains("CLAUDE_CODE_SANDBOXED"),
             "non-claude-teams respawn must not inject CLAUDE_CODE_SANDBOXED, got: \(outsideTeams.command)"

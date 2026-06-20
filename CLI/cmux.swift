@@ -19139,7 +19139,7 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: TmuxCompatFocusedContext?
+        focusedContext: TmuxCompatFocusedContext?, commandArgs: [String]
     ) {
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
@@ -19151,9 +19151,7 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-claude-teams",
             cmuxBinEnvVar: "CMUX_CLAUDE_TEAMS_CMUX_BIN",
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
-            extraEnvVars: [
-                (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"), (key: "CLAUDE_CODE_SANDBOXED", value: "1"),  // CLAUDE_CODE_SANDBOXED skips CC's "trust folder?" gate that deadlocks unattended panes (#6447); teammates re-supplied via tmuxClaudeTeamsRespawnEnvironment()
-            ]
+            extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs)
         )
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
@@ -19262,7 +19260,7 @@ struct CMUXCLI {
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext
+            focusedContext: focusedContext, commandArgs: commandArgs
         )
 
         let launchPath = claudeExecutablePath
@@ -21907,7 +21905,7 @@ struct CMUXCLI {
             var params: [String: Any] = [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
-                "command": tmuxRespawnStartCommand(commandText, prependEnv: tmuxClaudeTeamsRespawnEnvironment()),
+                "command": tmuxRespawnStartCommand(commandText, prependEnv: tmuxClaudeTeamsRespawnEnvironment(forCommand: commandText)),
                 "tmux_start_command": commandText
             ]
             if let cwd = parsed.value("-c")?.trimmingCharacters(in: .whitespacesAndNewlines),

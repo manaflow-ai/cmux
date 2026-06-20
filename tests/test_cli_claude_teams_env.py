@@ -142,6 +142,10 @@ fs.writeFileSync(
                 "--password",
                 explicit_socket_password,
                 "claude-teams",
+                # The trust-gate bypass (CLAUDE_CODE_SANDBOXED) is only granted
+                # once the user opts into skipping safety prompts, so exercise the
+                # bypass path with --dangerously-skip-permissions.
+                "--dangerously-skip-permissions",
                 "--version",
             ],
             capture_output=True,

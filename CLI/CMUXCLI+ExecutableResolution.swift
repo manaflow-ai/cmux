@@ -131,6 +131,32 @@ extension CMUXCLI {
         }
     }
 
+    func claudeTeamsHasDangerousSkipPermissions(commandArgs: [String]) -> Bool {
+        commandArgs.contains { arg in
+            arg == "--dangerously-skip-permissions"
+                || arg.hasPrefix("--dangerously-skip-permissions=")
+        }
+    }
+
+    /// Environment the lead `claude` is launched with. CLAUDE_CODE_SANDBOXED skips
+    /// Claude Code's interactive "Do you trust this folder?" gate so the unattended
+    /// lead/teammate panes don't deadlock on it (#6447). That gate is a real safety
+    /// boundary — running `claude` in an untrusted checkout — so it is only waived
+    /// when the user has already opted into skipping safety prompts with
+    /// `--dangerously-skip-permissions`. Without that flag the trust prompt is left
+    /// in place and the user vets the directory normally. Teammate panes are
+    /// re-supplied the same value, under the same condition, by
+    /// `tmuxClaudeTeamsRespawnEnvironment(forCommand:)`.
+    func claudeTeamsExtraEnvVars(commandArgs: [String]) -> [(key: String, value: String)] {
+        var vars: [(key: String, value: String)] = [
+            (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
+        ]
+        if claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) {
+            vars.append((key: "CLAUDE_CODE_SANDBOXED", value: "1"))
+        }
+        return vars
+    }
+
     func claudeTeamsLaunchArguments(commandArgs: [String]) -> [String] {
         guard !claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs) else {
             return commandArgs
