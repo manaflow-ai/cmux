@@ -270,6 +270,50 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
         }
     }
 
+    @Test func openSelectionDispatchesFromFileExplorerChildFirstResponder() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
+            let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+            let tableView = FileExplorerSearchResultsTableView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            tableView.fileExplorerPanelPlacement = .pane
+            var commitCount = 0
+            tableView.onCommit = {
+                commitCount += 1
+            }
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
+            column.isEditable = false
+            tableView.addTableColumn(column)
+            let childButton = NSButton(frame: NSRect(x: 8, y: 8, width: 80, height: 28))
+            tableView.addSubview(childButton)
+            let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            scrollView.documentView = tableView
+            contentView.addSubview(scrollView)
+            window.contentView = contentView
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            defer { window.orderOut(nil) }
+
+            #expect(window.makeFirstResponder(childButton))
+            #expect(window.firstResponder === childButton)
+
+            let event = try #require(makeKeyDownEvent(
+                shortcut: KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut,
+                windowNumber: window.windowNumber
+            ))
+            defer { appDelegate.clearShortcutEventFocusContextCache(for: event) }
+
+            #expect(appDelegate.handleConfiguredShortcutKeyEquivalent(event))
+            #expect(commitCount == 1)
+        }
+    }
+
     @Test func openSelectionSearchFieldMarkedTextBypassesAppShortcutRouting() throws {
         try withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)

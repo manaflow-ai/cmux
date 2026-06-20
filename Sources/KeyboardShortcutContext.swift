@@ -270,34 +270,28 @@ extension AppDelegate {
     }
 
     private func shortcutFileExplorerFocusView(for responder: NSResponder) -> NSView? {
-        if let view = responder as? NSView,
-           isFileExplorerShortcutFocusView(view) {
-            return view
-        }
-
         if let textView = responder as? NSTextView,
            textView.isFieldEditor,
-           let ownerView = cmuxFieldEditorOwnerView(textView),
-           isFileExplorerShortcutFocusView(ownerView) {
-            return ownerView
+           let ownerView = cmuxFieldEditorOwnerView(textView) {
+            return fileExplorerShortcutFocusRoot(containing: ownerView)
+        }
+
+        if let view = responder as? NSView {
+            return fileExplorerShortcutFocusRoot(containing: view)
         }
 
         return nil
     }
 
-    private func isFileExplorerShortcutFocusView(_ view: NSView) -> Bool {
-        if isFileExplorerShortcutFocusRoot(view) {
-            return true
-        }
-
-        var current = view.superview
+    private func fileExplorerShortcutFocusRoot(containing view: NSView) -> NSView? {
+        var current: NSView? = view
         while let candidate = current {
             if isFileExplorerShortcutFocusRoot(candidate) {
-                return true
+                return candidate
             }
             current = candidate.superview
         }
-        return false
+        return nil
     }
 
     private func isFileExplorerShortcutFocusRoot(_ view: NSView) -> Bool {
