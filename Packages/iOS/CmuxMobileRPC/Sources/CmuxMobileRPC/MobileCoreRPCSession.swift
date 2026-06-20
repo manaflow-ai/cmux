@@ -168,7 +168,13 @@ actor MobileCoreRPCSession {
 
         let candidate: any CmxByteTransport
         do {
-            candidate = try await task.value
+            candidate = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                Task {
+                    await self.cancelConnecting(id: connectionID)
+                }
+            }
         } catch {
             if connectionTask?.id == connectionID {
                 connectionTask = nil
@@ -205,6 +211,14 @@ actor MobileCoreRPCSession {
             await self?.writeLoop(transport: candidate, frames: stream)
         }
         return candidate
+    }
+
+    private func cancelConnecting(id connectionID: UUID) {
+        guard transport == nil, connectionTask?.id == connectionID else {
+            return
+        }
+        connectionTask?.task.cancel()
+        connectionTask = nil
     }
 
     private func writeLoop(transport: any CmxByteTransport, frames: AsyncStream<PendingWrite>) async {

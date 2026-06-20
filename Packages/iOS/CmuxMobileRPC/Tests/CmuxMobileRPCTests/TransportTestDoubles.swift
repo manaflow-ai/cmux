@@ -180,9 +180,11 @@ struct QueuedCancellationProbeTransportFactory: CmxByteTransportFactory {
 actor SlowConnectTimeoutTransport: CmxByteTransport {
     private var sentPayloads: [Data] = []
     private var connectWaiter: CheckedContinuation<Void, Never>?
+    private var connectStarted = false
     private var isClosed = false
 
     func connect() async throws {
+        connectStarted = true
         if isClosed {
             throw CancellationError()
         }
@@ -220,6 +222,16 @@ actor SlowConnectTimeoutTransport: CmxByteTransport {
             try? await Task.sleep(nanoseconds: 1_000_000)
         }
         return isClosed
+    }
+
+    func waitUntilConnectStarted() async -> Bool {
+        for _ in 0..<200 {
+            if connectStarted {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        return connectStarted
     }
 
     func sentRequests() throws -> [RecordedRPCRequest] {

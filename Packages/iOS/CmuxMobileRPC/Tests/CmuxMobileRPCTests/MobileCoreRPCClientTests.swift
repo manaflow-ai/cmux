@@ -172,6 +172,55 @@ import Testing
         #expect(try await transport.sentRequests().isEmpty)
     }
 
+    @Test func callerCancelledRPCClosesSlowConnectionBeforeSendingAuthenticatedRequest() async throws {
+        let transport = SlowConnectTimeoutTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59126)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: SlowConnectTimeoutTransportFactory(transport: transport),
+            rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "terminal.input",
+            params: [
+                "workspace_id": "workspace-main",
+                "terminal_id": "terminal-main",
+                "text": "cancelled",
+            ],
+            id: "cancelled-input"
+        )
+        let task = Task {
+            try await client.sendRequest(request)
+        }
+
+        #expect(await transport.waitUntilConnectStarted())
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("Expected cancelled RPC request to throw")
+        } catch is CancellationError {
+        } catch {
+        }
+
+        #expect(await transport.waitUntilClosed())
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(try await transport.sentRequests().isEmpty)
+    }
+
     @Test func rpcRequestTimeoutCoversStackTokenAcquisition() async throws {
         let tokenStarted = AsyncFlag()
         let transport = QueuedCancellationProbeTransport()
