@@ -5528,7 +5528,15 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
-        detachWebViewObservers()
+        // `deinit` is nonisolated, so it can't call the main-actor
+        // `detachWebViewObservers()`. Tear the observers down inline (the derived
+        // `@Published` media flags don't need resetting — the panel is going
+        // away). Invalidate the private `_isPlayingAudio` KVO bridge first, while
+        // the observed web view is still alive, so KVO removal stays valid.
+        audioPlaybackObserver?.invalidate()
+        audioPlaybackObserver = nil
+        webViewObservers.removeAll()
+        webViewCancellables.removeAll()
         let webView = webView
         Task { @MainActor in
             BrowserWindowPortalRegistry.detach(webView: webView)
