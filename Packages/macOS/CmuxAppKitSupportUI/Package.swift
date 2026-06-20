@@ -16,6 +16,8 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxWorkspaces"),
+        // SidebarResizerBandPolicy (pure hit-band geometry) backs the resizer controller.
+        .package(path: "../CmuxSidebar"),
         // CMUXDebugLog backs the ReleasingWindowController close-teardown logging.
         .package(path: "../CMUXDebugLog"),
     ],
@@ -25,6 +27,7 @@ let package = Package(
             dependencies: [
                 "CmuxFoundation",
                 "CmuxWorkspaces",
+                .product(name: "CmuxSidebar", package: "CmuxSidebar"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],
             swiftSettings: [
