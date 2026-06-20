@@ -43,6 +43,7 @@ extension AgentChatTranscriptService {
         transcriptResolutionTasks[surfaceID] = nil
         transcriptResolutionKeys.removeValue(forKey: surfaceID)
         transcriptResolutionForcedRetryCounts.removeValue(forKey: surfaceID)
+        claimedDetectedTranscriptSessionIDsBySurfaceID.removeValue(forKey: surfaceID)
         detectionScanAt.removeValue(forKey: surfaceID)
     }
 
@@ -61,7 +62,8 @@ extension AgentChatTranscriptService {
             return
         }
 
-        var claimed = registry.claimedSessionIDs().union(claimedDetectedTranscriptSessionIDs)
+        var claimed = registry.claimedSessionIDs()
+            .union(activeClaimedDetectedTranscriptSessionIDs(excludingSurfaceID: surfaceID))
         if let excludingSessionID {
             claimed.remove(excludingSessionID)
         }
@@ -145,7 +147,7 @@ extension AgentChatTranscriptService {
         transcriptResolutionKeys[surfaceID] = nil
 
         guard let resolved else { return }
-        guard !claimedDetectedTranscriptSessionIDs.contains(resolved.sessionID) else {
+        guard !activeClaimedDetectedTranscriptSessionIDs(excludingSurfaceID: surfaceID).contains(resolved.sessionID) else {
             scheduleForcedClaudeTranscriptRetry(
                 workspaceID: workspaceID,
                 workingDirectory: workingDirectory,
@@ -177,7 +179,7 @@ extension AgentChatTranscriptService {
                 record.workingDirectory = workingDirectory
                 record.transcriptPath = resolved.path
             }
-            claimedDetectedTranscriptSessionIDs.insert(resolved.sessionID)
+            claimDetectedTranscriptSessionID(resolved.sessionID, surfaceID: surfaceID)
             transcriptResolutionForcedRetryCounts.removeValue(forKey: surfaceID)
             return
         }
@@ -193,7 +195,7 @@ extension AgentChatTranscriptService {
         )
         if adopted.surfaceID == surfaceID,
            adopted.transcriptPath == resolved.path {
-            claimedDetectedTranscriptSessionIDs.insert(resolved.sessionID)
+            claimDetectedTranscriptSessionID(resolved.sessionID, surfaceID: surfaceID)
             transcriptResolutionForcedRetryCounts.removeValue(forKey: surfaceID)
         }
     }
@@ -218,5 +220,18 @@ extension AgentChatTranscriptService {
             titleHint: titleHint,
             forceScan: true
         )
+    }
+
+    func activeClaimedDetectedTranscriptSessionIDs(excludingSurfaceID surfaceID: String) -> Set<String> {
+        var claimed = Set<String>()
+        for (claimedSurfaceID, sessionIDs) in claimedDetectedTranscriptSessionIDsBySurfaceID
+        where claimedSurfaceID != surfaceID {
+            claimed.formUnion(sessionIDs)
+        }
+        return claimed
+    }
+
+    func claimDetectedTranscriptSessionID(_ sessionID: String, surfaceID: String) {
+        claimedDetectedTranscriptSessionIDsBySurfaceID[surfaceID, default: []].insert(sessionID)
     }
 }

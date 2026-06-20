@@ -30,7 +30,7 @@ final class AgentChatTranscriptService {
     var transcriptResolutionTasks: [String: Task<Void, Never>] = [:]
     var transcriptResolutionKeys: [String: ClaudeTranscriptResolutionKey] = [:]
     var transcriptResolutionForcedRetryCounts: [String: Int] = [:]
-    var claimedDetectedTranscriptSessionIDs: Set<String> = []
+    var claimedDetectedTranscriptSessionIDsBySurfaceID: [String: Set<String>] = [:]
     var titleAdoptionHandler: (@MainActor (GhosttyTitleChange) -> Bool)?
     let titleChangeCoalescer = NotificationBurstCoalescer(delay: 0.25)
     static let detectionScanThrottle: TimeInterval = 4
@@ -404,7 +404,8 @@ final class AgentChatTranscriptService {
             return nil
         }
         detectionScanAt[surfaceID] = now
-        var claimed = registry.claimedSessionIDs().union(claimedDetectedTranscriptSessionIDs)
+        var claimed = registry.claimedSessionIDs()
+            .union(activeClaimedDetectedTranscriptSessionIDs(excludingSurfaceID: surfaceID))
         if let excludingSessionID {
             claimed.remove(excludingSessionID)
         }

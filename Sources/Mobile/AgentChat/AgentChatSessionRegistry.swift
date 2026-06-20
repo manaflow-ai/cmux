@@ -79,12 +79,12 @@ final class AgentChatSessionRegistry {
         return record
     }
 
-    /// Every session id the registry already tracks. Title-detected adoption
+    /// Every live session id the registry already tracks. Title-detected adoption
     /// passes this to the transcript resolver so a second hook-bypassed claude
     /// in the same directory resolves to a *different* (unclaimed) transcript
     /// instead of colliding on the newest file.
     func claimedSessionIDs() -> Set<String> {
-        Set(records.keys)
+        Set(records.values.lazy.filter { $0.state != .ended }.map(\.sessionID))
     }
 
     /// Re-reads the hook store for one session and adopts its bindings,

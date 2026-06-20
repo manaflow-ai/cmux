@@ -105,13 +105,15 @@ struct AgentChatTranscriptResolver: Sendable {
             if let normalizedTitleHint {
                 let exactTitleCandidates = transcriptCandidates
                     .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint }
-                newest = (
-                    exactTitleCandidates.isEmpty
-                        ? transcriptCandidates.filter { $0.title == nil }
-                        : exactTitleCandidates
-                )
-                    .max { $0.date < $1.date }?
-                    .url
+                let untitledCandidates = transcriptCandidates.filter { $0.title == nil }
+                let newestExact = exactTitleCandidates.max { $0.date < $1.date }
+                let newestUntitled = untitledCandidates.max { $0.date < $1.date }
+                if let newestExact,
+                   let newestUntitled,
+                   newestUntitled.date > newestExact.date {
+                    return nil
+                }
+                newest = (newestExact ?? newestUntitled)?.url
             } else {
                 // A generic "Claude Code" title cannot identify one of several
                 // same-cwd sessions. Avoid stealing a transcript that already
