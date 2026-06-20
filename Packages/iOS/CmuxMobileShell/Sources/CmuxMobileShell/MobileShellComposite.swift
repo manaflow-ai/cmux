@@ -4996,6 +4996,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplaySurfaceIDsInFlight.remove(surfaceID)
         terminalReplaySurfaceIDsPendingRetry.remove(surfaceID)
         terminalRenderSessionsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplaySurfaceIDsPendingWorkspaceMapping.remove(surfaceID)
@@ -5140,15 +5141,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileDebugLog.anchormux(
             "CMUX_REPLAY retry_scheduled surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)"
         )
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.terminalReplaySurfaceIDsPendingRetry.remove(surfaceID)
-            guard self.hasTerminalOutputSink(surfaceID: surfaceID),
-                  self.remoteClient != nil else {
-                return
-            }
-            self.requestTerminalReplay(surfaceID: surfaceID)
+    }
+
+    private func finishTerminalReplayRequest(surfaceID: String) {
+        terminalReplaySurfaceIDsInFlight.remove(surfaceID)
+        guard terminalReplaySurfaceIDsPendingRetry.remove(surfaceID) != nil else {
+            return
         }
+        guard hasTerminalOutputSink(surfaceID: surfaceID),
+              remoteClient != nil else {
+            return
+        }
+        MobileDebugLog.anchormux("CMUX_REPLAY retry_start surface=\(surfaceID)")
+        requestTerminalReplay(surfaceID: surfaceID)
     }
 
     private func deliverTerminalRenderGridEnvelopes(
@@ -5219,7 +5224,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         beginTerminalRenderSnapshot(surfaceID: surfaceID)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.terminalReplaySurfaceIDsInFlight.remove(surfaceID) }
+            defer { self.finishTerminalReplayRequest(surfaceID: surfaceID) }
             do {
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
