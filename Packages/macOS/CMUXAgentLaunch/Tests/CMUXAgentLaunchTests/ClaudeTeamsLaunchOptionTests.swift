@@ -46,6 +46,9 @@ struct ClaudeTeamsLaunchOptionTests {
     @Test("Does NOT treat the flag consumed as another option's value as an opt-in")
     func ignoresValueSlot() {
         #expect(!hasDangerousSkip(["--model", "--dangerously-skip-permissions", "prompt"]))
+        // File-option values (paths) are not options either.
+        #expect(!hasDangerousSkip(["--append-system-prompt-file", "--dangerously-skip-permissions"]))
+        #expect(!hasDangerousSkip(["--system-prompt-file", "--dangerously-skip-permissions", "prompt"]))
     }
 
     @Test("Returns false when the flag is absent")
