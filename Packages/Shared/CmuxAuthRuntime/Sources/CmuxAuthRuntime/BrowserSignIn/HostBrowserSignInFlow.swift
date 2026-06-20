@@ -399,6 +399,11 @@ public final class HostBrowserSignInFlow {
             try await coordinator.completeExternalSignIn()
         } catch {
             log.log("auth.callback completion failed: \(error)")
+            guard signOutGeneration == generation,
+                  attemptID == nil || activeAttemptID == attemptID
+            else {
+                return false
+            }
             let displaySafe = AuthError(displaySafe: error) ?? .serverError(0, "auth_failed")
             if displaySafe != .cancelled {
                 lastFailure = displaySafe
