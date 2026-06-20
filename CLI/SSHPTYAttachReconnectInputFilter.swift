@@ -30,7 +30,8 @@ final class SSHPTYAttachReconnectInputFilter {
     static func startStdinPump(
         fd: Int32,
         inputFD: Int32 = STDIN_FILENO,
-        filterEnabled: Bool
+        filterEnabled: Bool,
+        beforeForwardingInput: (@Sendable () async -> Void)? = nil
     ) throws -> SSHPTYAttachReconnectInputFilterControl? {
         let filterState = filterEnabled ? try drainQueuedProbeReplies(inputFD: inputFD, fd: fd) : nil
         var stopSignalFDs = [Int32](repeating: -1, count: 2)
@@ -58,14 +59,15 @@ final class SSHPTYAttachReconnectInputFilter {
             stopSignalReadFD = stopSignalFDs[0]
             stopAcknowledgementWriteFD = stopAcknowledgementFDs[1]
         }
-        DispatchQueue.global(qos: .userInteractive).async {
-            pumpStdin(
+        Task.detached(priority: .userInitiated) {
+            await Self.pumpStdin(
                 inputFD: inputFD,
                 fd: fd,
                 reconnectInputFilterState: filterState,
                 retainedFilterControl: filterControl,
                 stopSignalFD: stopSignalReadFD,
-                stopAcknowledgementFD: stopAcknowledgementWriteFD
+                stopAcknowledgementFD: stopAcknowledgementWriteFD,
+                beforeForwardingInput: beforeForwardingInput
             )
         }
         return filterControl
@@ -109,8 +111,9 @@ final class SSHPTYAttachReconnectInputFilter {
         reconnectInputFilterState: SSHPTYAttachReconnectInputFilterState?,
         retainedFilterControl: SSHPTYAttachReconnectInputFilterControl?,
         stopSignalFD initialStopSignalFD: Int32?,
-        stopAcknowledgementFD initialStopAcknowledgementFD: Int32?
-    ) {
+        stopAcknowledgementFD initialStopAcknowledgementFD: Int32?,
+        beforeForwardingInput: (@Sendable () async -> Void)?
+    ) async {
         _ = retainedFilterControl
         var reconnectInputFilter = reconnectInputFilterState.map(SSHPTYAttachReconnectInputFilter.init(state:))
         var stopSignalFD = initialStopSignalFD
@@ -125,9 +128,12 @@ final class SSHPTYAttachReconnectInputFilter {
             }
         }
 
-        func writeOrShutdown(_ input: Data) -> Bool {
+        func writeOrShutdown(_ input: Data) async -> Bool {
             guard !input.isEmpty else {
                 return true
+            }
+            if let beforeForwardingInput {
+                await beforeForwardingInput()
             }
             do {
                 try Self.writeAll(fd: fd, data: input)
@@ -168,7 +174,7 @@ final class SSHPTYAttachReconnectInputFilter {
             acknowledgeStopFiltering()
         }
 
-        func stopReconnectFiltering() -> Bool {
+        func stopReconnectFiltering() async -> Bool {
             defer {
                 acknowledgeStopFiltering()
                 closeStopSignal()
@@ -176,7 +182,7 @@ final class SSHPTYAttachReconnectInputFilter {
             guard let filter = reconnectInputFilter else {
                 return true
             }
-            guard writeOrShutdown(filter.stopFiltering()) else {
+            guard await writeOrShutdown(filter.stopFiltering()) else {
                 return false
             }
             reconnectInputFilter = nil
@@ -197,7 +203,7 @@ final class SSHPTYAttachReconnectInputFilter {
             }
 
             if readiness.stopRequested, !readiness.inputReady {
-                guard stopReconnectFiltering() else {
+                guard await stopReconnectFiltering() else {
                     return
                 }
                 continue
@@ -206,7 +212,7 @@ final class SSHPTYAttachReconnectInputFilter {
             if !readiness.inputReady {
                 if let filter = reconnectInputFilter,
                    filter.hasPendingInput {
-                    guard writeOrShutdown(filter.flushPendingInput()) else { return }
+                    guard await writeOrShutdown(filter.flushPendingInput()) else { return }
                 }
                 continue
             }
@@ -223,11 +229,11 @@ final class SSHPTYAttachReconnectInputFilter {
                 } else {
                     input = rawInput
                 }
-                guard writeOrShutdown(input) else {
+                guard await writeOrShutdown(input) else {
                     return
                 }
                 if readiness.stopRequested {
-                    guard stopReconnectFiltering() else {
+                    guard await stopReconnectFiltering() else {
                         return
                     }
                 }
