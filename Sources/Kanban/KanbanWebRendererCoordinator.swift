@@ -84,16 +84,10 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
 
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = false
-        // The board ships as ES modules: `kanban.html` loads `./main.mjs`, which
-        // statically imports `./chunks/*.mjs`. Over `file://` the document origin
-        // is `null`, so WebKit rejects those cross-origin module fetches
-        // ("Origin null is not allowed by Access-Control-Allow-Origin") and the
-        // React app never mounts (blank panel). The Solid surface sidesteps this
-        // by shipping a single inlined bundle; the shared React/Kanban surface is
-        // code-split, so we must let file URLs read sibling files. KVC SPI,
-        // consistent with the `drawsBackground` access just below.
-        configuration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        configuration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+        // The board ships as code-split ES modules whose `file://` origin is
+        // `null`; without sibling-file access the module fetches fail and the
+        // panel mounts blank. See `TrustedShellWeb.allowFileURLAccess`.
+        TrustedShellWeb.allowFileURLAccess(configuration)
         configuration.userContentController.addScriptMessageHandler(
             self,
             contentWorld: .page,
@@ -126,7 +120,7 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
             rendererKind: rendererKind,
             resourceDirectoryURL: resourceDirectoryURL
         )
-        trustedShellURL = Self.normalizedTrustedFileURL(indexURL)
+        trustedShellURL = TrustedShellWeb.normalizedTrustedFileURL(indexURL)
         webView.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
@@ -141,7 +135,7 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
     func unfocus() {
         guard let webView,
               let window = webView.window,
-              Self.responderChainContains(window.firstResponder, target: webView) else {
+              TrustedShellWeb.responderChainContains(window.firstResponder, target: webView) else {
             return
         }
         window.makeFirstResponder(nil)
@@ -221,27 +215,19 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        guard let url = navigationAction.request.url else {
+        switch TrustedShellWeb.navigationPolicy(
+            for: navigationAction,
+            currentURL: webView.url,
+            trustedShellURL: trustedShellURL
+        ) {
+        case .allow:
             decisionHandler(.allow)
-            return
-        }
-        let isMainFrameNavigation = navigationAction.targetFrame?.isMainFrame ?? true
-        guard isMainFrameNavigation else {
-            decisionHandler(.allow)
-            return
-        }
-        if Self.isTrustedShellURL(url, expected: trustedShellURL) {
-            decisionHandler(.allow)
-            return
-        }
-        if isInPageFragment(url, currentURL: webView.url) {
-            decisionHandler(.allow)
-            return
-        }
-        if navigationAction.navigationType == .linkActivated || navigationAction.targetFrame == nil {
+        case .cancel:
+            decisionHandler(.cancel)
+        case .openExternally(let url):
             handleExternalLink(url)
+            decisionHandler(.cancel)
         }
-        decisionHandler(.cancel)
     }
 
     func webView(
@@ -300,7 +286,7 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
 
     private func isTrustedBridgeFrame(_ frameInfo: WKFrameInfo) -> Bool {
         guard frameInfo.isMainFrame else { return false }
-        return Self.isTrustedShellURL(frameInfo.request.url, expected: trustedShellURL)
+        return TrustedShellWeb.isTrustedShellURL(frameInfo.request.url, expected: trustedShellURL)
     }
 
     nonisolated static func shellURL(
@@ -310,19 +296,6 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
         rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
             $0.appendingPathComponent($1, isDirectory: false)
         }
-    }
-
-    nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
-        guard let candidate = normalizedTrustedFileURL(candidate),
-              let expected = normalizedTrustedFileURL(expected) else {
-            return false
-        }
-        return candidate == expected
-    }
-
-    nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
-        guard let url, url.isFileURL else { return nil }
-        return url.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     // MARK: - Bridge methods
@@ -465,8 +438,7 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
             rendererKind: .react,
             workingDirectory: worktreePath,
             focus: true,
-            prebuiltProcessStore: sharedStore,
-            injectedFirstPrompt: firstPrompt
+            liveLaunch: AgentSessionLiveLaunch(sharedStore: sharedStore, firstPrompt: firstPrompt)
         )
         if panel == nil {
             // Dispatch already moved the card to building; without a surface its
@@ -642,29 +614,4 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
         webView.evaluateJavaScript("window.cmuxKanbanBridge?.receive(\(json));") { _, _ in }
     }
 
-    private func isInPageFragment(_ url: URL, currentURL: URL?) -> Bool {
-        guard url.fragment != nil else { return false }
-        if (url.scheme == nil || url.scheme == "about"), (url.host ?? "").isEmpty {
-            return true
-        }
-        guard let currentURL else { return false }
-        if url.isFileURL, currentURL.isFileURL {
-            return (url.path as NSString).standardizingPath ==
-                (currentURL.path as NSString).standardizingPath
-        }
-        return url.scheme == currentURL.scheme &&
-            url.host == currentURL.host &&
-            url.path == currentURL.path
-    }
-
-    private static func responderChainContains(_ responder: NSResponder?, target: NSResponder) -> Bool {
-        var current = responder
-        while let item = current {
-            if item === target {
-                return true
-            }
-            current = item.nextResponder
-        }
-        return false
-    }
 }

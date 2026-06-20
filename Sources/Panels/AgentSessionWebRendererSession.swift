@@ -14,14 +14,8 @@ final class AgentSessionWebRendererSession {
         }
     }
 
-    init(
-        prebuiltProcessStore: AgentSessionProcessStore? = nil,
-        injectedFirstPrompt: String? = nil
-    ) {
-        ownedCoordinator = AgentSessionWebRendererCoordinator(
-            prebuiltProcessStore: prebuiltProcessStore,
-            injectedFirstPrompt: injectedFirstPrompt
-        )
+    init(liveLaunch: AgentSessionLiveLaunch? = nil) {
+        ownedCoordinator = AgentSessionWebRendererCoordinator(liveLaunch: liveLaunch)
     }
 
     func coordinator(

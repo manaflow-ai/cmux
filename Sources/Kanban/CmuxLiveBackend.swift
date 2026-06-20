@@ -105,27 +105,22 @@ final class CmuxLiveBackend: DispatchBackend {
     /// real process exit ends the run.
     func handleAgentEvent(_ event: [String: Any], handle: KanbanDispatchHandle) {
         guard let run = runs[handle] else { return }
-        switch event["type"] as? String {
-        case "provider.started":
+        // The live backend translates `provider.started` itself (the native
+        // backend synthesizes `.started` inline at spawn instead), then shares
+        // the rest of the event mapping. A live session deliberately keeps
+        // running across `turnComplete`; only a real `provider.exit` ends it.
+        if (event["type"] as? String) == "provider.started" {
             if let sessionId = event["sessionId"] as? String {
                 run.continuation.yield(.started(sessionId: sessionId))
             }
-        case "provider.output":
-            if let text = event["text"] as? String {
-                run.continuation.yield(.output(text))
-            }
-        case "provider.turnComplete":
-            run.continuation.yield(.turnComplete)
-        case "provider.exit":
-            let rawStatus = (event["status"] as? Int)
-                ?? (event["status"] as? Int32).map(Int.init)
-                ?? 0
-            run.continuation.yield(.exited(status: Int32(clamping: rawStatus)))
+            return
+        }
+        guard let progress = AgentSessionEventMapping.sharedProgress(for: event) else { return }
+        run.continuation.yield(progress)
+        if case .exited = progress {
             run.continuation.finish()
             run.store.removeEventObserver(run.token)
             runs[handle] = nil
-        default:
-            break
         }
     }
 }

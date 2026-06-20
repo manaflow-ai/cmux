@@ -26,8 +26,7 @@ final class AgentSessionPanel: Panel {
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID = .codex,
         workingDirectory: String? = nil,
-        prebuiltProcessStore: AgentSessionProcessStore? = nil,
-        injectedFirstPrompt: String? = nil
+        liveLaunch: AgentSessionLiveLaunch? = nil
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -36,10 +35,7 @@ final class AgentSessionPanel: Panel {
         self.currentProviderID = initialProviderID
         self.workingDirectory = workingDirectory
         self.displayTitle = Self.title(provider: initialProviderID, rendererKind: rendererKind)
-        self.rendererSession = AgentSessionWebRendererSession(
-            prebuiltProcessStore: prebuiltProcessStore,
-            injectedFirstPrompt: injectedFirstPrompt
-        )
+        self.rendererSession = AgentSessionWebRendererSession(liveLaunch: liveLaunch)
         self.rendererSession.onHasActiveProviderChanged = { [weak self] hasActiveProvider in
             self?.setHasActiveProvider(hasActiveProvider)
         }

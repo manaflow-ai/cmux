@@ -2,6 +2,17 @@ import AppKit
 import UniformTypeIdentifiers
 import WebKit
 
+/// The inputs that turn an ordinary agent-session surface into a *live*,
+/// Kanban-dispatched one: a process store shared with a `CmuxLiveBackend` (so a
+/// single process drives both the board card and the visible tab) plus the
+/// card's spec to send as the opening turn. Bundling them in one value — instead
+/// of two correlated optionals threaded through every initializer — makes
+/// "live" a named contract rather than an inferred `prebuiltProcessStore != nil`.
+struct AgentSessionLiveLaunch {
+    let sharedStore: AgentSessionProcessStore
+    let firstPrompt: String?
+}
+
 @MainActor
 final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandlerWithReply {
     var webView: AgentSessionWebView?
@@ -21,13 +32,15 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isClosed = false
     private var isProviderStartPending = false
     private let processStore: AgentSessionProcessStore
-    /// True for a live (Kanban-dispatched) session: the process store is shared
-    /// with a `CmuxLiveBackend`, and the card's provider auto-starts regardless
-    /// of its normal autoStart policy.
-    private let isLiveSession: Bool
-    /// The Kanban card's spec, injected once as the first prompt right after the
-    /// live session's provider starts. Cleared after it is sent.
-    private var injectedFirstPrompt: String?
+    /// Non-nil for a live (Kanban-dispatched) session: the process store is
+    /// shared with a `CmuxLiveBackend`, and the card's provider auto-starts
+    /// regardless of its normal autoStart policy.
+    private let liveLaunch: AgentSessionLiveLaunch?
+    /// The Kanban card's spec, sent once as the first prompt right after the live
+    /// session's provider starts. Cleared after it is sent.
+    private var pendingFirstPrompt: String?
+    /// Whether this surface is a live (Kanban-dispatched) session.
+    private var isLiveSession: Bool { liveLaunch != nil }
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
@@ -37,19 +50,14 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     }
     var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
 
-    /// - Parameters:
-    ///   - prebuiltProcessStore: When non-nil, this session adopts an existing
-    ///     store (shared with a `CmuxLiveBackend` so one process drives both the
-    ///     board card and this visible tab) and is treated as a live session.
-    ///   - injectedFirstPrompt: Sent once, right after the provider starts, as
-    ///     the live session's opening turn (the card's spec).
-    init(
-        prebuiltProcessStore: AgentSessionProcessStore? = nil,
-        injectedFirstPrompt: String? = nil
-    ) {
-        self.processStore = prebuiltProcessStore ?? AgentSessionProcessStore()
-        self.isLiveSession = prebuiltProcessStore != nil
-        self.injectedFirstPrompt = injectedFirstPrompt
+    /// - Parameter liveLaunch: When non-nil, this session adopts the shared
+    ///   process store (so one process drives both the board card and this
+    ///   visible tab), auto-starts its provider, and sends `firstPrompt` as the
+    ///   opening turn. When nil it is an ordinary agent-session surface.
+    init(liveLaunch: AgentSessionLiveLaunch? = nil) {
+        self.liveLaunch = liveLaunch
+        self.processStore = liveLaunch?.sharedStore ?? AgentSessionProcessStore()
+        self.pendingFirstPrompt = liveLaunch?.firstPrompt
         super.init()
     }
 
@@ -95,17 +103,10 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = false
-        // The React renderer ships as ES modules: `agent-session.html` loads
-        // `./main.mjs`, which dynamically imports `./surfaces/*.mjs` and shared
-        // `./chunks/*.mjs`. Over `file://` the document origin is `null`, so WebKit
-        // rejects those cross-origin module fetches ("Origin null is not allowed by
-        // Access-Control-Allow-Origin") and the React app never mounts (blank
-        // panel). The Solid renderer sidesteps this by shipping a single inlined
-        // bundle. Mirror `KanbanWebRendererCoordinator`, which hit the same wall:
-        // let file URLs read sibling files. KVC SPI, consistent with the
-        // `drawsBackground` access just below.
-        configuration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        configuration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+        // The React renderer ships as code-split ES modules whose `file://`
+        // origin is `null`; without sibling-file access the module fetches fail
+        // and the panel mounts blank. See `TrustedShellWeb.allowFileURLAccess`.
+        TrustedShellWeb.allowFileURLAccess(configuration)
         configuration.userContentController.addScriptMessageHandler(
             self,
             contentWorld: .page,
@@ -144,7 +145,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             rendererKind: rendererKind,
             resourceDirectoryURL: resourceDirectoryURL
         )
-        trustedShellURL = Self.normalizedTrustedFileURL(indexURL)
+        trustedShellURL = TrustedShellWeb.normalizedTrustedFileURL(indexURL)
 #if DEBUG
         cmuxDebugLog(
             "agentSession.web.load renderer=\(rendererKind.rawValue) " +
@@ -165,7 +166,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     func unfocus() {
         guard let webView,
               let window = webView.window,
-              Self.responderChainContains(window.firstResponder, target: webView) else {
+              TrustedShellWeb.responderChainContains(window.firstResponder, target: webView) else {
             return
         }
         window.makeFirstResponder(nil)
@@ -257,31 +258,19 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        guard let url = navigationAction.request.url else {
+        switch TrustedShellWeb.navigationPolicy(
+            for: navigationAction,
+            currentURL: webView.url,
+            trustedShellURL: trustedShellURL
+        ) {
+        case .allow:
             decisionHandler(.allow)
-            return
-        }
-
-        let isMainFrameNavigation = navigationAction.targetFrame?.isMainFrame ?? true
-        guard isMainFrameNavigation else {
-            decisionHandler(.allow)
-            return
-        }
-
-        if Self.isTrustedShellURL(url, expected: trustedShellURL) {
-            decisionHandler(.allow)
-            return
-        }
-
-        if isInPageFragment(url, currentURL: webView.url) {
-            decisionHandler(.allow)
-            return
-        }
-
-        if navigationAction.navigationType == .linkActivated || navigationAction.targetFrame == nil {
+        case .cancel:
+            decisionHandler(.cancel)
+        case .openExternally(let url):
             handleExternalLink(url)
+            decisionHandler(.cancel)
         }
-        decisionHandler(.cancel)
     }
 
     func webView(
@@ -353,7 +342,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         guard frameInfo.isMainFrame else {
             return false
         }
-        return Self.isTrustedShellURL(frameInfo.request.url, expected: trustedShellURL)
+        return TrustedShellWeb.isTrustedShellURL(frameInfo.request.url, expected: trustedShellURL)
     }
 
     nonisolated static func shellURL(
@@ -363,21 +352,6 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
             $0.appendingPathComponent($1, isDirectory: false)
         }
-    }
-
-    nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
-        guard let candidate = normalizedTrustedFileURL(candidate),
-              let expected = normalizedTrustedFileURL(expected) else {
-            return false
-        }
-        return candidate == expected
-    }
-
-    nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
-        guard let url, url.isFileURL else {
-            return nil
-        }
-        return url.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
@@ -642,8 +616,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             )
             // Live sessions open with the Kanban card's spec as the first turn.
             // Sent once, best-effort: a failure here must not fail the start.
-            if let prompt = injectedFirstPrompt {
-                injectedFirstPrompt = nil
+            if let prompt = pendingFirstPrompt {
+                pendingFirstPrompt = nil
                 do {
                     try await processStore.writeLine(sessionId: session.sessionId, text: prompt)
                 } catch {
@@ -784,7 +758,44 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         )
     }
 
-    private func isInPageFragment(_ url: URL, currentURL: URL?) -> Bool {
+}
+
+/// Shared WebKit hosting logic for cmux's two trusted-shell webview coordinators
+/// (agent-session and Kanban). Both load a bundled `file://` React/Solid shell,
+/// gate the bridge to that exact trusted frame, and route every other navigation
+/// away. Centralizing this security-sensitive decision logic is what stops the
+/// two coordinators from silently drifting apart; each keeps only the thin
+/// `@objc WKNavigationDelegate` shims the ObjC runtime requires, its own bridge
+/// handling, and its own (divergent) external-link policy.
+enum TrustedShellWeb {
+    /// Grants a `file://`-loaded document access to sibling files so a code-split
+    /// ES-module shell can load: over `file://` the document origin is `null`, so
+    /// WebKit would otherwise reject the cross-origin `./chunks/*.mjs` module
+    /// fetches ("Origin null is not allowed by Access-Control-Allow-Origin") and
+    /// the React app would never mount (blank panel). KVC SPI.
+    static func allowFileURLAccess(_ configuration: WKWebViewConfiguration) {
+        configuration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        configuration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+    }
+
+    /// Canonical form of a file URL for trusted-shell identity comparison.
+    static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
+        guard let url, url.isFileURL else { return nil }
+        return url.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    /// Whether `candidate` is the exact trusted shell URL `expected`.
+    static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
+        guard let candidate = normalizedTrustedFileURL(candidate),
+              let expected = normalizedTrustedFileURL(expected) else {
+            return false
+        }
+        return candidate == expected
+    }
+
+    /// Whether `url` is an in-page `#fragment` navigation within `currentURL`,
+    /// which must stay allowed even though it is not the trusted shell URL.
+    static func isInPageFragment(_ url: URL, currentURL: URL?) -> Bool {
         guard url.fragment != nil else { return false }
         if (url.scheme == nil || url.scheme == "about"), (url.host ?? "").isEmpty {
             return true
@@ -799,12 +810,42 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             url.path == currentURL.path
     }
 
-    private static func responderChainContains(_ responder: NSResponder?, target: NSResponder) -> Bool {
+    /// The decision for a main-frame navigation against the trusted shell.
+    enum NavigationPolicy: Equatable {
+        /// Allow it (the trusted shell, an in-page fragment, or a non-main-frame
+        /// sub-resource load).
+        case allow
+        /// Cancel it with no side effect.
+        case cancel
+        /// Cancel it and hand `url` to the surface's external-link handler (a
+        /// link activation or a new-window target).
+        case openExternally(URL)
+    }
+
+    /// Decides what to do with `action`: allow the trusted shell and in-page
+    /// fragments, route link activations / new-window targets to the external
+    /// handler, and cancel everything else. Non-main-frame actions always allow.
+    static func navigationPolicy(
+        for action: WKNavigationAction,
+        currentURL: URL?,
+        trustedShellURL: URL?
+    ) -> NavigationPolicy {
+        guard let url = action.request.url else { return .allow }
+        let isMainFrameNavigation = action.targetFrame?.isMainFrame ?? true
+        guard isMainFrameNavigation else { return .allow }
+        if isTrustedShellURL(url, expected: trustedShellURL) { return .allow }
+        if isInPageFragment(url, currentURL: currentURL) { return .allow }
+        if action.navigationType == .linkActivated || action.targetFrame == nil {
+            return .openExternally(url)
+        }
+        return .cancel
+    }
+
+    /// Whether `responder`'s next-responder chain reaches `target`.
+    static func responderChainContains(_ responder: NSResponder?, target: NSResponder) -> Bool {
         var current = responder
         while let item = current {
-            if item === target {
-                return true
-            }
+            if item === target { return true }
             current = item.nextResponder
         }
         return false

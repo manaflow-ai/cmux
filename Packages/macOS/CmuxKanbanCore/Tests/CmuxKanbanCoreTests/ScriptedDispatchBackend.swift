@@ -40,3 +40,18 @@ actor ScriptedDispatchBackend: DispatchBackend {
 
     func cancelledCount() -> Int { cancelledHandles.count }
 }
+
+/// A test ``DispatchBackend`` whose ``dispatch(card:workingDirectory:)`` always
+/// throws, modelling a run that cannot start at all (e.g. the agent executable
+/// cannot be resolved). Exercises ``KanbanEngine``'s start-failure path.
+struct ThrowingDispatchBackend: DispatchBackend {
+    struct DispatchError: Error, CustomStringConvertible {
+        var description: String { "could not start" }
+    }
+
+    func dispatch(card: KanbanCard, workingDirectory: String?) async throws -> KanbanDispatchSession {
+        throw DispatchError()
+    }
+
+    func cancel(_ handle: KanbanDispatchHandle) async {}
+}

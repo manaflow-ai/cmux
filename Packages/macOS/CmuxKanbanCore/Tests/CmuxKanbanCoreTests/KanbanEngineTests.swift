@@ -110,7 +110,7 @@ struct KanbanEngineTests {
             .started(sessionId: "s"),
             .failed(message: "spawn error"),
         ])
-        let (engine, _, base, _) = try await makeEngine(backend: backend)
+        let (engine, repository, base, _) = try await makeEngine(backend: backend)
         defer { try? FileManager.default.removeItem(at: base) }
 
         let created = await engine.createTask(title: "Task")
@@ -120,6 +120,53 @@ struct KanbanEngineTests {
         let board = await awaitColumn(engine, cardId: cardId, is: .failed)
 
         #expect(board.card(id: cardId)?.column == .failed)
+        // The failure reason is logged exactly once — proves the appendLog that
+        // moved into fail() did not become a double-append nor get dropped.
+        let log = try String(contentsOf: await repository.logURL(cardId: cardId), encoding: .utf8)
+        #expect(log == "spawn error\n")
+    }
+
+    @Test
+    func dispatchFailingToStartLogsTheReason() async throws {
+        // The backend cannot start the run at all (e.g. agent executable cannot
+        // be resolved). The card must land in .failed AND the reason must reach
+        // its log — regression: fail(cardId:message:) used to discard the message.
+        let backend = ThrowingDispatchBackend()
+        let (engine, repository, base, _) = try await makeEngine(backend: backend)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let created = await engine.createTask(title: "Task")
+        let cardId = created.cards[0].id
+
+        try await engine.dispatch(cardId: cardId)
+        let board = await awaitColumn(engine, cardId: cardId, is: .failed)
+
+        #expect(board.card(id: cardId)?.column == .failed)
+        let log = try String(contentsOf: await repository.logURL(cardId: cardId), encoding: .utf8)
+        #expect(log.contains("Failed to start:"))
+    }
+
+    @Test
+    func dispatchEndingWithoutExitLogsTheFailureReason() async throws {
+        // A progress stream that finishes without a terminal event is an
+        // unexpected end: the engine fails the card. The synthesized reason must
+        // reach the card log too (same fail(cardId:message:) regression path).
+        let backend = ScriptedDispatchBackend(script: [
+            .started(sessionId: "s"),
+            .output("working…\n"),
+        ])
+        let (engine, repository, base, _) = try await makeEngine(backend: backend)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let created = await engine.createTask(title: "Task")
+        let cardId = created.cards[0].id
+
+        try await engine.dispatch(cardId: cardId)
+        let board = await awaitColumn(engine, cardId: cardId, is: .failed)
+
+        #expect(board.card(id: cardId)?.column == .failed)
+        let log = try String(contentsOf: await repository.logURL(cardId: cardId), encoding: .utf8)
+        #expect(log.contains("Dispatch ended without an exit status."))
     }
 
     @Test

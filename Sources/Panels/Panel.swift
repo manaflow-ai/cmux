@@ -33,10 +33,6 @@ public enum PanelType: String, Codable, Sendable {
             self = .agentSession
             return
         }
-        if rawValue.lowercased() == Self.kanban.rawValue.lowercased() {
-            self = .kanban
-            return
-        }
         throw DecodingError.dataCorruptedError(
             in: container,
             debugDescription: "Unknown panel type: \(rawValue)"

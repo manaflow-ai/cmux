@@ -1,12 +1,6 @@
 import type { AgentEvent, AgentSessionTheme } from "./types";
-import { makeClientId } from "./ids";
 import { applyAgentTheme } from "./theme";
-
-type NativeReply<T> =
-  | { ok: true; value: T }
-  | { ok: false; error?: { code?: string; userMessage?: string } };
-
-type EventListener = (event: AgentEvent) => void;
+import { createNativeBridge } from "../../shared/nativeBridge";
 
 declare global {
   interface Window {
@@ -14,17 +8,8 @@ declare global {
       applyTheme(theme: AgentSessionTheme): void;
       receive(event: AgentEvent): void;
     };
-    webkit?: {
-      messageHandlers?: {
-        agentSession?: {
-          postMessage(message: unknown): Promise<NativeReply<unknown>>;
-        };
-      };
-    };
   }
 }
-
-const listeners = new Set<EventListener>();
 
 export class NativeBridgeError extends Error {
   readonly code?: string;
@@ -36,47 +21,30 @@ export class NativeBridgeError extends Error {
   }
 }
 
+const bridge = createNativeBridge<AgentEvent>({
+  handlerName: "agentSession",
+  makeError: (message, code) => new NativeBridgeError(message, code),
+  requestFailedMessage: "Native bridge request failed.",
+  onReceive: (event) => {
+    if (event.type === "app.theme") {
+      applyAgentTheme(event.theme);
+    }
+  },
+});
+
 if (typeof window !== "undefined") {
   window.cmuxAgentBridge = {
     applyTheme(theme: AgentSessionTheme) {
       applyAgentTheme(theme);
     },
-    receive(event: AgentEvent) {
-      if (event.type === "app.theme") {
-        applyAgentTheme(event.theme);
-      }
-      for (const listener of listeners) {
-        listener(event);
-      }
-    },
+    receive: bridge.receive,
   };
 }
 
-export function subscribeToAgentEvents(listener: EventListener): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+export function subscribeToAgentEvents(listener: (event: AgentEvent) => void): () => void {
+  return bridge.subscribe(listener);
 }
 
-export async function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-  if (typeof window === "undefined") {
-    throw new Error("Native bridge is unavailable.");
-  }
-  const handler = window.webkit?.messageHandlers?.agentSession;
-  if (!handler || typeof handler.postMessage !== "function") {
-    throw new Error("Native bridge is unavailable.");
-  }
-
-  const reply = (await handler.postMessage({
-    id: makeClientId(),
-    method,
-    params,
-  })) as NativeReply<T>;
-
-  if (!reply.ok) {
-    throw new NativeBridgeError(reply.error?.userMessage || "Native bridge request failed.", reply.error?.code);
-  }
-
-  return reply.value;
+export function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  return bridge.callNative<T>(method, params);
 }

@@ -101,29 +101,62 @@ final class CmuxNativeBackend: DispatchBackend {
 
     /// Bridges one raw agent event onto the progress stream. Invoked on the main
     /// actor (every `AgentSessionProcessStore` emit is `@MainActor`).
+    ///
+    /// `provider.started` is ignored here: the native backend already synthesized
+    /// `.started` inline from `store.start()` (see ``dispatch(card:workingDirectory:)``),
+    /// so re-yielding it from the event would double-emit.
     private func handleAgentEvent(_ event: [String: Any], handle: KanbanDispatchHandle) {
-        guard let run = runs[handle] else { return }
-        switch event["type"] as? String {
-        case "provider.output":
-            if let text = event["text"] as? String {
-                run.continuation.yield(.output(text))
-            }
-        case "provider.turnComplete":
-            run.continuation.yield(.turnComplete)
+        guard let run = runs[handle],
+              let progress = AgentSessionEventMapping.sharedProgress(for: event) else { return }
+        run.continuation.yield(progress)
+        switch progress {
+        case .turnComplete:
             // Print-mode heuristic: one card = one turn. Stop the process so it
             // exits and we get a terminal `provider.exit`. Tunable in smoke.
             if let sessionId = run.sessionId {
                 try? run.store.stop(sessionId: sessionId)
             }
-        case "provider.exit":
-            let rawStatus = (event["status"] as? Int)
-                ?? (event["status"] as? Int32).map(Int.init)
-                ?? 0
-            run.continuation.yield(.exited(status: Int32(clamping: rawStatus)))
+        case .exited:
             run.continuation.finish()
             runs[handle] = nil
         default:
             break
         }
+    }
+}
+
+/// Maps the raw `AgentSessionProcessStore` events (`[String: Any]`) that every
+/// Kanban dispatch backend observes onto the ``KanbanDispatchProgress``
+/// vocabulary, so the store's wire keys and its `Int`/`Int32` exit-status
+/// encoding live in exactly one place instead of being copy-pasted across
+/// ``CmuxNativeBackend`` and ``CmuxLiveBackend``.
+enum AgentSessionEventMapping {
+    /// The progress event for the kinds common to every backend — output, turn
+    /// completion, and process exit. Returns `nil` for events a backend handles
+    /// itself, notably `provider.started` (native synthesizes it inline; the live
+    /// backend translates it directly), so callers keep ownership of that case
+    /// and of any per-backend side effects (auto-stop, observer teardown).
+    static func sharedProgress(for event: [String: Any]) -> KanbanDispatchProgress? {
+        switch event["type"] as? String {
+        case "provider.output":
+            guard let text = event["text"] as? String else { return nil }
+            return .output(text)
+        case "provider.turnComplete":
+            return .turnComplete
+        case "provider.exit":
+            return .exited(status: exitStatus(for: event))
+        default:
+            return nil
+        }
+    }
+
+    /// Decodes a `provider.exit` event's status. ``AgentSessionProcessStore`` emits
+    /// it as `Int32` (`emitExit`); a plain `Int` is tolerated, and an absent or
+    /// otherwise-typed value clamps to `0` (a clean exit).
+    static func exitStatus(for event: [String: Any]) -> Int32 {
+        let rawStatus = (event["status"] as? Int)
+            ?? (event["status"] as? Int32).map(Int.init)
+            ?? 0
+        return Int32(clamping: rawStatus)
     }
 }

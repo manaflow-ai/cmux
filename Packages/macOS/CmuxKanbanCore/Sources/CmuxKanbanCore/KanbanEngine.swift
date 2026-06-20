@@ -217,7 +217,6 @@ public actor KanbanEngine {
         case .exited(let status):
             await finish(cardId: cardId, exitStatus: status)
         case .failed(let message):
-            try? await repository.appendLog(cardId: cardId, text: message + "\n")
             await fail(cardId: cardId, message: message)
         }
         progressContinuation.yield(KanbanCardProgress(cardId: cardId, progress: progress))
@@ -233,8 +232,13 @@ public actor KanbanEngine {
         cleanup(cardId)
     }
 
+    /// Marks a card failed, recording `message` in its log first. Every failure
+    /// path routes through here — a backend-reported `.failed` event, a start
+    /// failure (`backend.dispatch` threw), and a progress stream that ended
+    /// without a terminal event — so the reason is always persisted, never just
+    /// the backend-reported ones.
     private func fail(cardId: UUID, message: String) async {
-        _ = message
+        try? await repository.appendLog(cardId: cardId, text: message + "\n")
         guard var card = board.card(id: cardId) else { return }
         card.sessionId = nil
         card.column = .failed

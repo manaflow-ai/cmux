@@ -27,9 +27,9 @@ struct AgentSessionWebRendererTests {
             .appendingPathComponent("webviews-app", isDirectory: true)
             .appendingPathComponent("diff-viewer.html", isDirectory: false)
 
-        expectTrue(AgentSessionWebRendererCoordinator.isTrustedShellURL(expected, expected: expected))
-        expectTrue(AgentSessionWebRendererCoordinator.isTrustedShellURL(equivalent, expected: expected))
-        expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(otherBundledFile, expected: expected))
-        expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(URL(string: "https://example.com"), expected: expected))
+        expectTrue(TrustedShellWeb.isTrustedShellURL(expected, expected: expected))
+        expectTrue(TrustedShellWeb.isTrustedShellURL(equivalent, expected: expected))
+        expectFalse(TrustedShellWeb.isTrustedShellURL(otherBundledFile, expected: expected))
+        expectFalse(TrustedShellWeb.isTrustedShellURL(URL(string: "https://example.com"), expected: expected))
     }
 }
