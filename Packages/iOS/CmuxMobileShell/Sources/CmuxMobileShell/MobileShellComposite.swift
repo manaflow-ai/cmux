@@ -1662,57 +1662,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Run the sync/v1 subscription with the same 1s..60s backoff as presence.
-    /// Each attempt resolves the current team, runs the one-time local→DO seed so
-    /// the list renders instantly from the phone's existing paired Macs, then
-    /// streams `devices` snapshot/delta frames into the local sync store. A
-    /// committed frame reloads the rendered list from the store.
+    /// Each attempt builds the client via a SHORT-LIVED weak `self` (resolve
+    /// team, seed, construct), then runs the long-lived socket holding NO strong
+    /// `self` — so an in-flight socket never retains the shell store past its
+    /// owner's lifetime (the `onApplied` callback is weak too). Mirrors how the
+    /// presence loop re-grabs `self` per frame rather than across the await.
     private func startSyncSubscription() {
-        guard syncTask == nil, deviceListLocalFirst,
-              let syncStore, let makeSyncTransport else { return }
+        guard syncTask == nil, deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil else { return }
         syncTask = Task { @MainActor [weak self] in
             let clock = ContinuousClock()
             var backoff: Duration = .seconds(1)
             while !Task.isCancelled {
-                guard let self else { return }
-                let teamID = (await self.syncTeamIDProvider?()) ?? ""
-                guard !teamID.isEmpty else {
-                    // Team not resolved yet (session still settling); retry soon.
+                // Build via weak self; `self` is released before `client.run()`.
+                // If self was deallocated, its `isolated deinit` already cancelled
+                // this task, so the next loop check exits.
+                guard let client = await self?.makeSyncSubscriptionClient() else {
+                    if Task.isCancelled { return }
                     guard (try? await clock.sleep(for: .seconds(1))) != nil else { return }
                     continue
                 }
-                self.syncSubscriptionTeamID = teamID
-                // Transparent local→DO seed (DESIGN.md §6), once per team:
-                // provisional rev==0 rows from the existing paired-Mac store
-                // render instantly before any frame and survive snapshot
-                // reconciliation. Idempotent (per-team marker + INSERT OR IGNORE).
-                if !self.seededSyncTeams.contains(teamID), let pairedMacStore = self.pairedMacStore,
-                   let accountID = self.identityProvider?.currentUserID {
-                    do {
-                        _ = try await PairedMacMigration(pairedStore: pairedMacStore, syncStore: syncStore)
-                            .runIfNeeded(accountID: accountID, teamID: teamID)
-                        self.seededSyncTeams.insert(teamID)
-                        await self.reloadDeviceListFromSyncStore(teamID: teamID)
-                    } catch {
-                        mobileShellLog.debug(
-                            "paired-mac sync seed failed: \(String(describing: error), privacy: .public)"
-                        )
-                    }
-                }
                 do {
-                    let applier = SyncFrameApplier(
-                        store: syncStore,
-                        teamID: teamID,
-                        sortKeyFor: DeviceSyncFacade.sortKey(for:),
-                        allowedCollections: [devicesSyncCollection]
-                    )
-                    let client = SyncClient(
-                        transport: makeSyncTransport(teamID),
-                        applier: applier,
-                        collections: [devicesSyncCollection],
-                        onApplied: { [weak self] in
-                            await self?.reloadDeviceListFromSyncStore(teamID: teamID)
-                        }
-                    )
                     try await client.run()
                     backoff = .seconds(1)
                 } catch is CancellationError {
@@ -1727,6 +1696,47 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 backoff = min(backoff * 2, .seconds(60))
             }
         }
+    }
+
+    /// Build the sync client for one subscription attempt: resolve the team, run
+    /// the one-time per-team local→DO seed (DESIGN.md §6 — provisional rev==0
+    /// rows from the paired-Mac store render instantly before any frame and
+    /// survive snapshot reconciliation; idempotent), and construct the client
+    /// with a weak-self apply callback. Returns nil when the team is not yet
+    /// resolved or sync is not configured. Separated so the subscription loop
+    /// touches `self` only here, never across the long `client.run()` await.
+    private func makeSyncSubscriptionClient() async -> SyncClient? {
+        guard deviceListLocalFirst, let syncStore, let makeSyncTransport else { return nil }
+        let teamID = (await syncTeamIDProvider?()) ?? ""
+        guard !teamID.isEmpty else { return nil }
+        syncSubscriptionTeamID = teamID
+        if !seededSyncTeams.contains(teamID), let pairedMacStore,
+           let accountID = identityProvider?.currentUserID {
+            do {
+                _ = try await PairedMacMigration(pairedStore: pairedMacStore, syncStore: syncStore)
+                    .runIfNeeded(accountID: accountID, teamID: teamID)
+                seededSyncTeams.insert(teamID)
+                await reloadDeviceListFromSyncStore(teamID: teamID)
+            } catch {
+                mobileShellLog.debug(
+                    "paired-mac sync seed failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        let applier = SyncFrameApplier(
+            store: syncStore,
+            teamID: teamID,
+            sortKeyFor: DeviceSyncFacade.sortKey(for:),
+            allowedCollections: [devicesSyncCollection]
+        )
+        return SyncClient(
+            transport: makeSyncTransport(teamID),
+            applier: applier,
+            collections: [devicesSyncCollection],
+            onApplied: { [weak self] in
+                await self?.reloadDeviceListFromSyncStore(teamID: teamID)
+            }
+        )
     }
 
     /// Read + guard + sort the device list from the local sync store (no
