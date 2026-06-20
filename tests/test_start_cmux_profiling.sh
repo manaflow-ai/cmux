@@ -292,10 +292,20 @@ capture_osascript="$TMP_DIR/capture-osascript"
 captured_args="$TMP_DIR/captured-osascript-args"
 cat > "$capture_osascript" <<EOF
 #!/usr/bin/env bash
-printf '%s\n' "\$@" > "$captured_args"
+{
+  printf '%s\n' "\$@"
+  printf 'BODY:\\n'
+  cat "\${5}"
+  printf '\\nNOTE:\\n'
+  cat "\${10}"
+} > "$captured_args"
 exit 0
 EOF
 chmod +x "$capture_osascript"
+reply_to_file="$TMP_DIR/reply-to.txt"
+note_file="$TMP_DIR/note.txt"
+printf '%s' "user@example.com" > "$reply_to_file"
+printf '%s' "profile note" > "$note_file"
 
 CMUX_PROFILE_LOCALE=ja_JP CMUX_PROFILE_OSASCRIPT="$capture_osascript" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
   --profile "$timeout_out" \
@@ -303,8 +313,8 @@ CMUX_PROFILE_LOCALE=ja_JP CMUX_PROFILE_OSASCRIPT="$capture_osascript" CMUX_PROFI
   --target-pid 303 \
   --channel dev \
   --bundle-id com.cmuxterm.app.debug.dog \
-  --reply-to "user@example.com" \
-  --note "profile note" \
+  --reply-to-file "$reply_to_file" \
+  --note-file "$note_file" \
   --send
 if ! grep -Fq "cmuxプロファイルを送信" "$captured_args" ||
    ! grep -Fq "下書きを開く" "$captured_args" ||

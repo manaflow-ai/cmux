@@ -5,7 +5,8 @@ usage() {
   cat >&2 <<'USAGE'
 Usage: submit-cmux-profile --profile <dir> [--target-name <name>] [--target-pid <pid>]
                            [--channel <channel>] [--bundle-id <id>]
-                           [--reply-to <email>] [--note <text>] [--skip-dialog] [--send]
+                           [--reply-to <email>|--reply-to-file <path>]
+                           [--note <text>|--note-file <path>] [--skip-dialog] [--send]
                            [--package-only] [--dry-run]
 
 Package a cmux profiling directory and submit it to founders@manaflow.com with
@@ -19,7 +20,9 @@ target_pid=""
 channel="unknown"
 bundle_id="unknown"
 reply_to=""
+reply_to_file=""
 note_text=""
+note_file=""
 skip_dialog="false"
 send_message="false"
 package_only="false"
@@ -61,9 +64,19 @@ while [ "$#" -gt 0 ]; do
       reply_to="$2"
       shift 2
       ;;
+    --reply-to-file)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --reply-to-file requires a value" >&2; exit 2; }
+      reply_to_file="$2"
+      shift 2
+      ;;
     --note)
       [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --note requires a value" >&2; exit 2; }
       note_text="$2"
+      shift 2
+      ;;
+    --note-file)
+      [ "$#" -ge 2 ] || { echo "submit-cmux-profile: --note-file requires a value" >&2; exit 2; }
+      note_file="$2"
       shift 2
       ;;
     --skip-dialog)
@@ -98,6 +111,15 @@ done
 if [ -z "$profile_dir" ] || [ ! -d "$profile_dir" ]; then
   echo "submit-cmux-profile: --profile must point to a profiling directory" >&2
   exit 2
+fi
+
+if [ -n "$reply_to_file" ]; then
+  [ -f "$reply_to_file" ] || { echo "submit-cmux-profile: --reply-to-file must point to a file" >&2; exit 2; }
+  reply_to="$(cat "$reply_to_file")"
+fi
+if [ -n "$note_file" ]; then
+  [ -f "$note_file" ] || { echo "submit-cmux-profile: --note-file must point to a file" >&2; exit 2; }
+  note_text="$(cat "$note_file")"
 fi
 
 safe_base="$(basename "$profile_dir" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
@@ -179,20 +201,27 @@ EOF
 
 apple_script="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit.XXXXXX")"
 apple_error="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit-error.XXXXXX")"
-trap 'rm -f "$apple_script" "$apple_error"' EXIT
+body_file="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit-body.XXXXXX")"
+note_text_file="$(mktemp "${TMPDIR:-/tmp}/cmux-profile-submit-note.XXXXXX")"
+chmod 600 "$body_file" "$note_text_file"
+printf '%s' "$body" > "$body_file"
+printf '%s' "$note_text" > "$note_text_file"
+trap 'rm -f "$apple_script" "$apple_error" "$body_file" "$note_text_file"' EXIT
 cat > "$apple_script" <<'OSA'
 on run argv
   set archivePath to item 1 of argv
   set recipientAddress to item 2 of argv
   set messageSubject to item 3 of argv
-  set baseBody to item 4 of argv
+  set baseBodyPath to item 4 of argv
   set dialogText to item 5 of argv
   set cancelButton to item 6 of argv
   set openDraftButton to item 7 of argv
   set dialogTitle to item 8 of argv
-  set suppliedNote to item 9 of argv
+  set suppliedNotePath to item 9 of argv
   set skipDialog to item 10 of argv
   set shouldSend to item 11 of argv
+  set baseBody to read POSIX file baseBodyPath as «class utf8»
+  set suppliedNote to read POSIX file suppliedNotePath as «class utf8»
 
   if skipDialog is "true" then
     set noteText to suppliedNote
@@ -218,7 +247,7 @@ on run argv
 end run
 OSA
 
-if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" "$note_text" "$skip_dialog" "$send_message" 2>"$apple_error"; then
+if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body_file" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" "$note_text_file" "$skip_dialog" "$send_message" 2>"$apple_error"; then
   exit 0
 fi
 

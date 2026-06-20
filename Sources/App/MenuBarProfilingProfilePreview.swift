@@ -23,12 +23,12 @@ enum MenuBarProfilingProfilePreview {
         return summary
     }
 
-    static func submitArguments(profileURL: URL, email: String, note: String, send: Bool = false) -> [String] {
+    static func submitArguments(profileURL: URL, replyToFile: URL, noteFile: URL, send: Bool = false) -> [String] {
         let summary = summaryText(for: profileURL)
         var args = [
             "--profile", profileURL.path,
-            "--reply-to", email,
-            "--note", note,
+            "--reply-to-file", replyToFile.path,
+            "--note-file", noteFile.path,
             "--skip-dialog",
         ]
         if send {

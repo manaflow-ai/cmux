@@ -26,6 +26,18 @@ extension MenuBarProfilingProgressWindowController {
 
         UserDefaults.standard.set(email, forKey: feedbackSettings.storedEmailKey)
         prepareSubmit()
+        let privateInputs: (replyToFile: URL, noteFile: URL)
+        do {
+            privateInputs = try makePrivateSubmitInputs(email: email, note: noteTextView.string)
+        } catch {
+            statusLabel.stringValue = String(
+                localized: "statusMenu.profiling.submitLaunchFailed",
+                defaultValue: "Unable to send the email."
+            ) + " " + error.localizedDescription
+            updateSubmitState()
+            NSSound.beep()
+            return
+        }
         submitButton.title = String(localized: "statusMenu.profiling.sendingEmail", defaultValue: "Sending...")
         statusLabel.stringValue = String(
             localized: "statusMenu.profiling.sendingEmailStatus",
@@ -36,8 +48,8 @@ extension MenuBarProfilingProgressWindowController {
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [submitterURL.path] + MenuBarProfilingProfilePreview.submitArguments(
             profileURL: outputURL,
-            email: email,
-            note: noteTextView.string,
+            replyToFile: privateInputs.replyToFile,
+            noteFile: privateInputs.noteFile,
             send: true
         )
         process.terminationHandler = { [weak self] process in
@@ -82,8 +94,27 @@ extension MenuBarProfilingProgressWindowController {
     private func prepareSubmit() {
         submitOutput = ""
         submitErrorOutput = ""
+        clearPrivateSubmitInputs()
         submitButton.isEnabled = false
         openFolderButton.isEnabled = false
+    }
+
+    private func makePrivateSubmitInputs(email: String, note: String) throws -> (replyToFile: URL, noteFile: URL) {
+        let replyToFile = try writePrivateSubmitInput(prefix: "cmux-profile-reply-to", text: email)
+        let noteFile = try writePrivateSubmitInput(prefix: "cmux-profile-note", text: note)
+        submitPrivateInputURLs = [replyToFile, noteFile]
+        return (replyToFile, noteFile)
+    }
+
+    private func writePrivateSubmitInput(prefix: String, text: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString).txt")
+        guard let data = text.data(using: .utf8) else {
+            throw CocoaError(.fileWriteInapplicableStringEncoding)
+        }
+        try data.write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        return url
     }
 
     private func runSubmitProcess(_ process: Process) {
@@ -178,6 +209,14 @@ extension MenuBarProfilingProgressWindowController {
         removeLogFile(submitErrorLogURL)
         submitOutputLogURL = nil
         submitErrorLogURL = nil
+        clearPrivateSubmitInputs()
+    }
+
+    private func clearPrivateSubmitInputs() {
+        for url in submitPrivateInputURLs {
+            removeLogFile(url)
+        }
+        submitPrivateInputURLs = []
     }
 
     private func archiveURLFromSubmitOutput() -> URL? {

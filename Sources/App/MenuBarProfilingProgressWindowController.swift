@@ -32,6 +32,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
     var submitErrorLogURL: URL?
     var submitOutputLogHandle: FileHandle?
     var submitErrorLogHandle: FileHandle?
+    var submitPrivateInputURLs: [URL] = []
     private var countdownTimer: Timer?
     private var startedAt: Date?
     private var scriptOutput = ""
