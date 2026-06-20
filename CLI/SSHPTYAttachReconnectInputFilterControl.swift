@@ -23,6 +23,21 @@ final class SSHPTYAttachReconnectInputFilterControl: Sendable {
         waitForStopAcknowledgement()
     }
 
+    func requestStopFiltering() {
+        guard !stopAcknowledgementReady() else {
+            return
+        }
+        signalStopFiltering()
+    }
+
+    func requestStopFiltering(unlessAlreadyRequested alreadyRequested: inout Bool) {
+        guard !alreadyRequested else {
+            return
+        }
+        requestStopFiltering()
+        alreadyRequested = true
+    }
+
     private func stopAcknowledgementReady() -> Bool {
         let events = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
         var pollFD = pollfd(fd: stopAcknowledgementReadFD, events: events, revents: 0)

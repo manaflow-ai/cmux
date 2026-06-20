@@ -11343,7 +11343,7 @@ struct CMUXCLI {
         // correction.
         resizeMonitor.requestCurrentResize()
 
-        var reconnectInputFilterControl: SSHPTYAttachReconnectInputFilterControl?
+        let reconnectInputFilterControl: SSHPTYAttachReconnectInputFilterControl?
         do {
             reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
                 fd: fd,
@@ -11355,13 +11355,13 @@ struct CMUXCLI {
         } catch {
             throw CLIError(message: "ssh-pty-attach: bridge write failed")
         }
+        var reconnectInputFilterStopRequested = false
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
-                reconnectInputFilterControl?.stopFiltering()
-                reconnectInputFilterControl = nil
+                reconnectInputFilterControl?.requestStopFiltering(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeMonitor.cancel()
