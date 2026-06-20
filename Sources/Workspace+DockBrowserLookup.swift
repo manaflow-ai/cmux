@@ -22,6 +22,10 @@ extension Workspace {
         _dockSplit?.containsPanel(panelId) ?? false
     }
 
+    var focusedDockPanelId: UUID? {
+        _dockSplit?.focusedPanelId
+    }
+
     @discardableResult
     func closeDockPanel(_ panelId: UUID, force: Bool = false) -> Bool {
         _dockSplit?.closePanel(panelId, force: force) ?? false
@@ -52,6 +56,18 @@ extension Workspace {
               let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager,
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else { return false }
         return workspace.openDockBrowserLinkInNewTab(panel: panel, seed: seed)
+    }
+}
+
+extension AppDelegate {
+    @discardableResult
+    func closeFocusedDockPanelForCommand(preferredWindow: NSWindow?) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else { return false }
+        guard context.keyboardFocusCoordinator.activeRightSidebarMode == .dock else { return false }
+        guard let workspace = context.tabManager.selectedWorkspace,
+              let panelId = workspace.focusedDockPanelId else { return true }
+        _ = workspace.closeDockPanelAndClearNotifications(panelId, force: false)
+        return true
     }
 }
 

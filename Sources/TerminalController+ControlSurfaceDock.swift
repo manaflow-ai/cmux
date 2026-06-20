@@ -93,4 +93,14 @@ extension TerminalController {
         }
         return nil
     }
+
+    func locateDockPane(_ paneId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager, workspace: Workspace)? {
+        guard let app = AppDelegate.shared else { return nil }
+        for summary in app.listMainWindowSummaries() {
+            guard let manager = app.tabManagerFor(windowId: summary.windowId),
+                  let workspace = manager.tabs.first(where: { $0.containsDockPane(paneId) }) else { continue }
+            return (summary.windowId, workspace.id, manager, workspace)
+        }
+        return nil
+    }
 }

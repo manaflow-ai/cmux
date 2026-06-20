@@ -37,9 +37,14 @@ extension TerminalController: ControlSurfaceContext {
             }
             return tabManager.tabs.first(where: { $0.containsDockPanel(surfaceId) })
         }
-        if let paneId = routing.paneID, let located = v2LocatePane(paneId) {
-            guard located.tabManager === tabManager else { return nil }
-            return located.workspace
+        if let paneId = routing.paneID {
+            if let located = v2LocatePane(paneId) {
+                guard located.tabManager === tabManager else { return nil }
+                return located.workspace
+            }
+            if let located = locateDockPane(paneId), located.tabManager === tabManager {
+                return located.workspace
+            }
         }
         guard let wsId = tabManager.selectedTabId else { return nil }
         return tabManager.tabs.first(where: { $0.id == wsId })
