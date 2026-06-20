@@ -2198,6 +2198,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let ticket: CmxAttachTicket
         do {
             ticket = try CmxAttachTicketInput.decode(rawURL)
+            MobileDebugLog.anchormux(
+                "pairing.ticket decoded routes=\(ticket.routes.map { $0.kind.rawValue }.joined(separator: ",")) workspace=\(ticket.workspaceID) terminal=\(ticket.terminalID ?? "nil")"
+            )
             // The v2 grammar rejects loopback inside the decoder; the legacy
             // grammars must keep decoding loopback for the simulator dev flow
             // (where 127.0.0.1 IS the host Mac). On a physical phone no
@@ -2214,6 +2217,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 throw MobileSyncPairingPayloadError.loopbackRouteRejected
             }
         } catch {
+            MobileDebugLog.anchormux("pairing.ticket decode_failed error=\(String(describing: error))")
             if case MobileSyncPairingPayloadError.loopbackRouteRejected = error {
                 // A scanned/pasted code that only points back at the Mac
                 // itself (127.0.0.1) would make the phone dial itself. Name
@@ -2267,6 +2271,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // token is used), so an expired legacy code scanned offline must say
         // "offline", not crawl the route loop's stacked timeouts.
         let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
+        MobileDebugLog.anchormux(
+            "pairing.routes candidates=\(candidateRoutes.map { $0.kind.rawValue }.joined(separator: ",")) supported=\((runtime?.supportedRouteKinds ?? []).map { $0.rawValue }.joined(separator: ","))"
+        )
         if !candidateRoutes.isEmpty {
             switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
             case .failedOffline: return .failed
@@ -3285,7 +3292,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         rawTerminalInputBuffer.clear()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
+        MobileDebugLog.anchormux(
+            "pairing.connect supportedRoutes=\(supportedRoutes.map { $0.kind.rawValue }.joined(separator: ",")) supportedKinds=\(supportedKinds.map { $0.rawValue }.joined(separator: ","))"
+        )
         guard let firstRoute = supportedRoutes.first else {
+            MobileDebugLog.anchormux("pairing.connect failed=no_supported_route")
             // No route kind this build can dial: set the specific category;
             // the caller records the matching analytics reason from it.
             connectionError = MobilePairingFailureCategory.noSupportedRoute.message
@@ -3323,6 +3334,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var lastError: (any Error)?
         for route in supportedRoutes {
             activeRoute = route
+            MobileDebugLog.anchormux(
+                "pairing.route.try kind=\(route.kind.rawValue) endpoint=\(route.endpoint.logDescription)"
+            )
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
             let client = MobileCoreRPCClient(
                 runtime: runtime,
@@ -3356,6 +3370,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     await persistPairedMacFromTicket(ticket)
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     syncSelectedTerminalForWorkspace()
+                    MobileDebugLog.anchormux(
+                        "pairing.route.connected kind=\(route.kind.rawValue) scoped=\(workspaceListRequest.isScoped) workspaces=\(workspaces.count) selectedWorkspace=\(selectedWorkspaceID?.rawValue ?? "nil") selectedTerminal=\(selectedTerminalID?.rawValue ?? "nil")"
+                    )
                     connectionState = .connected
                     markMacConnectionHealthy()
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
@@ -3370,6 +3387,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 } catch {
                     lastError = error
                     guard isCurrentConnectionAttempt(generation) else { return nil }
+                    MobileDebugLog.anchormux(
+                        "pairing.route.failed kind=\(route.kind.rawValue) scoped=\(workspaceListRequest.isScoped) error=\(String(describing: error))"
+                    )
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
