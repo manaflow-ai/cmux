@@ -3,6 +3,8 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct TerminalTabOverviewCard: View {
+    private static let previewLineLimit = 12
+
     let item: TerminalTabOverviewItem
     let canClose: Bool
     let onSelect: () -> Void
@@ -64,7 +66,7 @@ struct TerminalTabOverviewCard: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                 Spacer(minLength: 0)
             } else {
-                ForEach(Array(item.previewLines.prefix(18).enumerated()), id: \.offset) { _, line in
+                ForEach(Array(item.previewLines.prefix(Self.previewLineLimit).enumerated()), id: \.offset) { _, line in
                     Text(line.isEmpty ? " " : line)
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.86))
@@ -76,6 +78,7 @@ struct TerminalTabOverviewCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 220, alignment: .topLeading)
+        .clipped()
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(red: 0.08, green: 0.085, blue: 0.09))
