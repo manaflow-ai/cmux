@@ -74,6 +74,24 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
             KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(shortcut),
             .accepted(shortcut)
         )
+
+        let shiftedShortcut = StoredShortcut(
+            key: "`",
+            command: true,
+            shift: true,
+            option: false,
+            control: false,
+            keyCode: 50
+        )
+
+        XCTAssertEqual(
+            shiftedShortcut.carbonHotKeyRegistration,
+            CarbonHotKeyRegistration(keyCode: 50, modifiers: UInt32(cmdKey | shiftKey))
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(shiftedShortcut),
+            .accepted(shiftedShortcut)
+        )
     }
 
     func testGlobalSearchStillRejectsCommandGraveWindowCyclingHotkey() {
