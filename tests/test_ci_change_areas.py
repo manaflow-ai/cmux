@@ -78,6 +78,16 @@ def test_markdown_viewer_resources_run_webviews_asset_guard() -> None:
     )
 
 
+def test_markdown_viewer_webview_app_does_not_run_agent_session_resource_check() -> None:
+    assert_areas(
+        ["Resources/markdown-viewer/webviews-app/index.js"],
+        macos=True,
+        web=True,
+        go=False,
+        agent_session_web=False,
+    )
+
+
 def test_root_agent_web_dependencies_run_web_and_macos() -> None:
     assert_areas(
         ["package.json", "bun.lock"],

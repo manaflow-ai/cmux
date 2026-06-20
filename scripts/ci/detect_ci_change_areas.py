@@ -20,7 +20,7 @@ class ChangeAreas:
     agent_session_web: bool
 
     @classmethod
-    def all(cls) -> "ChangeAreas":
+    def all(cls) -> ChangeAreas:
         return cls(macos=True, web=True, go=True, agent_session_web=True)
 
     def as_output_lines(self) -> list[str]:
