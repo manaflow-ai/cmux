@@ -69,31 +69,35 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
-        let confirmableTabs = controller.tabs(inPane: pane).compactMap { tab -> (id: TabID, title: String)? in
-            guard !forceCloseDockTabIds.contains(tab.id), let panel = panel(for: tab.id) else { return nil }
-            guard CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+        var paneTitles: [String] = []
+        var confirmableTabIds = Set<TabID>()
+        for tab in controller.tabs(inPane: pane) {
+            let panel = panel(for: tab.id)
+            paneTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panel?.displayTitle ?? tab.title))
+            guard !forceCloseDockTabIds.contains(tab.id), let panel else { continue }
+            if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
                 requiresConfirmation: dockPanelNeedsConfirmClose(panel),
                 source: .shortcut
-            ) else { return nil }
-            return (tab.id, CloseOtherTabsConfirmationPrompt.displayTitle(panel.displayTitle))
+            ) {
+                confirmableTabIds.insert(tab.id)
+            }
         }
-        guard !confirmableTabs.isEmpty else { return true }
+        guard !confirmableTabIds.isEmpty else { return true }
 
-        let tabIds = Set(confirmableTabs.map { $0.id })
-        guard pendingCloseConfirmDockTabIds.isDisjoint(with: tabIds) else { return false }
+        guard pendingCloseConfirmDockTabIds.isDisjoint(with: confirmableTabIds) else { return false }
 
         let confirmationManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? AppDelegate.shared?.tabManager
         if confirmationManager?.isCloseConfirmationInFlight == true { return false }
 
-        pendingCloseConfirmDockTabIds.formUnion(tabIds)
-        let prompt = DockPaneCloseConfirmationPrompt(titles: confirmableTabs.map { $0.title })
+        pendingCloseConfirmDockTabIds.formUnion(confirmableTabIds)
+        let prompt = DockPaneCloseConfirmationPrompt(titles: paneTitles)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.pendingCloseConfirmDockTabIds.subtract(tabIds) }
+            defer { self.pendingCloseConfirmDockTabIds.subtract(confirmableTabIds) }
             guard self.confirmCloseDockPane(prompt, confirmationManager: confirmationManager) else { return }
 
-            self.forceCloseDockTabIds.formUnion(tabIds)
-            defer { self.forceCloseDockTabIds.subtract(tabIds) }
+            self.forceCloseDockTabIds.formUnion(confirmableTabIds)
+            defer { self.forceCloseDockTabIds.subtract(confirmableTabIds) }
             _ = self.bonsplitController.closePane(pane)
         }
         return false
@@ -120,6 +124,14 @@ extension DockSplitStore {
             return terminalPanel.needsConfirmClose()
         }
         return panel.isDirty
+    }
+
+    func needsConfirmClose() -> Bool {
+        for tabId in bonsplitController.allTabIds {
+            guard let panel = panel(for: tabId), dockPanelNeedsConfirmClose(panel) else { continue }
+            return true
+        }
+        return false
     }
 
     private func confirmCloseDockPanel(_ panel: any Panel, confirmationManager: TabManager?) -> Bool {

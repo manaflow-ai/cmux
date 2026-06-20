@@ -9752,6 +9752,7 @@ final class Workspace: Identifiable, ObservableObject {
                 return true
             }
         }
+        if _dockSplit?.needsConfirmClose() == true { return true }
         return false
     }
 

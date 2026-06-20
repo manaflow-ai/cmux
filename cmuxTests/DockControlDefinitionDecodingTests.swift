@@ -12,7 +12,7 @@ import Testing
 /// The Dock now reuses the main-area panel system (terminals *and* browsers),
 /// so the config schema gained an optional `type`/`url`. Existing terminal-only
 /// `dock.json` files must keep decoding unchanged.
-@Suite("Dock control definition decoding")
+@Suite("Dock control definition decoding", .serialized)
 struct DockControlDefinitionDecodingTests {
     private func decode(_ json: String) throws -> DockControlDefinition {
         try JSONDecoder().decode(DockControlDefinition.self, from: Data(json.utf8))
@@ -25,6 +25,12 @@ struct DockControlDefinitionDecodingTests {
         )
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    @MainActor
+    private func terminalPanel(in store: DockSplitStore, panelId: UUID) throws -> TerminalPanel {
+        let tabId = try #require(store.surfaceId(forPanelId: panelId))
+        return try #require(store.panel(for: tabId) as? TerminalPanel)
     }
 
     @Test("Legacy terminal config decodes unchanged")
@@ -282,6 +288,73 @@ struct DockControlDefinitionDecodingTests {
         store.applyConfigurationLoadResult(.resolved(staleResolution), generation: staleGeneration, replacingPanels: false)
 
         #expect(store.bonsplitController.allTabIds.isEmpty)
+    }
+
+    @Test("Workspace close confirmation includes Dock panels")
+    @MainActor
+    func workspaceCloseConfirmationIncludesDockPanels() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let store = workspace.dockSplit
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let terminalPanel = try terminalPanel(in: store, panelId: panelId)
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        defer { terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil) }
+
+        #expect(workspace.needsConfirmClose())
+    }
+
+    @Test("Dock pane close prompt lists every tab that will close")
+    @MainActor
+    func dockPaneClosePromptListsEveryTabThatWillClose() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let workspace = try #require(manager.tabs.first)
+        defer { workspace.teardownAllPanels() }
+
+        let store = workspace.dockSplit
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let dirtyPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let cleanPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
+        let dirtyPanel = try terminalPanel(in: store, panelId: dirtyPanelId)
+        let cleanPanel = try terminalPanel(in: store, panelId: cleanPanelId)
+        dirtyPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        defer {
+            dirtyPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+            cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+        }
+
+        var capturedPrompt: (title: String, message: String, acceptCmdD: Bool)?
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            capturedPrompt = (title, message, acceptCmdD)
+            return false
+        }
+
+        #expect(!store.splitTabBar(store.bonsplitController, shouldClosePane: rootPane))
+        for _ in 0..<10 where capturedPrompt == nil {
+            await Task.yield()
+        }
+
+        let expectedMessage = String(
+            format: String(
+                localized: "dialog.closePane.message.other",
+                defaultValue: "This will close %1$lld tabs in this pane:\n%2$@"
+            ),
+            locale: .current,
+            Int64(2),
+            "• Terminal\n• Terminal"
+        )
+        #expect(capturedPrompt?.title == String(localized: "dialog.closePane.title", defaultValue: "Close pane?"))
+        #expect(capturedPrompt?.message == expectedMessage)
+        #expect(capturedPrompt?.acceptCmdD == false)
     }
 
     @Test("Dock browser closes when WebKit requests close")
