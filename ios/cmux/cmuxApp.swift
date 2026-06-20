@@ -11,11 +11,10 @@ struct cmuxApp: App {
     /// The de-singletonized composition root: built once, injected down.
     @MainActor
     private static let root: AppCompositionRoot = {
-        // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
-        // the simulator and on DEBUG device builds so on-device XCUITests can
-        // attach to an in-runner mock host; release device builds keep only
-        // real transports.
-        #if targetEnvironment(simulator) || DEBUG
+        // `debugLoopback` (127.0.0.1) backs the simulator UI-test mock Mac.
+        // Physical devices must skip it even in DEBUG builds because loopback
+        // is the phone itself, not the paired Mac.
+        #if targetEnvironment(simulator)
         let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
         #else
         let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
@@ -36,6 +35,7 @@ struct cmuxApp: App {
         auth.start()
 
         let runtime = CMUXMobileRuntime(
+            supportedRouteKinds: supportedKinds,
             transportFactory: transportFactory,
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator)
