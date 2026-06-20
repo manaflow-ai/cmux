@@ -11575,9 +11575,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         flags: NSEvent.ModifierFlags,
         chars: String
     ) -> Int? {
-        browserOmnibarSelectionDeltaForControlNavigation(
+        flags.browserOmnibarSelectionDeltaForControlNavigation(
             hasFocusedAddressBar: hasFocusedAddressBar,
-            flags: flags,
             chars: chars
         )
     }
@@ -11601,7 +11600,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .flagsChanged:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             browserOmnibarFocusTracker.selectionRepeat.noteFlagsChanged(
-                shouldContinue: browserOmnibarShouldContinueControlNavigationRepeat(flags: flags),
+                shouldContinue: flags.browserOmnibarShouldContinueControlNavigationRepeat,
                 flagsRawValue: flags.rawValue
             )
         default:
