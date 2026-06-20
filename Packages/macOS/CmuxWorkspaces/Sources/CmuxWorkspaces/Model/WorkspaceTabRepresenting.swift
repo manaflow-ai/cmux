@@ -16,6 +16,11 @@ public protocol WorkspaceTabRepresenting: AnyObject, Identifiable where ID == UU
     var id: UUID { get }
     /// The owning `WorkspaceGroup.id`, or `nil` when ungrouped.
     var groupId: UUID? { get set }
+    /// The owning `Workstream.id`, or `nil` when not in any workstream.
+    /// Orthogonal to `groupId`: a workspace can belong to both a workstream
+    /// (the top-level drill-in container) and a group (the inline disclosure
+    /// rendered inside the workstream's detail view).
+    var workstreamId: UUID? { get set }
     /// Whether the workspace is pinned (pinned rows float above unpinned).
     var isPinned: Bool { get set }
     /// The workspace's current working directory (group creation inherits

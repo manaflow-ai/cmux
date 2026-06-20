@@ -10370,6 +10370,13 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        // Workstreams (top-level drill-in). When `drilledInWorkstreamId` is nil
+        // and `workstreamRowSnapshots` is empty, every workstream field is
+        // inert and the sidebar renders exactly as it did before workstreams.
+        let drilledInWorkstreamId: UUID?
+        let drilledInWorkstreamName: String?
+        let drilledInWorkstreamWorkspaceCount: Int
+        let workstreamRowSnapshots: [SidebarWorkstreamRowSnapshot]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10400,11 +10407,32 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
+        // Drill-in filter: the entire master-detail navigation is this single
+        // predicate. At the top level (drilledInWorkstreamId == nil) it keeps
+        // only workstream-less workspaces; drilled in, only that workstream's
+        // workspaces. With no workstreams every tab has workstreamId == nil, so
+        // this is the identity filter — no behavior change for non-adopters.
+        let drilledInWorkstreamId = tabManager.drilledInWorkstreamId
+        let workstreams = tabManager.workstreams
+        let visibleTabs = tabs.filter { $0.workstreamId == drilledInWorkstreamId }
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: tabs,
+            tabs: visibleTabs,
             groupsById: workspaceGroupById
         )
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        // Read unread via the observed `sidebarUnread` projection (NOT the
+        // unobserved notificationStore singleton) so the rollup re-renders when
+        // unread changes — important when every workspace lives in a workstream
+        // and no loose workspace row establishes the observation.
+        let workstreamRowSnapshots = SidebarWorkstreamRenderModel.rowSnapshots(
+            workstreams: workstreams,
+            tabs: tabs,
+            selectedWorkspaceId: tabManager.selectedTabId,
+            unreadCount: { sidebarUnread.unreadCount(forWorkspaceId: $0) }
+        )
+        let drilledInWorkstreamName = drilledInWorkstreamId
+            .flatMap { id in workstreams.first(where: { $0.id == id })?.name }
+        let drilledInWorkstreamWorkspaceCount = drilledInWorkstreamId == nil ? 0 : visibleTabs.count
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -10431,7 +10459,11 @@ struct VerticalTabsSidebar: View {
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            drilledInWorkstreamId: drilledInWorkstreamId,
+            drilledInWorkstreamName: drilledInWorkstreamName,
+            drilledInWorkstreamWorkspaceCount: drilledInWorkstreamWorkspaceCount,
+            workstreamRowSnapshots: workstreamRowSnapshots
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -11849,7 +11881,11 @@ struct VerticalTabsSidebar: View {
         // SidebarRowsFillLayout measured it (`sizeThatFits(height: nil)`) every
         // pass, realizing all rows and re-livelocking at scale (#2586 / #5764 /
         // #5845; regressed by #6033). Drop/tap = background; indicator on rows.
-        workspaceRows(renderContext: renderContext)
+        VStack(spacing: 0) {
+            // Top-level workstream master list / drill-in breadcrumb. Renders
+            // nothing when there are no workstreams (zero regression).
+            workstreamNavigationSection(renderContext: renderContext)
+            workspaceRows(renderContext: renderContext)
             .overlay(alignment: .bottom) {
                 if emptyAreaTopDropIndicatorVisible() {
                     Rectangle()
@@ -11891,6 +11927,7 @@ struct VerticalTabsSidebar: View {
                     expandsVertically: true
                 )
             }
+        }
     }
 
     @ViewBuilder

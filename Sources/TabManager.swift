@@ -242,6 +242,20 @@ class TabManager: ObservableObject {
         set { workspaces.workspaceGroups = newValue }
     }
 
+    /// Top-level workstreams (drill-in master list). Array order is the order
+    /// rows appear in. Membership lives on each `Workspace.workstreamId`.
+    var workstreams: [Workstream] {
+        get { workspaces.workstreams }
+        set { workspaces.workstreams = newValue }
+    }
+
+    /// The workstream the sidebar is currently drilled into, or nil for the
+    /// top-level master view. Drives the drill-in sidebar filtering.
+    var drilledInWorkstreamId: UUID? {
+        get { workspaces.drilledInWorkstreamId }
+        set { workspaces.drilledInWorkstreamId = newValue }
+    }
+
     /// Legacy Combine bridge for the remaining `tabManager.$tabs`
     /// subscribers. Driven exclusively from `workspaceTabsWillChange(to:)`,
     /// so it emits the new value during willSet and replays the current
@@ -447,6 +461,7 @@ class TabManager: ObservableObject {
     // (CmuxWorkspaces); creation/teardown/selection invert through
     // WorkspaceGroupHosting.
     let workspaceGrouping: WorkspaceGroupCoordinator<Workspace>
+    let workstreamCoordinator: WorkstreamCoordinator<Workspace>
     private var shouldRecordFocusHistory: Bool {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
@@ -505,6 +520,7 @@ class TabManager: ObservableObject {
         self.settings = settings
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
+        workstreamCoordinator = WorkstreamCoordinator(model: workspaces)
 #if DEBUG
         let sidebarGitDebugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
 #else
@@ -5881,10 +5897,29 @@ extension TabManager {
                 }
             return snapshots.isEmpty ? nil : snapshots
         }()
+        // Persist every workstream (including empty ones the user is still
+        // populating) in master-list order. Workstream ids are stable across
+        // restart, so membership reconnects from each workspace's workstreamId.
+        let workstreamSnapshots: [SessionWorkstreamSnapshot]? = {
+            let snapshots = workstreams.map { workstream in
+                SessionWorkstreamSnapshot(
+                    id: workstream.id,
+                    name: workstream.name,
+                    customColor: workstream.customColor,
+                    iconSymbol: workstream.iconSymbol
+                )
+            }
+            return snapshots.isEmpty ? nil : snapshots
+        }()
+        let drilledInWorkstreamId = workstreams.contains(where: { $0.id == self.drilledInWorkstreamId })
+            ? self.drilledInWorkstreamId
+            : nil
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             workspaces: workspaceSnapshots,
-            workspaceGroups: groupSnapshots
+            workspaceGroups: groupSnapshots,
+            workstreams: workstreamSnapshots,
+            drilledInWorkstreamId: drilledInWorkstreamId
         )
     }
 
@@ -6028,6 +6063,19 @@ extension TabManager {
             workspace.groupId = nil
         }
         workspaceGroups = restoredGroups
+        // Reconstruct workstreams (stable ids; membership already restored onto
+        // each workspace's workstreamId above). normalizeWorkstreamState clears
+        // any workstreamId / drill-in pointer that no longer resolves.
+        workstreams = (snapshot.workstreams ?? []).map { workstreamSnapshot in
+            Workstream(
+                id: workstreamSnapshot.id,
+                name: workstreamSnapshot.name,
+                customColor: workstreamSnapshot.customColor,
+                iconSymbol: workstreamSnapshot.iconSymbol
+            )
+        }
+        drilledInWorkstreamId = snapshot.drilledInWorkstreamId
+        workspaces.normalizeWorkstreamState()
         selectedTabId = newSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
