@@ -70,7 +70,7 @@ import Testing
         #expect(coordinator.isLoading == false)
     }
 
-    @Test func launchRestoreTokenProbeTimeoutStopsRestoringSession() async throws {
+    @Test func launchRestoreTokenProbeTimeoutKeepsCachedSessionInteractive() async throws {
         let clock = ManualTestClock()
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = HangingLaunchTokenProbeAuthClient(user: user)
@@ -81,7 +81,9 @@ import Testing
             hasCachedTokens: true
         )
 
-        #expect(coordinator.isRestoringSession)
+        #expect(coordinator.isRestoringSession == false)
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
         coordinator.start()
         await client.accessTokenDidStart()
         await clock.waitUntilSleepers()
