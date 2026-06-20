@@ -1121,6 +1121,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         schemaVersion: SessionSnapshotSchema.currentVersion,
         bundleIdentifier: Bundle.main.bundleIdentifier
     )
+    /// External-open URL classifier (CmuxWorkspaces); composition-root owned.
+    /// The deep-link/services shims forward the pure URL-shaping rules here,
+    /// injecting `Bundle.main.bundleURL` and the app-target
+    /// `FinderServicePathResolver` as the single source of directory ordering.
+    private let externalOpenURLClassifier: any ExternalOpenURLClassifying = ExternalOpenURLClassifier(
+        bundleURL: Bundle.main.bundleURL,
+        orderedUniqueDirectories: { pathURLs, excludedRootURLs in
+            FinderServicePathResolver.orderedUniqueDirectories(
+                from: pathURLs,
+                excludingDescendantsOf: excludedRootURLs
+            )
+        }
+    )
     /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
     /// owned. The `NSApplication` AX swizzle forwards to it behind
     /// ``AccessibilityWindowCaching``.
@@ -6438,40 +6451,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func externalOpenDirectories(from urls: [URL]) -> [String] {
-        // LaunchServices can surface the running app bundle on relaunch; ignore self paths so
-        // they do not get treated as explicit folder opens and suppress session restore.
-        FinderServicePathResolver.orderedUniqueDirectories(
-            from: urls.filter { $0.isFileURL },
-            excludingDescendantsOf: [Bundle.main.bundleURL]
-        )
+        externalOpenURLClassifier.directories(from: urls)
     }
 
     private func externalOpenFileURLs(from urls: [URL]) -> [URL] {
-        var seen: Set<String> = []
-        var fileURLs: [URL] = []
-        for url in urls where url.isFileURL && !externalOpenURLIsDirectory(url) {
-            let standardized = url.standardizedFileURL.resolvingSymlinksInPath()
-            guard !externalOpenURLIsDescendantOfCurrentBundle(standardized) else { continue }
-            let path = standardized.path(percentEncoded: false)
-            guard seen.insert(path).inserted else { continue }
-            fileURLs.append(url.standardizedFileURL)
-        }
-        return fileURLs
+        externalOpenURLClassifier.fileURLs(from: urls)
     }
 
     private func externalOpenURLIsDirectory(_ url: URL) -> Bool {
-        guard url.isFileURL else { return false }
-        if url.hasDirectoryPath {
-            return true
-        }
-        return (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-    }
-
-    private func externalOpenURLIsDescendantOfCurrentBundle(_ url: URL) -> Bool {
-        let pathComponents = url.standardizedFileURL.resolvingSymlinksInPath().pathComponents
-        let bundleComponents = Bundle.main.bundleURL.standardizedFileURL.resolvingSymlinksInPath().pathComponents
-        guard pathComponents.count >= bundleComponents.count else { return false }
-        return Array(pathComponents.prefix(bundleComponents.count)) == bundleComponents
+        externalOpenURLClassifier.isDirectory(url)
     }
 
     private func openWorkspaceForExternalDirectory(
