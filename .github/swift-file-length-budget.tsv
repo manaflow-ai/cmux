@@ -1,10 +1,10 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34344	CLI/cmux.swift
-17720	Sources/AppDelegate.swift
-16057	Sources/ContentView.swift
-14100	Sources/TerminalController.swift
+34335	CLI/cmux.swift
+17719	Sources/AppDelegate.swift
+16054	Sources/ContentView.swift
+13992	Sources/TerminalController.swift
 12721	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12695	Sources/Workspace.swift
 11853	Sources/GhosttyTerminalView.swift
@@ -45,7 +45,7 @@
 2257	Sources/TerminalNotificationStore.swift
 2257	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
-2105	Sources/SessionPersistence.swift
+2104	Sources/SessionPersistence.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1945	Sources/RestorableAgentSession.swift
@@ -126,7 +126,6 @@
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 736	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
-725	Sources/RightSidebarPanelView.swift
 722	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift
@@ -146,6 +145,7 @@
 680	Sources/FileExplorerSearchController.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 668	cmuxTests/FeedCoordinatorTests.swift
+668	cmuxTests/SettingsWindowPresenterTests.swift
 664	Sources/CmuxTopSnapshot.swift
 663	cmuxTests/SessionIndexViewTests.swift
 655	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator.swift
@@ -176,6 +176,7 @@
 583	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
+578	Sources/RightSidebarPanelView.swift
 577	cmuxTests/AppearanceSettingsTests.swift
 571	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
