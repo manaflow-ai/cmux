@@ -42,10 +42,19 @@ public actor PresenceSyncTransport: SyncTransport {
     }
 
     public nonisolated func frames() -> AsyncThrowingStream<Data, any Error> {
-        // Bounded buffer like PresenceClient: the shared socket also carries the
-        // team's frequent presence ticks, so an unbounded policy would grow if
-        // the consumer stalls.
-        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(256)) { continuation in
+        // Bounded buffer (the shared socket also carries the team's frequent
+        // presence ticks, so unbounded could grow if the consumer stalls), but
+        // `bufferingOldest`, NOT `bufferingNewest`. The sync protocol is
+        // cursor-based: `applyDelta` advances the cursor to a frame's rev with no
+        // contiguity guard, so a dropped frame in the MIDDLE silently loses a rev
+        // (the cursor steps over it). `bufferingNewest` would drop the oldest and
+        // deliver a non-contiguous tail — exactly that bug. `bufferingOldest`
+        // instead drops the NEWEST frames on overflow, so what is delivered stays
+        // a contiguous prefix and the cursor never advances past a gap; the
+        // dropped recent frames are simply re-sent from the persisted cursor when
+        // we reconnect and re-`hello`. On any drop we still end the stream so that
+        // reconnect happens promptly rather than waiting out the stall.
+        AsyncThrowingStream(bufferingPolicy: .bufferingOldest(256)) { continuation in
             let pump = Task {
                 do {
                     let task = try await self.connectedTask()
@@ -61,10 +70,11 @@ public actor PresenceSyncTransport: SyncTransport {
                         case .enqueued:
                             break
                         case .dropped:
-                            // The sync protocol is stateful (snapshot + deltas);
-                            // continuing past a dropped frame could let the cursor
-                            // advance over a gap. End the stream so SyncClient
-                            // resets and re-hellos for a fresh snapshot.
+                            // A newest frame was dropped (buffer full). The
+                            // delivered prefix is still contiguous, so the cursor
+                            // is safe; end the stream so SyncClient reconnects and
+                            // re-hellos from that cursor to catch up the dropped
+                            // tail.
                             continuation.finish(throwing: PresenceClientError.updatesDropped)
                             return
                         case .terminated:
