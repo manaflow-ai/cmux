@@ -2668,7 +2668,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func refreshSecondaryMacWorkspaces() async {
         guard let pairedMacStore, Self.multiMacAggregationEnabled else { return }
-        let account = identityProvider?.currentUserID
+        // Require a concrete signed-in user before any load/connection: a nil/empty
+        // account would make `loadAll(stackUserID: nil)` read EVERY locally stored
+        // Mac across Stack accounts and publish another account's workspaces into
+        // this UI (the scope guard alone passes for nil == nil). Mirrors
+        // loadPairedMacs()'s account requirement.
+        guard let account = identityProvider?.currentUserID, !account.isEmpty else { return }
         // Pull the authoritative backup first so a secondary Mac that relaunched
         // on a new port has its route refreshed before we (re)connect.
         if let refresher = pairedMacStore as? PairedMacBackupRefreshing {

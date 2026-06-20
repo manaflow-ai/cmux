@@ -37,6 +37,7 @@ import {
 import { parseHello, type SyncServerFrame } from "./sync";
 import {
   gcTombstones,
+  listTombstonedCollections,
   markBackfillDone,
   nextTombstoneGcTime,
   readBackfillDone,
@@ -639,6 +640,19 @@ export class TeamPresence extends DurableObject {
       // instances left to schedule a heartbeat-driven alarm) still wakes to GC
       // its tombstones and advance the GC floor (DESIGN.md §3.5).
       tombGc = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
+      // Each Stack user's paired-Mac backup is its OWN physical collection
+      // (`pairedMacs:<userId>`), so GC every one that currently holds tombstones;
+      // otherwise an authenticated client churning create/delete grows
+      // `synced:`/`synctomb:` storage without bound (the live-record cap resets on
+      // delete). Fold each collection's next-GC deadline into the alarm schedule.
+      for (const collection of await listTombstonedCollections(
+        this.syncStorage(),
+        `${PAIRED_MACS_COLLECTION}:`,
+      )) {
+        await gcTombstones(this.syncStorage(), collection, now);
+        const next = await nextTombstoneGcTime(this.syncStorage(), collection);
+        if (next !== null) tombGc = tombGc === null ? next : Math.min(tombGc, next);
+      }
     } catch (err) {
       console.error("sync projection/GC failed (alarm); presence unaffected", err);
     }

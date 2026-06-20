@@ -14,7 +14,13 @@ import {
   parsePairedMacBackup,
   type PairedMacBackupRecord,
 } from "../src/syncPairedMacs";
-import { buildSnapshotPages, listRecords, type SyncStorage } from "../src/syncStorage";
+import {
+  buildSnapshotPages,
+  gcTombstones,
+  listRecords,
+  listTombstonedCollections,
+  type SyncStorage,
+} from "../src/syncStorage";
 
 const T0 = 1_750_000_000_000;
 
@@ -146,6 +152,21 @@ describe("applyBackupOps", () => {
     // A real route change DOES produce a delta.
     const changed = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "192.168.1.99", 22) }], T0 + 2000);
     expect(changed).toHaveLength(1);
+  });
+
+  it("per-user paired-Mac tombstones are discoverable and GC-able (no unbounded growth)", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "192.168.1.50", 22) }], T0);
+    await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-a" }], T0 + 1000);
+    // The alarm discovers the per-user collection by tombstone prefix without
+    // knowing the user id ahead of time.
+    const collection = pairedMacsCollection("user-1");
+    expect(await listTombstonedCollections(storage, `${PAIRED_MACS_COLLECTION}:`)).toContain(collection);
+    // GC with retention elapsed collects the tombstone, so churned create/delete
+    // cannot grow storage without bound.
+    const res = await gcTombstones(storage, collection, T0 + 1_000_000_000, 0);
+    expect(res.collected).toBe(1);
+    expect(await listTombstonedCollections(storage, `${PAIRED_MACS_COLLECTION}:`)).not.toContain(collection);
   });
 
   it("listLiveBackup returns live records newest-first and excludes tombstones, scoped per user", async () => {

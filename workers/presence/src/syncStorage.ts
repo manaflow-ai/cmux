@@ -363,6 +363,25 @@ export async function resolveHelloFrames<P>(
  * index oldest-first, deletes each expired tombstone record and its index
  * entry, and raises the GC floor to the highest GC'd rev. O(expired), not a full
  * scan. Returns the number GC'd and the new floor. */
+/** Distinct collections that currently hold tombstone index entries under a base
+ * prefix — e.g. base `"pairedMacs:"` returns every `pairedMacs:<userId>`
+ * collection with a tombstone. Lets the alarm GC per-user collections it does not
+ * know by name. Tombstone keys are `synctomb:<collection>:<16-digit rev>`, so the
+ * collection is the key minus the `synctomb:` prefix and the trailing `:<rev>`. */
+export async function listTombstonedCollections(
+  storage: SyncStorage,
+  basePrefix: string,
+): Promise<string[]> {
+  const index = await storage.list<string>({ prefix: `${TOMB_PREFIX}${basePrefix}` });
+  const collections = new Set<string>();
+  for (const indexKey of index.keys()) {
+    const body = indexKey.slice(TOMB_PREFIX.length);
+    const lastColon = body.lastIndexOf(":");
+    if (lastColon > 0) collections.add(body.slice(0, lastColon));
+  }
+  return [...collections];
+}
+
 export async function gcTombstones(
   storage: SyncStorage,
   collection: string,

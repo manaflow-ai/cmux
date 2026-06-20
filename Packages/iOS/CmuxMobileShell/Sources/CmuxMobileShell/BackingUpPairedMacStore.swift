@@ -48,6 +48,12 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// The most recent signed-in account seen on a read/write, so `remove` (which
     /// has no account parameter) only mirrors deletes while signed in.
     private var lastSignedInAccount: String?
+    /// Bumped by every `removeAll()` (sign-out wipe). A restore captures it before
+    /// awaiting its task and re-checks after: a restore that completed/resumed
+    /// across a wipe must NOT memoize `restoredScopes` (which would make a
+    /// same-launch re-sign-in skip the restore and show an empty list) or clobber
+    /// a post-wipe `inFlight` entry.
+    private var resetGeneration = 0
 
     public init(
         inner: any MobilePairedMacStoring,
@@ -132,6 +138,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // restore memo (and any in-flight restore) so a same-launch re-sign-in
         // restores again rather than reading the just-emptied store.
         try await inner.removeAll()
+        resetGeneration &+= 1
         restoredScopes.removeAll()
         // Cancel in-flight restores so a backup fetch suspended across this wipe
         // cannot resume and re-upsert the previous account's Macs into the just-
@@ -163,7 +170,12 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             inFlight[scope] = created
             task = created
         }
+        let generation = resetGeneration
         let outcome = await task.value
+        // A sign-out wipe across the await already cleared inFlight/restoredScopes;
+        // do not re-touch them (clobbering a post-wipe inFlight entry, or memoizing
+        // a scope the wipe removed and suppressing a same-launch re-sign-in restore).
+        guard resetGeneration == generation else { return }
         inFlight[scope] = nil
         if outcome.completed { restoredScopes.insert(scope) }
     }
@@ -214,7 +226,12 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             inFlight[scope] = created
             task = created
         }
+        let generation = resetGeneration
         let outcome = await task.value
+        // A sign-out wipe across the await already cleared inFlight/restoredScopes;
+        // do not re-touch them (we'd clobber a post-wipe inFlight entry or memoize a
+        // scope the wipe removed, suppressing a same-launch re-sign-in restore).
+        guard resetGeneration == generation else { return }
         inFlight[scope] = nil
         if outcome.completed { restoredScopes.insert(scope) }
     }
