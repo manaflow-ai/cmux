@@ -2890,7 +2890,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let mainWorkspaceCount = manager.tabs.count
         // The same window shape MobilePairingWindowController creates, keyed by
         // the same identifier constant, so this test fails if the pairing
-        // window's identifier ever drops out of cmuxAuxiliaryWindowIdentifiers
+        // window's identifier ever drops out of AuxiliaryWindowRegistry.default
         // (the regression: Cmd+W on "Pair iPhone" closed a terminal tab in the
         // main window behind it instead of the pairing window).
         let pairingWindow = NSWindow(
