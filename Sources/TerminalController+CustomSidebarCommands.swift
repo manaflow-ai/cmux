@@ -146,13 +146,12 @@ extension TerminalController {
             if focus {
                 workspace.clearSplitZoom()
             }
-            let panel: CustomSidebarPanel?
+            var panel: CustomSidebarPanel?
             if focus, let focusedPanelId = workspace.focusedPanelId {
                 panel = workspace.openOrFocusCustomSidebarSplit(from: focusedPanelId, name: name)
-            } else if let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first {
+            }
+            if panel == nil, let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first {
                 panel = workspace.openOrFocusCustomSidebarSurface(inPane: paneId, name: name, focus: focus)
-            } else {
-                panel = nil
             }
             guard let panel else {
                 return .err(

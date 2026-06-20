@@ -125,6 +125,46 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
     }
 
     @MainActor
+    func testV2CustomSidebarOpenFallsBackWhenFocusedPanelCannotSplit() throws {
+        let sidebarName = "__cmux_fallback_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        try withTemporaryCustomSidebarsDirectory { directory in
+            let fileURL = directory.appendingPathComponent("\(sidebarName).swift")
+            try #"Text("Fallback")"#.write(to: fileURL, atomically: true, encoding: .utf8)
+
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            defer { AppDelegate.shared = previousAppDelegate }
+
+            let tabManager = TabManager()
+            let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+            let windowId = UUID()
+            appDelegate.registerMainWindowContextForTesting(
+                windowId: windowId,
+                tabManager: tabManager,
+                fileExplorerState: FileExplorerState()
+            )
+            defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+            let staleFocusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+            workspace.panels.removeValue(forKey: staleFocusedPanelId)
+
+            switch TerminalController.shared.v2CustomSidebarOpen(
+                params: ["name": sidebarName, "workspace_id": workspace.id.uuidString, "focus": true]
+            ) {
+            case .ok(let payload):
+                XCTAssertEqual(payload["opened_name"] as? String, sidebarName)
+                XCTAssertEqual(payload["type"] as? String, PanelType.customSidebar.rawValue)
+            case .err(let code, let message, _):
+                XCTFail("Expected fallback open to succeed, got \(code): \(message)")
+            }
+
+            XCTAssertNotNil(
+                workspace.panels.values.compactMap { $0 as? CustomSidebarPanel }.first { $0.name == sidebarName }
+            )
+        }
+    }
+
+    @MainActor
     func testValuesIncludePanelPullRequestWhenFocusedPanelMirrorIsNil() throws {
         let workspace = Workspace(
             title: "Tests",
