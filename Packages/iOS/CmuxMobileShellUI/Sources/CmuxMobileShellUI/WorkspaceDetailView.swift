@@ -364,6 +364,17 @@ struct WorkspaceDetailView: View {
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
+        .overlay {
+            // When the phone is not connected to this Mac, show a clear
+            // reconnecting/offline state with an action instead of a black
+            // terminal (the recurring "black screen" — a dropped connection left
+            // the user staring at an unrendered surface).
+            if connectionStatus != .connected {
+                TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
+                    Task { await store.reconnectOrRefresh() }
+                }
+            }
+        }
         #if os(iOS) && DEBUG
         // Store-side composer seam (DEBUG/UI-test only): exposes the source-of-truth
         // store flags that drive the surface's composer mirror, so a UI test can assert
