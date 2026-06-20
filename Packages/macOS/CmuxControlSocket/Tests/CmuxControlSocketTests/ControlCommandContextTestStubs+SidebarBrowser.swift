@@ -139,6 +139,23 @@ extension ControlBrowserContext {
     func controlBrowserImportDialog(
         params: [String: JSONValue]
     ) -> ControlBrowserImportDialogResolution { .opened(scopeRawValue: nil) }
+
+    func controlBrowserGetTitle(
+        params: [String: JSONValue]
+    ) -> ControlBrowserGetTitleResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserFrameSelect(
+        params: [String: JSONValue],
+        rawSelector: String
+    ) -> ControlBrowserFrameSelectResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserFrameMain(
+        params: [String: JSONValue]
+    ) -> ControlBrowserFrameMainResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserScreenshot(
+        params: [String: JSONValue]
+    ) -> ControlBrowserScreenshotResolution { .failed(.tabManagerUnavailable) }
 }
 
 extension ControlBrowserPanelContext {

@@ -1855,19 +1855,14 @@ class TerminalController {
         // browser.dialog.accept, browser.dialog.dismiss, browser.import.dialog) are
         // handled above by ControlCommandCoordinator (handleBrowser) via the
         // ControlBrowserContext seam.
+        // The read-only browser getters (browser.get.title, browser.frame.select,
+        // browser.frame.main, browser.screenshot) are handled above by
+        // ControlCommandCoordinator (handleBrowserReadOnly) via the same seam.
         // browser methods that evaluate page JavaScript run on the socket worker
         // (see ControlCommandExecutionPolicy.socketWorkerMethods); they never reach
         // this switch. find/navigation/interaction are owned by CmuxControlSocket's
         // ControlBrowser{Query,Navigation,Interaction}Worker; snapshot/eval/wait/
         // get/is stay on v2BrowserJSCommandOnSocketWorker.
-        case "browser.screenshot":
-            return v2Result(id: id, self.v2BrowserScreenshot(params: params))
-        case "browser.get.title":
-            return v2Result(id: id, self.v2BrowserGetTitle(params: params))
-        case "browser.frame.select":
-            return v2Result(id: id, self.v2BrowserFrameSelect(params: params))
-        case "browser.frame.main":
-            return v2Result(id: id, self.v2BrowserFrameMain(params: params))
         // browser.dialog.accept/dismiss, browser.import.dialog,
         // browser.cookies.get/set/clear, browser.storage.get/set/clear, and
         // browser.addinitscript/addscript/addstyle handled above by
@@ -5154,91 +5149,6 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserScreenshot(params: [String: Any]) -> V2CallResult {
-        let resolved: (
-            error: V2CallResult?,
-            workspaceId: UUID?,
-            surfaceId: UUID?,
-            browserPanel: BrowserPanel?
-        ) = v2MainSync {
-            guard let tabManager = v2ResolveTabManager(params: params) else {
-                return (.err(code: "unavailable", message: "TabManager not available", data: nil), nil, nil, nil)
-            }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                return (.err(code: "not_found", message: "Workspace not found", data: nil), nil, nil, nil)
-            }
-            let resolvedSurface = v2ResolveBrowserSurfaceId(params: params, workspace: ws)
-            if let error = resolvedSurface.error {
-                return (error, nil, nil, nil)
-            }
-            guard let surfaceId = resolvedSurface.surfaceId else {
-                return (.err(code: "not_found", message: "No focused browser surface", data: nil), nil, nil, nil)
-            }
-            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
-                return (
-                    .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString]),
-                    nil,
-                    nil,
-                    nil
-                )
-            }
-            return (nil, ws.id, surfaceId, browserPanel)
-        }
-
-        if let error = resolved.error {
-            return error
-        }
-        guard let workspaceId = resolved.workspaceId,
-              let surfaceId = resolved.surfaceId,
-              let browserPanel = resolved.browserPanel else {
-            return .err(code: "internal_error", message: "Browser operation failed", data: nil)
-        }
-
-        let snapshotResult: Data?? = v2AwaitCallback(timeout: 15.0) { finish in
-            browserPanel.captureAutomationVisibleViewportSnapshot { result in
-                switch result {
-                case .success(let image):
-                    finish(self.v2PNGData(from: image))
-                case .failure:
-                    finish(nil)
-                }
-            }
-        }
-
-        guard let snapshotResult else {
-            return .err(code: "timeout", message: "Timed out waiting for snapshot", data: nil)
-        }
-        guard let imageData = snapshotResult else {
-            return .err(code: "internal_error", message: "Failed to capture snapshot", data: nil)
-        }
-
-        var result: [String: Any] = [
-            "workspace_id": workspaceId.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-            "surface_id": surfaceId.uuidString,
-            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-            "png_base64": imageData.base64EncodedString()
-        ]
-
-        // Best effort: keep screenshot data available even when temp-file writes fail.
-        let screenshotsDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
-        if (try? FileManager.default.createDirectory(at: screenshotsDirectory, withIntermediateDirectories: true)) != nil {
-            bestEffortPruneTemporaryFiles(in: screenshotsDirectory)
-            let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
-            let shortSurfaceId = String(surfaceId.uuidString.prefix(8))
-            let shortRandomId = String(UUID().uuidString.prefix(8))
-            let filename = "surface-\(shortSurfaceId)-\(timestampMs)-\(shortRandomId).png"
-            let imageURL = screenshotsDirectory.appendingPathComponent(filename, isDirectory: false)
-            if (try? imageData.write(to: imageURL, options: .atomic)) != nil {
-                result["path"] = imageURL.path
-                result["url"] = imageURL.absoluteString
-            }
-        }
-
-        return .ok(result)
-    }
-
     private nonisolated func v2BrowserGetText(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "get.text") { selectorLiteral in
             """
@@ -5289,18 +5199,6 @@ class TerminalController {
               return { ok: true, value: el.getAttribute(String(\(attrLiteral))) };
             })()
             """
-        }
-    }
-
-    private func v2BrowserGetTitle(params: [String: Any]) -> V2CallResult {
-        v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "title": browserPanel.pageTitle
-            ])
         }
     }
 
@@ -5983,69 +5881,6 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserFrameSelect(params: [String: Any]) -> V2CallResult {
-        guard let selectorRaw = v2BrowserSelector(params) else {
-            return .err(code: "invalid_params", message: "Missing selector", data: nil)
-        }
-
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
-                return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
-            }
-            let selectorLiteral = v2JSONLiteral(selector)
-            let script = """
-            (() => {
-              const frame = document.querySelector(\(selectorLiteral));
-              if (!frame) return { ok: false, error: 'not_found' };
-              if (!('contentDocument' in frame)) return { ok: false, error: 'not_frame' };
-              try {
-                const sameOrigin = !!frame.contentDocument;
-                if (!sameOrigin) return { ok: false, error: 'cross_origin' };
-              } catch (_) {
-                return { ok: false, error: 'cross_origin' };
-              }
-              return { ok: true };
-            })()
-            """
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                if let dict = value as? [String: Any],
-                   let ok = dict["ok"] as? Bool,
-                   ok {
-                    v2BrowserFrameSelectorBySurface[surfaceId] = selector
-                    return .ok([
-                        "workspace_id": ws.id.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                        "surface_id": surfaceId.uuidString,
-                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                        "frame_selector": selector
-                    ])
-                }
-                if let dict = value as? [String: Any],
-                   let errorText = dict["error"] as? String,
-                   errorText == "cross_origin" {
-                    return .err(code: "not_supported", message: "Cross-origin iframe control is not supported", data: ["selector": selector])
-                }
-                return .err(code: "not_found", message: "Frame not found", data: ["selector": selector])
-            }
-        }
-    }
-
-    private func v2BrowserFrameMain(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, _ in
-            v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "frame_selector": NSNull()
-            ])
-        }
-    }
-
     private func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, browserPanel: BrowserPanel) {
         _ = v2RunJavaScript(
             browserPanel.webView,
@@ -6128,6 +5963,175 @@ class TerminalController {
                 )
             }
         }
+    }
+
+    /// `browser.get.title` witness (``ControlBrowserContext``): reads the
+    /// resolved browser panel's `pageTitle`, byte-faithful to the former
+    /// `v2BrowserGetTitle(params:)` body. The coordinator owns the identity
+    /// payload + `title` key. Stays on `TerminalController` because it shares the
+    /// `private` `v2BrowserWithPanel`-head plumbing through
+    /// `browserResolvePanelTyped`.
+    func controlBrowserGetTitle(
+        params: [String: JSONValue]
+    ) -> ControlBrowserGetTitleResolution {
+        switch browserResolvePanelTyped(params: params.mapValues(\.foundationObject)) {
+        case .failure(let failure):
+            return .failed(failure)
+        case .success(let resolved):
+            return .resolved(
+                workspaceID: resolved.workspace.id,
+                surfaceID: resolved.surfaceId,
+                title: resolved.browserPanel.pageTitle
+            )
+        }
+    }
+
+    /// `browser.frame.select` witness (``ControlBrowserContext``): resolves the
+    /// (possibly `@e`-ref) selector against the surface, evaluates the
+    /// same-origin iframe probe, and on success records the per-surface frame
+    /// selector, byte-faithful to the former `v2BrowserFrameSelect(params:)`
+    /// body. The coordinator owns the `Missing selector` guard, the identity
+    /// payload, and the `frame_selector` key. Stays on `TerminalController`
+    /// because it mutates the `private` `v2BrowserFrameSelectorBySurface` cache
+    /// (read by the out-of-scope worker-lane JS-eval methods).
+    func controlBrowserFrameSelect(
+        params: [String: JSONValue],
+        rawSelector: String
+    ) -> ControlBrowserFrameSelectResolution {
+        switch browserResolvePanelTyped(params: params.mapValues(\.foundationObject)) {
+        case .failure(let failure):
+            return .failed(failure)
+        case .success(let resolved):
+            let surfaceId = resolved.surfaceId
+            let browserPanel = resolved.browserPanel
+            guard let selector = v2BrowserResolveSelector(rawSelector, surfaceId: surfaceId) else {
+                return .elementRefNotFound(rawSelector: rawSelector)
+            }
+            let selectorLiteral = v2JSONLiteral(selector)
+            let script = """
+            (() => {
+              const frame = document.querySelector(\(selectorLiteral));
+              if (!frame) return { ok: false, error: 'not_found' };
+              if (!('contentDocument' in frame)) return { ok: false, error: 'not_frame' };
+              try {
+                const sameOrigin = !!frame.contentDocument;
+                if (!sameOrigin) return { ok: false, error: 'cross_origin' };
+              } catch (_) {
+                return { ok: false, error: 'cross_origin' };
+              }
+              return { ok: true };
+            })()
+            """
+            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
+            case .failure(let message):
+                return .jsError(message: message)
+            case .success(let value):
+                if let dict = value as? [String: Any],
+                   let ok = dict["ok"] as? Bool,
+                   ok {
+                    v2BrowserFrameSelectorBySurface[surfaceId] = selector
+                    return .selected(
+                        workspaceID: resolved.workspace.id,
+                        surfaceID: surfaceId,
+                        frameSelector: selector
+                    )
+                }
+                if let dict = value as? [String: Any],
+                   let errorText = dict["error"] as? String,
+                   errorText == "cross_origin" {
+                    return .crossOrigin(selector: selector)
+                }
+                return .frameNotFound(selector: selector)
+            }
+        }
+    }
+
+    /// `browser.frame.main` witness (``ControlBrowserContext``): clears the
+    /// per-surface pinned frame selector, byte-faithful to the former
+    /// `v2BrowserFrameMain(params:)` body. The coordinator owns the identity
+    /// payload + the JSON-null `frame_selector`. Stays on `TerminalController`
+    /// because it mutates the `private` `v2BrowserFrameSelectorBySurface` cache.
+    func controlBrowserFrameMain(
+        params: [String: JSONValue]
+    ) -> ControlBrowserFrameMainResolution {
+        switch browserResolvePanelTyped(params: params.mapValues(\.foundationObject)) {
+        case .failure(let failure):
+            return .failed(failure)
+        case .success(let resolved):
+            v2BrowserFrameSelectorBySurface.removeValue(forKey: resolved.surfaceId)
+            return .resolved(
+                workspaceID: resolved.workspace.id,
+                surfaceID: resolved.surfaceId
+            )
+        }
+    }
+
+    /// `browser.screenshot` witness (``ControlBrowserContext``): captures the
+    /// resolved browser's automation-visible viewport snapshot (15s budget),
+    /// PNG-encodes it, and best-effort writes a pruned temp file, byte-faithful
+    /// to the former `v2BrowserScreenshot(params:)` body. The coordinator owns
+    /// the identity payload + `png_base64`/`path`/`url` keys. Stays on
+    /// `TerminalController` because it calls the `private`
+    /// `v2AwaitCallback`/`v2PNGData`/`bestEffortPruneTemporaryFiles` plumbing
+    /// and `BrowserPanel.captureAutomationVisibleViewportSnapshot`.
+    func controlBrowserScreenshot(
+        params: [String: JSONValue]
+    ) -> ControlBrowserScreenshotResolution {
+        let resolved: ResolvedBrowserPanel
+        switch browserResolvePanelTyped(params: params.mapValues(\.foundationObject)) {
+        case .failure(let failure):
+            return .failed(failure)
+        case .success(let value):
+            resolved = value
+        }
+        let surfaceId = resolved.surfaceId
+        let browserPanel = resolved.browserPanel
+
+        let snapshotResult: Data?? = v2AwaitCallback(timeout: 15.0) { finish in
+            browserPanel.captureAutomationVisibleViewportSnapshot { result in
+                switch result {
+                case .success(let image):
+                    finish(self.v2PNGData(from: image))
+                case .failure:
+                    finish(nil)
+                }
+            }
+        }
+
+        guard let snapshotResult else {
+            return .timedOut
+        }
+        guard let imageData = snapshotResult else {
+            return .captureFailed
+        }
+
+        let pngBase64 = imageData.base64EncodedString()
+
+        // Best effort: keep screenshot data available even when temp-file writes fail.
+        var filePath: String?
+        var fileURL: String?
+        let screenshotsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
+        if (try? FileManager.default.createDirectory(at: screenshotsDirectory, withIntermediateDirectories: true)) != nil {
+            bestEffortPruneTemporaryFiles(in: screenshotsDirectory)
+            let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
+            let shortSurfaceId = String(surfaceId.uuidString.prefix(8))
+            let shortRandomId = String(UUID().uuidString.prefix(8))
+            let filename = "surface-\(shortSurfaceId)-\(timestampMs)-\(shortRandomId).png"
+            let imageURL = screenshotsDirectory.appendingPathComponent(filename, isDirectory: false)
+            if (try? imageData.write(to: imageURL, options: .atomic)) != nil {
+                filePath = imageURL.path
+                fileURL = imageURL.absoluteString
+            }
+        }
+
+        return .resolved(
+            workspaceID: resolved.workspace.id,
+            surfaceID: surfaceId,
+            pngBase64: pngBase64,
+            filePath: filePath,
+            fileURL: fileURL
+        )
     }
 
     private struct V2BrowserDownloadWaitSnapshot {

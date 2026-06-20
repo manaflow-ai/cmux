@@ -233,4 +233,35 @@ public protocol ControlBrowserContext: AnyObject {
     func controlBrowserImportDialog(
         params: [String: JSONValue]
     ) -> ControlBrowserImportDialogResolution
+
+    /// `browser.get.title` — read the resolved browser panel's page title. The
+    /// witness resolves the panel through the shared `v2BrowserWithPanel` head
+    /// (`surface_id`/`tab_id`/`pane_id` precedence) and reads `pageTitle`.
+    func controlBrowserGetTitle(
+        params: [String: JSONValue]
+    ) -> ControlBrowserGetTitleResolution
+
+    /// `browser.frame.select` — pin the resolved surface to a same-origin iframe.
+    /// `rawSelector` is the validated, present `selector`/`sel`/`element_ref`/`ref`
+    /// param; the witness resolves it (including `@e` element refs) against the
+    /// surface, evaluates the same-origin probe, and on success records the frame
+    /// selector in the per-surface cache.
+    func controlBrowserFrameSelect(
+        params: [String: JSONValue],
+        rawSelector: String
+    ) -> ControlBrowserFrameSelectResolution
+
+    /// `browser.frame.main` — clear the resolved surface's pinned frame selector,
+    /// returning page-level evaluation to the main frame.
+    func controlBrowserFrameMain(
+        params: [String: JSONValue]
+    ) -> ControlBrowserFrameMainResolution
+
+    /// `browser.screenshot` — capture the resolved browser's automation-visible
+    /// viewport as PNG. The witness resolves the panel, captures the snapshot
+    /// (15s budget), encodes the PNG, and best-effort writes a pruned temp file;
+    /// the coordinator shapes the identity payload plus `png_base64`/`path`/`url`.
+    func controlBrowserScreenshot(
+        params: [String: JSONValue]
+    ) -> ControlBrowserScreenshotResolution
 }
