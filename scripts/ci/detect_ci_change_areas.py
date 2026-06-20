@@ -17,16 +17,18 @@ class ChangeAreas:
     macos: bool
     web: bool
     go: bool
+    agent_session_web: bool
 
     @classmethod
-    def all(cls) -> "ChangeAreas":
-        return cls(macos=True, web=True, go=True)
+    def all(cls) -> ChangeAreas:
+        return cls(macos=True, web=True, go=True, agent_session_web=True)
 
     def as_output_lines(self) -> list[str]:
         return [
             f"macos={bool_output(self.macos)}",
             f"web={bool_output(self.web)}",
             f"go={bool_output(self.go)}",
+            f"agent_session_web={bool_output(self.agent_session_web)}",
         ]
 
 
@@ -83,6 +85,25 @@ def is_go_change(path: str) -> bool:
     }
 
 
+def is_agent_session_web_change(path: str) -> bool:
+    if path.startswith(
+        (
+            "webviews/src/agent-session/",
+            "Resources/agent-session-react/",
+            "Resources/agent-session-solid/",
+        )
+    ):
+        return True
+    return path in {
+        "package.json",
+        "bun.lock",
+        "webviews/package.json",
+        "webviews/bun.lock",
+        "scripts/build-agent-session-web.sh",
+        "Resources/markdown-viewer/marked.min.js",
+    }
+
+
 def is_macos_neutral(path: str) -> bool:
     if path.startswith(("docs/", "design/", "plans/", "ios/", "web/", "webviews/", "daemon/remote/")):
         return True
@@ -105,6 +126,7 @@ def classify_files(paths: Iterable[str]) -> ChangeAreas:
     macos = False
     web = False
     go = False
+    agent_session_web = False
 
     for raw_path in paths:
         path = normalize_path(raw_path)
@@ -114,15 +136,23 @@ def classify_files(paths: Iterable[str]) -> ChangeAreas:
             macos = True
             web = True
             go = True
+            agent_session_web = True
             continue
         if is_web_change(path):
             web = True
         if is_go_change(path):
             go = True
+        if is_agent_session_web_change(path):
+            agent_session_web = True
         if is_macos_change(path):
             macos = True
 
-    return ChangeAreas(macos=macos, web=web, go=go)
+    return ChangeAreas(
+        macos=macos,
+        web=web,
+        go=go,
+        agent_session_web=agent_session_web,
+    )
 
 
 def run_git(args: list[str]) -> str:
