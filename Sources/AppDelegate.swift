@@ -6889,17 +6889,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func shouldRouteRightSidebarModeShortcut(in window: NSWindow?) -> Bool {
-        guard let window,
-              let responder = window.firstResponder else {
-            return false
-        }
-        if isRightSidebarFocusResponder(responder, in: window) {
-            return true
-        }
+        guard let window else { return false }
+        let sidebarIntentActive = keyboardFocusCoordinator(for: window)?.activeRightSidebarMode != nil
+        guard let responder = window.firstResponder else { return sidebarIntentActive }
+        if isRightSidebarFocusResponder(responder, in: window) { return true }
+        if terminalKeyboardFocusRequest(for: responder) != nil { return false }
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
-              let panelId = ghosttyView.terminalSurface?.id else {
-            return false
-        }
+              let panelId = ghosttyView.terminalSurface?.id else { return false }
         return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId)
     }
 
@@ -13368,11 +13364,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
         if matchConfiguredShortcut(event: event, action: .nextSurface) {
-            tabManager?.selectNextSurface()
+            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
             return true
         }
         if matchConfiguredShortcut(event: event, action: .prevSurface) {
-            tabManager?.selectPreviousSurface()
+            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
             return true
         }
 
@@ -13567,7 +13563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // goto_tab fallback from creating a new window when the index is out of bounds.
         if shortcutWhenClauseAllows(action: .selectWorkspaceByNumber, event: event),
            let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
-            if let manager = tabManager,
+            if let manager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
                let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
                 cmuxDebugLog(
@@ -13583,9 +13579,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event),
            let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
             if digit == 9 {
-                tabManager?.selectLastSurface()
+                (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectLastSurface()
             } else {
-                tabManager?.selectSurface(at: digit - 1)
+                (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectSurface(at: digit - 1)
             }
             return true
         }
@@ -13708,11 +13704,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Surface navigation (legacy Ctrl+Tab support)
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
-            tabManager?.selectNextSurface()
+            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
             return true
         }
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
-            tabManager?.selectPreviousSurface()
+            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
             return true
         }
 
