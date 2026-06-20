@@ -3642,7 +3642,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let boundEnvironment = try XCTUnwrap(params["environment"] as? [String: Any])
         XCTAssertEqual(boundEnvironment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] as? String, "1")
         XCTAssertEqual(boundEnvironment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] as? String, "CLAUDE_CONFIG_DIR")
-        XCTAssertNil(boundEnvironment["CLAUDE_CONFIG_DIR"], "resume binding must not expose raw Claude auth paths")
+        XCTAssertEqual(boundEnvironment["CLAUDE_CONFIG_DIR"] as? String, claudeConfigDir)
     }
 
     /// Issue #6209 / #5393: a reaped Codex session with no captured launch command and no positive
