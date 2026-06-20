@@ -65,26 +65,28 @@ final class AgentChatSessionRegistry {
     /// - Parameter surfaceID: Terminal surface UUID string.
     /// - Returns: A non-ended record bound to the surface, or `nil`.
     func liveSession(surfaceID: String) -> AgentChatSessionRecord? {
-        guard let sessionID = liveSessionIDBySurfaceID[surfaceID],
-              let record = records[sessionID],
-              record.surfaceID == surfaceID,
-              record.state != .ended else {
-            liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
-            return nil
+        while let sessionID = liveSessionIDBySurfaceID[surfaceID] {
+            guard let record = records[sessionID],
+                  record.surfaceID == surfaceID,
+                  record.state != .ended else {
+                liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
+                return nil
+            }
+            if let pid = record.pid, processIsDead(pid) {
+                update(sessionID: sessionID) { $0.state = .ended }
+                continue
+            }
+            return record
         }
-        if let pid = record.pid, processIsDead(pid) {
-            update(sessionID: sessionID) { $0.state = .ended }
-            return liveSessionIDBySurfaceID[surfaceID].flatMap { records[$0] }
-        }
-        return record
+        return nil
     }
 
-    /// Every live session id the registry already tracks. Title-detected adoption
+    /// Every session id the registry already tracks. Title-detected adoption
     /// passes this to the transcript resolver so a second hook-bypassed claude
     /// in the same directory resolves to a *different* (unclaimed) transcript
     /// instead of colliding on the newest file.
     func claimedSessionIDs() -> Set<String> {
-        Set(records.values.lazy.filter { $0.state != .ended }.map(\.sessionID))
+        Set(records.keys)
     }
 
     /// Re-reads the hook store for one session and adopts its bindings,
