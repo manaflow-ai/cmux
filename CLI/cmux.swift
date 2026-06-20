@@ -19152,7 +19152,7 @@ struct CMUXCLI {
             cmuxBinEnvVar: "CMUX_CLAUDE_TEAMS_CMUX_BIN",
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
             extraEnvVars: [
-                (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
+                (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"), (key: "CLAUDE_CODE_SANDBOXED", value: "1"),  // CLAUDE_CODE_SANDBOXED skips CC's "trust folder?" gate that deadlocks unattended panes (#6447); teammates re-supplied via tmuxClaudeTeamsRespawnEnvironment()
             ]
         )
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
@@ -19273,7 +19273,7 @@ struct CMUXCLI {
             arguments: [executablePath, "claude-teams"] + launchArguments,
             workingDirectory: launcherEnvironment["PWD"]
         )
-        var argv = ([launchPath] + launchArguments).map { strdup($0) }
+        var argv = ([launchPath] + claudeTeamsExecArguments(commandArgs: commandArgs)).map { strdup($0) }
         defer {
             for item in argv {
                 free(item)
@@ -21907,7 +21907,7 @@ struct CMUXCLI {
             var params: [String: Any] = [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
-                "command": tmuxShellInvokedStartCommand(commandText),
+                "command": tmuxRespawnStartCommand(commandText, prependEnv: tmuxClaudeTeamsRespawnEnvironment()),
                 "tmux_start_command": commandText
             ]
             if let cwd = parsed.value("-c")?.trimmingCharacters(in: .whitespacesAndNewlines),

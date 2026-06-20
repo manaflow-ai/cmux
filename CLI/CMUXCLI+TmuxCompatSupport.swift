@@ -98,6 +98,48 @@ extension CMUXCLI {
         return "/bin/sh -c \(tmuxShellQuote(trimmed))"
     }
 
+    /// Like `tmuxShellInvokedStartCommand`, but first exports `prependEnv` inside
+    /// the wrapping shell so the respawned process — and any `env …`/`exec` it
+    /// chains into — inherits those variables. Used to re-supply claude-teams
+    /// teammate panes the environment they need (see
+    /// `tmuxClaudeTeamsRespawnEnvironment`); with an empty `prependEnv` it is
+    /// byte-for-byte identical to `tmuxShellInvokedStartCommand`, so OMO and the
+    /// public `respawn-pane` command are unchanged.
+    func tmuxRespawnStartCommand(
+        _ command: String,
+        prependEnv: [(key: String, value: String)]
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return command }
+        guard !prependEnv.isEmpty else { return tmuxShellInvokedStartCommand(trimmed) }
+        let exports = prependEnv
+            .map { "export \($0.key)=\(tmuxShellQuote($0.value))" }
+            .joined(separator: "; ")
+        return tmuxShellInvokedStartCommand("\(exports); \(trimmed)")
+    }
+
+    /// Environment that claude-teams teammate panes must start with.
+    ///
+    /// Teammate panes are respawned by cmux's surface layer, not by `cmux
+    /// claude-teams`, so they do NOT inherit the launcher environment the lead
+    /// got from `configureClaudeTeamsEnvironment`. The one variable that matters
+    /// for startup is `CLAUDE_CODE_SANDBOXED`: Claude Code short-circuits its
+    /// interactive "Do you trust this folder?" gate on it, and a teammate that
+    /// hits that gate hangs forever (its pane opens but it never checks in —
+    /// issue #6447). Re-supply it on every claude-teams respawn so teammates
+    /// start the same way the lead does.
+    ///
+    /// Scoped to claude-teams via `CMUX_CLAUDE_TEAMS_CMUX_BIN`, which the launcher
+    /// exports and which the tmux shim propagates to this `__tmux-compat`
+    /// process. OMO (`CMUX_OMO_CMUX_BIN`) and the public `respawn-pane` command
+    /// run without it and are unaffected.
+    func tmuxClaudeTeamsRespawnEnvironment() -> [(key: String, value: String)] {
+        guard ProcessInfo.processInfo.environment["CMUX_CLAUDE_TEAMS_CMUX_BIN"] != nil else {
+            return []
+        }
+        return [(key: "CLAUDE_CODE_SANDBOXED", value: "1")]
+    }
+
     func tmuxShellWords(_ commandText: String) -> [String] {
         var words: [String] = []
         var current = ""

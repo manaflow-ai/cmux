@@ -138,6 +138,57 @@ extension CMUXCLI {
         return ["--teammate-mode", "auto"] + commandArgs
     }
 
+    func claudeTeamsHasExplicitSystemPrompt(commandArgs: [String]) -> Bool {
+        commandArgs.contains { arg in
+            arg == "--system-prompt" || arg.hasPrefix("--system-prompt=")
+                || arg == "--system-prompt-file" || arg.hasPrefix("--system-prompt-file=")
+                || arg == "--append-system-prompt" || arg.hasPrefix("--append-system-prompt=")
+                || arg == "--append-system-prompt-file" || arg.hasPrefix("--append-system-prompt-file=")
+        }
+    }
+
+    /// The whole point of `cmux claude-teams` is "just start a team." Claude Code's
+    /// Task tool only opens a teammate in its own split pane when it is called with
+    /// a `name`; without a name it runs an in-process subagent (no pane). Left to a
+    /// bare prompt the lead tends to use the nameless form — or stops to ask "demo
+    /// *what*?" — so a plain `cmux claude-teams "make a demo team with 5 subagents"`
+    /// produced no panes. Append a small system-prompt nudge that steers the lead to
+    /// named, split-pane teammates for team/parallel requests so no elaborate prompt
+    /// is needed. Kept out of `claudeTeamsLaunchArguments` (and thus the exported
+    /// restore command) so that stays canonical; restore re-invokes `cmux
+    /// claude-teams`, which re-applies the nudge. Skipped when the user supplies
+    /// their own system prompt.
+    var claudeTeamsTeamSpawnGuidance: String {
+        """
+        You are Claude Code running inside cmux, started with `cmux claude-teams`. \
+        Agent teams are enabled and every NAMED teammate opens in its own split \
+        pane. When the user asks you to start a team, demo teams, or run several \
+        subagents/teammates in parallel, spawn them as named teammates: make one \
+        Task tool call per teammate, each with a distinct `name` (a short role), all \
+        in a single message so they run concurrently in their own split panes. \
+        Prefer named teammates over in-process subagents for any team or \
+        parallel-agent request. If the user asks for an open-ended demo such as \
+        "make a demo team with 5 subagents" without naming a topic, do not ask which \
+        feature — pick that many sensible roles and spawn them right away.
+        """
+    }
+
+    /// The live `execv` argv for the lead: the canonical launch arguments plus the
+    /// split-pane-teammate system-prompt nudge (see `claudeTeamsTeamSpawnGuidance`).
+    /// The nudge is inserted right after a leading `--teammate-mode <value>` pair so
+    /// callers/tests that expect that pair first keep working.
+    func claudeTeamsExecArguments(commandArgs: [String]) -> [String] {
+        let base = claudeTeamsLaunchArguments(commandArgs: commandArgs)
+        guard !claudeTeamsHasExplicitSystemPrompt(commandArgs: commandArgs) else {
+            return base
+        }
+        let nudge = ["--append-system-prompt", claudeTeamsTeamSpawnGuidance]
+        if base.count >= 2, base[0] == "--teammate-mode" {
+            return Array(base[0..<2]) + nudge + Array(base[2...])
+        }
+        return nudge + base
+    }
+
     private func providerExecutableSearchDirectories(searchPath: String?) -> [String] {
         var directories = searchPath?.split(separator: ":").map(String.init) ?? []
         let environment = ProcessInfo.processInfo.environment
