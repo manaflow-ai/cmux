@@ -1285,7 +1285,7 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
     if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
         return true
     }
-    guard browserIsInternalWebviewHistoryMarker(url.fragment),
+    guard cmuxIsInternalWebviewHistoryMarker(url.fragment),
           url.scheme?.lowercased() == "http",
           let host = url.host else {
         return false
@@ -1297,7 +1297,7 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
         ) != nil
 }
 
-private func browserIsInternalWebviewHistoryMarker(_ fragment: String?) -> Bool {
+func cmuxIsInternalWebviewHistoryMarker(_ fragment: String?) -> Bool {
     guard var fragment = fragment?.trimmingCharacters(in: .whitespacesAndNewlines),
           !fragment.isEmpty else {
         return false

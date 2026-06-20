@@ -25,14 +25,14 @@ extension CMUXCLI {
         let filename = "chat-\(timestamp)-\(UUID().uuidString.prefix(8)).html"
         let viewerFileURL = directory.appendingPathComponent(filename, isDirectory: false)
         let title = OpenChatLabels.localized().values["title"] ?? "Open Chat"
+        let assets = try ensureDiffViewerAssets(nextTo: viewerFileURL, runtime: runtime)
         try writeOpenChatHTML(
             to: viewerFileURL,
             title: title,
             context: context,
             appearance: appearance,
-            runtime: runtime
+            assets: assets
         )
-        let assets = try ensureDiffViewerAssets(nextTo: viewerFileURL, runtime: runtime)
         let allowedFiles = try diffViewerAllowedFiles(
             pageURLs: [viewerFileURL],
             assets: assets,
@@ -56,7 +56,7 @@ extension CMUXCLI {
         title: String,
         context: OpenChatContext,
         appearance: DiffViewerAppearance,
-        runtime: URL? = nil
+        assets: DiffViewerAssets
     ) throws {
         let labels = OpenChatLabels.localized()
         var payload: [String: Any] = [
@@ -106,7 +106,6 @@ extension CMUXCLI {
         if let repoRoot = context.repoRoot {
             payload["repoRoot"] = repoRoot
         }
-        let assets = try ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
         let config: [String: Any] = [
             "payload": payload,
             "assets": [

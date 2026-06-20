@@ -6236,18 +6236,7 @@ class TerminalController {
         }
         return url.scheme?.lowercased() == "http" &&
             url.host == "127.0.0.1" &&
-            v2IsInternalWebviewHistoryMarker(url.fragment)
-    }
-
-    private func v2IsInternalWebviewHistoryMarker(_ fragment: String?) -> Bool {
-        guard var fragment = fragment?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !fragment.isEmpty else {
-            return false
-        }
-        while fragment.hasPrefix("/") {
-            fragment.removeFirst()
-        }
-        return fragment == "cmux-diff-viewer" || fragment == "cmux-open-chat"
+            cmuxIsInternalWebviewHistoryMarker(url.fragment)
     }
 
     private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
