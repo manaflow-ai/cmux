@@ -4,7 +4,7 @@ import CmuxFoundation
 extension AppDelegate {
     func openDiffViewerAgentContextShouldFocus(workspaceId: UUID, surfaceId: UUID, sessionId: String) -> Bool? {
         for context in mainWindowContexts.values {
-            guard let workspace = context.tabManager.workspaces.first(where: {
+            guard let workspace = context.tabManager.tabs.first(where: {
                       $0.id == workspaceId && $0.panels.keys.contains(surfaceId)
                   }),
                   let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspaceId, panelId: surfaceId),
