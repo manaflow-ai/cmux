@@ -4793,35 +4793,29 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         )
     }
 
-    private func normalizedSidebarDirectory(_ directory: String?) -> String? {
-        guard let directory else { return nil }
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     private func sidebarHomeDirectoryForCanonicalization(
         resolvedPanelDirectories: [UUID: String]
     ) -> String? {
         if isRemoteWorkspace {
             return SidebarBranchOrdering().inferredRemoteHomeDirectory(
                 from: Array(resolvedPanelDirectories.values),
-                fallbackDirectory: normalizedSidebarDirectory(currentDirectory)
+                fallbackDirectory: SidebarBranchOrdering().normalizedDirectory(currentDirectory)
             )
         }
         return FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
-        if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) {
+        if let directory = SidebarBranchOrdering().normalizedDirectory(panelDirectories[panelId]) {
             return directory
         }
-        if let requestedDirectory = normalizedSidebarDirectory(
+        if let requestedDirectory = SidebarBranchOrdering().normalizedDirectory(
             terminalPanel(for: panelId)?.requestedWorkingDirectory
         ) {
             return requestedDirectory
         }
         guard panelId == focusedPanelId else { return nil }
-        return normalizedSidebarDirectory(currentDirectory)
+        return SidebarBranchOrdering().normalizedDirectory(currentDirectory)
     }
 
     private func sidebarResolvedPanelDirectories(orderedPanelIds: [UUID]) -> [UUID: String] {
@@ -4845,7 +4839,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             homeDirectoryForCanonicalization: sidebarHomeDirectoryForCanonicalization(
                 resolvedPanelDirectories: resolvedDirectories
             ),
-            fallbackDirectory: normalizedSidebarDirectory(currentDirectory),
+            fallbackDirectory: SidebarBranchOrdering().normalizedDirectory(currentDirectory),
             includeFallback: includeFallback
         )
     }
@@ -4882,7 +4876,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         return sidebarMetadata.branchDirectoryEntriesInDisplayOrder(
             orderedPanelIds: orderedPanelIds,
             resolvedPanelDirectories: resolvedDirectories,
-            defaultDirectory: normalizedSidebarDirectory(currentDirectory),
+            defaultDirectory: SidebarBranchOrdering().normalizedDirectory(currentDirectory),
             homeDirectoryForCanonicalization: sidebarHomeDirectoryForCanonicalization(
                 resolvedPanelDirectories: resolvedDirectories
             )
