@@ -7675,17 +7675,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         informativeText: String,
         style: NSAlert.Style
     ) {
-        let alert = NSAlert()
-        alert.alertStyle = style
-        alert.messageText = title
-        alert.informativeText = informativeText
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-            alert.beginSheetModal(for: window, completionHandler: nil)
-        } else {
-            _ = alert.runModal()
-        }
+        CmuxCLIPathAlertPresenter(
+            anchorWindowProvider: { NSApp.keyWindow ?? NSApp.mainWindow },
+            okButtonTitle: String(localized: "common.ok", defaultValue: "OK")
+        )
+        .present(title: title, informativeText: informativeText, style: style)
     }
 
     @objc func restartSocketListener(_ sender: Any?) {
