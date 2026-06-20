@@ -4221,12 +4221,6 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: Date())
         refreshNavigationAvailability()
         refreshWebViewLifecycleState()
-#if DEBUG
-        cmuxDebugLog(
-            "browser.sessionRestore.deferred panel=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason) url=\(Self.serializableSessionHistoryURLString(url) ?? "nil")"
-        )
-#endif
     }
 
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
