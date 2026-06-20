@@ -145,6 +145,7 @@ extension MenuBarProfilingProgressWindowController {
         submitButton.title = String(localized: "statusMenu.profiling.sendEmail", defaultValue: "Send Email")
 
         if terminationStatus == 0 {
+            emailSent = true
             statusLabel.stringValue = String(localized: "statusMenu.profiling.emailSent", defaultValue: "Email sent.")
         } else {
             let base = String(localized: "statusMenu.profiling.emailFailed", defaultValue: "The email could not be sent.")

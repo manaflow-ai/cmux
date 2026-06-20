@@ -41,6 +41,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
     var archiveURL: URL?
     var captureComplete = false
     var openPreviewAfterPackaging = false
+    var emailSent = false
 
     private var estimatedSeconds: Int {
         MenuBarProfilingLauncher.estimatedCaptureSeconds()
@@ -231,6 +232,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         archiveURL = nil
         captureComplete = false
         progressIndicator.maxValue = Double(estimatedSeconds)
+        emailSent = false
         progressIndicator.doubleValue = 0
         openFolderButton.isHidden = false
         openFolderButton.isEnabled = false
@@ -432,7 +434,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
             ? ""
             : String(localized: "statusMenu.profiling.invalidEmail", defaultValue: "Enter a valid email address so we can follow up.")
         emailErrorLabel.isHidden = emailErrorLabel.stringValue.isEmpty
-        submitButton.isEnabled = captureComplete && outputURL != nil && validEmail && submitProcess == nil
+        submitButton.isEnabled = captureComplete && outputURL != nil && validEmail && submitProcess == nil && !emailSent
         updateAttachmentState()
     }
 
