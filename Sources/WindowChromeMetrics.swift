@@ -22,7 +22,7 @@ enum HeaderChromeControlMetrics {
     static let buttonSize: CGFloat = 20
     static let iconSize: CGFloat = 12
     static let iconFrameSize: CGFloat = 14
-    static let cornerRadius: CGFloat = 6
+    static let cornerRadius: CGFloat = 0
     static let titlebarControlsLeadingPadding: CGFloat = 4
 
     static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
@@ -37,7 +37,7 @@ enum RightSidebarChromeMetrics {
     static let barVerticalPadding: CGFloat = 4
     static let controlHeight: CGFloat = secondaryBarHeight - (barVerticalPadding * 2)
     static let controlHorizontalPadding: CGFloat = 8
-    static let controlCornerRadius: CGFloat = 5
+    static let controlCornerRadius: CGFloat = 0
     static let headerControlSize: CGFloat = HeaderChromeControlMetrics.buttonSize
     static let headerIconSize: CGFloat = 10
     static let headerIconFrameSize: CGFloat = headerIconSize

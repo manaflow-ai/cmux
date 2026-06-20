@@ -390,7 +390,7 @@ public struct KeyboardShortcutsSection: View {
             // cannot decide the overlap. Context-disjoint clauses (e.g.
             // `!sidebarFocus` workspace digits vs the sidebar's own digits)
             // coexist, and a pre-routed action (sidebar modes) wins its context
-            // outright so the factory Select Surface ⌃1…9 coexists with the
+            // outright so a user-bound Select Surface ⌃1…9 coexists with the
             // sidebar's ⌃1…5 — matching the app target's authoritative check.
             guard ShortcutWhenClause.bindingsCollide(
                 proposedClause,

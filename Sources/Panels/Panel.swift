@@ -181,7 +181,7 @@ enum FocusFlashCurve: Equatable {
 
 enum PanelOverlayRingMetrics {
     static let inset: CGFloat = 2
-    static let cornerRadius: CGFloat = 6
+    static let cornerRadius: CGFloat = 0
     static let lineWidth: CGFloat = 2.5
 
     static func pathRect(in bounds: CGRect) -> CGRect {

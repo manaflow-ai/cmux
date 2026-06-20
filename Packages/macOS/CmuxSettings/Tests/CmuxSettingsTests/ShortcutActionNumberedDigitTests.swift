@@ -13,6 +13,14 @@ struct ShortcutActionNumberedDigitTests {
         }
     }
 
+    @Test func selectSurfaceByNumberIsUnboundByDefault() {
+        #expect(ShortcutAction.selectSurfaceByNumber.defaultShortcut == nil)
+    }
+
+    @Test func selectWorkspaceByNumberIsUnboundByDefault() {
+        #expect(ShortcutAction.selectWorkspaceByNumber.defaultShortcut == nil)
+    }
+
     @Test func diffViewerScrollToTopDefaultIsChord() {
         #expect(
             ShortcutAction.diffViewerScrollToTop.defaultShortcut == StoredShortcut(

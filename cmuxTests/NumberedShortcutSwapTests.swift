@@ -19,16 +19,18 @@ struct NumberedShortcutSwapTests {
         }
         KeyboardShortcutSettings.resetAll()
 
-        let workspaceDefault = KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultShortcut
-        let surfaceDefault = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut
+        let workspaceDigits = StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+        let surfaceDigits = StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+        KeyboardShortcutSettings.setShortcut(workspaceDigits, for: .selectWorkspaceByNumber)
+        KeyboardShortcutSettings.setShortcut(surfaceDigits, for: .selectSurfaceByNumber)
 
         let presentation = try #require(ShortcutRecorderValidationPresentation(
             attempt: ShortcutRecorderRejectedAttempt(
                 reason: .conflictsWithAction(.selectSurfaceByNumber),
-                proposedShortcut: surfaceDefault
+                proposedShortcut: surfaceDigits
             ),
             action: .selectWorkspaceByNumber,
-            currentShortcut: workspaceDefault
+            currentShortcut: workspaceDigits
         ))
 
         #expect(presentation.message == "This shortcut conflicts with Select Surface 1…9 (⌃1…9). Swap shortcuts?")
@@ -38,13 +40,13 @@ struct NumberedShortcutSwapTests {
 
         #expect(
             KeyboardShortcutSettings.swapShortcutConflict(
-                proposedShortcut: surfaceDefault,
+                proposedShortcut: surfaceDigits,
                 currentAction: .selectWorkspaceByNumber,
                 conflictingAction: .selectSurfaceByNumber,
-                previousShortcut: workspaceDefault
+                previousShortcut: workspaceDigits
             )
         )
-        #expect(KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber) == surfaceDefault)
-        #expect(KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber) == workspaceDefault)
+        #expect(KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber) == surfaceDigits)
+        #expect(KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber) == workspaceDigits)
     }
 }

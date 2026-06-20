@@ -460,7 +460,10 @@ enum KeyboardShortcutSettings {
             case .prevSurface:
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
             case .selectSurfaceByNumber:
-                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+                // Unbound by default so foreground terminal apps keep plain
+                // Ctrl+1…9. Users who want cmux-owned surface digits can opt in
+                // via Settings or cmux.json.
+                return .unbound
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
@@ -483,7 +486,10 @@ enum KeyboardShortcutSettings {
                 // chord. Rebindable in Settings → Keyboard Shortcuts.
                 return StoredShortcut(key: "k", command: true, shift: true, option: false, control: false)
             case .selectWorkspaceByNumber:
-                return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+                // Unbound by default so terminal apps and window managers keep
+                // digit chords. Users who want cmux-owned workspace digits can
+                // opt in via Settings or cmux.json.
+                return .unbound
             case .toggleRightSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
             case .saveFilePreview:
@@ -625,7 +631,7 @@ enum KeyboardShortcutSettings {
             // make them non-overlapping — e.g. ⌃1 selecting a workspace only when
             // the sidebar is NOT focused coexists with the sidebar's ⌃1 (issue
             // #5189) — and a pre-routed action (sidebar modes) wins its context
-            // outright, so the factory Select Surface ⌃1…9 coexists with the
+            // outright, so a user-bound Select Surface ⌃1…9 coexists with the
             // sidebar's ⌃1…5 by priority.
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),

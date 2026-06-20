@@ -12,6 +12,12 @@ import SwiftUI
 #endif
 
 final class WindowAppearanceSnapshotTests: XCTestCase {
+    func testSidebarChromePresetsUseSquareCorners() {
+        for preset in WindowChromeSidebarPresetOption.allCases {
+            XCTAssertEqual(preset.cornerRadius, 0, accuracy: 0.001)
+        }
+    }
+
     func testUnifiedSurfaceBackdropsUseSingleWindowRootBackdrop() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: true)
 

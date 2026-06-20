@@ -202,6 +202,7 @@ enum TerminalCopyOnSelectSettings {
 enum TerminalManagedGhosttySettings {
     static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
         let lines = [
+            "window-padding-x = 2\nwindow-padding-y = 2",
             TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
         ].compactMap { $0 }
         guard !lines.isEmpty else { return nil }

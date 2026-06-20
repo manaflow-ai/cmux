@@ -101,9 +101,9 @@ public enum WindowChromeSidebarPresetOption: String, CaseIterable, Identifiable,
         case .nativeSidebar: return 0.0
         case .glassBehind: return 0.0
         case .softBlur: return 0.0
-        case .popoverGlass: return 10.0
-        case .hudGlass: return 10.0
-        case .underWindow: return 6.0
+        case .popoverGlass: return 0.0
+        case .hudGlass: return 0.0
+        case .underWindow: return 0.0
         }
     }
 
