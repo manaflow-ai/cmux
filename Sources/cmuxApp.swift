@@ -518,7 +518,7 @@ struct cmuxApp: App {
                         BrowserProfilePopoverDebugWindowController.shared.show()
                     }
                     Button("Debug Window Controls…") {
-                        DebugWindowControlsWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showDebugWindowControls()
                     }
                     Button(
                         String(
@@ -1276,7 +1276,7 @@ struct cmuxApp: App {
 
 #if DEBUG
     private func openAllDebugWindows() {
-        DebugWindowControlsWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showDebugWindowControls()
         BrowserImportHintDebugWindowController.shared.show()
         BrowserProfilePopoverDebugWindowController.shared.show()
         AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
@@ -1427,34 +1427,14 @@ private enum DebugWindowConfigSnapshot {
     }
 }
 
+// The "Debug Window Controls" panel's window/lifecycle shell now lives in
+// CmuxAppKitSupportUI (`DebugWindowControlsWindowController`), presented via
+// `AppDelegate.shared?.debugWindowsCoordinator.showDebugWindowControls()`. This
+// view remains in the app target because it opens roughly a dozen other
+// app-target debug window controllers and reads several app-target settings
+// types; it is injected into the package controller as the panel's content view.
 #if DEBUG
-private final class DebugWindowControlsWindowController: ReleasingWindowController {
-    static let shared = DebugWindowControlsWindowController()
-
-    override func makeWindow() -> NSWindow {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 560),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Debug Window Controls"
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.debugWindowControls")
-        window.center()
-        window.contentView = NSHostingView(rootView: DebugWindowControlsView())
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-        return window
-    }
-
-    func show() {
-        showManagedWindow()
-    }
-}
-
-private struct DebugWindowControlsView: View {
+struct DebugWindowControlsView: View {
     @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
     private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
@@ -1565,7 +1545,7 @@ private struct DebugWindowControlsView: View {
                             FeedTextEditorDebugWindowController.shared.show()
                         }
                         Button("Open All Debug Windows") {
-                            DebugWindowControlsWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showDebugWindowControls()
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
                             AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()

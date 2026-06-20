@@ -510,7 +510,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated let socketTransport = SocketTransport()
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
+    /// The Debug Window Controls panel's content is app-coupled (it opens other
+    /// app-target debug windows and reads app-target settings), so its content view is
+    /// injected from the app target here while the window/lifecycle shell lives in the package.
+    #if DEBUG
+    lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
+        decorator: self,
+        debugWindowControlsContentProvider: { NSHostingView(rootView: DebugWindowControlsView()) }
+    )
+    #else
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
+    #endif
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
