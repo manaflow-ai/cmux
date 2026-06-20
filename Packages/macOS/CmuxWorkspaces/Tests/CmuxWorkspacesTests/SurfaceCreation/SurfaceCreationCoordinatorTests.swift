@@ -380,6 +380,46 @@ struct SurfaceCreationCoordinatorTests {
         #expect(resolved.remoteCommandForEnvironment == nil)
     }
 
+    @Test("A surface is remote-tracked when it has a remote startup command")
+    func tracksRemoteWhenRemoteCommandPresent() {
+        #expect(
+            coordinator.tracksRemoteTerminalSurface(
+                remoteStartupCommand: "ssh vm",
+                normalizedRemotePTYSessionID: nil
+            )
+        )
+    }
+
+    @Test("A surface is remote-tracked when it carries a remote-PTY session id")
+    func tracksRemoteWhenSessionIDPresent() {
+        #expect(
+            coordinator.tracksRemoteTerminalSurface(
+                remoteStartupCommand: nil,
+                normalizedRemotePTYSessionID: "sess-1"
+            )
+        )
+    }
+
+    @Test("A surface with both a remote command and a session id is remote-tracked")
+    func tracksRemoteWhenBothPresent() {
+        #expect(
+            coordinator.tracksRemoteTerminalSurface(
+                remoteStartupCommand: "ssh vm",
+                normalizedRemotePTYSessionID: "sess-1"
+            )
+        )
+    }
+
+    @Test("A surface with neither a remote command nor a session id is not remote-tracked")
+    func tracksRemoteWhenNeitherPresent() {
+        #expect(
+            !coordinator.tracksRemoteTerminalSurface(
+                remoteStartupCommand: nil,
+                normalizedRemotePTYSessionID: nil
+            )
+        )
+    }
+
     @Test("A zero final font size is not recorded as the last-known value")
     func inheritedConfigSkipsLastKnownWhenFontNonPositive() {
         let host = StubSurfaceCreationHost()
