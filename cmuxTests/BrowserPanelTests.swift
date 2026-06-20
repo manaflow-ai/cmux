@@ -659,8 +659,7 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(schemePanel.shouldPersistSessionSnapshot())
         XCTAssertFalse(schemePanel.shouldRenderWebViewForSessionSnapshot())
 
-        let token = UUID().uuidString.lowercased()
-        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/\(token)/diff.html#cmux-diff-viewer"))
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/\(UUID().uuidString.lowercased())/diff.html#cmux-diff-viewer"))
         let loopbackPanel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: loopbackURL,
@@ -671,7 +670,7 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(loopbackPanel.shouldPersistSessionSnapshot())
         XCTAssertFalse(loopbackPanel.shouldRenderWebViewForSessionSnapshot())
 
-        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/\(token)/diff.html#cmux-diff-viewer"))
+        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/\(UUID().uuidString.lowercased())/diff.html#cmux-diff-viewer"))
         let aliasPanel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: aliasURL,
@@ -700,9 +699,8 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         }
 
         let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
-        let token = UUID().uuidString.lowercased()
-        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/\(token)/diff.html#cmux-diff-viewer"))
-        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/\(token)/diff.html#cmux-diff-viewer"))
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/\(UUID().uuidString.lowercased())/diff.html#cmux-diff-viewer"))
+        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/\(UUID().uuidString.lowercased())/diff.html#cmux-diff-viewer"))
         let normalURL = try XCTUnwrap(URL(string: "https://example.com/page"))
 
         store.recordVisit(url: schemeURL, title: "Diff")
