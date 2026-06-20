@@ -3231,9 +3231,7 @@ class TerminalController {
         if let surfaceId = v2UUID(params, "surface_id")
             ?? v2UUID(params, "terminal_id")
             ?? v2UUID(params, "tab_id") {
-            if let tm = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager }) {
-                return tm
-            }
+            if let located = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) }) { return located.tabManager }
         }
         if let paneId = v2UUID(params, "pane_id") {
             if let tm = v2MainSync({ v2LocatePane(paneId)?.tabManager }) {
@@ -3275,9 +3273,8 @@ class TerminalController {
            let tm = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
             return tm
         }
-        if let surfaceId = routing.surfaceID,
-           let tm = AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager {
-            return tm
+        if let surfaceId = routing.surfaceID {
+            if let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) { return located.tabManager }
         }
         if let paneId = routing.paneID,
            let tm = v2LocatePane(paneId)?.tabManager {

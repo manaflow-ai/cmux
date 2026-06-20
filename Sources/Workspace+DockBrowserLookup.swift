@@ -13,6 +13,10 @@ extension Workspace {
         _dockSplit?.containsPane(paneId) ?? false
     }
 
+    func containsDockPanel(_ panelId: UUID) -> Bool {
+        _dockSplit?.containsPanel(panelId) ?? false
+    }
+
     func openDockBrowserLinkInNewTab(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
         guard let dock = _dockSplit, let paneId = dock.paneId(forPanelId: panel.id) else { return false }
         return dock.newSurface(

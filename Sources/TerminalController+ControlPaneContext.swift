@@ -29,7 +29,10 @@ extension TerminalController: ControlPaneContext {
             return tabManager.tabs.first(where: { $0.id == wsId })
         }
         if let surfaceId = routing.surfaceID {
-            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+            if let workspace = tabManager.tabs.first(where: { $0.panels[surfaceId] != nil }) {
+                return workspace
+            }
+            return tabManager.tabs.first(where: { $0.containsDockPanel(surfaceId) })
         }
         if let paneId = routing.paneID, let located = v2LocatePane(paneId) {
             guard located.tabManager === tabManager else { return nil }

@@ -55,4 +55,14 @@ extension TerminalController {
         }
         return resolveSurfaceWorkspace(routing: routing, tabManager: tabManager)
     }
+
+    func locateDockSurface(_ surfaceId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
+        guard let app = AppDelegate.shared else { return nil }
+        for summary in app.listMainWindowSummaries() {
+            guard let manager = app.tabManagerFor(windowId: summary.windowId),
+                  let workspace = manager.tabs.first(where: { $0.containsDockPanel(surfaceId) }) else { continue }
+            return (summary.windowId, workspace.id, manager)
+        }
+        return nil
+    }
 }

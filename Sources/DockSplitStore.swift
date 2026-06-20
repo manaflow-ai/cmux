@@ -640,11 +640,11 @@ final class DockSplitStore: BonsplitDelegate {
                 return
             }
             sourceLabel = Self.sourceLabel(for: resolution)
-            let shouldSeed = replacingPanels || panels.isEmpty || !hasAppliedConfigurationSeed
+            let shouldSeed = replacingPanels || panels.isEmpty
             if shouldSeed {
                 seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
-                hasAppliedConfigurationSeed = true
             }
+            hasAppliedConfigurationSeed = true
         case .failed(let identity, let message):
             lastLoadedConfigIdentity = identity
             activeConfigURL = identity.sourcePath.map { URL(fileURLWithPath: $0, isDirectory: false) }
