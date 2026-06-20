@@ -13,9 +13,15 @@ let package = Package(
             targets: ["CmuxTestSupport"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CMUXDebugLog"),
+    ],
     targets: [
         .target(
             name: "CmuxTestSupport",
+            dependencies: [
+                .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
