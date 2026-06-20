@@ -13,13 +13,13 @@ private struct DockPaneCloseConfirmationPrompt: Sendable {
 
         if count == 1 {
             let format = String(
-                localized: "dialog.closeOtherTabs.message.one",
+                localized: "dialog.closePane.message.one",
                 defaultValue: "This will close 1 tab in this pane:\n%@"
             )
             message = String(format: format, locale: .current, titleLines)
         } else {
             let format = String(
-                localized: "dialog.closeOtherTabs.message.other",
+                localized: "dialog.closePane.message.other",
                 defaultValue: "This will close %1$lld tabs in this pane:\n%2$@"
             )
             message = String(format: format, locale: .current, Int64(count), titleLines)

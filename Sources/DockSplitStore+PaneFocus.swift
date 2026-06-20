@@ -13,10 +13,11 @@ extension DockSplitStore {
 
     func restoreDockPaneSelection(_ selection: (pane: PaneID?, tab: TabID?)?) {
         guard let selection else { return }
+        if let pane = selection.pane {
+            bonsplitController.focusPane(pane)
+        }
         if let tab = selection.tab {
             bonsplitController.selectTab(tab)
-        } else if let pane = selection.pane {
-            bonsplitController.focusPane(pane)
         }
     }
 

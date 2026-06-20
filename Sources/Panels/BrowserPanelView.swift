@@ -2086,7 +2086,7 @@ struct BrowserPanelView: View {
     }
 
     private func isPanelFocusedInModel() -> Bool {
-        guard paneOwnershipOverride == nil else { return isFocused }
+        if let paneOwnershipOverride { return paneOwnershipOverride && isFocused }
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
               manager.selectedTabId == panel.workspaceId,

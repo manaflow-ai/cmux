@@ -263,10 +263,11 @@ struct DockControlDefinitionDecodingTests {
         let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
         BrowserAvailabilitySettings.setDisabled(false)
         defer {
-            if let previousBrowserDisabled {
-                defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            if let previousBrowserDisabled = previousBrowserDisabled as? Bool {
+                BrowserAvailabilitySettings.setDisabled(previousBrowserDisabled, defaults: defaults)
             } else {
                 defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+                NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
             }
         }
 

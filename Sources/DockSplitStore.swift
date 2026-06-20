@@ -326,7 +326,6 @@ final class DockSplitStore: BonsplitDelegate {
 
     /// Whether a panel id is present in the Dock tree.
     func containsPanel(_ panelId: UUID) -> Bool {
-        ensureLoaded()
         return panels[panelId] != nil
     }
     func containsPane(_ paneId: UUID) -> Bool { bonsplitController.allPaneIds.contains(where: { $0.id == paneId }) }

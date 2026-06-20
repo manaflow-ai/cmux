@@ -1448,6 +1448,10 @@ final class WindowBrowserSlotView: NSView {
         paneDropTargetView.dropContext = context
     }
 
+    var currentPaneDropContext: BrowserPaneDropContext? {
+        paneDropTargetView.dropContext
+    }
+
     func paneDropTargetForDrop(at localPoint: NSPoint) -> BrowserPaneDropTargetView? {
         guard paneDropTargetView.dropContext?.allowsPaneDrops == true else { return nil }
         guard bounds.contains(localPoint) else { return nil }
@@ -2908,8 +2912,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func paneDropContext(owning responder: NSResponder) -> BrowserPaneDropContext? {
-        if let panelId = searchOverlayPanelId(for: responder),
-           let context = paneDropContext(forPanelId: panelId) {
+        if let context = paneDropContextForSearchOverlay(owning: responder) {
             return context
         }
 
@@ -2937,8 +2940,13 @@ final class WindowBrowserPortal: NSObject {
         return nil
     }
 
-    private func paneDropContext(forPanelId panelId: UUID) -> BrowserPaneDropContext? {
-        entriesByWebViewId.values.first { $0.paneDropContext?.panelId == panelId }?.paneDropContext
+    private func paneDropContextForSearchOverlay(owning responder: NSResponder) -> BrowserPaneDropContext? {
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            if container.searchOverlayPanelId(for: responder) != nil {
+                return container.currentPaneDropContext
+            }
+        }
+        return nil
     }
 
     private func paneDropContext(owning view: NSView) -> BrowserPaneDropContext? {
@@ -2949,17 +2957,13 @@ final class WindowBrowserPortal: NSObject {
                 return context
             }
             if let slotView = candidate as? WindowBrowserSlotView,
-               let context = paneDropContext(forSlotView: slotView) {
+               let context = slotView.currentPaneDropContext {
                 return context
             }
             current = candidate.superview
         }
 
         return nil
-    }
-
-    private func paneDropContext(forSlotView slotView: WindowBrowserSlotView) -> BrowserPaneDropContext? {
-        entriesByWebViewId.values.first { $0.containerView === slotView }?.paneDropContext
     }
 
     func updateSearchOverlay(
