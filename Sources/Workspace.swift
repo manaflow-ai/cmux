@@ -3472,7 +3472,7 @@ final class Workspace: Identifiable, ObservableObject {
         body()
     }
     func markTabCloseButtonClose(surfaceId: TabID) {
-        explicitUserCloseTabIds.insert(surfaceId)
+        markExplicitClose(surfaceId: surfaceId)
         tabStripCloseSources[surfaceId] = .closeButton
     }
     func markTabStripMiddleClickClose(surfaceId: TabID) {

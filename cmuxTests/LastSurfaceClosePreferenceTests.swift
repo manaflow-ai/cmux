@@ -59,6 +59,27 @@ struct LastSurfaceClosePreferenceTests {
     }
 
     @Test
+    func tabCloseButtonKeepOpenRecordsClosedSurfaceHistory() throws {
+        try withManager(closeWorkspaceOnLastSurface: false) { manager in
+            let secondWorkspace = manager.addWorkspace()
+            manager.selectWorkspace(secondWorkspace)
+
+            let secondPanelId = try #require(secondWorkspace.focusedPanelId)
+            let secondSurfaceId = try #require(secondWorkspace.surfaceIdFromPanelId(secondPanelId))
+            secondWorkspace.setPanelCustomTitle(panelId: secondPanelId, title: "Closed Last Surface")
+
+            secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
+            #expect(secondWorkspace.closePanel(secondPanelId))
+            drainMainQueue()
+            drainMainQueue()
+
+            let item = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
+            #expect(item.title == "Closed Last Surface")
+            #expect(item.detail == "Tab")
+        }
+    }
+
+    @Test
     func middleClickClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsDisabled() throws {
         try withManager(closeWorkspaceOnLastSurface: true) { manager in
             let firstWorkspace = manager.tabs[0]
@@ -112,6 +133,8 @@ struct LastSurfaceClosePreferenceTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(closeWorkspaceOnLastSurface, forKey: closeWorkspaceOnLastSurfaceKey)
         let settings = UserDefaultsSettingsClient(defaults: defaults)
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
         try run(TabManager(settings: settings))
     }
 }
