@@ -13553,6 +13553,7 @@ class TerminalController {
                 "surface_id": surfaceId.uuidString,
             ])
         }
+        clearMobileViewportReports(surfaceID: surfaceId, reason: "mobile.terminal.close")
         var refreshParams = params
         for key in ["surface_id", "terminal_id", "tab_id"] {
             refreshParams.removeValue(forKey: key)
@@ -14014,6 +14015,19 @@ class TerminalController {
                 reason: reason
             )
         }
+    }
+
+    /// Drop every viewport report for a closed surface so no connected device
+    /// keeps stale per-surface resize state after the terminal is gone.
+    private func clearMobileViewportReports(surfaceID: UUID, reason: String) {
+        guard mobileViewportReportsBySurfaceID.removeValue(forKey: surfaceID) != nil else {
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+            mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
+            return
+        }
+        mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+        mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
+        terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
     }
 
     /// Drop every viewport report owned by the given client IDs across all

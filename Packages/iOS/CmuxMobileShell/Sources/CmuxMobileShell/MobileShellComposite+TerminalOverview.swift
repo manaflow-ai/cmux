@@ -29,10 +29,16 @@ extension MobileShellComposite {
         }
         let liveTerminalIDs = Set(workspace.terminals.map(\.id))
         terminalOverviewPreviewLinesByID = terminalOverviewPreviewLinesByID.filter { liveTerminalIDs.contains($0.key) }
+        let terminalsNeedingReplay = workspace.terminals.filter { terminal in
+            terminal.isReady && terminalOverviewPreviewLinesByID[terminal.id] == nil
+        }
+        guard !terminalsNeedingReplay.isEmpty else {
+            return
+        }
         guard let client = remoteClient else {
             return
         }
-        for terminal in workspace.terminals {
+        for terminal in terminalsNeedingReplay {
             guard !Task.isCancelled else { return }
             do {
                 let lines = try await Self.requestTerminalOverviewPreviewLines(
