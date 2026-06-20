@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import os
 
 /// The macOS hosted-browser sign-in flow.
 ///
@@ -209,19 +210,24 @@ public final class HostBrowserSignInFlow {
         let clock = self.clock
         let deadlineTask = Task { try await clock.sleep(for: .seconds(clamped)) }
         return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            let once = ResumeOnceFlag()
-            Task { @MainActor in
-                let result = await attempt.value
+            let didResume = OSAllocatedUnfairLock(initialState: false)
+            let resume: @Sendable (Bool) -> Void = { result in
+                let alreadyResumed = didResume.withLock { state -> Bool in
+                    if state { return true }
+                    state = true
+                    return false
+                }
+                guard !alreadyResumed else { return }
                 deadlineTask.cancel()
-                guard !once.fired else { return }
-                once.fired = true
                 continuation.resume(returning: result)
             }
             Task { @MainActor in
+                let result = await attempt.value
+                resume(result)
+            }
+            Task { @MainActor in
                 try? await deadlineTask.value
-                guard !once.fired else { return }
-                once.fired = true
-                continuation.resume(returning: false)
+                resume(false)
             }
         }
     }
@@ -485,4 +491,25 @@ public final class HostBrowserSignInFlow {
         UUID().uuidString.lowercased()
     }
 
+}
+
+private func authCallbackState(from url: URL) -> String? {
+    URLComponents(url: url, resolvingAgainstBaseURL: false)?
+        .queryItems?
+        .first(where: { $0.name == "cmux_auth_state" })?
+        .value
+}
+
+private func redactedAuthState(_ state: String) -> String {
+    "\(state.prefix(8))..."
+}
+
+private func authCallbackSummary(_ url: URL) -> String {
+    let scheme = url.scheme ?? "nil"
+    let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+        .queryItems?
+        .map(\.name)
+        .joined(separator: ",") ?? ""
+    return "scheme=\(scheme) target=\(target.isEmpty ? "nil" : target) queryKeys=\(queryItems.isEmpty ? "none" : queryItems)"
 }
