@@ -147,8 +147,12 @@ public struct DeviceSyncFacade: Sendable {
     /// rows are team-shared and always included. This keeps one account's
     /// local-only devices private on a shared device — same model as
     /// `MobilePairedMacStore` filtering by `stackUserID` — without clearing the
-    /// cross-account cache (which would race the next sign-in). `nil` disables
-    /// the filter.
+    /// cross-account cache (which would race the next sign-in).
+    ///
+    /// Fails CLOSED: when `provisionalOwnerUserID` is `nil` (the current owner id
+    /// is unavailable), NO provisional rows are returned, so an unknown owner can
+    /// never see another account's local devices. Authoritative rows are
+    /// unaffected.
     public func registryDevices(teamID: String, provisionalOwnerUserID: String? = nil) async throws -> [RegistryDevice] {
         let rows = try await store.liveRecords(teamID: teamID, collection: devicesSyncCollection)
         let decoder = JSONDecoder()
@@ -156,8 +160,12 @@ public struct DeviceSyncFacade: Sendable {
             guard let record = try? decoder.decode(SyncedDeviceRecord.self, from: row.payloadJSON) else {
                 return nil
             }
-            if let owner = provisionalOwnerUserID, row.rev == 0, record.ownerUserId != owner {
-                return nil
+            if row.rev == 0 {
+                // Provisional (account-private) row: include only for its owner.
+                // Unknown current owner (nil) excludes it — fail closed.
+                guard let owner = provisionalOwnerUserID, record.ownerUserId == owner else {
+                    return nil
+                }
             }
             return Self.registryDevice(from: record)
         }

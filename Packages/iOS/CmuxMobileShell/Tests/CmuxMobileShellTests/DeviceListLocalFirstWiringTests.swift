@@ -28,6 +28,14 @@ import Testing
         func listDevices() async -> DeviceRegistryListOutcome { outcome }
     }
 
+    /// A fixed signed-in identity, so provisional rows (owner-scoped) render.
+    struct FakeIdentity: MobileIdentityProviding {
+        let userID: String?
+        @MainActor var currentUserID: String? { userID }
+    }
+
+    private static let owner = "user-1"
+
     private func makeTransportFactory() -> @Sendable (String) -> any SyncTransport {
         { _ in NoopSyncTransport() }
     }
@@ -40,7 +48,7 @@ import Testing
         let lastSeen = 1_750_000_000_000.0
         for id in deviceIDs {
             let payload = try JSONEncoder().encode(SyncedDeviceRecord(
-                deviceId: id, platform: "mac", displayName: id, ownerUserId: nil,
+                deviceId: id, platform: "mac", displayName: id, ownerUserId: Self.owner,
                 lastSeenAtAtRev: lastSeen,
                 instances: [.init(tag: "default", routes: [], lastSeenAtAtRev: lastSeen)]
             ))
@@ -73,6 +81,7 @@ import Testing
             deviceListLocalFirst: true,
             syncTeamIDProvider: { "team-1" },
             makeSyncTransport: makeTransportFactory(),
+            identityProvider: FakeIdentity(userID: Self.owner),
             deliveredNotificationClearer: NoopDeliveredNotificationClearer()
         )
         await composite.loadRegistryDevices()

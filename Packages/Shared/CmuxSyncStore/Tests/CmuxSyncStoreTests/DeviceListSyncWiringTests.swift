@@ -55,7 +55,7 @@ import Testing
 
         // The migration seeds the phone's existing Mac as a provisional rev==0 row.
         let provisional = try JSONEncoder().encode(SyncedDeviceRecord(
-            deviceId: "mac-local", platform: "mac", displayName: "Old Mac", ownerUserId: nil,
+            deviceId: "mac-local", platform: "mac", displayName: "Old Mac", ownerUserId: "user-A",
             lastSeenAtAtRev: T0_MS,
             instances: [.init(tag: "default", routes: [], lastSeenAtAtRev: T0_MS)]
         ))
@@ -70,7 +70,8 @@ import Testing
             sortKeyFor: sortKey, now: Date()
         )
 
-        let devices = try await DeviceSyncFacade(store: store).registryDevices(teamID: TEAM)
+        let devices = try await DeviceSyncFacade(store: store)
+            .registryDevices(teamID: TEAM, provisionalOwnerUserID: "user-A")
         #expect(Set(devices.map(\.deviceId)) == ["mac-local", "mac-other"])
     }
 }
@@ -137,8 +138,9 @@ import Testing
         #expect(Set(asA.map(\.deviceId)) == ["mac-A", "mac-shared"])
         let asB = try await facade.registryDevices(teamID: TEAM, provisionalOwnerUserID: "user-B")
         #expect(Set(asB.map(\.deviceId)) == ["mac-B", "mac-shared"])
-        // No owner filter (the macOS/legacy callers) still sees everything.
-        let all = try await facade.registryDevices(teamID: TEAM)
-        #expect(Set(all.map(\.deviceId)) == ["mac-A", "mac-B", "mac-shared"])
+        // Owner unknown (nil) fails closed: only the team-shared authoritative
+        // row, never another account's local-only provisional rows.
+        let unknownOwner = try await facade.registryDevices(teamID: TEAM)
+        #expect(Set(unknownOwner.map(\.deviceId)) == ["mac-shared"])
     }
 }
