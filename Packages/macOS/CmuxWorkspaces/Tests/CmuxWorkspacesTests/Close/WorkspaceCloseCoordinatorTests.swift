@@ -52,6 +52,45 @@ private final class StubConfirming: CloseConfirming {
     }
 }
 
+/// Records the close/detach/attach teardown effects in invocation order so the
+/// coordinator's orchestration can be asserted without the app-target
+/// `Workspace`/`AppDelegate` collaborators.
+@MainActor
+private final class StubCloseHost: WorkspaceCloseHosting {
+    typealias Tab = StubTab
+
+    /// Each effect appends a tag; `events` is the observable side-effect order.
+    private(set) var events: [String] = []
+    var remoteTmuxMirrorIds: Set<UUID> = []
+    var restorableIds: Set<UUID> = []
+
+    func recordWorkspaceCloseBreadcrumb(remainingTabCount: Int) {
+        events.append("breadcrumb(\(remainingTabCount))")
+    }
+    func isRemoteTmuxMirror(_ tab: StubTab) -> Bool { remoteTmuxMirrorIds.contains(tab.id) }
+    func killRemoteTmuxMirror(_ tab: StubTab) { events.append("killRemoteTmux") }
+    func isRestorableInSessionSnapshot(_ tab: StubTab) -> Bool { restorableIds.contains(tab.id) }
+    func recordClosedWorkspaceHistory(_ tab: StubTab, index: Int) {
+        events.append("history(\(index))")
+    }
+    func clearWorkspaceGitProbes(workspaceId: UUID) { events.append("clearGit") }
+    func clearWorkspacePullRequestTracking(workspaceId: UUID) { events.append("clearPR") }
+    func removeFromSidebarSelection(workspaceId: UUID) { events.append("removeSel") }
+    func invalidateFocusHistoryTarget(workspaceId: UUID) { events.append("invalFocus") }
+    func clearNotifications(workspaceId: UUID) { events.append("clearNotif") }
+    func teardownAllPanels(_ tab: StubTab) { events.append("teardownPanels") }
+    func teardownRemoteConnection(_ tab: StubTab) { events.append("teardownRemote") }
+    func unwireClosedBrowserTracking(_ tab: StubTab) { events.append("unwireBrowser") }
+    func wireClosedBrowserTracking(_ tab: StubTab) { events.append("wireBrowser") }
+    func removeClosedBrowserPanels(workspaceId: UUID) { events.append("removeBrowserPanels") }
+    func clearOwningTabManager(_ tab: StubTab) { events.append("clearOwner") }
+    func setOwningTabManager(_ tab: StubTab) { events.append("setOwner") }
+    func publishWorkspaceClosed(_ tab: StubTab) { events.append("publishClosed") }
+    func clearGroupMembership(_ tab: StubTab) { events.append("clearGroup") }
+    func forgetRememberedFocus(workspaceId: UUID) { events.append("forgetFocus") }
+    func addReplacementWorkspaceForEmptyWindow() { events.append("addReplacement") }
+}
+
 @MainActor
 private func makeCoordinator(
     tabs: [StubTab],
@@ -64,6 +103,20 @@ private func makeCoordinator(
     let confirming = StubConfirming()
     coordinator.attach(confirming: confirming)
     return (coordinator, confirming)
+}
+
+@MainActor
+private func makeExecutionCoordinator(
+    tabs: [StubTab],
+    selected: UUID? = nil
+) -> (WorkspaceCloseCoordinator<StubTab>, WorkspacesModel<StubTab>, StubCloseHost) {
+    let model = WorkspacesModel<StubTab>()
+    model.tabs = tabs
+    model.selectedTabId = selected
+    let coordinator = WorkspaceCloseCoordinator(model: model)
+    let host = StubCloseHost()
+    coordinator.attach(host: host)
+    return (coordinator, model, host)
 }
 
 @MainActor
@@ -159,5 +212,137 @@ struct WorkspaceCloseCoordinatorTests {
         model.tabs = [a]
         let coordinator = WorkspaceCloseCoordinator(model: model)
         #expect(coordinator.closeWorkspacesPlan(for: [a]) == nil)
+    }
+
+    // MARK: - Lifecycle execution
+
+    @Test
+    func closeWorkspaceIsNoOpWhenOnlyOneWorkspaceRemains() {
+        let a = StubTab(title: "a")
+        let (coordinator, model, host) = makeExecutionCoordinator(tabs: [a], selected: a.id)
+        coordinator.closeWorkspace(a)
+        #expect(model.tabs.map(\.id) == [a.id])
+        #expect(host.events.isEmpty)
+    }
+
+    @Test
+    func closeWorkspaceRunsTeardownInLegacyOrderAndKeepsFocusedIndex() {
+        let a = StubTab(title: "a")
+        let b = StubTab(title: "b")
+        let c = StubTab(title: "c")
+        let (coordinator, model, host) = makeExecutionCoordinator(tabs: [a, b, c], selected: b.id)
+        host.restorableIds = [b.id]
+        host.remoteTmuxMirrorIds = [b.id]
+
+        coordinator.closeWorkspace(b)
+
+        // Removed from tabs; closing the middle (index 1) re-focuses the
+        // workspace that shifted up into index 1 (c).
+        #expect(model.tabs.map(\.id) == [a.id, c.id])
+        #expect(model.selectedTabId == c.id)
+        // Side-effect order is the legacy closeWorkspace sequence.
+        #expect(host.events == [
+            "breadcrumb(2)",
+            "killRemoteTmux",
+            "history(1)",
+            "clearGit",
+            "clearPR",
+            "removeSel",
+            "invalFocus",
+            "clearNotif",
+            "teardownPanels",
+            "teardownRemote",
+            "unwireBrowser",
+            "removeBrowserPanels",
+            "clearOwner",
+            "publishClosed",
+        ])
+    }
+
+    @Test
+    func closeWorkspaceSkipsHistoryAndRemoteKillWhenNotApplicable() {
+        let a = StubTab(title: "a")
+        let b = StubTab(title: "b")
+        let (coordinator, _, host) = makeExecutionCoordinator(tabs: [a, b], selected: a.id)
+        // a is neither restorable nor a remote-tmux mirror.
+        coordinator.closeWorkspace(a)
+        #expect(!host.events.contains("history(0)"))
+        #expect(!host.events.contains("killRemoteTmux"))
+    }
+
+    @Test
+    func closeWorkspaceRecordHistoryFalseSkipsHistoryEvenWhenRestorable() {
+        let a = StubTab(title: "a")
+        let b = StubTab(title: "b")
+        let (coordinator, _, host) = makeExecutionCoordinator(tabs: [a, b], selected: a.id)
+        host.restorableIds = [a.id]
+        coordinator.closeWorkspace(a, recordHistory: false)
+        #expect(!host.events.contains(where: { $0.hasPrefix("history(") }))
+    }
+
+    @Test
+    func detachWorkspaceRemovesAndReturnsAndReselects() {
+        let a = StubTab(title: "a")
+        let b = StubTab(title: "b")
+        let c = StubTab(title: "c")
+        let (coordinator, model, host) = makeExecutionCoordinator(tabs: [a, b, c], selected: a.id)
+
+        let removed = coordinator.detachWorkspace(tabId: a.id)
+        #expect(removed?.id == a.id)
+        #expect(model.tabs.map(\.id) == [b.id, c.id])
+        // Detaching the selected workspace (index 0) re-selects index 0 (b).
+        #expect(model.selectedTabId == b.id)
+        #expect(host.events == [
+            "clearGit",
+            "removeSel",
+            "invalFocus",
+            "clearGroup",
+            "unwireBrowser",
+            "removeBrowserPanels",
+            "clearOwner",
+            "forgetFocus",
+        ])
+    }
+
+    @Test
+    func detachLastWorkspaceBackfillsEmptyWindow() {
+        let a = StubTab(title: "a")
+        let (coordinator, model, host) = makeExecutionCoordinator(tabs: [a], selected: a.id)
+        let removed = coordinator.detachWorkspace(tabId: a.id)
+        #expect(removed?.id == a.id)
+        #expect(model.tabs.isEmpty)
+        #expect(host.events.last == "addReplacement")
+    }
+
+    @Test
+    func detachUnknownIdReturnsNil() {
+        let a = StubTab(title: "a")
+        let (coordinator, _, host) = makeExecutionCoordinator(tabs: [a], selected: a.id)
+        #expect(coordinator.detachWorkspace(tabId: UUID()) == nil)
+        #expect(host.events.isEmpty)
+    }
+
+    @Test
+    func attachWorkspaceInsertsAtIndexWiresTrackingAndSelects() {
+        let a = StubTab(title: "a")
+        let b = StubTab(title: "b")
+        let incoming = StubTab(title: "incoming")
+        let (coordinator, model, host) = makeExecutionCoordinator(tabs: [a, b], selected: a.id)
+
+        coordinator.attachWorkspace(incoming, at: 1, select: true)
+        #expect(model.tabs.map(\.id) == [a.id, incoming.id, b.id])
+        #expect(model.selectedTabId == incoming.id)
+        #expect(host.events == ["setOwner", "wireBrowser"])
+    }
+
+    @Test
+    func attachWorkspaceAppendsWhenIndexNilAndCanSkipSelection() {
+        let a = StubTab(title: "a")
+        let incoming = StubTab(title: "incoming")
+        let (coordinator, model, host) = makeExecutionCoordinator(tabs: [a], selected: a.id)
+        _ = host // retain the weakly-held host for the test's lifetime
+        coordinator.attachWorkspace(incoming, at: nil, select: false)
+        #expect(model.tabs.map(\.id) == [a.id, incoming.id])
+        #expect(model.selectedTabId == a.id)
     }
 }

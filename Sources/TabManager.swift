@@ -610,6 +610,7 @@ class TabManager: ObservableObject {
         workspaceCommands.attach(host: self)
         workspaceGrouping.attach(host: self)
         workspaceClosing.attach(confirming: self)
+        workspaceClosing.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
@@ -1980,65 +1981,9 @@ class TabManager: ObservableObject {
 
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
-        guard tabs.count > 1 else { return }
-        sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
-        // User-initiated close of a mirrored remote tmux session kills it on the
-        // remote. (App quit tears down windows without calling closeWorkspace, so
-        // quitting still leaves remote sessions alive.)
-        if workspace.isRemoteTmuxMirror {
-            AppDelegate.shared?.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
-        }
-        if recordHistory,
-           workspace.isRestorableInSessionSnapshot,
-           let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            // Prefer the warm cached agent index over a synchronous
-            // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
-            // workspace does not freeze the main thread; fall back to a fresh load only
-            // while the cache has not loaded yet. See closedPanelHistoryEntry.
-            let snapshot = workspace.sessionSnapshot(
-                includeScrollback: true,
-                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                    ?? RestorableAgentSessionIndex.load()
-            )
-            ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
-                workspaceId: workspace.id,
-                windowId: AppDelegate.shared?.windowId(for: self),
-                workspaceIndex: index,
-                snapshot: snapshot
-            )))
-        }
-        sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
-        pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)
-        sidebarMultiSelection.removeFromSelection(workspace.id)
-        invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
-
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.withClosedPanelHistorySuppressed {
-            workspace.teardownAllPanels()
-        }
-        workspace.teardownRemoteConnection()
-        unwireClosedBrowserTracking(for: workspace)
-        browserModel.removeClosedBrowserPanels(forWorkspaceId: workspace.id)
-        workspace.owningTabManager = nil
-
-        if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            tabs.remove(at: index)
-            // Real-close path: if the closed workspace anchored a group, the
-            // group dissolves now and its remaining members survive as
-            // ungrouped workspaces. This lives at the explicit close site (not
-            // in the tabs didSet) so transient remove/insert reorders never
-            // trigger dissolve.
-            workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
-
-            if selectedTabId == workspace.id {
-                // Keep the "focused index" stable when possible:
-                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
-                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
-                let newIndex = min(index, max(0, tabs.count - 1))
-                selectedTabId = tabs[newIndex].id
-            }
-        }
-        publishCmuxWorkspaceClosed(workspace)
+        // Lifecycle execution lives in WorkspaceCloseCoordinator (CmuxWorkspaces);
+        // the teardown effects invert back through WorkspaceCloseHosting below.
+        workspaceClosing.closeWorkspace(workspace, recordHistory: recordHistory)
     }
 
 
@@ -2046,58 +1991,12 @@ class TabManager: ObservableObject {
     /// Used by the socket API for cross-window moves.
     @discardableResult
     func detachWorkspace(tabId: UUID) -> Workspace? {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
-        sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: tabId)
-        sidebarMultiSelection.removeFromSelection(tabId)
-        invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
-
-        let removed = tabs.remove(at: index)
-        // Same anchor-close lifecycle as closeWorkspace: detaching a group's
-        // anchor dissolves the group; non-anchor members stay in tabs as
-        // ungrouped workspaces.
-        workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: removed.id)
-        // Clear the detached workspace's own group membership so the
-        // destination window — which has no matching WorkspaceGroup — doesn't
-        // render it as an orphaned indented row with stale grouping state.
-        removed.groupId = nil
-        unwireClosedBrowserTracking(for: removed)
-        browserModel.removeClosedBrowserPanels(forWorkspaceId: removed.id)
-        removed.owningTabManager = nil
-        focusedSurface.forgetRememberedFocus(workspaceId: removed.id)
-
-        if tabs.isEmpty {
-            // The UI assumes each window always has at least one workspace.
-            _ = addWorkspace()
-            return removed
-        }
-
-        if selectedTabId == removed.id {
-            let nextIndex = min(index, max(0, tabs.count - 1))
-            selectedTabId = tabs[nextIndex].id
-        }
-
-        return removed
+        workspaceClosing.detachWorkspace(tabId: tabId)
     }
 
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
-        workspace.owningTabManager = self
-        wireClosedBrowserTracking(for: workspace)
-        let insertIndex: Int = {
-            guard let index else { return tabs.count }
-            return max(0, min(index, tabs.count))
-        }()
-        tabs.insert(workspace, at: insertIndex)
-        // A workspace moved in from another window arrives ungrouped (detach
-        // clears `groupId`) and may be pinned, so an arbitrary insert index can
-        // split a destination group's contiguous run or drop a pinned workspace
-        // below unpinned ones. Re-run the same normalization every insertion
-        // path uses so the destination's sidebar invariants — leading pinned
-        // segment, contiguous group runs — hold regardless of the drop index.
-        workspaces.normalizeWorkspaceGroupContiguity()
-        if select {
-            selectedTabId = workspace.id
-        }
+        workspaceClosing.attachWorkspace(workspace, at: index, select: select)
     }
 
     // Keep closeTab as convenience alias
@@ -2385,6 +2284,115 @@ class TabManager: ObservableObject {
 
     var workspaceDisplayTitleFallback: String {
         String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
+    }
+
+    // MARK: - WorkspaceCloseHosting (WorkspaceCloseCoordinator's teardown seam)
+    //
+    // The close/detach/attach orchestration (order, model mutations, group
+    // dissolve, selection-after-close index math) lives in
+    // WorkspaceCloseCoordinator; these witnesses perform each app-coupled
+    // teardown effect against the Workspace god object / AppDelegate, lifted
+    // verbatim from the legacy in-class closeWorkspace/detachWorkspace/
+    // attachWorkspace bodies.
+
+    func recordWorkspaceCloseBreadcrumb(remainingTabCount: Int) {
+        sentryBreadcrumb("workspace.close", data: ["tabCount": remainingTabCount])
+    }
+
+    func isRemoteTmuxMirror(_ tab: Workspace) -> Bool {
+        tab.isRemoteTmuxMirror
+    }
+
+    func killRemoteTmuxMirror(_ tab: Workspace) {
+        AppDelegate.shared?.remoteTmuxController.handleWorkspaceClosed(workspaceId: tab.id)
+    }
+
+    func isRestorableInSessionSnapshot(_ tab: Workspace) -> Bool {
+        tab.isRestorableInSessionSnapshot
+    }
+
+    func recordClosedWorkspaceHistory(_ tab: Workspace, index: Int) {
+        // Prefer the warm cached agent index over a synchronous
+        // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
+        // workspace does not freeze the main thread; fall back to a fresh load only
+        // while the cache has not loaded yet. See closedPanelHistoryEntry.
+        let snapshot = tab.sessionSnapshot(
+            includeScrollback: true,
+            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                ?? RestorableAgentSessionIndex.load()
+        )
+        ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: tab.id,
+            windowId: AppDelegate.shared?.windowId(for: self),
+            workspaceIndex: index,
+            snapshot: snapshot
+        )))
+    }
+
+    func clearWorkspaceGitProbes(workspaceId: UUID) {
+        sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspaceId)
+    }
+
+    func clearWorkspacePullRequestTracking(workspaceId: UUID) {
+        pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspaceId)
+    }
+
+    func removeFromSidebarSelection(workspaceId: UUID) {
+        sidebarMultiSelection.removeFromSelection(workspaceId)
+    }
+
+    func invalidateFocusHistoryTarget(workspaceId: UUID) {
+        invalidateFocusHistoryTarget(workspaceId: workspaceId, panelId: nil)
+    }
+
+    func clearNotifications(workspaceId: UUID) {
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId)
+    }
+
+    func teardownAllPanels(_ tab: Workspace) {
+        tab.withClosedPanelHistorySuppressed {
+            tab.teardownAllPanels()
+        }
+    }
+
+    func teardownRemoteConnection(_ tab: Workspace) {
+        tab.teardownRemoteConnection()
+    }
+
+    func unwireClosedBrowserTracking(_ tab: Workspace) {
+        unwireClosedBrowserTracking(for: tab)
+    }
+
+    func wireClosedBrowserTracking(_ tab: Workspace) {
+        wireClosedBrowserTracking(for: tab)
+    }
+
+    func removeClosedBrowserPanels(workspaceId: UUID) {
+        browserModel.removeClosedBrowserPanels(forWorkspaceId: workspaceId)
+    }
+
+    func clearOwningTabManager(_ tab: Workspace) {
+        tab.owningTabManager = nil
+    }
+
+    func setOwningTabManager(_ tab: Workspace) {
+        tab.owningTabManager = self
+    }
+
+    func publishWorkspaceClosed(_ tab: Workspace) {
+        publishCmuxWorkspaceClosed(tab)
+    }
+
+    func clearGroupMembership(_ tab: Workspace) {
+        tab.groupId = nil
+    }
+
+    func forgetRememberedFocus(workspaceId: UUID) {
+        focusedSurface.forgetRememberedFocus(workspaceId: workspaceId)
+    }
+
+    func addReplacementWorkspaceForEmptyWindow() {
+        _ = addWorkspace()
     }
 
     private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
@@ -5946,6 +5954,7 @@ extension TabManager {
 extension TabManager: WorkspacesHosting {}
 extension TabManager: WorkspaceGroupHosting {}
 extension TabManager: CloseConfirming {}
+extension TabManager: WorkspaceCloseHosting {}
 
 // Workspace satisfies the CmuxWorkspaces tab seam with its existing
 // id/groupId/isPinned storage.
