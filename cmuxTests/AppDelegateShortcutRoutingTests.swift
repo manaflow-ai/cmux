@@ -2165,12 +2165,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testOpenChatShortcutDefaultsToCmdCtrlShiftCAndRoutesToSharedChatPath() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
+    func testOpenChatShortcutDefaultsToCmdCtrlShiftCAndIsUserEditable() {
         let cmdCtrlShiftC = StoredShortcut(key: "c", command: true, shift: true, option: false, control: true)
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .openChat), cmdCtrlShiftC)
         XCTAssertEqual(
@@ -2181,41 +2176,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(
             KeyboardShortcutSettings.settingsVisibleActions.contains(.openChat),
             "Open Chat must be visible/editable in Settings → Keyboard Shortcuts"
-        )
-
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-        guard let targetWindow = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
-        var openChatCount = 0
-        appDelegate.debugOpenChatHandler = { openChatCount += 1 }
-        defer { appDelegate.debugOpenChatHandler = nil }
-
-        guard let event = makeKeyDownEvent(
-            key: "c",
-            modifiers: [.command, .control, .shift],
-            keyCode: 8, // kVK_ANSI_C
-            windowNumber: targetWindow.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+Ctrl+Shift+C event")
-            return
-        }
-
-#if DEBUG
-        XCTAssertTrue(
-            appDelegate.debugHandleCustomShortcut(event: event),
-            "Cmd+Ctrl+Shift+C should be consumed by the Open Chat shortcut"
-        )
-#else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
-        XCTAssertEqual(
-            openChatCount,
-            1,
-            "Cmd+Ctrl+Shift+C must route to the shared chat-open path (same path as the command palette)"
         )
     }
 

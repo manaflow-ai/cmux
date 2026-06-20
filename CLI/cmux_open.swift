@@ -217,7 +217,8 @@ extension CMUXCLI {
         var workspaceName: String
         var repoName: String
         var repoRoot: String?
-        var branchName: String
+        var branchName: String?
+        var branchLabel: String
     }
 
     private struct DiffViewerDeferredSourceSet {
@@ -496,7 +497,7 @@ extension CMUXCLI {
             OpenChatLabels(values: [
                 "accountSwitcher": CMUXDiffViewerLocalization.string("openChat.accountSwitcher", defaultValue: "Account and model switcher"),
                 "addCredits": CMUXDiffViewerLocalization.string("openChat.addCredits", defaultValue: "Add Credits"),
-                "addCreditsUnavailable": CMUXDiffViewerLocalization.string("openChat.addCreditsUnavailable", defaultValue: "Billing is not wired yet"),
+                "addCreditsUnavailable": CMUXDiffViewerLocalization.string("openChat.addCreditsUnavailable", defaultValue: "Credits are coming soon"),
                 "approvalMode": CMUXDiffViewerLocalization.string("openChat.approvalMode", defaultValue: "Approval mode"),
                 "approvalAutoReview": CMUXDiffViewerLocalization.string("openChat.approvalAutoReview", defaultValue: "Auto-review"),
                 "approvalDefault": CMUXDiffViewerLocalization.string("openChat.approvalDefault", defaultValue: "Default"),
@@ -505,7 +506,7 @@ extension CMUXCLI {
                 "attachContext": CMUXDiffViewerLocalization.string("openChat.attachContext", defaultValue: "Attach context"),
                 "branchSelector": CMUXDiffViewerLocalization.string("openChat.branchSelector", defaultValue: "Branch selector"),
                 "connectApps": CMUXDiffViewerLocalization.string("openChat.connectApps", defaultValue: "Connect your favorite apps to Codex"),
-                "connectAppsUnavailable": CMUXDiffViewerLocalization.string("openChat.connectAppsUnavailable", defaultValue: "App connections are not wired yet"),
+                "connectAppsUnavailable": CMUXDiffViewerLocalization.string("openChat.connectAppsUnavailable", defaultValue: "App connections are coming soon"),
                 "environmentSelector": CMUXDiffViewerLocalization.string("openChat.environmentSelector", defaultValue: "Environment selector"),
                 "exampleSuggestion": CMUXDiffViewerLocalization.string("openChat.exampleSuggestion", defaultValue: "Plan and build a polished feature from this workspace"),
                 "headingFormat": CMUXDiffViewerLocalization.string("openChat.headingFormat", defaultValue: "What should we build in %@?"),
@@ -522,12 +523,12 @@ extension CMUXCLI {
                 "reasoningMedium": CMUXDiffViewerLocalization.string("openChat.reasoningMedium", defaultValue: "Medium"),
                 "repoSelector": CMUXDiffViewerLocalization.string("openChat.repoSelector", defaultValue: "Repository selector"),
                 "resetUsage": CMUXDiffViewerLocalization.string("openChat.resetUsage", defaultValue: "Reset usage"),
-                "resetUsageUnavailable": CMUXDiffViewerLocalization.string("openChat.resetUsageUnavailable", defaultValue: "Usage resets are not wired yet"),
+                "resetUsageUnavailable": CMUXDiffViewerLocalization.string("openChat.resetUsageUnavailable", defaultValue: "Usage resets are coming soon"),
                 "send": CMUXDiffViewerLocalization.string("openChat.send", defaultValue: "Send"),
-                "submittedStubFormat": CMUXDiffViewerLocalization.string("openChat.submittedStubFormat", defaultValue: "Stub submitted: %@"),
+                "submitUnavailableFormat": CMUXDiffViewerLocalization.string("openChat.submitUnavailableFormat", defaultValue: "Chat backend is coming soon. Draft kept here: %@"),
                 "title": CMUXDiffViewerLocalization.string("openChat.title", defaultValue: "Open Chat"),
                 "voiceInput": CMUXDiffViewerLocalization.string("openChat.voiceInput", defaultValue: "Voice input"),
-                "voiceUnavailable": CMUXDiffViewerLocalization.string("openChat.voiceUnavailable", defaultValue: "Voice input is not wired yet"),
+                "voiceUnavailable": CMUXDiffViewerLocalization.string("openChat.voiceUnavailable", defaultValue: "Voice input is not available yet"),
                 "workLocally": CMUXDiffViewerLocalization.string("openChat.workLocally", defaultValue: "Work locally"),
             ])
         }
@@ -1082,7 +1083,7 @@ extension CMUXCLI {
             response["url"] = viewer.url.absoluteString
             response["title"] = viewer.title
             response["repo"] = context.repoName
-            response["branch"] = context.branchName
+            response["branch"] = context.branchName ?? NSNull()
             print(jsonString(formatIDs(response, mode: idFormat)))
             return
         }
@@ -1896,15 +1897,14 @@ extension CMUXCLI {
         let repoLabelPath = repoRoot ?? resolvedCWD
         let repoName = openChatDisplayName(forPath: repoLabelPath)
         let workspaceLabel = normalizedDiffSourceValue(workspaceName) ?? repoName
-        let branchName = repoRoot
-            .flatMap(openChatCurrentBranch(in:))
-            ?? OpenChatLabels.localized().values["noBranch"]
-            ?? "No branch"
+        let branchName = repoRoot.flatMap(openChatCurrentBranch(in:))
+        let branchLabel = branchName ?? OpenChatLabels.localized().values["noBranch"] ?? "No branch"
         return OpenChatContext(
             workspaceName: workspaceLabel,
             repoName: repoName,
             repoRoot: repoRoot,
-            branchName: branchName
+            branchName: branchName,
+            branchLabel: branchLabel
         )
     }
 
@@ -6003,7 +6003,7 @@ extension CMUXCLI {
             "title": title,
             "workspaceName": context.workspaceName,
             "repoName": context.repoName,
-            "branchName": context.branchName,
+            "branchName": context.branchLabel,
             "appearance": appearance.jsonObject,
             "labels": labels.jsonObject,
             "rateLimit": [
@@ -6034,7 +6034,7 @@ extension CMUXCLI {
                     ["id": "local", "label": labels.values["workLocally"] ?? "Work locally", "selected": true],
                 ],
                 "branches": [
-                    ["id": context.branchName, "label": context.branchName, "selected": true],
+                    ["id": context.branchName ?? "no-branch", "label": context.branchLabel, "selected": true],
                 ],
             ],
             "suggestions": [

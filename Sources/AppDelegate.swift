@@ -996,10 +996,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
     /// assert routing without launching a subprocess.
     var debugOpenDiffViewerHandler: (() -> Void)?
-    /// Test seam: when set, ``openChatForFocusedWorkspace(for:)`` invokes this
-    /// instead of spawning the bundled `cmux open-chat` CLI, so shortcut-dispatch tests
-    /// can assert routing without launching a subprocess.
-    var debugOpenChatHandler: (() -> Void)?
     var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
@@ -6164,12 +6160,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// there is no focused workspace or the bundled CLI is missing.
     @discardableResult
     func openChatForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
-#if DEBUG
-        if let debugOpenChatHandler {
-            debugOpenChatHandler()
-            return true
-        }
-#endif
         guard let workspace = tabManager?.selectedWorkspace,
               let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {

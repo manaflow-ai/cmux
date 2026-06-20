@@ -23,7 +23,7 @@ type OpenChatLabelKey =
   | "resetUsage"
   | "resetUsageUnavailable"
   | "send"
-  | "submittedStubFormat"
+  | "submitUnavailableFormat"
   | "title"
   | "voiceInput"
   | "voiceUnavailable";
@@ -150,8 +150,8 @@ export function OpenChatApp({ config }: { config: OpenChatConfig }) {
     if (!trimmed) {
       return;
     }
-    setStatus(formatLabel(label("submittedStubFormat"), trimmed));
-    setInput("");
+    setStatus(formatLabel(label("submitUnavailableFormat"), trimmed));
+    textareaRef.current?.focus();
     resizeTextArea(textareaRef.current);
   }
 
@@ -379,7 +379,11 @@ export function OpenChatApp({ config }: { config: OpenChatConfig }) {
           ))}
         </div>
 
-        {status ? <p className="open-chat-status">{status}</p> : null}
+        {status ? (
+          <p className="open-chat-status" aria-live="polite">
+            {status}
+          </p>
+        ) : null}
       </section>
 
       <div className="open-chat-home-indicator" aria-hidden="true" />
@@ -461,7 +465,7 @@ function ModelMenu({
 }) {
   return (
     <div className="open-chat-menu open-chat-model-menu" role="menu" aria-label={label}>
-      <div className="open-chat-menu-section" aria-label={modelLabel}>
+      <fieldset className="open-chat-menu-section" aria-label={modelLabel}>
         <span className="open-chat-menu-heading">{modelLabel}</span>
         {models.map((option) => (
           <button
@@ -476,8 +480,8 @@ function ModelMenu({
             {option.id === modelId ? <Icon name="check" /> : null}
           </button>
         ))}
-      </div>
-      <div className="open-chat-menu-section" aria-label={reasoningLabel}>
+      </fieldset>
+      <fieldset className="open-chat-menu-section" aria-label={reasoningLabel}>
         <span className="open-chat-menu-heading">{reasoningLabel}</span>
         {reasoningLevels.map((option) => (
           <button
@@ -492,7 +496,7 @@ function ModelMenu({
             {option.id === reasoningId ? <Icon name="check" /> : null}
           </button>
         ))}
-      </div>
+      </fieldset>
     </div>
   );
 }
