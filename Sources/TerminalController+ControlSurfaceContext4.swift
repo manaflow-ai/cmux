@@ -3,7 +3,7 @@ import CmuxRemoteSession
 import Bonsplit
 import CmuxControlSocket
 import Foundation
-import CmuxWorkspaceCore
+import CmuxWorkspaces
 
 /// The surface-domain resume (`resume.set` / `.get` / `.clear`) and reporting
 /// (`report_tty` / `report_shell_state` / `ports_kick`) witnesses, plus the token
