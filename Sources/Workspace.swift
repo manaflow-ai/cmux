@@ -3123,7 +3123,7 @@ final class Workspace: Identifiable, ObservableObject {
             case .closeButton:
                 self?.markTabCloseButtonClose(surfaceId: tabId)
             case .middleClick:
-                self?.markExplicitClose(surfaceId: tabId)
+                self?.markTabStripMiddleClickClose(surfaceId: tabId)
             }
         }
         bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, _ in
@@ -3296,18 +3296,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// confirmation in flight, so click spam can't double-kill or stack dialogs.
     private var pendingRemoteTmuxPaneCloseIds: Set<Int> = []
 
-    /// Tab IDs whose next close attempt should be treated as an explicit
-    /// workspace-close gesture from the user (the tab-strip X button, or the Close Tab
-    /// shortcut when the shortcut preference is set to close the workspace on the last surface),
-    /// rather than an internal close/move flow.
+    /// User-initiated close attempts, distinct from internal close/move flows.
     private var explicitUserCloseTabIds: Set<TabID> = []
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
     private var suppressClosedPanelHistory = false
-    private var tabCloseButtonCloseTabIds: Set<TabID> = []
-
-    /// Deterministic tab selection to apply after a tab closes.
-    /// Keyed by the closing tab ID, value is the tab ID we want to select next.
+    private var tabStripCloseTabIds = Set<TabID>(), tabCloseButtonCloseTabIds = Set<TabID>()
+    /// Deterministic tab selection to apply after a tab closes, keyed by closing tab ID.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
     private var postCloseClearSplitZoomTabIds: Set<TabID> = []
     /// Panel IDs that were in a pane when a pane-close operation was approved.
@@ -3477,10 +3472,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func markTabCloseButtonClose(surfaceId: TabID) {
-        explicitUserCloseTabIds.insert(surfaceId)
+        markTabStripMiddleClickClose(surfaceId: surfaceId)
         tabCloseButtonCloseTabIds.insert(surfaceId)
     }
-
+    func markTabStripMiddleClickClose(surfaceId: TabID) {
+        explicitUserCloseTabIds.insert(surfaceId)
+        tabStripCloseTabIds.insert(surfaceId)
+    }
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
         paneTree.surfaceId(forPanelId: panelId)
     }
@@ -11106,7 +11104,7 @@ extension Workspace: PaneTreeHosting {
 
 extension Workspace: BonsplitDelegate {
     @MainActor
-    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID, tabCloseButtonClose: Bool) -> Bool {
+    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID, tabStripClose: Bool) -> Bool {
         let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
         guard panels.count <= 1,
               panelIdFromSurfaceId(tabId) != nil,
@@ -11114,7 +11112,7 @@ extension Workspace: BonsplitDelegate {
               manager.tabs.contains(where: { $0.id == id }) else {
             return false
         }
-        return !tabCloseButtonClose || manager.closeWorkspaceOnLastSurfacePreferenceEnabled()
+        return !tabStripClose || manager.closeWorkspaceOnLastSurfacePreferenceEnabled()
     }
 
     @MainActor
@@ -11599,8 +11597,9 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
+        let tabStripClose = tabStripCloseTabIds.remove(tab.id) != nil
         let tabCloseButtonClose = tabCloseButtonCloseTabIds.remove(tab.id) != nil
-        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabCloseButtonClose
+        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabStripClose || tabCloseButtonClose
 
         // Remote tmux mirror: closing a window tab means "kill that tmux window".
         // Route ANY non-programmatic close (close button, ⌘W, and batch closes
@@ -11750,7 +11749,7 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id, tabCloseButtonClose: tabCloseButtonClose) {
+        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id, tabStripClose: tabStripClose || tabCloseButtonClose) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
             if tabCloseButtonClose {
@@ -11827,6 +11826,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
+        tabStripCloseTabIds.remove(tabId)
         tabCloseButtonCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil

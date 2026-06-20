@@ -58,6 +58,51 @@ struct LastSurfaceClosePreferenceTests {
         }
     }
 
+    @Test
+    func middleClickClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsDisabled() throws {
+        try withManager(closeWorkspaceOnLastSurface: true) { manager in
+            let firstWorkspace = manager.tabs[0]
+            let secondWorkspace = manager.addWorkspace()
+            manager.selectWorkspace(secondWorkspace)
+
+            let secondPanelId = try #require(secondWorkspace.focusedPanelId)
+            let secondSurfaceId = try #require(secondWorkspace.surfaceIdFromPanelId(secondPanelId))
+
+            secondWorkspace.markTabStripMiddleClickClose(surfaceId: secondSurfaceId)
+            #expect(secondWorkspace.closePanel(secondPanelId) == false)
+            drainMainQueue()
+            drainMainQueue()
+
+            #expect(manager.tabs.map(\.id) == [firstWorkspace.id])
+            #expect(manager.selectedTabId == firstWorkspace.id)
+            #expect(secondWorkspace.panels[secondPanelId] == nil)
+            #expect(secondWorkspace.panels.isEmpty)
+        }
+    }
+
+    @Test
+    func middleClickKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() throws {
+        try withManager(closeWorkspaceOnLastSurface: false) { manager in
+            let firstWorkspace = manager.tabs[0]
+            let secondWorkspace = manager.addWorkspace()
+            manager.selectWorkspace(secondWorkspace)
+
+            let secondPanelId = try #require(secondWorkspace.focusedPanelId)
+            let secondSurfaceId = try #require(secondWorkspace.surfaceIdFromPanelId(secondPanelId))
+
+            secondWorkspace.markTabStripMiddleClickClose(surfaceId: secondSurfaceId)
+            #expect(secondWorkspace.closePanel(secondPanelId))
+            drainMainQueue()
+            drainMainQueue()
+
+            #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
+            #expect(manager.selectedTabId == secondWorkspace.id)
+            #expect(secondWorkspace.panels[secondPanelId] == nil)
+            #expect(secondWorkspace.panels.count == 1)
+            #expect(secondWorkspace.focusedPanelId != secondPanelId)
+        }
+    }
+
     private func withManager(
         closeWorkspaceOnLastSurface: Bool,
         run: (TabManager) throws -> Void
