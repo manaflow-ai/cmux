@@ -5084,6 +5084,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    func hasGhosttyBindingKeyEquivalentBeforeAppShortcut(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        guard let fr = window?.firstResponder as? NSView,
+              fr === self || fr.isDescendant(of: self) else { return false }
+        guard let surface = ensureSurfaceReadyForInput() else { return false }
+
+        if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            return false
+        }
+
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        if !flags.contains(.command),
+           !flags.contains(.control),
+           let text = textForKeyEvent(event),
+           shouldSendText(text) {
+            return false
+        }
+
+        return ghosttyBindingFlags(for: event, surface: surface) != nil
+    }
+
     private func performKeyEquivalent(
         with event: NSEvent,
         shouldRetryMainMenu: Bool,
@@ -5143,16 +5166,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         // Check if this event matches a Ghostty keybinding.
-        let bindingFlags: ghostty_binding_flags_e? = {
-            var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-            let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
-            var flags = ghostty_binding_flags_e(0)
-            let isBinding = text.withCString { ptr in
-                keyEvent.text = ptr
-                return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
-            }
-            return isBinding ? flags : nil
-        }()
+        let bindingFlags = ghosttyBindingFlags(for: event, surface: surface)
 
         if let bindingFlags {
             let isConsumed = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue) != 0
@@ -5241,6 +5255,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return false
+    }
+
+    private func ghosttyBindingFlags(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_binding_flags_e? {
+        var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+        let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
+        var flags = ghostty_binding_flags_e(0)
+        let isBinding = text.withCString { ptr in
+            keyEvent.text = ptr
+            return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
+        }
+        return isBinding ? flags : nil
     }
 
     override func keyDown(with event: NSEvent) {

@@ -6694,15 +6694,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return isWorkspaceSidebarFocusResponder(responder, in: window)
     }
 
-    func shouldRouteFocusedTerminalGhosttyOwnedShortcut(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+    func focusedTerminalGhosttyView(for event: NSEvent, in window: NSWindow? = nil) -> GhosttyNSView? {
         let targetWindow = window ?? mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         let responder = targetWindow?.firstResponder
             ?? NSApp.keyWindow?.firstResponder
             ?? NSApp.mainWindow?.firstResponder
-        guard cmuxOwningGhosttyView(for: responder) != nil else {
+        return cmuxOwningGhosttyView(for: responder)
+    }
+
+    func shouldRouteFocusedTerminalGhosttyOwnedShortcut(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+        guard focusedTerminalGhosttyView(for: event, in: window) != nil else {
             return false
         }
         return shouldRouteGhosttyTerminalOwnedShortcutBeforeAppShortcut(event)
+    }
+
+    func focusedTerminalHasGhosttyOwnedShortcutBinding(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+        guard shouldRouteGhosttyTerminalOwnedShortcutBeforeAppShortcut(event),
+              let ghosttyView = focusedTerminalGhosttyView(for: event, in: window) else {
+            return false
+        }
+        return ghosttyView.hasGhosttyBindingKeyEquivalentBeforeAppShortcut(with: event)
     }
 
     func shouldRouteRightSidebarModeShortcut(in window: NSWindow?) -> Bool {
@@ -12911,7 +12923,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           shouldRouteFocusedTerminalGhosttyOwnedShortcut(event),
+           focusedTerminalHasGhosttyOwnedShortcutBinding(event),
            !configuredShortcutChordPrefixMatchesCurrentEvent(event: event) {
             return false
         }
@@ -13270,9 +13282,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .groupSelectedWorkspaces) {
             // Only consume the event when grouping actually happened; otherwise
-            // fall through so the dispatcher reaches the later
-            // `.toggleReactGrab`/Find Previous handling (default ⌘⇧G is shared
-            // by grouping, terminal search previous, and React Grab).
+            // fall through so the dispatcher reaches the later Find Previous
+            // handling (default ⌘⇧G is shared by grouping and terminal search
+            // previous).
             if handleGroupSelectedWorkspacesShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             ) {
@@ -14537,9 +14549,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
         // Only consume the shortcut when there's an explicit sidebar
         // multi-selection. Anything ≤ 1 falls through so ⌘⇧G keeps working as
-        // the default Find Previous/React Grab chord outside an eligible
-        // workspace-sidebar grouping action. A single-tab group can still be
-        // created via right-click → New Group from Workspace.
+        // the default Find Previous chord outside an eligible workspace-sidebar
+        // grouping action. A single-tab group can still be created via
+        // right-click → New Group from Workspace.
         // `sidebarSelectedWorkspaceIds` is normally synced to the
         // focused workspace (clearSidebarMultiSelection sets it to a
         // singleton after keyboard nav), so the singleton case must be
@@ -14555,8 +14567,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard eligibleIds.count >= 2 else {
             // Don't consume the event — let it propagate to the next handler
-            // (e.g. Find Previous/React Grab on the default Cmd+Shift+G
-            // binding) so the user gets the next-best action instead of a dead key. The
+            // (e.g. Find Previous on the default Cmd+Shift+G binding) so the
+            // user gets the next-best action instead of a dead key. The
             // shortcut contract is "multi-select then ⌘⇧G"; single-workspace
             // groups are only created from the right-click context menu, so
             // a 2-row sidebar selection where only one survives the

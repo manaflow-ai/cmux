@@ -73,12 +73,14 @@ private final class MenuActionProbe: NSObject {
 private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
     var afterMenuMissCallCount = 0
     var ghosttyBindingBeforeAppShortcutCallCount = 0
+    var hasGhosttyBindingBeforeAppShortcutCallCount = 0
     var keyDownCallCount = 0
     var lastKeyDownCharactersIgnoringModifiers: String?
     var pasteCallCount = 0
     var pasteAsPlainTextCallCount = 0
     var performAfterMenuMissResult = true
     var performGhosttyBindingBeforeAppShortcutResult = true
+    var hasGhosttyBindingBeforeAppShortcutResult = false
 
     override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
         afterMenuMissCallCount += 1
@@ -88,6 +90,11 @@ private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
     override func performGhosttyBindingKeyEquivalentBeforeAppShortcut(with event: NSEvent) -> Bool {
         ghosttyBindingBeforeAppShortcutCallCount += 1
         return performGhosttyBindingBeforeAppShortcutResult
+    }
+
+    override func hasGhosttyBindingKeyEquivalentBeforeAppShortcut(with event: NSEvent) -> Bool {
+        hasGhosttyBindingBeforeAppShortcutCallCount += 1
+        return hasGhosttyBindingBeforeAppShortcutResult
     }
 
     override func keyDown(with event: NSEvent) {
@@ -953,6 +960,67 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(manager.tabs.count, initialWorkspaceCount + 1, "Cmd+G chord prefix should arm and dispatch the app action")
+    }
+
+    func testConfiguredSingleStrokeRunsAfterTerminalGhosttyBindingMiss() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and manager")
+            return
+        }
+
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        probeView.hasGhosttyBindingBeforeAppShortcutResult = false
+        contentView.addSubview(probeView)
+        defer { probeView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        XCTAssertTrue(window.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        let initialWorkspaceCount = manager.tabs.count
+        let shortcut = StoredShortcut(
+            key: "g",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 5
+        )
+
+        withTemporaryShortcut(action: .newTab, shortcut: shortcut) {
+            guard let event = makeKeyDownEvent(
+                key: "g",
+                modifiers: [.command],
+                keyCode: 5,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+G event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "An app-owned shortcut on a Ghostty candidate chord should run when Ghostty has no binding"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(probeView.hasGhosttyBindingBeforeAppShortcutCallCount, 1)
+        XCTAssertEqual(manager.tabs.count, initialWorkspaceCount + 1, "Cmd+G should dispatch the app action after a Ghostty binding miss")
     }
 
     func testConfiguredChordDoesNotCrossWindowBoundary() {
@@ -4665,16 +4733,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             guard let event = NSEvent.keyEvent(
                 with: .keyDown,
                 location: .zero,
-                modifierFlags: [.command, .shift],
+                modifierFlags: [.command, .option],
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber,
                 context: nil,
-                characters: "G",
+                characters: "g",
                 charactersIgnoringModifiers: "g",
                 isARepeat: false,
                 keyCode: 5
             ) else {
-                XCTFail("Failed to construct Cmd+Shift+G event")
+                XCTFail("Failed to construct Cmd+Option+G event")
                 return
             }
 
@@ -4686,7 +4754,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testCmdShiftGFocusedBrowserFindPreviousFallsThroughBeforeReactGrab() {
+    func testCmdShiftGFocusedBrowserFindPreviousFallsThroughBeforeConfiguredReactGrabCollision() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -4695,7 +4763,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: harness.windowId) }
         XCTAssertNil(harness.panel.searchState)
 
-        withTemporaryShortcut(action: .toggleReactGrab) {
+        let reactGrabCollision = StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+        withTemporaryShortcut(action: .toggleReactGrab, shortcut: reactGrabCollision) {
             guard let event = makeKeyDownEvent(
                 key: "G",
                 modifiers: [.command, .shift],
@@ -4709,7 +4778,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
             XCTAssertFalse(
                 appDelegate.debugHandleCustomShortcut(event: event),
-                "Focused browser Cmd+Shift+G should fall through to browser Find Previous before React Grab"
+                "Focused browser Cmd+Shift+G should fall through to browser Find Previous for the configured collision"
             )
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")

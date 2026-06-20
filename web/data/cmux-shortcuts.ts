@@ -287,7 +287,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "toggleReactGrab",
-        combos: [["⌘", "⇧", "G"]],
+        combos: [["⌥", "⌘", "G"]],
         description: { en: "Toggle React Grab", ja: "React Grabを切り替え" },
         note: {
           en: "focused browser, or the only browser pane when a terminal is focused",

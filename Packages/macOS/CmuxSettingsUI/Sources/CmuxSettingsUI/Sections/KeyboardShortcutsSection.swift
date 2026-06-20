@@ -428,11 +428,7 @@ public struct KeyboardShortcutsSection: View {
         }
         switch (lhs, rhs) {
         case (.groupSelectedWorkspaces, .findPrevious),
-             (.findPrevious, .groupSelectedWorkspaces),
-             (.groupSelectedWorkspaces, .toggleReactGrab),
-             (.toggleReactGrab, .groupSelectedWorkspaces),
-             (.findPrevious, .toggleReactGrab),
-             (.toggleReactGrab, .findPrevious):
+             (.findPrevious, .groupSelectedWorkspaces):
             return true
         default:
             return false

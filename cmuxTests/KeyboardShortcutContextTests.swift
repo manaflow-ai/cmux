@@ -162,20 +162,13 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
-    func testFindPreviousGroupAndReactGrabDefaultsAreRoutedCollisions() {
+    func testFindPreviousAndGroupDefaultsAreRoutedCollisions() {
         let shortcut = KeyboardShortcutSettings.Action.findPrevious.defaultShortcut
 
         XCTAssertEqual(shortcut, KeyboardShortcutSettings.Action.groupSelectedWorkspaces.defaultShortcut)
-        XCTAssertEqual(shortcut, KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut)
+        XCTAssertNotEqual(shortcut, KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut)
         XCTAssertFalse(
             KeyboardShortcutSettings.Action.groupSelectedWorkspaces.conflicts(
-                with: shortcut,
-                proposedAction: .findPrevious,
-                configuredShortcut: shortcut
-            )
-        )
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.toggleReactGrab.conflicts(
                 with: shortcut,
                 proposedAction: .findPrevious,
                 configuredShortcut: shortcut

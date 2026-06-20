@@ -3012,7 +3012,7 @@ class TabManager: ObservableObject {
     /// Toggles React Grab for a specific workspace. When `browserSurfaceId`/`returnTerminalSurfaceId`
     /// are nil this mirrors the keyboard shortcut: it resolves the browser + return terminal from the
     /// focused panel layout. An explicit browser surface (must be a browser) or return terminal
-    /// (must be a terminal) overrides that route. Used by both the Cmd+Shift+G shortcut and the
+    /// (must be a terminal) overrides that route. Used by both the Cmd+Option+G shortcut and the
     /// `cmux browser react-grab toggle` CLI command so both share one action path.
     /// Returns the resolved browser surface id it acted on, or nil if it could not resolve/act
     /// (so callers can report the actual browser surface rather than the focused panel).
