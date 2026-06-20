@@ -508,8 +508,8 @@ extension TerminalController {
             let lines = TerminalNotificationStore.shared.notifications.enumerated().map { index, notification in
                 let surfaceText = notification.surfaceId?.uuidString ?? "none"
                 let readText = notification.isRead ? "read" : "unread"
-                let createdAt = Self.notificationCreatedAtString(notification.createdAt)
-                let tabTitle = Self.notificationListTrailingField(AppDelegate.shared?.tabTitle(for: notification.tabId) ?? "")
+                let createdAt = Self.notificationFieldFormatter.createdAtISO8601(notification.createdAt)
+                let tabTitle = Self.notificationFieldFormatter.listTrailingField(AppDelegate.shared?.tabTitle(for: notification.tabId) ?? "")
                 return "\(index):\(notification.id.uuidString)|\(notification.tabId.uuidString)|\(surfaceText)|\(readText)|\(notification.title)|\(notification.subtitle)|\(notification.body)|\(createdAt)|\(tabTitle)"
             }
             result = lines.joined(separator: "\n")

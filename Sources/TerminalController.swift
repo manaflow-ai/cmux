@@ -1051,6 +1051,12 @@ class TerminalController {
     // separate extension file (`TerminalController+AuthStatusReading.swift`),
     // which cannot reach a `private` member.
     nonisolated static let v2Encoder = ControlResponseEncoder()
+    // `internal` (not `private`): the notification-domain conformance and the
+    // V1 send/notify conformance live in separate extension files
+    // (`TerminalController+ControlNotificationContext.swift`,
+    // `TerminalController+ControlSurfaceSendNotifyV1.swift`) and forward their
+    // notification field shaping through this single source of truth.
+    nonisolated static let notificationFieldFormatter = ControlNotificationFieldFormatter()
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
         ControlCommandExecutionPolicy(forMethod: method)
@@ -2593,21 +2599,6 @@ class TerminalController {
         // Avoid relying on `?? NSNull()` inference (Swift toolchains can disagree).
         if let value { return value }
         return NSNull()
-    }
-
-    static func notificationCreatedAtString(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: date)
-    }
-
-    static func notificationListTrailingField(_ value: String) -> String {
-        "pct:" + value
-            .replacingOccurrences(of: "%", with: "%25")
-            .replacingOccurrences(of: "|", with: "%7C")
-            .replacingOccurrences(of: "\n", with: "%0A")
-            .replacingOccurrences(of: "\r", with: "%0D")
     }
 
     nonisolated func v2NonEmptyString(_ raw: String?) -> String? {
