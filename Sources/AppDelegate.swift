@@ -528,7 +528,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         },
         debugWindowControlsContentProvider: { NSHostingView(rootView: DebugWindowControlsView()) },
         menuBarExtraDebugRefresh: { AppDelegate.shared?.refreshMenuBarExtraForDebug() },
-        backgroundDebugContentProvider: { NSHostingView(rootView: BackgroundDebugView()) },
+        backgroundDebugContentProvider: {
+            NSHostingView(rootView: BackgroundDebugView(applyGlassTint: { tintColor in
+                let window: NSWindow? = {
+                    if let key = NSApp.keyWindow,
+                       let raw = key.identifier?.rawValue,
+                       raw == "cmux.main" || raw.hasPrefix("cmux.main.") {
+                        return key
+                    }
+                    return NSApp.windows.first(where: {
+                        guard let raw = $0.identifier?.rawValue else { return false }
+                        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+                    })
+                }()
+                guard let window else { return }
+                AppWindowChromeComposition().backdropController.updateGlassTint(to: window, color: tintColor)
+            }))
+        },
         fileExplorerStyleDebugContentProvider: { NSHostingView(rootView: FileExplorerStyleDebugView()) }
     )
     #else
