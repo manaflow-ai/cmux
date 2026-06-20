@@ -4172,6 +4172,10 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         focusedPanelId
     }
 
+    func surfaceMetadataPanelExists(panelId: UUID) -> Bool {
+        panels[panelId] != nil
+    }
+
     var surfaceMetadataCurrentDirectory: String {
         get { currentDirectory }
         set { currentDirectory = newValue }
@@ -4347,10 +4351,10 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
-        guard panels[panelId] != nil else { return }
-        let previousState = panelShellActivityStates[panelId] ?? .unknown
-        guard previousState != state else { return }
-        panelShellActivityStates[panelId] = state
+        guard let previousState = surfaceDirectoryMetadata.applyPanelShellActivityState(
+            panelId: panelId,
+            state: state
+        ) else { return }
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
                 panelId: panelId,
