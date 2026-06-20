@@ -3,16 +3,74 @@ import AppKit
 import CmuxFoundation
 
 extension AppDelegate {
+    func startOpenDiffViewerAgentContextTask(
+        _ request: OpenDiffViewerAgentContextRequest,
+        taskKey: String
+    ) {
+        openDiffViewerAgentContextTasks[taskKey] = Task.detached(priority: .userInitiated) {
+            let repoRoot = Self.latestAgentTurnDiffRepoRoot(
+                storeURL: request.storeURL,
+                workspaceId: request.workspaceId,
+                surfaceId: request.surfaceId,
+                sessionId: request.sessionId
+            )
+            await MainActor.run {
+                AppDelegate.shared?.finishOpenDiffViewerAgentContextTask(
+                    request,
+                    taskKey: taskKey,
+                    repoRoot: repoRoot
+                )
+            }
+        }
+    }
+
+    func finishOpenDiffViewerAgentContextTask(
+        _ request: OpenDiffViewerAgentContextRequest,
+        taskKey: String,
+        repoRoot: String?
+    ) {
+        openDiffViewerAgentContextTasks.removeValue(forKey: taskKey)
+        let pendingRequest = openDiffViewerAgentContextPendingRequests.removeValue(forKey: taskKey)
+        if let pendingRequest {
+            startOpenDiffViewerAgentContextTask(pendingRequest, taskKey: taskKey)
+            return
+        }
+        guard let shouldFocus = openDiffViewerAgentContextShouldFocus(
+            workspaceId: request.workspaceId,
+            surfaceId: request.surfaceId,
+            sessionId: request.sessionId,
+            originWindowId: request.originWindowId
+        ) else {
+            return
+        }
+        let cwd = repoRoot ?? request.snapshotWorkingDirectory ?? request.fallbackCwd
+        let useLastTurnSource = repoRoot != nil
+        guard launchDiffViewerProcess(
+            cliURL: request.cliURL,
+            socketPath: request.socketPath,
+            cwd: cwd,
+            workspaceId: request.workspaceId,
+            surfaceId: request.surfaceId,
+            useLastTurnSource: useLastTurnSource,
+            sessionId: request.sessionId,
+            focus: shouldFocus
+        ) == true else {
+            NSSound.beep()
+            return
+        }
+    }
+
+    /// Returns nil when no matching context exists, false when focus moved, and true when it remains focused.
     func openDiffViewerAgentContextShouldFocus(
         workspaceId: UUID,
         surfaceId: UUID,
         sessionId: String,
-                  originWindowId: UUID?
+        originWindowId: UUID?
     ) -> Bool? {
         for context in mainWindowContexts.values {
             guard let workspace = context.tabManager.tabs.first(where: {
-                      $0.id == workspaceId && $0.panels.keys.contains(surfaceId)
-                  }),
+                $0.id == workspaceId && $0.panels.keys.contains(surfaceId)
+            }),
                   let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspaceId, panelId: surfaceId),
                   Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) == sessionId else {
                 continue

@@ -957,7 +957,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Declared outside `#if DEBUG` because process retention is production behavior.
     private var diffViewerProcesses: [Int32: Process] = [:]
     /// In-flight agent-aware diff launches, keyed so repeated shortcuts do not fan out large baseline parses.
-    private var openDiffViewerAgentContextTasks: [String: Task<Void, Never>] = [:]
+    var openDiffViewerAgentContextTasks: [String: Task<Void, Never>] = [:]
+    var openDiffViewerAgentContextPendingRequests: [String: OpenDiffViewerAgentContextRequest] = [:]
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -6097,43 +6098,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 surfaceId: surfaceId,
                 sessionId: sessionId
             )
+            let request = OpenDiffViewerAgentContextRequest(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                fallbackCwd: fallbackCwd,
+                snapshotWorkingDirectory: snapshotWorkingDirectory,
+                storeURL: storeURL,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId,
+                originWindowId: originWindowId
+            )
             if openDiffViewerAgentContextTasks[taskKey] != nil {
-                return true
-            }
-            openDiffViewerAgentContextTasks[taskKey] = Task.detached(priority: .userInitiated) {
-                let repoRoot = Self.latestAgentTurnDiffRepoRoot(
-                    storeURL: storeURL,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    sessionId: sessionId
-                )
-                let cwd = repoRoot ?? snapshotWorkingDirectory ?? fallbackCwd
-                let useLastTurnSource = repoRoot != nil
-                await MainActor.run {
-                    guard let appDelegate = AppDelegate.shared else { return }
-                    appDelegate.openDiffViewerAgentContextTasks.removeValue(forKey: taskKey)
-                    guard let shouldFocus = appDelegate.openDiffViewerAgentContextShouldFocus(
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        sessionId: sessionId,
-                        originWindowId: originWindowId
-                    ) else {
-                        return
-                    }
-                    guard appDelegate.launchDiffViewerProcess(
-                        cliURL: cliURL,
-                        socketPath: socketPath,
-                        cwd: cwd,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        useLastTurnSource: useLastTurnSource,
-                        sessionId: sessionId,
-                        focus: shouldFocus
-                    ) == true else {
-                        NSSound.beep()
-                        return
-                    }
-                }
+                openDiffViewerAgentContextPendingRequests[taskKey] = request
+            } else {
+                startOpenDiffViewerAgentContextTask(request, taskKey: taskKey)
             }
             return true
         }
@@ -6164,7 +6143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func launchDiffViewerProcess(
+    func launchDiffViewerProcess(
         cliURL: URL,
         socketPath: String,
         cwd: String,
