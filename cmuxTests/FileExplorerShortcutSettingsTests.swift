@@ -219,6 +219,51 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
         }
     }
 
+    @Test func openSelectionSearchFieldMarkedTextBypassesAppShortcutRouting() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+            let searchField = FileExplorerSearchField(frame: NSRect(x: 20, y: 40, width: 240, height: 28))
+            searchField.fileExplorerPanelPlacement = .pane
+            var commitCount = 0
+            searchField.onCommit = {
+                commitCount += 1
+            }
+            contentView.addSubview(searchField)
+            window.contentView = contentView
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            defer { window.orderOut(nil) }
+
+            #expect(window.makeFirstResponder(searchField))
+            searchField.selectText(nil)
+            let editor = try #require(searchField.currentEditor() as? NSTextView)
+            editor.setMarkedText(
+                "marked",
+                selectedRange: NSRange(location: 6, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            #expect(editor.hasMarkedText())
+
+            let event = try #require(makeKeyDownEvent(
+                shortcut: KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut,
+                windowNumber: window.windowNumber
+            ))
+            defer { appDelegate.clearShortcutEventFocusContextCache(for: event) }
+
+            #expect(!appDelegate.handleConfiguredShortcutKeyEquivalent(event))
+            #expect(commitCount == 0)
+            #expect(editor.hasMarkedText())
+            editor.unmarkText()
+        }
+    }
+
     @Test func openSelectionSetShortcutRejectsChords() {
         withIsolatedShortcutSettings {
             let chord = StoredShortcut(
