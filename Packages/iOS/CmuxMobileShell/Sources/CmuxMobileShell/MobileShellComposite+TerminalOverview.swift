@@ -108,7 +108,7 @@ extension MobileShellComposite {
     }
 
     // Keep RPC send/decode work off MobileShellComposite's main-actor state owner.
-    nonisolated private static func requestTerminalOverviewPreviewLines(
+    private nonisolated static func requestTerminalOverviewPreviewLines(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
         client: MobileCoreRPCClient
@@ -157,7 +157,7 @@ extension MobileShellComposite {
     }
 
     // Keep RPC send/decode work off MobileShellComposite's main-actor state owner.
-    nonisolated private static func requestCloseRemoteTerminal(
+    private nonisolated static func requestCloseRemoteTerminal(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
         clientID: String,
@@ -199,7 +199,7 @@ extension MobileShellComposite {
         }
     }
 
-    nonisolated private static func terminalOverviewPreviewLine(from row: String) -> String {
+    private nonisolated static func terminalOverviewPreviewLine(from row: String) -> String {
         let maxScalars = 160
         let maxUTF8Bytes = 1024
         let space: Unicode.Scalar = " "
