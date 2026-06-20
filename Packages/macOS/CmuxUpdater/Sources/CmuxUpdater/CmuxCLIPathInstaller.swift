@@ -1,20 +1,39 @@
 import CmuxFoundation
-import Foundation
+public import Foundation
 
-struct CmuxCLIPathInstaller {
-    struct InstallOutcome {
-        let usedAdministratorPrivileges: Bool
-        let destinationURL: URL
-        let sourceURL: URL
+/// Installs and removes the `/usr/local/bin/cmux` symlink that puts the bundled cmux CLI on the
+/// user's `PATH`, escalating to administrator privileges only when an unprivileged write is denied.
+///
+/// This is the install-on-PATH capability the updater menu surfaces alongside its update actions.
+/// It is a pure value type over an injected ``Foundation/FileManager``, destination ``Foundation/URL``,
+/// bundled-CLI provider, and privileged-command handlers, so the app target's menu shims construct
+/// it and present the localized result, while the package owns the filesystem and `osascript`
+/// escalation logic. Errors are surfaced as ``CmuxCLIPathInstaller/InstallerError`` with plain
+/// English messages; the host localizes the surrounding alert.
+public struct CmuxCLIPathInstaller {
+    /// The result of a successful ``CmuxCLIPathInstaller/install()``.
+    public struct InstallOutcome {
+        /// Whether the symlink had to be written with administrator privileges.
+        public let usedAdministratorPrivileges: Bool
+        /// The `/usr/local/bin/cmux` symlink that was created.
+        public let destinationURL: URL
+        /// The bundled CLI the symlink points at.
+        public let sourceURL: URL
     }
 
-    struct UninstallOutcome {
-        let usedAdministratorPrivileges: Bool
-        let destinationURL: URL
-        let removedExistingEntry: Bool
+    /// The result of a successful ``CmuxCLIPathInstaller/uninstall()``.
+    public struct UninstallOutcome {
+        /// Whether the removal had to be performed with administrator privileges.
+        public let usedAdministratorPrivileges: Bool
+        /// The `/usr/local/bin/cmux` path that was targeted for removal.
+        public let destinationURL: URL
+        /// Whether an existing symlink/entry was found and removed.
+        public let removedExistingEntry: Bool
     }
 
-    enum InstallerError: LocalizedError {
+    /// Failures the installer reports; each carries a plain-English description the host wraps in a
+    /// localized alert.
+    public enum InstallerError: LocalizedError {
         case bundledCLIMissing(expectedPath: String)
         case destinationParentNotDirectory(path: String)
         case destinationIsDirectory(path: String)
@@ -22,7 +41,7 @@ struct CmuxCLIPathInstaller {
         case uninstallVerificationFailed(path: String)
         case privilegedCommandFailed(message: String)
 
-        var errorDescription: String? {
+        public var errorDescription: String? {
             switch self {
             case .bundledCLIMissing(let expectedPath):
                 return "Bundled cmux CLI was not found at \(expectedPath)."
@@ -40,8 +59,10 @@ struct CmuxCLIPathInstaller {
         }
     }
 
-    typealias PrivilegedInstallHandler = (_ sourceURL: URL, _ destinationURL: URL) throws -> Void
-    typealias PrivilegedUninstallHandler = (_ destinationURL: URL) throws -> Void
+    /// Performs the privileged symlink install (source then destination).
+    public typealias PrivilegedInstallHandler = (_ sourceURL: URL, _ destinationURL: URL) throws -> Void
+    /// Performs the privileged symlink removal.
+    public typealias PrivilegedUninstallHandler = (_ destinationURL: URL) throws -> Void
 
     let fileManager: FileManager
     let destinationURL: URL
@@ -50,7 +71,10 @@ struct CmuxCLIPathInstaller {
     private let privilegedInstaller: PrivilegedInstallHandler
     private let privilegedUninstaller: PrivilegedUninstallHandler
 
-    init(
+    /// Creates an installer over the given filesystem, destination, bundled-CLI provider, and
+    /// privileged-command handlers. The defaults target `/usr/local/bin/cmux` and escalate via
+    /// `osascript`; tests inject fakes for each collaborator.
+    public init(
         fileManager: FileManager = .default,
         destinationURL: URL = URL(fileURLWithPath: "/usr/local/bin/cmux"),
         bundledCLIURLProvider: @escaping () -> URL? = {
@@ -68,11 +92,14 @@ struct CmuxCLIPathInstaller {
         self.privilegedUninstaller = privilegedUninstaller ?? Self.uninstallWithAdministratorPrivileges(destinationURL:)
     }
 
-    var destinationPath: String {
+    /// The filesystem path of the symlink this installer manages.
+    public var destinationPath: String {
         destinationURL.path
     }
 
-    func install() throws -> InstallOutcome {
+    /// Creates the `PATH` symlink, escalating to administrator privileges if an unprivileged write
+    /// is denied. Returns whether escalation was used and the resolved source/destination.
+    public func install() throws -> InstallOutcome {
         let sourceURL = try resolveBundledCLIURL()
         do {
             try installWithoutAdministratorPrivileges(sourceURL: sourceURL)
@@ -94,7 +121,9 @@ struct CmuxCLIPathInstaller {
         }
     }
 
-    func uninstall() throws -> UninstallOutcome {
+    /// Removes the `PATH` symlink, escalating to administrator privileges if an unprivileged
+    /// removal is denied. Returns whether escalation was used and whether an entry was removed.
+    public func uninstall() throws -> UninstallOutcome {
         do {
             let removedExistingEntry = try uninstallWithoutAdministratorPrivileges()
             return UninstallOutcome(
@@ -118,7 +147,8 @@ struct CmuxCLIPathInstaller {
         }
     }
 
-    func isInstalled() -> Bool {
+    /// Whether the managed symlink currently points at the bundled CLI.
+    public func isInstalled() -> Bool {
         guard let sourceURL = bundledCLIURLProvider()?.standardizedFileURL else { return false }
         guard let installedTargetURL = symlinkDestinationURL() else { return false }
         return installedTargetURL == sourceURL
@@ -227,11 +257,14 @@ struct CmuxCLIPathInstaller {
         }
     }
 
-    private static func defaultBundledCLIURL(bundle: Bundle = .main) -> URL? {
+    // `@usableFromInline internal`: these back the public `init`'s default-argument values, which the
+    // package's strict mode forbids referencing from a `private` symbol. The app target's implicit
+    // 6.0 default tolerated `private`; this is the sanctioned faithful adaptation.
+    @usableFromInline static func defaultBundledCLIURL(bundle: Bundle = .main) -> URL? {
         bundle.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
     }
 
-    private static func defaultBundledCLIExpectedPath(bundle: Bundle = .main) -> String {
+    @usableFromInline static func defaultBundledCLIExpectedPath(bundle: Bundle = .main) -> String {
         bundle.bundleURL
             .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
             .path
@@ -311,7 +344,7 @@ struct CmuxCLIPathInstaller {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private static func isPermissionDenied(_ error: Error) -> Bool {
+    private static func isPermissionDenied(_ error: any Error) -> Bool {
         isPermissionDenied(error as NSError)
     }
 
@@ -339,7 +372,14 @@ struct CmuxCLIPathInstaller {
     }
 }
 
-private final class PrivilegedCommandOutputBuffer {
+/// Thread-safe accumulator for a privileged command's stdout/stderr, written from the pipe's
+/// readability handler and read after the process exits. A small ``Foundation/NSLock`` guards the
+/// buffer because the handler fires on an arbitrary queue while the value is read synchronously.
+///
+/// `@unchecked Sendable`: every access to the stored `data` is serialized by `lock`, so the buffer
+/// is safe to capture in the `@Sendable` pipe readability handler. The app target tolerated this
+/// implicitly; the package's strict-concurrency mode requires the explicit conformance.
+private final class PrivilegedCommandOutputBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
 
