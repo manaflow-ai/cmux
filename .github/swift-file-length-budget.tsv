@@ -31,7 +31,7 @@
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3397	Sources/CmuxConfig.swift
 3364	cmuxTests/TabManagerSessionSnapshotTests.swift
-3058	Sources/cmuxApp.swift
+3018	Sources/cmuxApp.swift
 3055	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift

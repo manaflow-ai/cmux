@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 extension AppDelegate {
     var shortcutRoutingKeyWindow: NSWindow? {
@@ -9,7 +10,7 @@ extension AppDelegate {
             }
             if contextForMainWindow(window) != nil
                 || isMainTerminalWindow(window)
-                || cmuxWindowShouldOwnCloseShortcut(window) {
+                || AuxiliaryWindowRegistry.default.shouldOwnCloseShortcut(window.identifier?.rawValue) {
                 return window
             }
             debugShortcutRoutingFocusedWindowOverrideForTesting.window = nil
