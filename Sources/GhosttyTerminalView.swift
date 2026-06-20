@@ -3562,6 +3562,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
+    private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
@@ -7017,12 +7018,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             x *= 2
             y *= 2
         }
-
+        scrollSpeedAccumulator.apply(x: &x, y: &y, precision: precision)
         var mods: Int32 = 0
         if precision {
             mods |= 0b0000_0001
         }
-
         let momentum: Int32
         switch event.momentumPhase {
         case .began:
