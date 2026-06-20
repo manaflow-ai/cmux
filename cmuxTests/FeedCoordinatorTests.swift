@@ -612,6 +612,31 @@ struct FeedCoordinatorTests {
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
     }
 
+    @Test func codexTeamsWatcherBackfillRetriesTransientRolloutMiss() throws {
+        let connection = CodexTeamsBackfillConnectionMock(
+            resumeResults: [
+                .failure(CLIError(message: "no rollout found for thread id thread-1")),
+                .success(["thread": ["id": "thread-1"]])
+            ]
+        )
+        let watcher = CMUXCLI.CodexTeamsWatcher(
+            appServerURL: "ws://127.0.0.1:1",
+            workspaceId: "workspace-1",
+            rootSurfaceId: "surface-1",
+            codexExecutable: "/usr/bin/true",
+            launchPath: nil,
+            maxAutoDepth: 0,
+            socketClient: SocketClient(path: "/tmp/cmux-debug-issue-6445.sock"),
+            socketPassword: nil
+        )
+
+        try watcher.backfillLoadedThreads(connection: connection)
+        #expect(connection.threadResumeRequestCount == 2)
+
+        try watcher.backfillLoadedThreads(connection: connection)
+        #expect(connection.threadResumeRequestCount == 2)
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
@@ -664,5 +689,65 @@ private final class NotificationRequestRecorder: @unchecked Sendable {
         lock.lock()
         recordedRequestIds.append(requestId)
         lock.unlock()
+    }
+}
+
+private final class CodexTeamsBackfillConnectionMock: CMUXCLI.CodexTeamsAppServerConnecting {
+    private var resumeResults: [Result<[String: Any], Error>]
+    private(set) var requestedMethods: [String] = []
+
+    init(resumeResults: [Result<[String: Any], Error>]) {
+        self.resumeResults = resumeResults
+    }
+
+    var threadResumeRequestCount: Int {
+        requestedMethods.filter { $0 == "thread/resume" }.count
+    }
+
+    func resume() {}
+
+    func close() {}
+
+    func initialize(
+        clientName: String,
+        version: String,
+        optOutNotificationMethods: [String],
+        responseTimeout: TimeInterval
+    ) throws {}
+
+    func respond(requestId: Any, result: [String: Any], timeout: TimeInterval) throws {
+        throw CLIError(message: "unexpected app-server response in watcher backfill test")
+    }
+
+    func request(
+        method: String,
+        params: [String: Any]?,
+        notificationHandler: (([String: Any]) throws -> Void)?,
+        responseTimeout: TimeInterval
+    ) throws -> [String: Any] {
+        requestedMethods.append(method)
+        switch method {
+        case "thread/loaded/list":
+            return ["data": ["thread-1"]]
+        case "thread/resume":
+            guard params?["threadId"] as? String == "thread-1" else {
+                throw CLIError(message: "unexpected thread/resume params: \(params ?? [:])")
+            }
+            guard !resumeResults.isEmpty else {
+                throw CLIError(message: "unexpected extra thread/resume request")
+            }
+            switch resumeResults.removeFirst() {
+            case .success(let response):
+                return response
+            case .failure(let error):
+                throw error
+            }
+        default:
+            throw CLIError(message: "unexpected app-server request: \(method)")
+        }
+    }
+
+    func receiveObject(timeout: TimeInterval?) throws -> [String: Any] {
+        throw CLIError(message: "unexpected app-server receive in watcher backfill test")
     }
 }
