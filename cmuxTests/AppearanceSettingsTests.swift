@@ -1,6 +1,6 @@
-import XCTest
 import AppKit
 import SwiftUI
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,9 +9,10 @@ import SwiftUI
 #endif
 
 @MainActor
-final class AppearanceSettingsTests: XCTestCase {
-    func testBundleIconPersistenceAllowsStableReleaseBundle() {
-        XCTAssertTrue(
+@Suite(.serialized)
+final class AppearanceSettingsTests {
+    @Test func bundleIconPersistenceAllowsStableReleaseBundle() {
+        #expect(
             AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app",
                 appBundleLastPathComponent: "cmux.app",
@@ -20,16 +21,16 @@ final class AppearanceSettingsTests: XCTestCase {
         )
     }
 
-    func testBundleIconPersistenceSkipsNightlyBundles() {
-        XCTAssertFalse(
-            AppBundleIconPersistencePolicy.shouldPersist(
+    @Test func bundleIconPersistenceSkipsNightlyBundles() {
+        #expect(
+            !AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app.nightly",
                 appBundleLastPathComponent: "cmux NIGHTLY.app",
                 persistenceDisabled: false
             )
         )
-        XCTAssertFalse(
-            AppBundleIconPersistencePolicy.shouldPersist(
+        #expect(
+            !AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app.nightly.issue-4350",
                 appBundleLastPathComponent: "cmux NIGHTLY issue-4350.app",
                 persistenceDisabled: false
@@ -37,9 +38,9 @@ final class AppearanceSettingsTests: XCTestCase {
         )
     }
 
-    func testBundleIconPersistenceRejectsMismatchedStableIdentifierAndPath() {
-        XCTAssertFalse(
-            AppBundleIconPersistencePolicy.shouldPersist(
+    @Test func bundleIconPersistenceRejectsMismatchedStableIdentifierAndPath() {
+        #expect(
+            !AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app",
                 appBundleLastPathComponent: "cmux NIGHTLY.app",
                 persistenceDisabled: false
@@ -47,16 +48,16 @@ final class AppearanceSettingsTests: XCTestCase {
         )
     }
 
-    func testBundleIconPersistenceSkipsDebugBundles() {
-        XCTAssertFalse(
-            AppBundleIconPersistencePolicy.shouldPersist(
+    @Test func bundleIconPersistenceSkipsDebugBundles() {
+        #expect(
+            !AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app.debug",
                 appBundleLastPathComponent: "cmux DEV.app",
                 persistenceDisabled: false
             )
         )
-        XCTAssertFalse(
-            AppBundleIconPersistencePolicy.shouldPersist(
+        #expect(
+            !AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app.debug.issue-4350",
                 appBundleLastPathComponent: "cmux DEV issue-4350.app",
                 persistenceDisabled: false
@@ -64,9 +65,9 @@ final class AppearanceSettingsTests: XCTestCase {
         )
     }
 
-    func testBundleIconPersistenceHonorsDisableDefault() {
-        XCTAssertFalse(
-            AppBundleIconPersistencePolicy.shouldPersist(
+    @Test func bundleIconPersistenceHonorsDisableDefault() {
+        #expect(
+            !AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app",
                 appBundleLastPathComponent: "cmux.app",
                 persistenceDisabled: true
@@ -74,43 +75,38 @@ final class AppearanceSettingsTests: XCTestCase {
         )
     }
 
-    func testBundleIconPersistenceMirrorsSmokeLaunchArgumentToDefaults() {
+    @Test func bundleIconPersistenceMirrorsSmokeLaunchArgumentToDefaults() throws {
         let suiteName = "AppearanceSettingsTests.BundleIconPersistence.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
             launchArguments: [AppBundleIconPersistencePolicy.disablePersistenceArgument]
         )
-        XCTAssertEqual(
-            defaults.object(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey) as? Bool,
-            true
+        #expect(
+            (defaults.object(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey) as? Bool) == true
         )
 
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
             launchArguments: []
         )
-        XCTAssertEqual(
-            defaults.object(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey) as? Bool,
-            false
+        #expect(
+            (defaults.object(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey) as? Bool) == false
         )
     }
 
-    func testAppConfigReloadRefreshUpdatesSurfaceConfigBeforeRedraw() throws {
-        let fakeSurface = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 0x3851))
+    @Test func appConfigReloadRefreshUpdatesSurfaceConfigBeforeRedraw() throws {
+        let fakeSurface = try #require(UnsafeMutableRawPointer(bitPattern: 0x3851))
         var events: [String] = []
 
         GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
             to: fakeSurface,
             source: "appearanceSync:test",
             reloadSurfaceConfiguration: { surface, soft, source in
-                XCTAssertEqual(surface, fakeSurface)
-                XCTAssertTrue(soft)
+                #expect(surface == fakeSurface)
+                #expect(soft)
                 events.append("reload:\(source)")
             },
             applySurfaceColorScheme: {
@@ -124,7 +120,7 @@ final class AppearanceSettingsTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(events, [
+        #expect(events == [
             "color-scheme",
             "reload:appearanceSync:test",
             "host-background",
@@ -132,7 +128,7 @@ final class AppearanceSettingsTests: XCTestCase {
         ])
     }
 
-    func testAppConfigReloadRefreshSkipsSurfaceConfigUpdateWhenSurfaceIsUnavailable() {
+    @Test func appConfigReloadRefreshSkipsSurfaceConfigUpdateWhenSurfaceIsUnavailable() {
         var events: [String] = []
 
         GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
@@ -152,21 +148,21 @@ final class AppearanceSettingsTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(events, [
+        #expect(events == [
             "host-background",
             "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
         ])
     }
 
-    func testAppConfigReloadRefreshAppliesSurfaceColorSchemeForPreviewReload() throws {
-        let fakeSurface = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 0x3852))
+    @Test func appConfigReloadRefreshAppliesSurfaceColorSchemeForPreviewReload() throws {
+        let fakeSurface = try #require(UnsafeMutableRawPointer(bitPattern: 0x3852))
         var events: [String] = []
 
         GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
             to: fakeSurface,
             source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource,
             reloadSurfaceConfiguration: { _, soft, source in
-                XCTAssertTrue(soft)
+                #expect(soft)
                 events.append("reload:\(source)")
             },
             applySurfaceColorScheme: {
@@ -180,7 +176,7 @@ final class AppearanceSettingsTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(events, [
+        #expect(events == [
             "color-scheme",
             "reload:\(GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource)",
             "host-background",
@@ -188,221 +184,106 @@ final class AppearanceSettingsTests: XCTestCase {
         ])
     }
 
-    func testCmuxThemeFinalReloadUsesFinalSource() {
-        XCTAssertEqual(
-            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: "final"),
-            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource
+    @Test func cmuxThemeFinalReloadUsesFinalSource() {
+        #expect(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: "final")
+                == GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource
         )
     }
 
-    func testCmuxThemePreviewReloadIsDebounced() {
-        XCTAssertEqual(
-            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: "preview"),
-            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource
+    @Test func cmuxThemePreviewReloadIsDebounced() {
+        #expect(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: "preview")
+                == GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource
         )
-        XCTAssertTrue(
+        #expect(
             GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
                 source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource
             )
         )
-        XCTAssertTrue(
+        #expect(
             GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
                 source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadLegacySource
             )
         )
-        XCTAssertFalse(
-            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
+        #expect(
+            !GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
                 source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource
             )
         )
     }
 
-    func testResolvedModeDefaultsToSystemWhenUnset() {
+    @Test func resolvedModeDefaultsToSystemWhenUnset() throws {
         let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
 
         let resolved = AppearanceSettings.resolvedMode(defaults: defaults)
-        XCTAssertEqual(resolved, .system)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
+        #expect(resolved == .system)
+        #expect(defaults.string(forKey: AppearanceSettings.appearanceModeKey) == AppearanceMode.system.rawValue)
     }
 
-    func testCurrentColorSchemePreferenceUsesStoredDarkModeBeforeAppAppearanceExists() {
+    @Test func currentColorSchemePreferenceUsesStoredDarkModeBeforeAppAppearanceExists() {
         withTemporaryAppearanceDefaults(
             appearanceMode: AppearanceMode.dark.rawValue,
             appleInterfaceStyle: nil
         ) {
-            XCTAssertEqual(
-                GhosttyConfig.currentColorSchemePreference(appAppearance: nil),
-                .dark
-            )
+            #expect(GhosttyConfig.currentColorSchemePreference(appAppearance: nil) == .dark)
         }
     }
 
-    func testCurrentColorSchemePreferenceUsesStoredLightModeBeforeAppAppearanceExists() {
+    @Test func currentColorSchemePreferenceUsesStoredLightModeBeforeAppAppearanceExists() {
         withTemporaryAppearanceDefaults(
             appearanceMode: AppearanceMode.light.rawValue,
             appleInterfaceStyle: "Dark"
         ) {
-            XCTAssertEqual(
-                GhosttyConfig.currentColorSchemePreference(appAppearance: nil),
-                .light
-            )
+            #expect(GhosttyConfig.currentColorSchemePreference(appAppearance: nil) == .light)
         }
     }
 
-    func testCurrentColorSchemePreferenceUsesSystemDarkBeforeAppAppearanceExists() {
+    @Test func currentColorSchemePreferenceUsesSystemDarkBeforeAppAppearanceExists() {
         withTemporaryAppearanceDefaults(
             appearanceMode: AppearanceMode.system.rawValue,
             appleInterfaceStyle: "Dark"
         ) {
-            XCTAssertEqual(
-                GhosttyConfig.currentColorSchemePreference(appAppearance: nil),
-                .dark
-            )
+            #expect(GhosttyConfig.currentColorSchemePreference(appAppearance: nil) == .dark)
         }
     }
 
-    func testColorSchemePreferenceUsesSystemLightWhenSystemStyleIsUnset() {
+    @Test func colorSchemePreferenceUsesSystemLightWhenSystemStyleIsUnset() throws {
         let suiteName = "AppearanceSettingsTests.SystemLight.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
         defaults.removeObject(forKey: "AppleInterfaceStyle")
         let lightSystem = AppearanceSettings.SystemAppearance(interfaceStyle: nil)
 
-        XCTAssertEqual(
-            AppearanceSettings.colorSchemePreference(appAppearance: nil, defaults: defaults, systemAppearance: lightSystem),
-            .light
+        #expect(
+            AppearanceSettings.colorSchemePreference(appAppearance: nil, defaults: defaults, systemAppearance: lightSystem)
+                == .light
         )
-        XCTAssertEqual(
-            GhosttyConfig.currentColorSchemePreference(appAppearance: nil, defaults: defaults, systemAppearance: lightSystem),
-            .light
+        #expect(
+            GhosttyConfig.currentColorSchemePreference(appAppearance: nil, defaults: defaults, systemAppearance: lightSystem)
+                == .light
         )
     }
 
-    func testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight() {
-        let suiteName = "AppearanceSettingsTests.SplitThemeStoredDark.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
-
-        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
-            appAppearance: NSAppearance(named: .aqua),
-            defaults: defaults,
-            systemAppearance: .init(interfaceStyle: "Dark")
-        )
-        let resolvedTheme = GhosttyConfig.resolveThemeName(
-            from: "light:Catppuccin Latte,dark:Apple System Colors",
-            preferredColorScheme: preferredColorScheme
-        )
-
-        XCTAssertEqual(preferredColorScheme, .dark)
-        XCTAssertEqual(resolvedTheme, "Apple System Colors")
+    @Test func colorSchemeOverrideIsExplicitOnlyForManualLightAndDarkModes() {
+        #expect(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.light.rawValue) == .light)
+        #expect(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.dark.rawValue) == .dark)
+        #expect(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.system.rawValue) == nil)
+        #expect(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.auto.rawValue) == nil)
+        #expect(AppearanceSettings.colorSchemeOverride(for: "invalid") == nil)
+        #expect(AppearanceSettings.colorScheme(for: AppearanceMode.dark.rawValue, fallback: .light) == .dark)
+        #expect(AppearanceSettings.colorScheme(for: AppearanceMode.system.rawValue, fallback: .dark) == .dark)
     }
 
-    func testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark() {
-        let suiteName = "AppearanceSettingsTests.SplitThemeStoredLight.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(AppearanceMode.light.rawValue, forKey: AppearanceSettings.appearanceModeKey)
-
-        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
-            appAppearance: NSAppearance(named: .darkAqua),
-            defaults: defaults,
-            systemAppearance: .init(interfaceStyle: "Dark")
-        )
-        let resolvedTheme = GhosttyConfig.resolveThemeName(
-            from: "light:Catppuccin Latte,dark:Apple System Colors",
-            preferredColorScheme: preferredColorScheme
-        )
-
-        XCTAssertEqual(preferredColorScheme, .light)
-        XCTAssertEqual(resolvedTheme, "Catppuccin Latte")
-    }
-
-    func testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark() {
-        let suiteName = "AppearanceSettingsTests.SplitThemeSystemLight.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
-        defaults.removeObject(forKey: "AppleInterfaceStyle")
-
-        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
-            appAppearance: NSAppearance(named: .darkAqua),
-            defaults: defaults,
-            systemAppearance: .init(interfaceStyle: nil)
-        )
-        let resolvedTheme = GhosttyConfig.resolveThemeName(
-            from: "light:Monokai Pro Light,dark:Monokai Pro Machine",
-            preferredColorScheme: preferredColorScheme
-        )
-
-        XCTAssertEqual(preferredColorScheme, .light)
-        XCTAssertEqual(resolvedTheme, "Monokai Pro Light")
-    }
-
-    func testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight() {
-        let suiteName = "AppearanceSettingsTests.SplitThemeSystemDark.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(AppearanceMode.system.rawValue, forKey: AppearanceSettings.appearanceModeKey)
-
-        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference(
-            appAppearance: NSAppearance(named: .aqua),
-            defaults: defaults,
-            systemAppearance: .init(interfaceStyle: "Dark")
-        )
-        let resolvedTheme = GhosttyConfig.resolveThemeName(
-            from: "light:Monokai Pro Light,dark:Monokai Pro Machine",
-            preferredColorScheme: preferredColorScheme
-        )
-
-        XCTAssertEqual(preferredColorScheme, .dark)
-        XCTAssertEqual(resolvedTheme, "Monokai Pro Machine")
-    }
-
-    func testColorSchemeOverrideIsExplicitOnlyForManualLightAndDarkModes() {
-        XCTAssertEqual(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.light.rawValue), .light)
-        XCTAssertEqual(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.dark.rawValue), .dark)
-        XCTAssertNil(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.system.rawValue))
-        XCTAssertNil(AppearanceSettings.colorSchemeOverride(for: AppearanceMode.auto.rawValue))
-        XCTAssertNil(AppearanceSettings.colorSchemeOverride(for: "invalid"))
-        XCTAssertEqual(AppearanceSettings.colorScheme(for: AppearanceMode.dark.rawValue, fallback: .light), .dark)
-        XCTAssertEqual(AppearanceSettings.colorScheme(for: AppearanceMode.system.rawValue, fallback: .dark), .dark)
-    }
-
-    func testSelectingDarkModeAppliesRuntimeAppearanceAndSynchronizesTerminalTheme() {
+    @Test func selectingDarkModeAppliesRuntimeAppearanceAndSynchronizesTerminalTheme() throws {
         let suiteName = "AppearanceSettingsTests.SelectDark.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         var appliedAppearanceName: NSAppearance.Name?
@@ -417,7 +298,7 @@ final class AppearanceSettingsTests: XCTestCase {
                 synchronizedSource = source
             },
             systemAppearance: {
-                XCTFail("Dark mode should not resolve system appearance")
+                Issue.record("Dark mode should not resolve system appearance")
                 return nil
             }
         )
@@ -429,19 +310,16 @@ final class AppearanceSettingsTests: XCTestCase {
             environment: environment
         )
 
-        XCTAssertEqual(selected, .dark)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.dark.rawValue)
-        XCTAssertEqual(appliedAppearanceName, .darkAqua)
-        XCTAssertEqual(synchronizedAppearanceName, .darkAqua)
-        XCTAssertEqual(synchronizedSource, "settings.themePicker")
+        #expect(selected == .dark)
+        #expect(defaults.string(forKey: AppearanceSettings.appearanceModeKey) == AppearanceMode.dark.rawValue)
+        #expect(appliedAppearanceName == .darkAqua)
+        #expect(synchronizedAppearanceName == .darkAqua)
+        #expect(synchronizedSource == "settings.themePicker")
     }
 
-    func testSelectingSystemModeClearsRuntimeAppearanceOverrideForSystemFollow() {
+    @Test func selectingSystemModeClearsRuntimeAppearanceOverrideForSystemFollow() throws {
         let suiteName = "AppearanceSettingsTests.SelectSystem.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         var appliedAppearanceWasCleared = false
@@ -454,7 +332,7 @@ final class AppearanceSettingsTests: XCTestCase {
                 synchronizedAppearanceWasCleared = appearance == nil
             },
             systemAppearance: {
-                XCTFail("System mode should clear the app override after launch")
+                Issue.record("System mode should clear the app override after launch")
                 return NSAppearance(named: .darkAqua)
             }
         )
@@ -466,18 +344,15 @@ final class AppearanceSettingsTests: XCTestCase {
             environment: environment
         )
 
-        XCTAssertEqual(selected, .system)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
-        XCTAssertTrue(appliedAppearanceWasCleared)
-        XCTAssertTrue(synchronizedAppearanceWasCleared)
+        #expect(selected == .system)
+        #expect(defaults.string(forKey: AppearanceSettings.appearanceModeKey) == AppearanceMode.system.rawValue)
+        #expect(appliedAppearanceWasCleared)
+        #expect(synchronizedAppearanceWasCleared)
     }
 
-    func testDefaultsObserverAppliesLiveAppearanceWhenStoredModeChanges() {
+    @Test func defaultsObserverAppliesLiveAppearanceWhenStoredModeChanges() throws {
         let suiteName = "AppearanceSettingsTests.DefaultsObserver.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let notificationCenter = NotificationCenter()
@@ -493,7 +368,7 @@ final class AppearanceSettingsTests: XCTestCase {
                 synchronizedSource = source
             },
             systemAppearance: {
-                XCTFail("Dark mode should not resolve system appearance")
+                Issue.record("Dark mode should not resolve system appearance")
                 return nil
             }
         )
@@ -531,9 +406,9 @@ final class AppearanceSettingsTests: XCTestCase {
         defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
         notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
 
-        XCTAssertEqual(appliedAppearanceName, .darkAqua)
-        XCTAssertEqual(synchronizedAppearanceName, .darkAqua)
-        XCTAssertEqual(synchronizedSource, "test.defaultsObserver")
+        #expect(appliedAppearanceName == .darkAqua)
+        #expect(synchronizedAppearanceName == .darkAqua)
+        #expect(synchronizedSource == "test.defaultsObserver")
     }
 
     private func withTemporaryAppearanceDefaults(

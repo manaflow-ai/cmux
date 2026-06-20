@@ -1,5 +1,6 @@
 import AppKit
 import CMUXMobileCore
+import CmuxSettings
 import CmuxWorkspaces
 import CmuxSettingsUI
 import CmuxFoundation
@@ -7,7 +8,7 @@ import Foundation
 import OSLog
 import SwiftUI
 
-private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
 /// App-side implementation of the package's `SettingsHostActions`
 /// protocol. Routes UI-triggered actions to the existing host
@@ -91,8 +92,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openSystemNotificationSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else { return }
-        NSWorkspace.shared.open(url)
+        TerminalNotificationStore.shared.openNotificationSettings()
     }
 
     func restartApp() {
@@ -108,8 +108,33 @@ final class HostSettingsActions: SettingsHostActions {
         BrowserDataImportCoordinator.shared.presentImportDialog()
     }
 
-    func requestNotificationAuthorization() {
-        TerminalNotificationStore.shared.requestAuthorizationFromSettings()
+    func desktopNotificationAuthorizationState() -> DesktopNotificationAuthorizationState {
+        DesktopNotificationAuthorizationState(TerminalNotificationStore.shared.authorizationState)
+    }
+
+    func refreshDesktopNotificationAuthorizationState() async -> DesktopNotificationAuthorizationState {
+        let state = await TerminalNotificationStore.shared.refreshAuthorizationStatusFromSettings()
+        return DesktopNotificationAuthorizationState(state)
+    }
+
+    func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
+        AsyncStream { continuation in
+            let drainTask = Task { @MainActor in
+                for await state in TerminalNotificationStore.shared.authorizationStateUpdates() {
+                    if Task.isCancelled { break }
+                    continuation.yield(DesktopNotificationAuthorizationState(state))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+            }
+        }
+    }
+
+    func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState {
+        let state = await TerminalNotificationStore.shared.requestAuthorizationFromSettings()
+        return DesktopNotificationAuthorizationState(state)
     }
 
     func openTerminalConfigWindow() {
@@ -334,6 +359,25 @@ final class HostSettingsActions: SettingsHostActions {
         }
         GhosttyApp.shared.reloadConfiguration(source: reloadSource)
         return true
+    }
+}
+
+private extension DesktopNotificationAuthorizationState {
+    init(_ state: NotificationAuthorizationState) {
+        switch state {
+        case .unknown:
+            self = .unknown
+        case .notDetermined:
+            self = .notDetermined
+        case .authorized:
+            self = .authorized
+        case .denied:
+            self = .denied
+        case .provisional:
+            self = .provisional
+        case .ephemeral:
+            self = .ephemeral
+        }
     }
 }
 

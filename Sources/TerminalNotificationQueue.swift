@@ -434,22 +434,21 @@ extension TerminalNotificationStore {
         }
     }
 
-    /// Effects for the out-of-band fallback path, where cmux plays feedback
+    /// Effects for the out-of-band fallback path, where cmux may play feedback
     /// itself because the OS will not deliver the banner.
     ///
     /// A user who explicitly turned cmux notifications off (`.denied`) asked
-    /// for silence, so the direct `NSSound` fallback must not punch through
-    /// the denial (https://github.com/manaflow-ai/cmux/issues/5650). Every
-    /// other state keeps the audible fallback: fresh installs
-    /// (`.notDetermined`) have expressed no preference, and granted states
-    /// only reach the fallback when delivery itself failed.
+    /// for silence, so desktop, direct sound, and command feedback must not
+    /// punch through the denial. Internal unread state is left intact.
     nonisolated static func fallbackEffects(
         _ effects: TerminalNotificationPolicyEffects,
         authorizationState: NotificationAuthorizationState
     ) -> TerminalNotificationPolicyEffects {
         guard authorizationState == .denied else { return effects }
         var silenced = effects
+        silenced.desktop = false
         silenced.sound = false
+        silenced.command = false
         return silenced
     }
 }
