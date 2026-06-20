@@ -6230,13 +6230,7 @@ class TerminalController {
     }
 
     private func v2IsInternalCmuxWebviewURL(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
-            return true
-        }
-        return url.scheme?.lowercased() == "http" &&
-            url.host == "127.0.0.1" &&
-            cmuxIsInternalWebviewHistoryMarker(url.fragment)
+        browserIsTemporaryHistoryURL(url)
     }
 
     private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
