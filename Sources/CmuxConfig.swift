@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxFoundation
+import CmuxWorkspaces
 import Combine
 import CryptoKit
 import Foundation
@@ -1966,6 +1967,17 @@ final class CmuxConfigStore: ObservableObject {
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
+    /// `@Observable` watches on the `WorkspacesModel` (selection + tabs),
+    /// replacing the retired `selectedTabIdPublisher` / `tabsPublisher` Combine
+    /// bridges. The directory subscription on the *selected* workspace's
+    /// `$surfaceTabBarDirectory` (a `Workspace` `@Published`, out of this slice's
+    /// scope) stays Combine and is re-pointed whenever the selected workspace id
+    /// changes, hand-rolling the former `switchToLatest`.
+    private var selectionObservation: WorkspacesObservation?
+    private var tabsObservation: WorkspacesObservation?
+    private var trackedSelectedWorkspaceId: UUID?
+    private var trackedDirectoryCancellable: AnyCancellable?
+    private var lastTrackedDirectory: String??
     // The local config still uses a bespoke DispatchSource watcher because it
     // performs search-directory *path re-resolution* (not just reload-on-change).
     // The global config and hook files use CmuxFileWatch.FileWatcher.
@@ -2030,32 +2042,65 @@ final class CmuxConfigStore: ObservableObject {
 
     func wireDirectoryTracking(tabManager: TabManager) {
         trackingCancellables.removeAll()
+        selectionObservation?.cancel()
+        tabsObservation?.cancel()
+        trackedDirectoryCancellable?.cancel()
+        trackedDirectoryCancellable = nil
+        trackedSelectedWorkspaceId = nil
+        lastTrackedDirectory = nil
         self.tabManager = tabManager
 
-        tabManager.selectedTabIdPublisher
-            .compactMap { [weak tabManager] tabId -> Workspace? in
-                guard let tabId, let tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.id == tabId })
-            }
-            .removeDuplicates(by: { $0.id == $1.id })
-            .map { workspace -> AnyPublisher<String?, Never> in
-                workspace.$surfaceTabBarDirectory.eraseToAnyPublisher()
-            }
-            .switchToLatest()
-            .removeDuplicates()
-            .sink { [weak self] directory in
-                self?.updateLocalConfigPath(directory)
-            }
-            .store(in: &trackingCancellables)
+        // Selection watch: when the selected workspace id changes (the former
+        // `compactMap`+`removeDuplicates(by:id)`), re-point the directory
+        // subscription onto the new workspace's `$surfaceTabBarDirectory`
+        // (the former `map`+`switchToLatest`). Observation does not replay, so
+        // the explicit `updateLocalConfigPath(...)` below seeds the initial path
+        // just as the bridge's replay did.
+        selectionObservation = tabManager.workspaces.observeSelectedTabId { [weak self] in
+            self?.repointDirectoryTracking()
+        }
+        repointDirectoryTracking()
 
-        tabManager.tabsPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.applySurfaceTabBarButtonsToCurrentManager()
-            }
-            .store(in: &trackingCancellables)
+        tabsObservation = tabManager.workspaces.observeTabs { [weak self] in
+            self?.applySurfaceTabBarButtonsToCurrentManager()
+        }
+        // `tabsPublisher` replayed its current value to the former `.sink` on
+        // subscribe; observation does not, so run the apply once now.
+        applySurfaceTabBarButtonsToCurrentManager()
 
         updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
+    }
+
+    /// Hand-rolls the former `selectedTabIdPublisher`→workspace→`$surfaceTabBarDirectory`
+    /// `switchToLatest` chain: resolves the currently selected workspace, and if
+    /// its id differs from the tracked one, tears down the old directory
+    /// subscription and subscribes to the new workspace's `$surfaceTabBarDirectory`.
+    /// The inner `.removeDuplicates()` on directory values is reproduced via
+    /// `lastTrackedDirectory`.
+    private func repointDirectoryTracking() {
+        guard let tabManager else { return }
+        let selectedId = tabManager.selectedTabId
+        let workspace = selectedId.flatMap { id in tabManager.tabs.first(where: { $0.id == id }) }
+        // `compactMap` dropped a nil selection: keep the existing subscription
+        // when there is no selected workspace, matching the former chain which
+        // emitted nothing (never tore down) on a nil/absent selection.
+        guard let workspace else { return }
+        guard workspace.id != trackedSelectedWorkspaceId else { return }
+        trackedSelectedWorkspaceId = workspace.id
+        trackedDirectoryCancellable?.cancel()
+        // Do NOT reset `lastTrackedDirectory` across the switch: the former
+        // `.switchToLatest().removeDuplicates()` deduped consecutive values over
+        // the merged stream, so a switch to a workspace whose current directory
+        // equals the previous workspace's last directory was suppressed. Carrying
+        // `lastTrackedDirectory` reproduces that cross-switch dedup.
+        trackedDirectoryCancellable = workspace.$surfaceTabBarDirectory
+            .sink { [weak self] directory in
+                guard let self else { return }
+                // Reproduce the inner `.removeDuplicates()`.
+                if let last = self.lastTrackedDirectory, last == directory { return }
+                self.lastTrackedDirectory = .some(directory)
+                self.updateLocalConfigPath(directory)
+            }
     }
 
     func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {

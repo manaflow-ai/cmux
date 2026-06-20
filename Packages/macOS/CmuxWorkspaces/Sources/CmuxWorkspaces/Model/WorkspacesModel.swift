@@ -9,8 +9,15 @@ public import Observation
 /// The window's `TabManager` composition root owns one instance, forwards
 /// its legacy accessors here, and implements `WorkspacesHosting` to receive
 /// the property-observer hooks the legacy `@Published` observers provided
-/// (objectWillChange/bridge re-emission, DEBUG switch tracing, and the
-/// selection side-effect chain).
+/// (objectWillChange re-emission, DEBUG switch tracing, and the selection
+/// side-effect chain).
+///
+/// Being `@Observable`, this is the single observation source of truth:
+/// external observers (sidebar, mobile sync, directory tracking, UI-test
+/// recorders) track ``tabs`` / ``selectedTabId`` / ``workspaceGroups`` through
+/// Observation — via ``observeTabs(_:)`` and its siblings, or SwiftUI
+/// `.onChange` — instead of the retired `TabManager` `CurrentValueSubject`
+/// bridges.
 @MainActor
 @Observable
 public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {

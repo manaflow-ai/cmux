@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import Combine
+import CmuxWorkspaces
 import Foundation
 import CmuxTestSupport
 
@@ -156,12 +157,15 @@ final class JumpUnreadUITestRecorder: UITestRecording {
         var resolved = false
         var observers: [NSObjectProtocol] = []
         var cancellables: [AnyCancellable] = []
+        var selectionObservation: WorkspacesObservation?
 
         func cleanup() {
             observers.forEach { NotificationCenter.default.removeObserver($0) }
             observers.removeAll()
             cancellables.forEach { $0.cancel() }
             cancellables.removeAll()
+            selectionObservation?.cancel()
+            selectionObservation = nil
         }
 
         @MainActor
@@ -185,9 +189,9 @@ final class JumpUnreadUITestRecorder: UITestRecording {
                   surfaceId == expectedSurfaceId else { return }
             Task { @MainActor in finishIfFocused() }
         })
-        cancellables.append(tabManager.selectedTabIdPublisher.sink { _ in
-            Task { @MainActor in finishIfFocused() }
-        })
+        selectionObservation = tabManager.workspaces.observeSelectedTabId {
+            finishIfFocused()
+        }
         if let workspace = tabManager.tabs.first(where: { $0.id == tabId }) {
             cancellables.append(workspace.panelsPublisher
                 .map { _ in () }

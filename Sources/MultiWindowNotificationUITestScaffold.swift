@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import Combine
+import CmuxWorkspaces
 import Foundation
 import CmuxTestSupport
 
@@ -142,7 +143,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
             var resolved = false
             var focusObserver: NSObjectProtocol?
             var surfaceReadyObserver: NSObjectProtocol?
-            var tabsCancellable: AnyCancellable?
+            var tabsObservation: WorkspacesObservation?
             var panelsCancellable: AnyCancellable?
             var observedWorkspaceId: UUID?
 
@@ -153,7 +154,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
                 if let surfaceReadyObserver {
                     NotificationCenter.default.removeObserver(surfaceReadyObserver)
                 }
-                tabsCancellable?.cancel()
+                tabsObservation?.cancel()
                 panelsCancellable?.cancel()
             }
 
@@ -174,9 +175,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
                 }
             }
 
-            tabsCancellable = tabManager.tabsPublisher
-                .map { _ in () }
-                .sink { _ in attemptResolve() }
+            tabsObservation = tabManager.workspaces.observeTabs { attemptResolve() }
             focusObserver = NotificationCenter.default.addObserver(
                 forName: .ghosttyDidFocusSurface,
                 object: nil,
@@ -295,13 +294,13 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
 
         var resolved = false
         var observers: [NSObjectProtocol] = []
-        var selectedTabCancellable: AnyCancellable?
+        var selectedTabObservation: WorkspacesObservation?
         var panelsCancellable: AnyCancellable?
 
         func cleanup() {
             observers.forEach { NotificationCenter.default.removeObserver($0) }
             observers.removeAll()
-            selectedTabCancellable?.cancel()
+            selectedTabObservation?.cancel()
             panelsCancellable?.cancel()
         }
 
@@ -392,9 +391,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
                   readySurfaceId == surfaceId else { return }
             attemptFocus()
         })
-        selectedTabCancellable = tabManager.selectedTabIdPublisher
-            .map { _ in () }
-            .sink { _ in attemptFocus() }
+        selectedTabObservation = tabManager.workspaces.observeSelectedTabId { attemptFocus() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
             if !resolved {
                 attemptFocus()

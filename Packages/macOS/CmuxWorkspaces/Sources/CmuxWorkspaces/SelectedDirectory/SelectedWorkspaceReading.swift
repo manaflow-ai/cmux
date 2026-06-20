@@ -18,11 +18,13 @@ public import Foundation
 /// suspension-window hazard exists.
 ///
 /// **Migration boundary (deliberate, documented).** The app-target adapter that
-/// conforms this seam still bridges the legacy Combine publishers
-/// (`selectedTabIdPublisher`, `Workspace.$currentDirectory`, etc.) into the
-/// stream. Migrating `TabManager`/`Workspace` themselves off Combine is
-/// deferred to those gods' own modernization PRs; this seam is the inversion
-/// point that lets the model move now without waiting on them.
+/// conforms this seam now drives the selection side from `@Observable`
+/// observation of `WorkspacesModel.selectedTabId` (the `selectedTabIdPublisher`
+/// bridge was retired), and still bridges the per-workspace `Workspace`
+/// `@Published` directory/remote properties (`Workspace.$currentDirectory`,
+/// etc.) into the stream. Migrating `Workspace` itself off Combine is deferred
+/// to its own modernization PR; this seam is the inversion point that lets the
+/// model move without waiting on it.
 ///
 /// **Dedup ownership.** The stream may emit equal consecutive snapshots
 /// (the adapter does not deduplicate). Deduplication — the legacy

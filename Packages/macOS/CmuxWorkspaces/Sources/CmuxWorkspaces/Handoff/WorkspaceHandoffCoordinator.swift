@@ -262,10 +262,11 @@ public final class WorkspaceHandoffCoordinator {
 
     // MARK: - Workspace removal reconciliation
 
-    /// Drops handoff/cursor state for workspaces that no longer exist. Legacy
-    /// `ContentView`'s `tabManager.tabsPublisher` `.onReceive` handler (the
-    /// `retiringWorkspaceId`/`previousSelectedWorkspaceId` prune that ran before
-    /// `reconcileMountedWorkspaceIds(tabs:)`).
+    /// Drops handoff/cursor state for workspaces that no longer exist. Driven by
+    /// `ContentView`'s workspace-list change handler (now `@Observable`
+    /// observation of `workspaces.tabs`, formerly a `tabsPublisher` `.onReceive`):
+    /// the `retiringWorkspaceId`/`previousSelectedWorkspaceId` prune that runs
+    /// before `reconcileMountedWorkspaceIds(tabs:)`.
     ///
     /// - Parameter existingWorkspaceIds: the ids of the workspaces that still
     ///   exist.

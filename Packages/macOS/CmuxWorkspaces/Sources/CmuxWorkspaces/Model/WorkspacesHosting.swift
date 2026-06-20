@@ -6,9 +6,9 @@ public import Foundation
 /// **Why synchronous hooks and not an AsyncStream.** These hooks replace the
 /// legacy `@Published` property observers one-for-one: the `willSet` hooks
 /// fire while the property still holds its old value (the host re-emits
-/// `objectWillChange` and the legacy Combine bridge publishers there, at the
-/// exact timing `@Published` used), and the selection `didSet` hook runs the
-/// legacy selection side effects synchronously in the same MainActor turn —
+/// `objectWillChange` there so its `ObservableObject` SwiftUI observers update
+/// at the exact timing `@Published` used), and the selection `didSet` hook runs
+/// the legacy selection side effects synchronously in the same MainActor turn —
 /// including re-entrant mutations (group auto-expand, focus-history
 /// recording) whose interleaving is part of the observable selection
 /// contract. A stream would open a suspension window between the mutation
