@@ -1312,6 +1312,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.session.token",
 					"pty.session.persistent_daemon",
 					"pty.write.notification",
+					"pty.resize.notification",
 				},
 			},
 		}
@@ -1376,17 +1377,17 @@ func (s *rpcServer) handleRequestAndWriteResponse(req rpcRequest) error {
 }
 
 func rpcRequestExpectsResponse(req rpcRequest) bool {
-	// Only pty.write currently uses JSON-RPC notification semantics; all
-	// other id-less requests still get a response for compatibility.
-	return !rpcRequestIsPTYWriteNotification(req)
+	// Only selected PTY attachment operations use JSON-RPC notification
+	// semantics; all other id-less requests still get a response for compatibility.
+	return !rpcRequestIsPTYAttachmentNotification(req)
 }
 
-func rpcRequestIsPTYWriteNotification(req rpcRequest) bool {
-	return !req.HasID && req.Method == "pty.write"
+func rpcRequestIsPTYAttachmentNotification(req rpcRequest) bool {
+	return !req.HasID && (req.Method == "pty.write" || req.Method == "pty.resize")
 }
 
 func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse) error {
-	if !rpcRequestIsPTYWriteNotification(req) || resp.OK {
+	if !rpcRequestIsPTYAttachmentNotification(req) || resp.OK {
 		return nil
 	}
 	if s.frameWriter == nil {
@@ -1400,14 +1401,19 @@ func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse)
 				detail += message
 			}
 		}
-		_, _ = fmt.Fprintf(os.Stderr, "cmuxd-remote: pty.write notification failed without response writer: %s\n", detail)
+		_, _ = fmt.Fprintf(os.Stderr, "cmuxd-remote: %s notification failed without response writer: %s\n", req.Method, detail)
 		return nil
 	}
-	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, "pty.write")
+	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, req.Method)
 	if badResp != nil || strings.TrimSpace(attachmentToken) == "" {
 		return nil
 	}
-	detail := "PTY write failed"
+	detail := "PTY operation failed"
+	if req.Method == "pty.write" {
+		detail = "PTY write failed"
+	} else if req.Method == "pty.resize" {
+		detail = "PTY resize failed"
+	}
 	if resp.Error != nil && strings.TrimSpace(resp.Error.Message) != "" {
 		detail = strings.TrimSpace(resp.Error.Message)
 	}
@@ -1419,7 +1425,7 @@ func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse)
 		Error:           detail,
 		Message:         detail,
 	})
-	if resp.Error != nil && resp.Error.Code == "pty_input_queue_full" && s.ptyHub != nil {
+	if req.Method == "pty.write" && resp.Error != nil && resp.Error.Code == "pty_input_queue_full" && s.ptyHub != nil {
 		s.ptyHub.detachByID(sessionID, attachmentID, attachmentToken)
 	}
 	return err

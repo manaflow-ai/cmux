@@ -90,13 +90,22 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
     var homePath = "/home/dev"
     var isAvailable = true
     private(set) var listCallPaths: [String] = []
+    /// Set the instant `listDirectory` hands its resumed value back to the store's
+    /// load task. Because that value is delivered on the same MainActor-isolated
+    /// continuation that then runs the store's synchronous post-`await` tail
+    /// (cancellation check + error handling), observing this flag from any other
+    /// MainActor work means the resumed load task has fully run. This lets the
+    /// cancelled-load test wait on the real completion signal instead of sleeping.
+    private(set) var didCompleteListing = false
     private var continuation: CheckedContinuation<[FileExplorerEntry], Error>?
 
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         listCallPaths.append(path)
-        return try await withCheckedThrowingContinuation { continuation in
+        let entries = try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
         }
+        didCompleteListing = true
+        return entries
     }
 
     func resumeListing(returning entries: [FileExplorerEntry]) {
@@ -380,7 +389,12 @@ struct FileExplorerStoreTests {
             FileExplorerEntry(name: "stale", path: "/home/dev/stale", isDirectory: true),
         ])
 
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // Wait on the real completion signal: the resumed (already-cancelled) root
+        // load task running to completion. `didCompleteListing` flips on the same
+        // MainActor continuation that runs the load task's post-`await` tail, so once
+        // it is observed the cancelled task has finished and can no longer mutate
+        // state. Then assert it left the unavailable status and empty tree intact.
+        try await waitFor("cancelled root load finished") { provider.didCompleteListing }
 
         #expect(store.rootStatusMessage == unavailableMessage)
         #expect(store.rootNodes.isEmpty)
@@ -806,7 +820,11 @@ struct FileSearchControllerTests {
             container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
         }
 
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // Wait on the real completion signal (the debounce firing and issuing its one
+        // search) instead of sleeping for the debounce window. The seven synchronous
+        // keystrokes feed a single Combine `.debounce`, so it emits exactly once; this
+        // returns the instant that single search lands.
+        try await waitForSearchRequestCount(1, in: searchController)
 
         #expect(
             searchController.searchRequests.count <= 1,
