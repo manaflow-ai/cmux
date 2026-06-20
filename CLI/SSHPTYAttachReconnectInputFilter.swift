@@ -157,13 +157,33 @@ final class SSHPTYAttachReconnectInputFilter {
             let timeoutMilliseconds = reconnectInputFilter?.hasPendingInput == true
                 ? pendingProbeContinuationTimeoutMilliseconds
                 : -1
-            guard let readiness = pollStdinPump(
+            guard var readiness = pollStdinPump(
                 inputFD: inputFD,
                 stopSignalFD: stopSignalFD,
                 timeoutMilliseconds: timeoutMilliseconds
             ) else {
                 _ = shutdown(fd, SHUT_WR)
                 return
+            }
+
+            if readiness.stopRequested,
+               !readiness.inputReady,
+               reconnectInputFilter?.hasPendingInput == true {
+                guard let pendingReadiness = pollStdinPump(
+                    inputFD: inputFD,
+                    stopSignalFD: nil,
+                    timeoutMilliseconds: pendingProbeContinuationTimeoutMilliseconds
+                ) else {
+                    _ = shutdown(fd, SHUT_WR)
+                    return
+                }
+                if pendingReadiness.inputReady {
+                    readiness = (inputReady: true, stopRequested: true)
+                } else if let filter = reconnectInputFilter {
+                    guard await writeOrShutdown(filter.flushPendingInput()) else { return }
+                    guard stopReconnectFiltering() else { return }
+                    continue
+                }
             }
 
             if readiness.stopRequested, !readiness.inputReady {
@@ -197,6 +217,9 @@ final class SSHPTYAttachReconnectInputFilter {
                     return
                 }
                 if readiness.stopRequested {
+                    if reconnectInputFilter?.hasPendingInput == true {
+                        continue
+                    }
                     guard stopReconnectFiltering() else {
                         return
                     }
