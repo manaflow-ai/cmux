@@ -1305,13 +1305,26 @@ enum SurfaceResumeApprovalStore {
 nonisolated enum TerminalStartupReturnShellScript {
     private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
     private static let zshIntegrationReentryLines = [
-        #"if [[ "${_cmux_resume_shell:t}" == "zsh" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
-        #"  if [[ -n "${ZDOTDIR+X}" ]]; then"#,
-        #"    export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
+        #"if [[ "${_cmux_resume_shell:t}" == "zsh" ]]; then"#,
+        #"  if [[ -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
+        #"    if [[ -n "${ZDOTDIR+X}" && "$ZDOTDIR" != "$CMUX_SHELL_INTEGRATION_DIR" && "$ZDOTDIR" != */Contents/Resources/shell-integration ]]; then"#,
+        #"      export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
+        #"    elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" && ( "$CMUX_ZSH_ZDOTDIR" == "$CMUX_SHELL_INTEGRATION_DIR" || "$CMUX_ZSH_ZDOTDIR" == */Contents/Resources/shell-integration ) ]]; then"#,
+        #"      unset CMUX_ZSH_ZDOTDIR"#,
+        #"    fi"#,
+        #"    export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
         #"  else"#,
-        #"    unset CMUX_ZSH_ZDOTDIR"#,
+        #"    if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then"#,
+        #"      export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR""#,
+        #"      unset GHOSTTY_ZSH_ZDOTDIR"#,
+        #"    elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" && ( -z "${CMUX_SHELL_INTEGRATION_DIR:-}" || "$CMUX_ZSH_ZDOTDIR" != "$CMUX_SHELL_INTEGRATION_DIR" ) && "$CMUX_ZSH_ZDOTDIR" != */Contents/Resources/shell-integration ]]; then"#,
+        #"      export ZDOTDIR="$CMUX_ZSH_ZDOTDIR""#,
+        #"      unset CMUX_ZSH_ZDOTDIR"#,
+        #"    elif [[ -n "${ZDOTDIR+X}" && ( "$ZDOTDIR" == "${CMUX_SHELL_INTEGRATION_DIR:-}" || "$ZDOTDIR" == */Contents/Resources/shell-integration ) ]]; then"#,
+        #"      unset ZDOTDIR"#,
+        #"      unset CMUX_ZSH_ZDOTDIR"#,
+        #"    fi"#,
         #"  fi"#,
-        #"  export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
         #"fi"#,
     ]
 
