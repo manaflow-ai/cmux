@@ -4183,16 +4183,12 @@ final class BrowserPanel: Panel, ObservableObject {
             setOmnibarVisible(snapshot.omnibarVisible ?? false)
             currentURL = diffURL
             let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
-            shouldRenderWebView = shouldRenderRestoredWebView
             guard shouldRenderRestoredWebView else {
+                shouldRenderWebView = false
                 refreshNavigationAvailability()
                 return
             }
-            navigateWithoutInsecureHTTPPrompt(
-                to: diffURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: false
-            )
+            deferRestoredWebViewLoadUntilVisible(url: diffURL, reason: "session_restore.diff")
             return
         }
 
@@ -4209,18 +4205,28 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 
         currentURL = restoredURL
-        shouldRenderWebView = shouldRenderRestoredWebView
 
         guard shouldRenderRestoredWebView, let restoredURL else {
+            shouldRenderWebView = false
             refreshNavigationAvailability()
             return
         }
 
-        navigateWithoutInsecureHTTPPrompt(
-            to: restoredURL,
-            recordTypedNavigation: false,
-            preserveRestoredSessionHistory: true
+        deferRestoredWebViewLoadUntilVisible(url: restoredURL, reason: "session_restore")
+    }
+
+    private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
+        currentURL = url
+        shouldRenderWebView = false
+        hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: Date())
+        refreshNavigationAvailability()
+        refreshWebViewLifecycleState()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.sessionRestore.deferred panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) url=\(Self.serializableSessionHistoryURLString(url) ?? "nil")"
         )
+#endif
     }
 
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
