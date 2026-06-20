@@ -5,51 +5,6 @@ import Testing
 
 @Suite(.serialized)
 struct ClaudeHookSurfaceResolutionSwiftTests {
-    @Test func claudeNotificationStatusCarriesPIDForStaleSweep() throws {
-        let context = try makeClaudeHookContext(name: "claude-notify-pid")
-        defer { context.cleanup() }
-
-        let claudePID = 42_424
-        let serverHandled = startClaudeSurfaceResolutionServer(
-            context: context,
-            surfaces: [(context.surfaceId, "surface:1", true)],
-            ttyName: "ttys-claude-notify-pid",
-            ttySurfaceId: context.surfaceId
-        )
-
-        var environment = claudeHookEnvironment(
-            context: context,
-            surfaceId: context.surfaceId,
-            ttyName: "ttys-claude-notify-pid",
-            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
-        )
-        environment["CMUX_CLAUDE_PID"] = "\(claudePID)"
-
-        let result = runProcess(
-            executablePath: context.cliPath,
-            arguments: ["hooks", "claude", "notification"],
-            environment: environment,
-            standardInput: #"{"session_id":"claude-notify-pid-session","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"Claude needs your input"}"#,
-            timeout: 5
-        )
-
-        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
-        assertSuccessfulHook(result)
-
-        let statusCommand = try #require(
-            context.state.snapshot().first {
-                $0.hasPrefix("set_status claude_code Needs input ")
-                    && $0.contains("--tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
-            },
-            "Expected Claude notification to set a Needs input status, saw \(context.state.snapshot())"
-        )
-        #expect(
-            statusCommand.contains("--pid=\(claudePID)"),
-            "Claude notification status must be PID-backed so the stale PID sweep can clear it after abrupt agent exit; command=\(statusCommand)"
-        )
-    }
-
     @Test func claudeSessionStartOverridesLeakedEnvSurfaceWithTTYBinding() throws {
         let context = try makeClaudeHookContext(name: "claude-leaked-surface")
         defer { context.cleanup() }
@@ -471,10 +426,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
-    private struct ProcessRunResult { let status: Int32; let stdout: String; let stderr: String; let timedOut: Bool }
-    private typealias SurfaceFixture = (id: String, ref: String, focused: Bool)
+    struct ProcessRunResult { let status: Int32; let stdout: String; let stderr: String; let timedOut: Bool }
+    typealias SurfaceFixture = (id: String, ref: String, focused: Bool)
 
-    private struct ClaudeHookContext {
+    struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String
         let listenerFD: Int32
@@ -490,7 +445,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         }
     }
 
-    private final class MockSocketServerState: @unchecked Sendable {
+    final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var commands: [String] = []
 
@@ -508,7 +463,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         }
     }
 
-    private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
+    func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-\(name)-\(UUID().uuidString)", isDirectory: true)
         let socketPath = makeSocketPath(String(name.prefix(6)))
@@ -642,7 +597,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         return handled
     }
 
-    private func startClaudeSurfaceResolutionServer(
+    func startClaudeSurfaceResolutionServer(
         context: ClaudeHookContext,
         surfaces: [SurfaceFixture],
         ttyName: String,
@@ -713,7 +668,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         }
     }
 
-    private func claudeHookEnvironment(context: ClaudeHookContext, surfaceId: String, ttyName: String, storeURL: URL) -> [String: String] {
+    func claudeHookEnvironment(context: ClaudeHookContext, surfaceId: String, ttyName: String, storeURL: URL) -> [String: String] {
         [
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -824,7 +779,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
-    private func assertSuccessfulHook(_ result: ProcessRunResult) {
+    func assertSuccessfulHook(_ result: ProcessRunResult) {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "OK\n")
@@ -867,7 +822,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         return data.base64EncodedString()
     }
 
-    private func runProcess(executablePath: String, arguments: [String], environment: [String: String], standardInput: String? = nil, timeout: TimeInterval) -> ProcessRunResult {
+    func runProcess(executablePath: String, arguments: [String], environment: [String: String], standardInput: String? = nil, timeout: TimeInterval) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
