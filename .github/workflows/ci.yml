@@ -336,7 +336,7 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
-  tests:
+  app-host-unit-tests:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/4)
@@ -665,11 +665,18 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
 
-  tests-required-status:
+  tests:
     name: tests
+    # Aggregate gate for the test/build suites in this workflow. Required by
+    # branch protection under the stable name "tests", and references each suite
+    # by its job KEY via needs:, so renaming/sharding a job's display name never
+    # desyncs the required-checks list (the failure mode from the #6464 sharding
+    # that stranded the old "tests" check). Add new ci.yml test/build jobs here.
     needs:
       - changes
-      - tests
+      - app-host-unit-tests
+      - swift-package-tests
+      - agent-session-web-resources
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     timeout-minutes: 5
@@ -685,7 +692,7 @@ jobs:
 
           needs = json.loads(os.environ["TESTS_NEEDS"])
           changes = needs["changes"]
-          tests = needs["tests"]
+          tests = needs["app-host-unit-tests"]
           macos = changes.get("outputs", {}).get("macos")
 
           if changes["result"] != "success":
@@ -700,8 +707,20 @@ jobs:
               print(f"app-host unit tests had unexpected result for macos={macos}: {tests['result']}", file=sys.stderr)
               sys.exit(1)
 
+          # The remaining test/build suites in this workflow gate too. A job that
+          # opts out via its own path filter reports "skipped", which is fine; a
+          # job that actually ran and failed must block the merge.
+          allowed = {"success", "skipped"}
+          for name in ("swift-package-tests", "agent-session-web-resources"):
+              result = needs[name]["result"]
+              if result not in allowed:
+                  print(f"{name} did not pass: {result}", file=sys.stderr)
+                  sys.exit(1)
+
           print(f"changes.macos={macos}")
           print(f"app-host unit tests={tests['result']}")
+          for name in ("swift-package-tests", "agent-session-web-resources"):
+              print(f"{name}={needs[name]['result']}")
           PY
 
   swift-package-tests:
@@ -1896,8 +1915,8 @@ jobs:
       - web-typecheck
       - react-apps-check
       - web-db-migrations
+      - app-host-unit-tests
       - tests
-      - tests-required-status
       - swift-package-tests
       - agent-session-web-resources
       - tests-build-and-lag
