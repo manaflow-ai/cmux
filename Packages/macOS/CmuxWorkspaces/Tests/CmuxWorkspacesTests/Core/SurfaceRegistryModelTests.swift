@@ -140,6 +140,10 @@ private final class FakeSurfaceRegistryHost: SurfaceRegistryHosting {
     var kinds: [UUID: String] = [:]
     var isRemoteTmuxMirror = false
     var mirrorRenames: [(panelId: UUID, title: String)] = []
+    var workspaceCustomTitle: String?
+    var workspaceTitle = ""
+    var workspaceProcessTitle = ""
+    var updatePanelTitleLogs: [(panelId: UUID, trimmedTitle: String, panelCount: Int, hasCustomTitle: Bool, didMutatePanelTitle: Bool, didMutateWorkspaceTitle: Bool)] = []
 
     func register(panelId: UUID, displayTitle: String, kind: String, tab: Bonsplit.Tab) {
         panelToSurface[panelId] = tab.id
@@ -189,6 +193,26 @@ private final class FakeSurfaceRegistryHost: SurfaceRegistryHosting {
         updateTab(tabId) { tab in
             Bonsplit.Tab(id: tab.id, title: tab.title, hasCustomTitle: tab.hasCustomTitle, kind: tab.kind, isPinned: isPinned)
         }
+    }
+    var surfaceRegistryPanelCount: Int { displayTitles.count }
+    var surfaceRegistryWorkspaceCustomTitle: String? { workspaceCustomTitle }
+    var surfaceRegistryWorkspaceTitle: String {
+        get { workspaceTitle }
+        set { workspaceTitle = newValue }
+    }
+    var surfaceRegistryWorkspaceProcessTitle: String {
+        get { workspaceProcessTitle }
+        set { workspaceProcessTitle = newValue }
+    }
+    func surfaceRegistryLogUpdatePanelTitle(
+        panelId: UUID,
+        trimmedTitle: String,
+        panelCount: Int,
+        hasCustomTitle: Bool,
+        didMutatePanelTitle: Bool,
+        didMutateWorkspaceTitle: Bool
+    ) {
+        updatePanelTitleLogs.append((panelId, trimmedTitle, panelCount, hasCustomTitle, didMutatePanelTitle, didMutateWorkspaceTitle))
     }
     var surfaceRegistryIsRemoteTmuxMirror: Bool { isRemoteTmuxMirror }
     func surfaceRegistryHandleMirrorWindowRenamed(panelId: UUID, title: String) {
@@ -279,6 +303,79 @@ struct SurfaceRegistryModelPanelAccessTests {
         model.panelCustomTitles[panel] = "Custom"
         #expect(model.panelTitle(panelId: panel) == "Custom")
         #expect(model.panelTitle(panelId: UUID()) == nil)
+    }
+
+    @Test("updatePanelTitle: empty/whitespace rejected; sets panel title and projects the tab once")
+    func updatePanelTitleProjectsTab() {
+        let (model, host) = make()
+        let panel = UUID()
+        host.register(panelId: panel, displayTitle: "zsh", kind: "terminal",
+                      tab: Bonsplit.Tab(id: TabID(), title: "zsh", kind: "terminal"))
+        // Two panels so the single-panel workspace-title promotion is gated off.
+        host.displayTitles[UUID()] = "other"
+
+        #expect(model.updatePanelTitle(panelId: panel, title: "   ") == false)
+        #expect(model.panelTitles[panel] == nil)
+
+        #expect(model.updatePanelTitle(panelId: panel, title: "  vim  ") == true)
+        #expect(model.panelTitles[panel] == "vim")
+        #expect(host.tabs[0].title == "vim")
+        #expect(host.tabs[0].hasCustomTitle == false)
+
+        // No change on a repeat write.
+        #expect(model.updatePanelTitle(panelId: panel, title: "vim") == false)
+    }
+
+    @Test("updatePanelTitle: a custom title masks the resolved tab title but the auto title still records")
+    func updatePanelTitleWithCustom() {
+        let (model, host) = make()
+        let panel = UUID()
+        host.register(panelId: panel, displayTitle: "zsh", kind: "terminal",
+                      tab: Bonsplit.Tab(id: TabID(), title: "zsh", kind: "terminal"))
+        host.displayTitles[UUID()] = "other"
+        model.panelCustomTitles[panel] = "Custom"
+
+        #expect(model.updatePanelTitle(panelId: panel, title: "vim") == true)
+        #expect(model.panelTitles[panel] == "vim")
+        #expect(host.tabs[0].title == "Custom")
+        #expect(host.tabs[0].hasCustomTitle == true)
+    }
+
+    @Test("updatePanelTitle: single panel with no custom title promotes to workspace title and process title")
+    func updatePanelTitlePromotesWorkspaceTitle() {
+        let (model, host) = make()
+        let panel = UUID()
+        host.register(panelId: panel, displayTitle: "zsh", kind: "terminal",
+                      tab: Bonsplit.Tab(id: TabID(), title: "zsh", kind: "terminal"))
+        host.workspaceTitle = "old"
+        host.workspaceProcessTitle = "old"
+
+        #expect(model.updatePanelTitle(panelId: panel, title: "vim") == true)
+        #expect(host.workspaceTitle == "vim")
+        #expect(host.workspaceProcessTitle == "vim")
+
+        // A workspace custom title blocks promotion.
+        host.workspaceCustomTitle = "Pinned"
+        host.workspaceTitle = "old2"
+        #expect(model.updatePanelTitle(panelId: panel, title: "emacs") == true)
+        #expect(host.workspaceTitle == "old2")
+    }
+
+    @Test("updatePanelTitle: logs only on a mutating write, with the resolved flags")
+    func updatePanelTitleLogs() {
+        let (model, host) = make()
+        let panel = UUID()
+        host.register(panelId: panel, displayTitle: "zsh", kind: "terminal",
+                      tab: Bonsplit.Tab(id: TabID(), title: "zsh", kind: "terminal"))
+
+        #expect(model.updatePanelTitle(panelId: panel, title: "vim") == true)
+        #expect(host.updatePanelTitleLogs.count == 1)
+        #expect(host.updatePanelTitleLogs[0].didMutatePanelTitle == true)
+        #expect(host.updatePanelTitleLogs[0].didMutateWorkspaceTitle == true)
+
+        // A no-op repeat does not log.
+        #expect(model.updatePanelTitle(panelId: panel, title: "vim") == false)
+        #expect(host.updatePanelTitleLogs.count == 1)
     }
 
     @Test("panelKind forwards the host projection")

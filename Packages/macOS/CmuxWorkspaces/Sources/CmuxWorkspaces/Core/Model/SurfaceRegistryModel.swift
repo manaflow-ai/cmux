@@ -196,6 +196,72 @@ public final class SurfaceRegistryModel<TabSelectionRequest> {
         return resolvedPanelTitle(panelId: panelId, fallback: fallback)
     }
 
+    /// Records a process-reported `title` as panel `panelId`'s auto-derived
+    /// title, projecting the resolved title onto the panel's bonsplit tab and,
+    /// when the workspace holds exactly one panel and has no custom title,
+    /// promoting it to the workspace `title` and `processTitle`. Returns whether
+    /// any state changed. Faithful lift of
+    /// `Workspace.updatePanelTitle(panelId:title:)`.
+    ///
+    /// The single-panel workspace-title promotion writes the workspace's own
+    /// title vocabulary (`title`, `customTitle`, `processTitle`), which the
+    /// ``WorkspaceTitleModel`` owns and the host conforms to; this model reaches
+    /// those reads/writes through the dedicated ``SurfaceRegistryHosting`` title
+    /// accessors so the per-panel projection and the workspace-title promotion
+    /// stay in one byte-faithful body, exactly as the legacy method did.
+    @discardableResult
+    public func updatePanelTitle(panelId: UUID, title: String) -> Bool {
+        guard let host else { return false }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        var didMutate = false
+        var didMutatePanelTitle = false
+        var didMutateWorkspaceTitle = false
+
+        if panelTitles[panelId] != trimmed {
+            panelTitles[panelId] = trimmed
+            didMutate = true
+            didMutatePanelTitle = true
+        }
+
+        // Update bonsplit tab title only when this panel's title changed.
+        if didMutate,
+           let tabId = host.surfaceRegistrySurfaceId(forPanelId: panelId),
+           let displayTitle = host.surfaceRegistryPanelDisplayTitle(panelId: panelId) {
+            let baseTitle = panelTitles[panelId] ?? displayTitle
+            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+            host.surfaceRegistryUpdateTab(
+                tabId,
+                title: resolvedTitle,
+                hasCustomTitle: panelCustomTitles[panelId] != nil
+            )
+        }
+
+        // If this is the only panel and no custom title, update workspace title
+        if host.surfaceRegistryPanelCount == 1, host.surfaceRegistryWorkspaceCustomTitle == nil {
+            if host.surfaceRegistryWorkspaceTitle != trimmed {
+                host.surfaceRegistryWorkspaceTitle = trimmed
+                didMutate = true
+                didMutateWorkspaceTitle = true
+            }
+            if host.surfaceRegistryWorkspaceProcessTitle != trimmed {
+                host.surfaceRegistryWorkspaceProcessTitle = trimmed
+            }
+        }
+
+        if didMutate {
+            host.surfaceRegistryLogUpdatePanelTitle(
+                panelId: panelId,
+                trimmedTitle: trimmed,
+                panelCount: host.surfaceRegistryPanelCount,
+                hasCustomTitle: host.surfaceRegistryWorkspaceCustomTitle != nil,
+                didMutatePanelTitle: didMutatePanelTitle,
+                didMutateWorkspaceTitle: didMutateWorkspaceTitle
+            )
+        }
+        return didMutate
+    }
+
     /// Sets, replaces, or clears (empty/nil `title`) a panel custom title.
     ///
     /// `.auto` writes are rejected when a user-set title exists, and `.auto`
