@@ -10200,15 +10200,12 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         return newPanel
     }
 
-    struct AgentConversationForkWorkspaceLaunch: Equatable {
-        var workingDirectory: String?
-        var terminalWorkingDirectory: String?
-        var initialTerminalCommand: String?
-        var initialTerminalInput: String
-        var initialTerminalEnvironment: [String: String]
-        var remoteConfiguration: WorkspaceRemoteConfiguration?
-        var autoConnectRemoteConfiguration: Bool
-    }
+    /// The resolved new-workspace fork-launch descriptor. Lifted to
+    /// `CMUXAgentLaunch`; kept as a `typealias` so existing
+    /// `Workspace.AgentConversationForkWorkspaceLaunch` references stay
+    /// byte-identical. The fork orchestration that produces and consumes it
+    /// stays app-side (it drives the live bonsplit tree and `TabManager`).
+    typealias AgentConversationForkWorkspaceLaunch = CMUXAgentLaunch.AgentConversationForkWorkspaceLaunch
 
     func forkAgentWorkspaceLaunch(
         fromPanelId panelId: UUID,
