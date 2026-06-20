@@ -1,5 +1,5 @@
 import Bonsplit
-import CmuxBrowserImport
+import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
@@ -429,6 +429,10 @@ struct BrowserPanelView: View {
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
+    /// Held detector instance; the view detects and summarizes installed browsers
+    /// through this rather than the former `BrowserInstalledBrowserDetector` static
+    /// namespace.
+    private let installedBrowserDetector = BrowserInstalledBrowserDetector()
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettingsStore.searchEngineKey) private var searchEngineRaw = BrowserSearchSettingsStore.defaultSearchEngine.rawValue
@@ -674,7 +678,7 @@ struct BrowserPanelView: View {
     }
 
     private var browserImportHintSummary: String {
-        BrowserInstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers)
+        installedBrowserDetector.summaryText(for: emptyStateImportBrowsers)
     }
 
     private var shouldShowToolbarImportHintChip: Bool {
@@ -755,6 +759,20 @@ struct BrowserPanelView: View {
         cmuxDebugLog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
 #endif
         panel.reload()
+    }
+
+    private func handleReloadButtonContextMenuAction() {
+#if DEBUG
+        cmuxDebugLog("browser.reload.contextMenu panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        panel.reload()
+    }
+
+    private func handleHardRefreshButtonAction() {
+#if DEBUG
+        cmuxDebugLog("browser.hardRefresh.contextMenu panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        panel.hardReload()
     }
 
     private func handleScreenshotPageButtonAction() {
@@ -1356,6 +1374,14 @@ struct BrowserPanelView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(OmnibarAddressButtonStyle())
+            .contextMenu {
+                Button(String(localized: "browser.reload", defaultValue: "Reload")) {
+                    handleReloadButtonContextMenuAction()
+                }
+                Button(String(localized: "menu.view.hardRefresh", defaultValue: "Hard Refresh")) {
+                    handleHardRefreshButtonAction()
+                }
+            }
             .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
 
             if panel.isDownloading {
@@ -2469,9 +2495,10 @@ struct BrowserPanelView: View {
             return
         }
 
+        let detector = installedBrowserDetector
         emptyStateImportBrowserRefreshTask = Task {
             let browsers = await Task.detached(priority: .utility) {
-                BrowserInstalledBrowserDetector.detectInstalledBrowsers()
+                detector.detectInstalledBrowsers()
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run {
@@ -5550,6 +5577,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var isApplyingHostedInspectorLayout = false
         private var hostedInspectorReapplyWorkItem: DispatchWorkItem?
         private var hostedInspectorDockConfigurationSyncWorkItem: DispatchWorkItem?
+        private var hostedInspectorSideDockPromotionTask: Task<Void, Never>?
+        private var hostedInspectorSideDockPromotionTaskID: UUID?
         private var adaptiveBottomDockRequestCooldownDeadline: Date?
         private var recordedHostedInspectorSideDockWidth: CGFloat?
         private var lastHostedInspectorManualSideDockAllowed: Bool?
@@ -5562,6 +5591,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         deinit {
             hostedInspectorReapplyWorkItem?.cancel()
             hostedInspectorDockConfigurationSyncWorkItem?.cancel()
+            hostedInspectorSideDockPromotionTask?.cancel()
             if let trackingArea {
                 removeTrackingArea(trackingArea)
             }
@@ -6146,8 +6176,39 @@ struct WebViewRepresentable: NSViewRepresentable {
             // The inspector frontend sometimes reports its dock configuration a tick
             // late after local-inline reattach. Promote the visible left/right split
             // immediately so drag routing stays symmetric on both dock sides.
+            if shouldForceHostedInspectorBottomDock(using: hit) {
+                _ = requestAdaptiveHostedInspectorBottomDock(reason: "sideDock.promote")
+                return false
+            }
             activateHostedInspectorSideDockIfNeeded(using: hit)
             return isHostedInspectorSideDockActive()
+        }
+
+        /// Schedules `promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded`
+        /// for the next runloop tick when a promotion is actually pending, so the
+        /// hierarchy mutation it performs never runs inside the `layout()` pass
+        /// that observed the candidate (see the note in `layout()`). The candidate
+        /// lookup here is read-only; the deferred work re-validates all state
+        /// before mutating, so it is safe even if the layout changes in between.
+        private func scheduleHostedInspectorSideDockPromotionIfNeeded() {
+            guard hostedInspectorSideDockPromotionTask == nil else { return }
+            guard !isHostedInspectorSideDockActive(),
+                  let slotView = localInlineSlotView,
+                  hostedInspectorDividerCandidateUsingKnownWebViews(in: slotView) != nil else {
+                return
+            }
+            let taskID = UUID()
+            hostedInspectorSideDockPromotionTaskID = taskID
+            let task = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self else { return }
+                guard self.hostedInspectorSideDockPromotionTaskID == taskID else { return }
+                self.hostedInspectorSideDockPromotionTask = nil
+                self.hostedInspectorSideDockPromotionTaskID = nil
+                guard !Task.isCancelled else { return }
+                _ = self.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
+            }
+            hostedInspectorSideDockPromotionTask = task
         }
 
         private func deactivateHostedInspectorSideDockIfNeeded(reparentTo slotView: WindowBrowserSlotView?) {
@@ -6352,7 +6413,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func layout() {
             super.layout()
-            _ = promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
             if enforceAdaptiveBottomDockIfNeeded(reason: "host.layout") {
                 updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
                 notifyGeometryChangedIfNeeded()
@@ -6361,6 +6421,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return
             }
+            // Defer this hierarchy mutation out of `layout()` to avoid #6150.
+            scheduleHostedInspectorSideDockPromotionIfNeeded()
             if let previousSize = lastHostedInspectorLayoutBoundsSize,
                Self.sizeApproximatelyEqual(previousSize, bounds.size, epsilon: 0.5) {
                 // Origin-only frame churn is common while the surrounding split layout

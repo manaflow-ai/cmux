@@ -1,11 +1,12 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Foundation
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
-import CmuxSession
-import CmuxTerminalEngine
+import CmuxWorkspaces
+import CmuxTerminal
 import SwiftUI
 import AppKit
 import CmuxFoundation
@@ -16,16 +17,12 @@ import CmuxBrowser
 import CmuxCanvasUI
 import CmuxPanes
 import CmuxSidebar
-import CmuxWorkspaceCore
-import CmuxWorkspaces
 import CmuxNotifications
-import CmuxSocketControl
 import Combine
 import CryptoKit
 import Darwin
 import Network
 import CoreText
-import CmuxTerminal
 
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -51,7 +48,6 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
-
 extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
@@ -63,7 +59,6 @@ extension Workspace {
         if let surfaceResumeBindingIndex {
             reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
-
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
         var allPanelIds: [UUID] = []
@@ -73,7 +68,6 @@ extension Workspace {
         for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) where seen.insert(panelId).inserted {
             allPanelIds.append(panelId)
         }
-
         let panelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
@@ -91,7 +85,6 @@ extension Workspace {
         let layout = prunedSessionLayoutSnapshot(rawLayout, keeping: persistedPanelIds) ?? .pane(
             SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
         )
-
         let statusSnapshots = statusEntries.values
             .sorted { lhs, rhs in lhs.key < rhs.key }
             .map { entry in
@@ -111,7 +104,6 @@ extension Workspace {
                 timestamp: entry.timestamp.timeIntervalSince1970
             )
         }
-
         let progressSnapshot = progress.map { progress in
             SessionProgressSnapshot(value: progress.value, label: progress.label)
         }
@@ -124,7 +116,6 @@ extension Workspace {
             (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
             (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
         let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
-
         return SessionWorkspaceSnapshot(
             workspaceId: id,
             processTitle: processTitle,
@@ -331,7 +322,6 @@ extension Workspace {
             }
         }
     }
-
     private func sessionPanelIDs(for pane: ExternalPaneNode) -> [UUID] {
         var panelIds: [UUID] = []
         var seen = Set<UUID>()
@@ -343,7 +333,6 @@ extension Workspace {
         }
         return panelIds
     }
-
     private func sessionPanelID(forExternalTabIDString tabIDString: String) -> UUID? {
         guard let tabUUID = UUID(uuidString: tabIDString) else { return nil }
         for (surfaceId, panelId) in surfaceIdToPanelId {
@@ -375,12 +364,21 @@ extension Workspace {
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
-        if let restorableAgent {
-            let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restorableAgent)
+        let compatibleIndexedRestorableAgent = restorableAgent.flatMap {
+            Self.restorableAgentForSessionRestore(
+                $0,
+                resumeBinding: resumeBinding
+            )
+        }
+        if restorableAgent != nil, compatibleIndexedRestorableAgent == nil {
+            clearRestoredAgentSnapshot(panelId: panelId)
+        }
+        if let compatibleRestorableAgent = compatibleIndexedRestorableAgent {
+            let fingerprint = TabManager.restorableAgentSnapshotFingerprint(compatibleRestorableAgent)
             if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
                 clearRestoredAgentSnapshot(panelId: panelId)
             } else {
-                restoredAgentSnapshotsByPanelId[panelId] = restorableAgent
+                restoredAgentSnapshotsByPanelId[panelId] = compatibleRestorableAgent
                 if restoredAgentResumeStatesByPanelId[panelId] == nil {
                     restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
                         panelId: panelId
@@ -390,7 +388,16 @@ extension Workspace {
             }
         }
         let hibernationState = (panel as? TerminalPanel)?.agentHibernationState
-        let effectiveRestorableAgent = hibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId]
+        let effectiveHibernationState = hibernationState.flatMap { state in
+            Self.restorableAgentForSessionRestore(
+                state.agent,
+                resumeBinding: resumeBinding
+            ) == nil ? nil : state
+        }
+        let effectiveRestorableAgent = Self.restorableAgentForSessionRestore(
+            effectiveHibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId],
+            resumeBinding: resumeBinding
+        )
 
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]
@@ -444,12 +451,11 @@ extension Workspace {
             listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
         }
         let ttyName = surfaceTTYNames[panelId]
-
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
-        let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?
+        let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?; var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?
         switch panel.panelType {
@@ -491,7 +497,7 @@ extension Workspace {
 #else
             let allowDebugFallbackScrollback = false
 #endif
-            let capturedScrollback = includeScrollback && shouldPersistScrollback && hibernationState == nil
+            let capturedScrollback = includeScrollback && shouldPersistScrollback && effectiveHibernationState == nil
                 ? TerminalController.shared.readTerminalTextForSnapshot(
                     terminalPanel: terminalPanel,
                     includeScrollback: true,
@@ -510,7 +516,7 @@ extension Workspace {
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
-                hibernation: hibernationState.map {
+                hibernation: effectiveHibernationState.map {
                     SessionAgentHibernationSnapshot(
                         hibernatedAt: $0.hibernatedAt.timeIntervalSince1970,
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
@@ -580,6 +586,10 @@ extension Workspace {
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
             agentSessionSnapshot = nil
             projectSnapshot = nil
+        case .customSidebar:
+            guard let snapshot = customSidebarSessionSnapshot(for: panel) else { return nil }
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil; rightSidebarToolSnapshot = nil
+            customSidebarSnapshot = snapshot; agentSessionSnapshot = nil; projectSnapshot = nil
         case .agentSession:
             guard let agentPanel = panel as? AgentSessionPanel else { return nil }
             terminalSnapshot = nil
@@ -611,7 +621,6 @@ extension Workspace {
         case .extensionBrowser:
             return nil
         }
-
         return SessionPanelSnapshot(
             id: panelId,
             type: panel.panelType,
@@ -632,6 +641,7 @@ extension Workspace {
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot,
+            customSidebar: customSidebarSnapshot,
             agentSession: agentSessionSnapshot,
             project: projectSnapshot
         )
@@ -884,6 +894,67 @@ extension Workspace {
         )
     }
 
+    nonisolated private static func resumeBindingForSessionRestore(
+        _ binding: SurfaceResumeBindingSnapshot?,
+        restorableAgent: SessionRestorableAgentSnapshot?
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let binding, binding.isAgentHookBinding, let restorableAgent else {
+            return binding
+        }
+        guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
+            return binding
+        }
+        if let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !bindingKind.isEmpty,
+           RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
+            return binding
+        }
+
+        // Restore has no live hook cwd; use the snapshot's derived restorable cwd
+        // and fall back to launch capture only for older snapshots.
+        let snapshotRestorableWorkingDirectory =
+            restorableAgent.workingDirectory ?? restorableAgent.launchCommand?.workingDirectory
+        let resolvedWorkingDirectory = AgentResumeWorkingDirectory().resolve(
+            kind: binding.kind ?? restorableAgent.kind.rawValue,
+            runtimeCwd: binding.cwd,
+            launchWorkingDirectory: snapshotRestorableWorkingDirectory
+        )
+        guard resolvedWorkingDirectory != binding.cwd else {
+            return binding
+        }
+        return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
+    }
+
+    nonisolated private static func restorableAgentForSessionRestore(
+        _ restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?
+    ) -> SessionRestorableAgentSnapshot? {
+        guard let restorableAgent else { return nil }
+        guard let resumeBinding, resumeBinding.isAgentHookBinding else {
+            return restorableAgent
+        }
+
+        if let checkpointId = normalizedResumeBindingValue(resumeBinding.checkpointId),
+           checkpointId != restorableAgent.sessionId {
+            return nil
+        }
+        if let kindValue = normalizedResumeBindingValue(resumeBinding.kind) {
+            guard let bindingKind = RestorableAgentKind(rawValue: kindValue),
+                  bindingKind == restorableAgent.kind else {
+                return nil
+            }
+        }
+        return restorableAgent
+    }
+
+    nonisolated private static func normalizedResumeBindingValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
     nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
         makeSessionRestorePolicyService().restorableTmuxStartCommand(rawCommand)
     }
@@ -1114,9 +1185,16 @@ extension Workspace {
     ) -> UUID? {
         switch snapshot.type {
         case .terminal:
-            let resumeBinding = snapshot.terminal?.resumeBinding
-            let restorableAgent = snapshot.terminal?.agent
-            let restoredHibernation = snapshot.terminal?.hibernation
+            let snapshotRestorableAgent = snapshot.terminal?.agent
+            let resumeBinding = Self.resumeBindingForSessionRestore(
+                snapshot.terminal?.resumeBinding,
+                restorableAgent: snapshotRestorableAgent
+            )
+            let restorableAgent = Self.restorableAgentForSessionRestore(
+                snapshotRestorableAgent,
+                resumeBinding: resumeBinding
+            )
+            let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
@@ -1387,6 +1465,7 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
             return toolPanel.id
+        case .customSidebar: return restoreCustomSidebarPanel(from: snapshot, inPane: paneId)
         case .agentSession:
             guard let agentSession = snapshot.agentSession,
                   let agentPanel = newAgentSessionSurface(
@@ -1416,13 +1495,25 @@ extension Workspace {
         }
     }
 
-    private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+    func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
         }
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
+
+        // The bonsplit tab header only refreshes when `updateTab` is called; the writes
+        // above never reach it (`setPanelCustomTitle` skips the sync when there is no
+        // custom title), so push the restored title to the tab now, mirroring
+        // `updatePanelTitle`, instead of waiting for the next OSC title update.
+        if let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) {
+            bonsplitController.updateTab(
+                tabId,
+                title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
+                hasCustomTitle: panelCustomTitles[panelId] != nil
+            )
+        }
 
         if snapshot.isManuallyUnread {
             markPanelUnread(panelId)
@@ -1891,17 +1982,6 @@ final class SharedLiveAgentIndex: ObservableObject {
     // Holds a pending rate-limited reload when changes arrive faster than the floor.
     private var deferredReloadTask: Task<Void, Never>?
 
-    // Process-detection layer. Heavier than the hook-store reload above (a full
-    // process snapshot + per-agent transcript/rollout scans), so it is NOT wired
-    // into the chatty hook-store watcher. It is loaded lazily on demand and on a
-    // slower TTL, and only powers the tab-menu fork fallback for live agents cmux
-    // never recorded a hook for (e.g. `sr claude` / direct `codex`, which bypass
-    // the cmux wrapper's SessionStart hook).
-    @Published private(set) var processDetectedIndex: RestorableAgentSessionIndex?
-    private var processDetectedLoadedAt: Date?
-    private var processDetectedRefreshTask: Task<Void, Never>?
-    private static let processDetectedCacheTTL: TimeInterval = 30.0
-
     // The directory watcher is the primary freshness mechanism; pull access only needs an
     // occasional safety refresh.
     private static let cacheTTL: TimeInterval = 60.0
@@ -1927,34 +2007,6 @@ final class SharedLiveAgentIndex: ObservableObject {
     func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
         scheduleRefreshIfStale()
         return index
-    }
-
-    /// Process-detected snapshot for a panel (lazy, slower-cadence). Never blocks.
-    /// The tab-menu fork affordance reads this as a fallback when neither the
-    /// restored snapshot nor the hook-store index resolves the panel, so the
-    /// expensive process scan is paid only on demand. When the scan lands, the
-    /// `@Published` change re-renders subscribed workspaces and the menu item
-    /// appears without a second right-click.
-    func processDetectedSnapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        scheduleProcessDetectedRefreshIfStale()
-        return processDetectedIndex?.snapshot(workspaceId: workspaceId, panelId: panelId)
-    }
-
-    private func scheduleProcessDetectedRefreshIfStale() {
-        guard processDetectedRefreshTask == nil else { return }
-        if let processDetectedLoadedAt,
-           Date().timeIntervalSince(processDetectedLoadedAt) < Self.processDetectedCacheTTL {
-            return
-        }
-        processDetectedRefreshTask = Task { @MainActor [weak self] in
-            // `loadIncludingProcessDetectedSnapshots` runs the heavy capture +
-            // scan off the main actor internally; here we only await + assign.
-            let newIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-            guard let self else { return }
-            self.processDetectedIndex = newIndex
-            self.processDetectedLoadedAt = Date()
-            self.processDetectedRefreshTask = nil
-        }
     }
 
     /// Ensure the hook-store watcher is running and refresh if the cache has aged past the
@@ -2254,7 +2306,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels);
     /// stored in the split-layout sub-model.
-    private var isProgrammaticSplit: Bool {
+    var isProgrammaticSplit: Bool {
         get { splitLayout.isProgrammaticSplit }
         set { splitLayout.isProgrammaticSplit = newValue }
     }
@@ -2709,8 +2761,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        let borderHex = WindowChromeSeparatorColor
-            .color(forChromeBackground: backgroundColor)
+        let borderHex = WindowChromeColorResolver()
+            .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
 
         if sharesWindowBackdrop {
@@ -2746,8 +2798,8 @@ final class Workspace: Identifiable, ObservableObject {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
         let backgroundHex = backgroundColor.hexString()
-        let borderHex = WindowChromeSeparatorColor
-            .color(forChromeBackground: backgroundColor)
+        let borderHex = WindowChromeColorResolver()
+            .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
 
         if sharesWindowBackdrop {
@@ -3756,6 +3808,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.filePreview.rawValue
         case .rightSidebarTool:
             return SurfaceKind.rightSidebarTool.rawValue
+        case .customSidebar:
+            return SurfaceKind.customSidebar.rawValue
         case .agentSession:
             return SurfaceKind.agentSession.rawValue
         case .project:
@@ -8966,6 +9020,8 @@ final class Workspace: Identifiable, ObservableObject {
             installBrowserPanelSubscription(browserPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
+        } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
+            customSidebarPanel.reattach(to: self)
         }
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,
@@ -9068,7 +9124,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     // MARK: - Focus Management
 
-    private func preserveFocusAfterNonFocusSplit(
+    func preserveFocusAfterNonFocusSplit(
         preferredPanelId: UUID?,
         splitPanelId: UUID,
         previousHostedView: GhosttySurfaceScrollView?
@@ -9819,7 +9875,7 @@ final class Workspace: Identifiable, ObservableObject {
         scheduleLayoutFollowUpAttempt()
     }
 
-    private func suppressReparentFocusUntilLayoutFollowUp(
+    func suppressReparentFocusUntilLayoutFollowUp(
         _ hostedView: GhosttySurfaceScrollView?,
         reason: String
     ) {
@@ -10915,13 +10971,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
         }
-        if let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
-            return snapshot
-        }
-        // Last resort: a live agent cmux never recorded a hook for (e.g. an
-        // `sr claude` / direct `codex` launch that bypassed the cmux wrapper).
-        // Lazily process-detected and debounced, off the hot hook-store path.
-        return SharedLiveAgentIndex.shared.processDetectedSnapshot(workspaceId: id, panelId: panelId)
+        return SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId)
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately

@@ -3,10 +3,9 @@ import CmuxAppKitSupportUI
 import CmuxCommandPalette
 import CmuxCore
 import CmuxFeedback
-import CmuxFeedbackUI
 import CmuxFoundation
 import CmuxPanes
-import CmuxSocketControl
+import CmuxSettings
 import CmuxWorkspaces
 import Bonsplit
 import Combine
@@ -15,8 +14,6 @@ import CmuxTerminal
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
-import CmuxFileOpen
-import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar
 import CmuxSidebarRemoteRender
@@ -37,18 +34,6 @@ private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
 let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
-private func windowContentOverlayInstallationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
-    if let glassTarget = WindowGlassEffect.portalInstallationTarget(for: window) {
-        return glassTarget
-    }
-
-    guard let contentView = window.contentView,
-          let themeFrame = contentView.superview else {
-        return nil
-    }
-    return (themeFrame, contentView)
-}
-
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
@@ -65,17 +50,6 @@ private final class CommandPaletteOverlayContainerView: NSView {
 @MainActor
 private final class PassthroughWindowOverlayContainerView: NSView {
     override var isOpaque: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-}
-
-@MainActor
-private final class NativeTitlebarBackdropView: NSView {
-    override var isOpaque: Bool {
-        layer?.isOpaque ?? false
-    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
@@ -152,6 +126,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private weak var window: NSWindow?
     private let containerView = CommandPaletteOverlayContainerView(frame: .zero)
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
+    private let chromeComposition = AppWindowChromeComposition()
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
@@ -189,7 +164,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     @discardableResult
     private func ensureInstalled() -> Bool {
         guard let window,
-              let target = windowContentOverlayInstallationTarget(for: window) else { return false }
+              let target = chromeComposition
+                .contentOverlayTargetResolver
+                .installationTarget(for: window) else { return false }
 
         if containerView.superview !== target.container || installedReferenceView !== target.reference {
             NSLayoutConstraint.deactivate(installConstraints)
@@ -209,7 +186,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             cmuxDebugLog(
                 "palette.overlay.install container=\(String(describing: type(of: target.container))) " +
                 "reference=\(String(describing: type(of: target.reference))) " +
-                "glass=\(WindowGlassEffect.portalInstallationTarget(for: window) != nil ? 1 : 0)"
+                "glass=\(chromeComposition.glassEffect.portalInstallationTarget(for: window) != nil ? 1 : 0)"
             )
 #endif
         }
@@ -615,7 +592,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func underlyingResponder(atWindowPoint windowPoint: NSPoint) -> NSResponder? {
         guard let window,
-              let target = windowContentOverlayInstallationTarget(for: window) else {
+              let target = chromeComposition
+                .contentOverlayTargetResolver
+                .installationTarget(for: window) else {
             return nil
         }
 
@@ -646,6 +625,7 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private let containerView = PassthroughWindowOverlayContainerView(frame: .zero)
     private let model = TmuxWorkspacePaneOverlayModel()
     private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayView>
+    private let chromeComposition = AppWindowChromeComposition()
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
     private var lastRenderState: TmuxWorkspacePaneOverlayRenderState?
@@ -683,7 +663,9 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     @discardableResult
     private func ensureInstalled() -> Bool {
         guard let window,
-              let target = windowContentOverlayInstallationTarget(for: window) else { return false }
+              let target = chromeComposition
+                .contentOverlayTargetResolver
+                .installationTarget(for: window) else { return false }
 
         if containerView.superview !== target.container || installedReferenceView !== target.reference {
             NSLayoutConstraint.deactivate(installConstraints)
@@ -846,8 +828,11 @@ private func fileDropOverlay(
 }
 
 @discardableResult
+@MainActor
 func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool {
-    guard let target = windowContentOverlayInstallationTarget(for: window) else { return false }
+    guard let target = AppWindowChromeComposition()
+        .contentOverlayTargetResolver
+        .installationTarget(for: window) else { return false }
 
     let existingOverlay =
         (objc_getAssociatedObject(window, &fileDropOverlayKey) as? FileDropOverlayView)
@@ -873,6 +858,7 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool
     return true
 }
 
+@MainActor
 private func installFileDropOverlayWhenReady(
     on window: NSWindow,
     tabManager: TabManager,
@@ -965,14 +951,6 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     }
 }
 
-func titlebarShortcutHintShouldShow(
-    shortcut: StoredShortcut,
-    alwaysShowShortcutHints: Bool,
-    modifierPressed: Bool
-) -> Bool {
-    !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
-}
-
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
@@ -998,6 +976,7 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1087,6 +1066,7 @@ struct ContentView: View {
     @State private var commandPaletteShouldFocusWorkspaceDescriptionEditor = false
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
+    private let windowChrome = AppWindowChromeComposition()
 
     private struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
@@ -1823,6 +1803,7 @@ struct ContentView: View {
                         isWorkspaceInputActive: isInputActive,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
+                        windowAppearance: appearance,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
                                 workspaceId: tab.id,
@@ -1849,6 +1830,9 @@ struct ContentView: View {
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
         .padding(.top, effectiveTitlebarPadding)
+        .overlay(alignment: .top) {
+            PaneMemoryGuardrailBanner(guardrail: PaneMemoryGuardrail.shared, tabManager: tabManager)
+        }
     }
 
     private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {
@@ -1918,7 +1902,11 @@ struct ContentView: View {
         }
         .overlay(alignment: .leading) {
             if rightSidebarVisible {
-                WindowChromeBorder(orientation: .vertical)
+                WindowChromeBorder(
+                    orientation: .vertical,
+                    refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
+                    backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+                )
             }
         }
 
@@ -1979,8 +1967,8 @@ struct ContentView: View {
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
@@ -1996,21 +1984,23 @@ struct ContentView: View {
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
         _ = titlebarThemeGeneration
-        return WindowAppearanceSnapshot.current(
-            unifySurfaceBackdrops: sidebarMatchTerminalBackground,
-            colorScheme: AppearanceSettings.colorScheme(for: appearanceMode, fallback: colorScheme),
-            sidebarMaterial: sidebarMaterial,
-            sidebarBlendMode: sidebarBlendMode,
-            sidebarState: sidebarStateSetting,
-            sidebarTintHex: sidebarTintHex,
-            sidebarTintHexLight: sidebarTintHexLight,
-            sidebarTintHexDark: sidebarTintHexDark,
-            sidebarTintOpacity: sidebarTintOpacity,
-            sidebarCornerRadius: sidebarCornerRadius,
-            sidebarBlurOpacity: sidebarBlurOpacity,
-            bgGlassEnabled: bgGlassEnabled,
-            bgGlassTintHex: bgGlassTintHex,
-            bgGlassTintOpacity: bgGlassTintOpacity
+        return windowChrome.appearanceSnapshot(
+            settings: WindowAppearanceUserSettingsSnapshot(
+                unifySurfaceBackdrops: sidebarMatchTerminalBackground,
+                colorScheme: AppearanceSettings.colorScheme(for: appearanceMode, fallback: colorScheme),
+                sidebarMaterial: sidebarMaterial,
+                sidebarBlendMode: sidebarBlendMode,
+                sidebarState: sidebarStateSetting,
+                sidebarTintHex: sidebarTintHex,
+                sidebarTintHexLight: sidebarTintHexLight,
+                sidebarTintHexDark: sidebarTintHexDark,
+                sidebarTintOpacity: sidebarTintOpacity,
+                sidebarCornerRadius: sidebarCornerRadius,
+                sidebarBlurOpacity: sidebarBlurOpacity,
+                bgGlassEnabled: bgGlassEnabled,
+                bgGlassTintHex: bgGlassTintHex,
+                bgGlassTintOpacity: bgGlassTintOpacity
+            )
         )
     }
 
@@ -2095,7 +2085,10 @@ struct ContentView: View {
             // view draggable (which breaks drag gestures like tab reordering).
             WindowDragHandleView()
 
-            TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
+            TitlebarLeadingInsetReader(
+                inset: $titlebarLeadingInset,
+                baseLeadingInset: { MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset() }
+            )
                 .allowsHitTesting(false)
 
             HStack(spacing: 8) {
@@ -2135,7 +2128,11 @@ struct ContentView: View {
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
         .overlay(alignment: .bottom) {
-            WindowChromeBorder(orientation: .horizontal)
+            WindowChromeBorder(
+                orientation: .horizontal,
+                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
+                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+            )
                 .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
         }
     }
@@ -2982,7 +2979,11 @@ struct ContentView: View {
             guard let window = notification.object as? NSWindow,
                   window === observedWindow else { return }
             isFullScreen = true
-            setTitlebarControlsHidden(true, in: window)
+            windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
+                true,
+                in: window,
+                isMinimalMode: isMinimalMode
+            )
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
             syncTrafficLightInset()
         })
@@ -2991,7 +2992,11 @@ struct ContentView: View {
             guard let window = notification.object as? NSWindow,
                   window === observedWindow else { return }
             isFullScreen = false
-            setTitlebarControlsHidden(false, in: window)
+            windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
+                false,
+                in: window,
+                isMinimalMode: isMinimalMode
+            )
             AppDelegate.shared?.fullscreenControlsViewModel = nil
             syncTrafficLightInset()
         })
@@ -3073,7 +3078,11 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
             if let observedWindow {
-                setTitlebarControlsHidden(isFullScreen, in: observedWindow)
+                windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
+                    isFullScreen,
+                    in: observedWindow,
+                    isMinimalMode: isMinimalMode
+                )
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
                 refreshWindowChromeMetrics(for: observedWindow)
                 observedWindow.contentView?.needsLayout = true
@@ -3119,75 +3128,96 @@ struct ContentView: View {
             removeSidebarResizerPointerMonitor()
         })
 
-        view = AnyView(view.background(WindowAccessor(refreshID: appearance.appKitWindowMutationID) { [appearance] window in
-            window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
-            window.isRestorable = false
-            setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
-            window.titlebarAppearsTransparent = true
-            // Native AppKit titlebar dragging steals pane-tab drags in minimal
-            // mode. Keep the main window immovable by default; explicit chrome
-            // drag zones temporarily enable performDrag for real app moves.
-            configureCmuxMainWindowDragBehavior(window)
-            window.styleMask.insert(.fullSizeContentView)
-
-            // Track this window for fullscreen notifications
-            if observedWindow !== window {
-                DispatchQueue.main.async {
-                    observedWindow = window
-                    isFullScreen = window.styleMask.contains(.fullScreen)
-                    let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
-                    clampSidebarWidthIfNeeded(availableWidth: availableWidth)
-                    clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
-                    syncCommandPaletteDebugStateForObservedWindow()
-                    installSidebarResizerPointerMonitorIfNeeded()
-                    updateSidebarResizerBandState()
-                }
-            }
-
-            refreshWindowChromeMetrics(for: window)
-            // Keep content below the titlebar so drags on Bonsplit's tab bar don't
-            // get interpreted as window drags.
-            // User settings decide whether window glass is active. The native Tahoe
-            // NSGlassEffectView path vs the older NSVisualEffectView fallback is chosen
-            // inside WindowGlassEffect.apply.
-            let backdropPlan = appearance.backdropPlan()
-            removeNativeTitlebarBackdrop(in: window)
-#if DEBUG
-            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-                AppDelegate.shared?.updateLog.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
-            }
-#endif
-            let backdropResult = WindowBackdropController.apply(plan: backdropPlan, to: window)
-            if backdropResult.didChangeGlassRoot {
-                let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
-                tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
-                commandPaletteWindowOverlayController(for: window)
-                    .update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
-                BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
-            }
-            AppDelegate.shared?.attachUpdateAccessory(to: window)
-            AppDelegate.shared?.applyWindowDecorations(to: window)
-            // Let cmux supply the translucent titlebar fills. AppKit's native
-            // material otherwise blends a lighter strip over the terminal area.
-            syncNativeTitlebarBackdrop(
-                in: window,
-                enabled: true,
-                usesGlassStyle: backdropResult.usesWindowGlass
-            )
-            AppDelegate.shared?.registerMainWindow(
+        let commandPaletteOverlayView = AnyView(commandPaletteOverlay)
+        let appKitWindowMutationID = appearance.appKitWindowMutationID(
+            windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+        )
+        let mainWindowAccessor = WindowAccessor(refreshID: appKitWindowMutationID) { [appearance, commandPaletteOverlayView] window in
+            configureMainWindowChrome(
                 window,
-                windowId: windowId,
-                tabManager: tabManager,
-                sidebarState: sidebarState,
-                sidebarSelectionState: sidebarSelectionState,
-                fileExplorerState: fileExplorerState,
-                cmuxConfigStore: cmuxConfigStore
+                appearance: appearance,
+                commandPaletteOverlayView: commandPaletteOverlayView
             )
-            installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
-        }))
+        }
+        view = AnyView(view.background(mainWindowAccessor))
 
         return AnyView(view.cmuxAppearanceColorScheme(appearanceMode))
+    }
+
+    @MainActor
+    private func configureMainWindowChrome(
+        _ window: NSWindow,
+        appearance: WindowAppearanceSnapshot,
+        commandPaletteOverlayView: AnyView
+    ) {
+        window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
+        window.isRestorable = false
+        setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
+        window.titlebarAppearsTransparent = true
+        // Native AppKit titlebar dragging steals pane-tab drags in minimal
+        // mode. Keep the main window immovable by default; explicit chrome
+        // drag zones temporarily enable performDrag for real app moves.
+        configureCmuxMainWindowDragBehavior(window)
+        window.styleMask.insert(.fullSizeContentView)
+
+        // Track this window for fullscreen notifications
+        if observedWindow !== window {
+            DispatchQueue.main.async {
+                observedWindow = window
+                isFullScreen = window.styleMask.contains(.fullScreen)
+                let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
+                clampSidebarWidthIfNeeded(availableWidth: availableWidth)
+                clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
+                syncCommandPaletteDebugStateForObservedWindow()
+                installSidebarResizerPointerMonitorIfNeeded()
+                updateSidebarResizerBandState()
+            }
+        }
+
+        refreshWindowChromeMetrics(for: window)
+        // Keep content below the titlebar so drags on Bonsplit's tab bar don't
+        // get interpreted as window drags.
+        // User settings decide whether window glass is active. The native Tahoe
+        // NSGlassEffectView path vs the older NSVisualEffectView fallback is chosen
+        // inside WindowGlassEffect.apply.
+        let backdropPlan = appearance.backdropPlan(
+            glassEffectAvailable: windowChrome.glassEffect.isAvailable,
+            windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+        )
+        windowChrome.nativeTitlebarBackdropCoordinator.removeNativeTitlebarBackdrop(in: window)
+#if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
+            AppDelegate.shared?.updateLog.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
+        }
+#endif
+        let backdropResult = windowChrome.backdropController.apply(plan: backdropPlan, to: window)
+        if backdropResult.didChangeGlassRoot {
+            let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
+            tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
+            commandPaletteWindowOverlayController(for: window)
+                .update(isVisible: isCommandPalettePresented) { commandPaletteOverlayView }
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+        }
+        AppDelegate.shared?.attachUpdateAccessory(to: window)
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        // Let cmux supply the translucent titlebar fills. AppKit's native
+        // material otherwise blends a lighter strip over the terminal area.
+        windowChrome.nativeTitlebarBackdropCoordinator.syncNativeTitlebarBackdrop(
+            in: window,
+            enabled: true,
+            usesGlassStyle: backdropResult.usesWindowGlass
+        )
+        AppDelegate.shared?.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: tabManager,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: fileExplorerState,
+            cmuxConfigStore: cmuxConfigStore
+        )
+        installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
     }
 
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
@@ -3252,228 +3282,7 @@ struct ContentView: View {
         // Find this view's main window by identifier (keyWindow might be a debug panel/settings).
         guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
-        WindowBackdropController.updateGlassTint(to: window, color: tintColor)
-    }
-
-    private func removeNativeTitlebarBackdrop(in window: NSWindow) {
-        guard let contentView = window.contentView,
-              let themeFrame = contentView.superview else { return }
-
-        let identifier = NSUserInterfaceItemIdentifier("cmux.nativeTitlebarBackdrop")
-        let existing = themeFrame.subviews.first { $0.identifier == identifier } as? NativeTitlebarBackdropView
-        existing?.removeFromSuperview()
-    }
-
-    private func syncNativeTitlebarBackdrop(
-        in window: NSWindow,
-        enabled: Bool,
-        usesGlassStyle: Bool
-    ) {
-        guard let titlebarContainer = nativeTitlebarContainer(in: window) else { return }
-        let titlebarView = firstNativeDescendant(
-            in: titlebarContainer,
-            className: "NSTitlebarView",
-            includeRoot: true
-        )
-        let titlebarBackgroundViews = nativeDescendants(
-            in: titlebarContainer,
-            className: "NSTitlebarBackgroundView"
-        )
-        let effectViews = nativeDescendants(in: titlebarContainer, className: "NSVisualEffectView")
-
-        if enabled {
-            rememberNativeTitlebarBackdropState(
-                titlebarContainer: titlebarContainer,
-                titlebarView: titlebarView,
-                titlebarBackgroundViews: titlebarBackgroundViews,
-                effectViews: effectViews
-            )
-        } else {
-            restoreNativeTitlebarBackdropState(
-                titlebarContainer: titlebarContainer,
-                titlebarView: titlebarView,
-                titlebarBackgroundViews: titlebarBackgroundViews,
-                effectViews: effectViews
-            )
-            return
-        }
-
-        titlebarContainer.wantsLayer = true
-        titlebarContainer.layer?.backgroundColor = usesGlassStyle ? NSColor.clear.cgColor : nil
-        titlebarContainer.layer?.isOpaque = false
-        titlebarView?.wantsLayer = true
-        titlebarView?.layer?.backgroundColor = usesGlassStyle ? NSColor.clear.cgColor : nil
-        titlebarView?.layer?.isOpaque = false
-        for titlebarBackgroundView in titlebarBackgroundViews {
-            titlebarBackgroundView.isHidden = true
-        }
-        for effectView in effectViews {
-            effectView.isHidden = true
-        }
-        window.titlebarAppearsTransparent = true
-    }
-
-    private static var unifiedTitlebarLayerAppliedKey: UInt8 = 0
-    private static var unifiedTitlebarLayerColorKey: UInt8 = 0
-    private static var unifiedTitlebarLayerOpaqueKey: UInt8 = 0
-    private static var unifiedTitlebarHiddenAppliedKey: UInt8 = 0
-    private static var unifiedTitlebarHiddenKey: UInt8 = 0
-
-    private func rememberNativeTitlebarBackdropState(
-        titlebarContainer: NSView,
-        titlebarView: NSView?,
-        titlebarBackgroundViews: [NSView],
-        effectViews: [NSView]
-    ) {
-        rememberNativeTitlebarLayerState(titlebarContainer)
-        if let titlebarView {
-            rememberNativeTitlebarLayerState(titlebarView)
-        }
-        for titlebarBackgroundView in titlebarBackgroundViews {
-            rememberNativeTitlebarHiddenState(titlebarBackgroundView)
-        }
-        for effectView in effectViews {
-            rememberNativeTitlebarHiddenState(effectView)
-        }
-    }
-
-    private func restoreNativeTitlebarBackdropState(
-        titlebarContainer: NSView,
-        titlebarView: NSView?,
-        titlebarBackgroundViews: [NSView],
-        effectViews: [NSView]
-    ) {
-        restoreNativeTitlebarLayerState(titlebarContainer)
-        if let titlebarView {
-            restoreNativeTitlebarLayerState(titlebarView)
-        }
-        for titlebarBackgroundView in titlebarBackgroundViews {
-            restoreNativeTitlebarHiddenState(titlebarBackgroundView)
-        }
-        for effectView in effectViews {
-            restoreNativeTitlebarHiddenState(effectView)
-        }
-    }
-
-    private func rememberNativeTitlebarLayerState(_ view: NSView) {
-        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey) == nil else { return }
-
-        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey, NSNumber(value: true), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerColorKey, view.layer?.backgroundColor ?? NSNull(), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerOpaqueKey, view.layer.map { NSNumber(value: $0.isOpaque) } ?? NSNull(), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    }
-
-    private func restoreNativeTitlebarLayerState(_ view: NSView) {
-        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey) != nil else { return }
-
-        if let storedColor = objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerColorKey),
-           !(storedColor is NSNull) {
-            view.layer?.backgroundColor = storedColor as! CGColor
-        } else {
-            view.layer?.backgroundColor = nil
-        }
-
-        if let isOpaque = objc_getAssociatedObject(view, &Self.unifiedTitlebarLayerOpaqueKey) as? NSNumber {
-            view.layer?.isOpaque = isOpaque.boolValue
-        }
-
-        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerAppliedKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerColorKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(view, &Self.unifiedTitlebarLayerOpaqueKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    }
-
-    private func rememberNativeTitlebarHiddenState(_ view: NSView) {
-        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey) == nil else { return }
-
-        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey, NSNumber(value: true), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenKey, NSNumber(value: view.isHidden), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    }
-
-    private func restoreNativeTitlebarHiddenState(_ view: NSView) {
-        guard objc_getAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey) != nil else { return }
-
-        if let hidden = objc_getAssociatedObject(view, &Self.unifiedTitlebarHiddenKey) as? NSNumber {
-            view.isHidden = hidden.boolValue
-        }
-
-        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenAppliedKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        objc_setAssociatedObject(view, &Self.unifiedTitlebarHiddenKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    }
-
-    private func nativeTitlebarContainer(in window: NSWindow) -> NSView? {
-        if !window.styleMask.contains(.fullScreen) {
-            return window.contentView.flatMap {
-                firstNativeDescendant(
-                    in: nativeRootView(from: $0),
-                    className: "NSTitlebarContainerView",
-                    includeRoot: true
-                )
-            }
-        }
-
-        for candidate in NSApp.windows where candidate.className == "NSToolbarFullScreenWindow" {
-            guard candidate.parent == window else { continue }
-            if let contentView = candidate.contentView {
-                return firstNativeDescendant(
-                    in: nativeRootView(from: contentView),
-                    className: "NSTitlebarContainerView",
-                    includeRoot: true
-                )
-            }
-        }
-
-        return nil
-    }
-
-    private func nativeRootView(from view: NSView) -> NSView {
-        var root = view
-        while let superview = root.superview {
-            root = superview
-        }
-        return root
-    }
-
-    private func firstNativeDescendant(
-        in view: NSView,
-        className: String,
-        includeRoot: Bool = false
-    ) -> NSView? {
-        if includeRoot, String(describing: type(of: view)) == className {
-            return view
-        }
-
-        for subview in view.subviews {
-            if String(describing: type(of: subview)) == className {
-                return subview
-            }
-            if let found = firstNativeDescendant(in: subview, className: className) {
-                return found
-            }
-        }
-
-        return nil
-    }
-
-    private func nativeDescendants(in view: NSView, className: String) -> [NSView] {
-        var result: [NSView] = []
-        for subview in view.subviews {
-            if String(describing: type(of: subview)) == className {
-                result.append(subview)
-            }
-            result.append(contentsOf: nativeDescendants(in: subview, className: className))
-        }
-        return result
-    }
-
-    private func setTitlebarControlsHidden(_ hidden: Bool, in window: NSWindow) {
-        let controlsId = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
-        let shouldHide = hidden || isMinimalMode
-        for accessory in window.titlebarAccessoryViewControllers {
-            if accessory.view.identifier == controlsId {
-                accessory.isHidden = shouldHide
-                accessory.view.alphaValue = shouldHide ? 0 : 1
-            }
-        }
+        windowChrome.backdropController.updateGlassTint(to: window, color: tintColor)
     }
 
     private func startWorkspaceHandoffIfNeeded(newSelectedId: UUID?) {
@@ -5663,7 +5472,6 @@ struct ContentView: View {
             description: workspace.customDescription
         )
     }
-
     private func commandPaletteSurfaceSearchMetadata(
         for workspace: Workspace,
         panelId: UUID
@@ -5677,7 +5485,6 @@ struct ContentView: View {
             ports: ports
         )
     }
-
     private func commandPaletteSurfaceKindLabel(for panelType: PanelType) -> String {
         switch panelType {
         case .terminal:
@@ -5690,6 +5497,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
         case .rightSidebarTool:
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
+        case .customSidebar:
+            return String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
         case .agentSession:
             return String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")
         case .project:
@@ -5698,7 +5507,6 @@ struct ContentView: View {
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         }
     }
-
     private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
         switch panelType {
         case .terminal:
@@ -5711,6 +5519,8 @@ struct ContentView: View {
             return ["file", "preview", "text", "pdf", "image", "audio", "video"]
         case .rightSidebarTool:
             return ["tool", "files", "find", "vault", "sidebar"]
+        case .customSidebar:
+            return ["custom", "sidebar", "pane"]
         case .agentSession:
             return ["agent", "codex", "claude", "opencode", "react", "solid"]
         case .project:
@@ -5719,13 +5529,11 @@ struct ContentView: View {
             return ["sidebar", "extensions", "extensionkit", "browser"]
         }
     }
-
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
         commandPaletteCommandsContext(
             terminalOpenTargets: commandPaletteTerminalOpenTargetAvailability
         )
     }
-
     private func resolveCommandPaletteTerminalOpenTargets(
         for scope: CommandPaletteListScope
     ) -> Set<TerminalDirectoryOpenTarget> {
@@ -5761,10 +5569,6 @@ struct ContentView: View {
         case .opencode:
             return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
         case .custom:
-            // Reaching here means `forkCommand != nil` (top guard), i.e. the
-            // agent's registration declares a `forkCommand` template, so it is
-            // fork-able. There is no per-agent fork-capability probe for custom
-            // agents (unlike opencode's version probe), so trust the template.
             return .supportedWithoutProbe
         default:
             return .unsupported
@@ -7456,6 +7260,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.terminalClearScreenKeepScrollback",
+                title: constant(String(localized: "command.terminalClearScreenKeepScrollback.title", defaultValue: "Clear Screen (Keep Scrollback)")),
+                subtitle: terminalPanelSubtitle,
+                keywords: [
+                    "terminal", "clear", "screen", "scrollback", "history", "keep",
+                    "preserve", "reset", "wipe", "cls", "erase",
+                ],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitRight",
                 title: constant(String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")),
                 subtitle: constant(String(localized: "command.terminalSplitRight.subtitle", defaultValue: "Terminal Layout")),
@@ -8206,6 +8022,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSendCtrlF") {
             if !tabManager.sendCtrlFToFocusedTerminal() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
+            if !tabManager.clearFocusedTerminalKeepingScrollback() {
                 NSSound.beep()
             }
         }
@@ -9787,7 +9608,12 @@ enum CmuxExtensionSidebarSelection {
     /// the same suite and key the store persists to, so the catalog stays the
     /// single definition of the key, decode, and default.
     static var isEnabled: Bool {
-        let key = SettingCatalog().betaFeatures.extensions
+        // Read the single beta-features section, not the whole `SettingCatalog`.
+        // Constructing the full catalog allocates ~20 sub-sections (including
+        // `AutomationCatalogSection`/`SecretFileKey`) just to reach one flag;
+        // doing that on the SwiftUI body's hot path turned the sidebar
+        // re-render into a CPU catastrophe (issue #5970).
+        let key = BetaFeaturesCatalogSection().extensions
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
@@ -9804,13 +9630,18 @@ enum CmuxExtensionSidebarSelection {
     /// Synchronous read of the experimental custom-sidebars flag, mirroring
     /// ``isEnabled`` for the AppKit/static paths (the picker menu).
     static var customSidebarsEnabled: Bool {
-        let key = SettingCatalog().betaFeatures.customSidebars
+        // See ``isEnabled``: read only the beta-features section so a body-path
+        // access does not allocate the entire `SettingCatalog` (issue #5970).
+        let key = BetaFeaturesCatalogSection().customSidebars
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
     /// Directory custom sidebars are authored into.
     static var customSidebarsDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        #if DEBUG
+        if let override = customSidebarsDirectoryOverrideForTesting { return override }
+        #endif
+        return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
     }
 
@@ -9847,13 +9678,23 @@ enum CmuxExtensionSidebarSelection {
     /// Resolves a custom-sidebar provider id to its backing file URL
     /// (`.swift` preferred), or `nil` if neither file exists.
     static func customSidebarFileURL(forProviderId providerId: String) -> URL? {
+        customSidebarFileURL(forProviderId: providerId, sidebarsDirectory: customSidebarsDirectory)
+    }
+
+    static func customSidebarFileURL(forProviderId providerId: String, sidebarsDirectory: URL) -> URL? {
         guard providerId.hasPrefix(customSidebarProviderPrefix) else { return nil }
         let name = String(providerId.dropFirst(customSidebarProviderPrefix.count))
-        let swiftURL = customSidebarsDirectory.appendingPathComponent("\(name).swift")
+        guard isValidCustomSidebarFileBaseName(name) else { return nil }
+        let swiftURL = sidebarsDirectory.appendingPathComponent("\(name).swift", isDirectory: false)
         if FileManager.default.fileExists(atPath: swiftURL.path) { return swiftURL }
-        let jsonURL = customSidebarsDirectory.appendingPathComponent("\(name).json")
+        let jsonURL = sidebarsDirectory.appendingPathComponent("\(name).json", isDirectory: false)
         if FileManager.default.fileExists(atPath: jsonURL.path) { return jsonURL }
         return nil
+    }
+
+    private static func isValidCustomSidebarFileBaseName(_ name: String) -> Bool {
+        guard !name.isEmpty, name != ".", name != ".." else { return false }
+        return name == (name as NSString).lastPathComponent
     }
 
     /// The always-available built-in views: the default workspaces sidebar plus
@@ -9903,6 +9744,33 @@ enum CmuxExtensionSidebarSelection {
 
     static func descriptor(for providerId: String) -> CmuxSidebarProviderDescriptor {
         descriptors.first { $0.id == providerId } ?? .defaultWorkspaces
+    }
+
+    /// Whether an already-`effectiveProviderId`-resolved selection renders the
+    /// built-in default workspaces sidebar. This mirrors
+    /// `descriptor(for:).id == defaultWorkspacesID` exactly for an effective id,
+    /// but WITHOUT building the full ``descriptors`` list — which constructs a
+    /// `SettingCatalog` twice (via ``isEnabled``/``customSidebarsEnabled``) and
+    /// enumerates the custom-sidebars directory. Those are far too expensive to
+    /// run on every SwiftUI body pass; doing so was the multiplier behind the
+    /// ~100% CPU re-render loop in issue #5970. Only cheap static lookups and at
+    /// most two `fileExists` probes run here, so it is safe for the body.
+    ///
+    /// The input must be ``effectiveProviderId``'s output: that already routes a
+    /// hosted/custom selection back to the default sidebar while its feature gate
+    /// is off, so this only needs to confirm the resolved id maps to a renderable
+    /// non-default view.
+    static func resolvesToDefaultSidebar(effectiveProviderId id: String) -> Bool {
+        if id == defaultProviderId { return true }
+        if id == hostedExtensionsProviderId { return false }
+        if id.hasPrefix(customSidebarProviderPrefix) {
+            // A custom selection survives only while its backing file exists;
+            // otherwise the descriptor lookup falls back to the default sidebar.
+            return customSidebarFileURL(forProviderId: id) == nil
+        }
+        // Bundled preset providers are always registered regardless of any beta
+        // flag; an unknown/stale id has no provider and falls back to default.
+        return provider(for: id) == nil
     }
 
     static func provider(for providerId: String) -> (any CmuxSidebarProvider)? {
@@ -10141,6 +10009,17 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    // Stable, memoized merged observation publishers for the extension
+    // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
+    // re-subscribed `.onReceive` to a fresh publisher every render, replaying
+    // the current value and re-bumping `extensionSidebarUpdateToken` in a
+    // ~100% CPU loop (issue #5970).
+    @State private var extensionSidebarObservationWorkspaceIds: [UUID] = []
+    @State private var extensionSidebarObservationPublishersBuilt = false
+    @State private var extensionSidebarImmediateObservationPublisher: AnyPublisher<Void, Never> =
+        Empty<Void, Never>().eraseToAnyPublisher()
+    @State private var extensionSidebarDebouncedObservationPublisher: AnyPublisher<Void, Never> =
+        Empty<Void, Never>().eraseToAnyPublisher()
     /// Bumped whenever any workspace's currentDirectory changes; the group
     /// header's resolved cwd-based config (color/icon/context menu /
     /// newWorkspacePlacement) reads it through the body, so a state
@@ -10539,7 +10418,7 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId).id == CmuxSidebarProviderDescriptor.defaultWorkspacesID {
+            if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -10550,7 +10429,11 @@ struct VerticalTabsSidebar: View {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .overlay(alignment: .trailing) {
-            SidebarTrailingBorder()
+            WindowChromeBorder(
+                orientation: .vertical,
+                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
+                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+            )
         }
         .background(
             WindowAccessor(refreshID: showModifierHoldHints) { window in
@@ -10821,8 +10704,21 @@ struct VerticalTabsSidebar: View {
         scrollView.applySidebarOverlayScrollerConfiguration()
     }
 
-    @ViewBuilder
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
+        extensionSidebarScrollAreaContent(renderContext: renderContext)
+            .onAppear {
+                refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
+            }
+            .onChange(of: renderContext.workspaceIds) { _, _ in
+                refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
+            }
+            .onDisappear {
+                clearExtensionSidebarObservationPublishers()
+            }
+    }
+
+    @ViewBuilder
+    private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext) -> some View {
         if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
@@ -10832,17 +10728,10 @@ struct VerticalTabsSidebar: View {
                     CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
                 }
             )
-            .onReceive(
-                extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-            ) { _ in
+            .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
             }
-            .onReceive(
-                extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-                    .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
-            ) { _ in
+            .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
             }
             // Fade the extension's content out at the bottom so it dissolves behind the
@@ -11004,17 +10893,10 @@ struct VerticalTabsSidebar: View {
             }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
-            .onReceive(
-                extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-            ) { _ in
+            .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
             }
-            .onReceive(
-                    extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
-                        .receive(on: RunLoop.main)
-                        .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
-                ) { _ in
+            .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
             }
             .onReceive(
@@ -11030,24 +10912,39 @@ struct VerticalTabsSidebar: View {
         extensionSidebarUpdateToken &+= 1
     }
 
-    private func extensionSidebarImmediateObservationPublisher(
-        renderContext: WorkspaceListRenderContext
-    ) -> AnyPublisher<Void, Never> {
-        let publishers = renderContext.tabs.map(\.sidebarImmediateObservationPublisher)
-        guard !publishers.isEmpty else {
-            return Empty<Void, Never>().eraseToAnyPublisher()
-        }
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+    private func clearExtensionSidebarObservationPublishers() {
+        extensionSidebarObservationWorkspaceIds = []
+        extensionSidebarObservationPublishersBuilt = false
+        extensionSidebarImmediateObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
+        extensionSidebarDebouncedObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
     }
 
-    private func extensionSidebarDebouncedObservationPublisher(
-        renderContext: WorkspaceListRenderContext
-    ) -> AnyPublisher<Void, Never> {
-        let publishers = renderContext.tabs.map(\.sidebarObservationPublisher)
-        guard !publishers.isEmpty else {
-            return Empty<Void, Never>().eraseToAnyPublisher()
+    private func refreshExtensionSidebarObservationPublishers(tabs: [Workspace]) {
+        let workspaceIds = tabs.map(\.id)
+        guard !extensionSidebarObservationPublishersBuilt ||
+              workspaceIds != extensionSidebarObservationWorkspaceIds
+        else { return }
+
+        extensionSidebarObservationPublishersBuilt = true
+        extensionSidebarObservationWorkspaceIds = workspaceIds
+
+        guard !tabs.isEmpty else {
+            extensionSidebarImmediateObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
+            extensionSidebarDebouncedObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
+            return
         }
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+
+        extensionSidebarImmediateObservationPublisher = Publishers.MergeMany(
+            tabs.map { $0.sidebarImmediateObservationPublisher }
+        )
+        .receive(on: RunLoop.main)
+        .eraseToAnyPublisher()
+        extensionSidebarDebouncedObservationPublisher = Publishers.MergeMany(
+            tabs.map { $0.sidebarObservationPublisher }
+        )
+        .receive(on: RunLoop.main)
+        .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
+        .eraseToAnyPublisher()
     }
 
     private func extensionSidebarRenderModel(
@@ -11063,8 +10960,12 @@ struct VerticalTabsSidebar: View {
         snapshot: CmuxSidebarProviderSnapshot,
         now: Date
     ) -> CmuxSidebarProviderRenderModel {
-        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId)
-        if let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) {
+        // Look up the provider directly by the effective id instead of round-
+        // tripping through `descriptor(for:)`, which rebuilds the full
+        // `descriptors` list (SettingCatalog + custom-sidebars directory scan)
+        // on every TimelineView tick. See issue #5970.
+        let providerId = effectiveExtensionSidebarProviderId
+        if let provider = CmuxExtensionSidebarSelection.provider(for: providerId) {
             let context = CmuxSidebarProviderRenderContext(now: now)
             if let contextualProvider = provider as? any CmuxContextualSidebarProvider {
                 return contextualProvider.render(snapshot: snapshot, context: context)
@@ -11072,7 +10973,7 @@ struct VerticalTabsSidebar: View {
             return provider.render(snapshot: snapshot)
         }
         return CmuxSidebarProviderRenderModel(
-            providerId: descriptor.id,
+            providerId: providerId,
             snapshotSequence: snapshot.sequence,
             sections: []
         )
@@ -11128,7 +11029,6 @@ struct VerticalTabsSidebar: View {
             )
         }
     }
-
     private func cmuxSidebarSurfaceKind(for panelType: PanelType) -> CmuxSidebarSurfaceKind {
         switch panelType {
         case .terminal:
@@ -11141,6 +11041,8 @@ struct VerticalTabsSidebar: View {
             return .filePreview
         case .rightSidebarTool:
             return .rightSidebarTool
+        case .customSidebar:
+            return .unknown
         case .agentSession:
             return .agentSession
         case .project:
@@ -12144,6 +12046,7 @@ struct VerticalTabsSidebar: View {
             target: contextMenuPinTarget
         )
         let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
+        let liveHasMemoryWarning = sidebarUnread.hasMemoryWarning(forWorkspaceId: tab.id)
         let liveLatestNotificationText: String? = showsSidebarNotificationMessage
             ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
             : nil
@@ -12206,7 +12109,6 @@ struct VerticalTabsSidebar: View {
             notificationStore: notificationStore,
             tab: tab,
             index: index,
-            isActive: tabManager.selectedTabId == tab.id,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount
@@ -12215,6 +12117,7 @@ struct VerticalTabsSidebar: View {
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
+            hasMemoryWarning: liveHasMemoryWarning,
             latestNotificationText: liveLatestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
@@ -12697,9 +12600,7 @@ private struct SidebarHelpMenuButton: View {
 
     private func helpOptionTrailingIcon(systemName: String, size: CGFloat = 13) -> some View {
         Image(systemName: systemName)
-            .resizable()
-            .scaledToFit()
-            .frame(width: size, height: size)
+            .cmuxSymbolRasterSize(size)
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
     }
 
@@ -12991,7 +12892,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let branchLinesContainBranch: Bool
         let pullRequestRows: [PullRequestDisplay]
         let listeningPorts: [Int]
-
+        let finderDirectoryPath: String?
     }
 }
 
@@ -13009,12 +12910,12 @@ struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
-        lhs.isActive == rhs.isActive &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
+        lhs.hasMemoryWarning == rhs.hasMemoryWarning &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
@@ -13037,12 +12938,15 @@ struct TabItemView: View, Equatable {
     @Environment(\.colorScheme) private var colorScheme
     let tab: Tab
     let index: Int
-    let isActive: Bool
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
     let canCloseWorkspace: Bool
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
+    /// True when any pane in this workspace is over the runaway-memory
+    /// threshold. Precomputed snapshot value (snapshot-boundary rule); drives
+    /// the orange warning badge alongside the unread badge.
+    let hasMemoryWarning: Bool
     let latestNotificationText: String?
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
@@ -13077,6 +12981,8 @@ struct TabItemView: View, Equatable {
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
+    // Row-local selection projection: selectedTabId changes update only rows whose boolean flips.
+    @State private var observedIsActive: Bool?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
@@ -13135,6 +13041,10 @@ struct TabItemView: View, Equatable {
 
     private var activeTabIndicatorStyle: WorkspaceIndicatorStyle {
         settings.activeTabIndicatorStyle
+    }
+
+    private var isActive: Bool {
+        observedIsActive ?? (tabManager.selectedTabId == tab.id)
     }
 
     private var sidebarSelectionColorHex: String? {
@@ -13439,6 +13349,20 @@ struct TabItemView: View, Equatable {
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
                 }
 
+                if hasMemoryWarning {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: scaledFontSize(11), weight: .semibold))
+                        .foregroundColor(.orange)
+                        .safeHelp(String(
+                            localized: "sidebar.memoryWarning.tooltip",
+                            defaultValue: "A pane in this workspace is using a lot of memory"
+                        ))
+                        .accessibilityLabel(String(
+                            localized: "sidebar.memoryWarning.accessibilityLabel",
+                            defaultValue: "High memory warning"
+                        ))
+                }
+
                 if workspaceSnapshot.isPinned {
                     Image(systemName: "pin.fill")
                         .font(.system(size: scaledFontSize(9), weight: .semibold))
@@ -13468,7 +13392,7 @@ struct TabItemView: View, Equatable {
                         tabManager.closeWorkspaceWithConfirmation(tab)
                     }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: scaledFontSize(9), weight: .medium))
+                            .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
                             .foregroundColor(activeSecondaryColor(0.7))
                             .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
                             .contentShape(Rectangle())
@@ -13773,7 +13697,16 @@ struct TabItemView: View, Equatable {
             )
         }
         .onAppear {
+            updateObservedActiveState(tabManager.selectedTabId == tab.id)
             refreshWorkspaceSnapshot(force: true)
+        }
+        .onReceive(
+            tabManager.selectedTabIdPublisher
+                .map { $0 == tab.id }
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+        ) { isSelected in
+            updateObservedActiveState(isSelected)
         }
         .task(id: workspaceFinderDirectoryOpenRequest) {
             guard let request = workspaceFinderDirectoryOpenRequest else { return }
@@ -13858,6 +13791,11 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    private func updateObservedActiveState(_ isActive: Bool) {
+        guard observedIsActive != isActive else { return }
+        observedIsActive = isActive
+    }
+
     private func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
         let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
@@ -13900,9 +13838,9 @@ struct TabItemView: View, Equatable {
 
     @ViewBuilder
     private var workspaceContextMenu: some View {
+        let workspaceSnapshot = self.workspaceSnapshot
         let targetIds = contextMenuWorkspaceIds
         let isMulti = targetIds.count > 1
-        let tabColorPalette = WorkspaceTabColorSettings.palette()
         let shouldPin = contextMenuPinState?.pinned ?? !tab.isPinned
         let reconnectLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
@@ -13948,13 +13886,6 @@ struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        // Gate "Show in Finder" on whether a directory is *configured* (IO-free),
-        // not on a disk stat: this menu builder runs as part of the row body, a
-        // hot path. The stat happens once at click time (WorkspaceFinderDirectoryOpener
-        // re-validates and beeps if the directory is gone).
-        let finderDirectoryPath: String? = isMulti
-            ? nil
-            : WorkspaceFinderDirectoryResolver.path(for: tab)
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -14026,6 +13957,8 @@ struct TabItemView: View, Equatable {
         }
 
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
+            let tabColorPalette = WorkspaceTabColorSettings.palette()
+
             if tab.customColor != nil {
                 Button {
                     applyTabColor(nil, targetIds: targetIds)
@@ -14166,11 +14099,11 @@ struct TabItemView: View, Equatable {
 
         if !isMulti {
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                guard let finderDirectoryPath else { return }
-                let url = URL(fileURLWithPath: finderDirectoryPath, isDirectory: true)
+                let url = workspaceSnapshot.finderDirectoryPath
+                    .map { URL(fileURLWithPath: $0, isDirectory: true) }
                 workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
             }
-            .disabled(finderDirectoryPath == nil)
+            .disabled(workspaceSnapshot.finderDirectoryPath == nil)
         }
     }
 
@@ -14496,7 +14429,8 @@ struct TabItemView: View, Equatable {
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
-            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : []
+            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
+            finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab)
         )
     }
 
@@ -16098,481 +16032,4 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
 enum SidebarSelection {
     case tabs
     case notifications
-}
-
-/// Wrapper view that tries NSGlassEffectView (macOS 26+) when available or requested
-private struct SidebarVisualEffectBackground: NSViewRepresentable {
-    let material: NSVisualEffectView.Material
-    let blendingMode: NSVisualEffectView.BlendingMode
-    let state: NSVisualEffectView.State
-    let opacity: Double
-    let tintColor: NSColor?
-    let cornerRadius: CGFloat
-    let preferLiquidGlass: Bool
-
-    init(
-        material: NSVisualEffectView.Material = .hudWindow,
-        blendingMode: NSVisualEffectView.BlendingMode = .behindWindow,
-        state: NSVisualEffectView.State = .active,
-        opacity: Double = 1.0,
-        tintColor: NSColor? = nil,
-        cornerRadius: CGFloat = 0,
-        preferLiquidGlass: Bool = false
-    ) {
-        self.material = material
-        self.blendingMode = blendingMode
-        self.state = state
-        self.opacity = opacity
-        self.tintColor = tintColor
-        self.cornerRadius = cornerRadius
-        self.preferLiquidGlass = preferLiquidGlass
-    }
-
-    static var liquidGlassAvailable: Bool {
-        NSClassFromString("NSGlassEffectView") != nil
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        // Try NSGlassEffectView if preferred or if we want to test availability
-        if preferLiquidGlass, let glassClass = NSClassFromString("NSGlassEffectView") as? NSView.Type {
-            let glass = glassClass.init(frame: .zero)
-            glass.autoresizingMask = [.width, .height]
-            glass.wantsLayer = true
-            return glass
-        }
-
-        // Use NSVisualEffectView
-        let view = NSVisualEffectView()
-        view.autoresizingMask = [.width, .height]
-        view.wantsLayer = true
-        view.layerContentsRedrawPolicy = .onSetNeedsDisplay
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        let clampedOpacity = max(0.0, min(1.0, opacity))
-        // Configure based on view type
-        if nsView.className == "NSGlassEffectView" {
-            // NSGlassEffectView configuration via private API
-            nsView.alphaValue = clampedOpacity
-            nsView.layer?.cornerRadius = cornerRadius
-            nsView.layer?.masksToBounds = cornerRadius > 0
-
-            // Try to set tint color via private selector
-            if let color = tintColor {
-                let selector = NSSelectorFromString("setTintColor:")
-                if nsView.responds(to: selector) {
-                    nsView.perform(selector, with: color)
-                }
-            }
-        } else if let visualEffect = nsView as? NSVisualEffectView {
-            // NSVisualEffectView configuration
-            visualEffect.material = material
-            visualEffect.blendingMode = blendingMode
-            visualEffect.state = state
-            visualEffect.alphaValue = clampedOpacity
-            visualEffect.layer?.cornerRadius = cornerRadius
-            visualEffect.layer?.masksToBounds = cornerRadius > 0
-            visualEffect.needsDisplay = true
-        }
-    }
-}
-
-/// Reads the leading inset required to clear traffic lights + left titlebar accessories.
-final class TitlebarLeadingInsetPassthroughView: NSView {
-    override var mouseDownCanMoveWindow: Bool { false }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
-private struct TitlebarLeadingInsetReader: NSViewRepresentable {
-    @Binding var inset: CGFloat
-
-    func makeNSView(context: Context) -> NSView {
-        let view = TitlebarLeadingInsetPassthroughView()
-        view.setFrameSize(.zero)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            guard let window = nsView.window else { return }
-            // Start past the traffic lights
-            var leading = MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset()
-            // Add width of all left-aligned titlebar accessories
-            for accessory in window.titlebarAccessoryViewControllers
-                where accessory.layoutAttribute == .leading || accessory.layoutAttribute == .left {
-                leading += accessory.view.frame.width
-            }
-            if leading != inset {
-                inset = leading
-            }
-        }
-    }
-}
-
-enum WindowChromeSeparatorColor {
-    static func color(forChromeBackground chrome: NSColor) -> NSColor {
-        let srgb = chrome.usingColorSpace(.sRGB) ?? chrome
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        srgb.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let luminance = 0.299 * r + 0.587 * g + 0.114 * b
-        let isLight = luminance > 0.5
-        let amount: CGFloat = isLight ? -0.12 : 0.16
-        let alpha: CGFloat = isLight ? 0.26 : 0.36
-        return NSColor(
-            red: min(1.0, max(0.0, r + amount)),
-            green: min(1.0, max(0.0, g + amount)),
-            blue: min(1.0, max(0.0, b + amount)),
-            alpha: alpha
-        )
-    }
-
-    static func current() -> NSColor {
-        color(forChromeBackground: GhosttyBackgroundTheme.currentColor())
-    }
-}
-
-struct WindowChromeBorder: View {
-    enum Orientation {
-        case vertical
-        case horizontal
-    }
-
-    let orientation: Orientation
-    var ignoresSafeArea = true
-    @State private var separatorColor = WindowChromeSeparatorColor.current()
-
-    var body: some View {
-        if ignoresSafeArea {
-            border.ignoresSafeArea()
-        } else {
-            border
-        }
-    }
-
-    private var border: some View {
-        Rectangle()
-            .fill(Color(nsColor: separatorColor))
-            .frame(
-                maxWidth: orientation == .horizontal ? .infinity : nil,
-                maxHeight: orientation == .vertical ? .infinity : nil
-            )
-            .frame(
-                width: orientation == .vertical ? 1 : nil,
-                height: orientation == .horizontal ? 1 : nil
-            )
-            .onAppear {
-                separatorColor = WindowChromeSeparatorColor.current()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-                separatorColor = WindowChromeSeparatorColor.current()
-            }
-    }
-}
-
-/// 1px trailing border on the sidebar, derived from the terminal chrome background.
-private struct SidebarTrailingBorder: View {
-    var body: some View {
-        WindowChromeBorder(orientation: .vertical)
-    }
-}
-
-private struct WindowBackdropLayer: View {
-    let role: WindowBackdropRole
-    let snapshot: WindowAppearanceSnapshot
-
-    var body: some View {
-        backdrop(for: snapshot.policy(for: role))
-    }
-
-    @ViewBuilder
-    private func backdrop(for policy: WindowBackdropPolicy) -> some View {
-        switch policy {
-        case let .ghosttyTerminalBackdrop(color, opacity, _):
-            let backdropColor = color.withAlphaComponent(opacity)
-            switch role {
-            case .windowRoot:
-                Color(nsColor: backdropColor)
-            case .terminalCanvas, .bonsplitChrome, .titlebar, .leftSidebar, .rightSidebar, .browserSurface:
-                LayerBackedBackdropColor(color: backdropColor)
-            }
-        case let .sidebarMaterial(materialPolicy):
-            ZStack {
-                let usingNativeLiquidGlass = materialPolicy.preferLiquidGlass &&
-                    SidebarVisualEffectBackground.liquidGlassAvailable
-                if let material = materialPolicy.material,
-                   !materialPolicy.usesWindowLevelGlass {
-                    SidebarVisualEffectBackground(
-                        material: material,
-                        blendingMode: materialPolicy.blendingMode,
-                        state: materialPolicy.state,
-                        opacity: materialPolicy.opacity,
-                        tintColor: materialPolicy.tintColor,
-                        cornerRadius: materialPolicy.cornerRadius,
-                        preferLiquidGlass: materialPolicy.preferLiquidGlass
-                    )
-                }
-                // Tint overlay for tint-only materials and NSVisualEffectView
-                // fallback. Native liquid glass receives its tint in AppKit.
-                if !materialPolicy.usesWindowLevelGlass && !usingNativeLiquidGlass {
-                    Color(nsColor: materialPolicy.tintColor)
-                }
-            }
-        case .clear:
-            Color.clear
-        }
-    }
-}
-
-private struct LayerBackedBackdropColor: NSViewRepresentable {
-    let color: NSColor
-
-    func makeNSView(context _: Context) -> NSView {
-        let view = NonHitTestingLayerBackedColorView()
-        view.setBackdropColor(color)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context _: Context) {
-        (nsView as? NonHitTestingLayerBackedColorView)?.setBackdropColor(color)
-    }
-
-    private final class NonHitTestingLayerBackedColorView: NSView {
-        override init(frame frameRect: NSRect) {
-            super.init(frame: frameRect)
-            wantsLayer = true
-            layer?.masksToBounds = true
-            layer?.isOpaque = false
-        }
-
-        required init?(coder: NSCoder) {
-            super.init(coder: coder)
-            wantsLayer = true
-            layer?.masksToBounds = true
-            layer?.isOpaque = false
-        }
-
-        override var isOpaque: Bool { false }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            nil
-        }
-
-        func setBackdropColor(_ color: NSColor) {
-            wantsLayer = true
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer?.backgroundColor = color.cgColor
-            layer?.isOpaque = color.alphaComponent >= 1
-            CATransaction.commit()
-        }
-    }
-}
-
-enum SidebarMaterialOption: String, CaseIterable, Identifiable {
-    case none
-    case liquidGlass  // macOS 26+ NSGlassEffectView
-    case sidebar
-    case hudWindow
-    case menu
-    case popover
-    case underWindowBackground
-    case windowBackground
-    case contentBackground
-    case fullScreenUI
-    case sheet
-    case headerView
-    case toolTip
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .none: return String(localized: "settings.material.none", defaultValue: "None")
-        case .liquidGlass: return String(localized: "settings.material.liquidGlass", defaultValue: "Liquid Glass (macOS 26+)")
-        case .sidebar: return String(localized: "settings.material.sidebar", defaultValue: "Sidebar")
-        case .hudWindow: return String(localized: "settings.material.hudWindow", defaultValue: "HUD Window")
-        case .menu: return String(localized: "settings.material.menu", defaultValue: "Menu")
-        case .popover: return String(localized: "settings.material.popover", defaultValue: "Popover")
-        case .underWindowBackground: return String(localized: "settings.material.underWindow", defaultValue: "Under Window")
-        case .windowBackground: return String(localized: "settings.material.windowBackground", defaultValue: "Window Background")
-        case .contentBackground: return String(localized: "settings.material.contentBackground", defaultValue: "Content Background")
-        case .fullScreenUI: return String(localized: "settings.material.fullScreenUI", defaultValue: "Full Screen UI")
-        case .sheet: return String(localized: "settings.material.sheet", defaultValue: "Sheet")
-        case .headerView: return String(localized: "settings.material.headerView", defaultValue: "Header View")
-        case .toolTip: return String(localized: "settings.material.toolTip", defaultValue: "Tool Tip")
-        }
-    }
-
-    /// Returns true if this option should use NSGlassEffectView (macOS 26+)
-    var usesLiquidGlass: Bool {
-        self == .liquidGlass
-    }
-
-    var material: NSVisualEffectView.Material? {
-        switch self {
-        case .none: return nil
-        case .liquidGlass: return .underWindowBackground  // Fallback material
-        case .sidebar: return .sidebar
-        case .hudWindow: return .hudWindow
-        case .menu: return .menu
-        case .popover: return .popover
-        case .underWindowBackground: return .underWindowBackground
-        case .windowBackground: return .windowBackground
-        case .contentBackground: return .contentBackground
-        case .fullScreenUI: return .fullScreenUI
-        case .sheet: return .sheet
-        case .headerView: return .headerView
-        case .toolTip: return .toolTip
-        }
-    }
-}
-
-enum SidebarBlendModeOption: String, CaseIterable, Identifiable {
-    case behindWindow
-    case withinWindow
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .behindWindow: return String(localized: "settings.blendMode.behindWindow", defaultValue: "Behind Window")
-        case .withinWindow: return String(localized: "settings.blendMode.withinWindow", defaultValue: "Within Window")
-        }
-    }
-
-    var mode: NSVisualEffectView.BlendingMode {
-        switch self {
-        case .behindWindow: return .behindWindow
-        case .withinWindow: return .withinWindow
-        }
-    }
-}
-
-enum SidebarStateOption: String, CaseIterable, Identifiable {
-    case active
-    case inactive
-    case followWindow
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .active: return String(localized: "settings.state.active", defaultValue: "Active")
-        case .inactive: return String(localized: "settings.state.inactive", defaultValue: "Inactive")
-        case .followWindow: return String(localized: "settings.state.followWindow", defaultValue: "Follow Window")
-        }
-    }
-
-    var state: NSVisualEffectView.State {
-        switch self {
-        case .active: return .active
-        case .inactive: return .inactive
-        case .followWindow: return .followsWindowActiveState
-        }
-    }
-}
-
-enum SidebarTintDefaults {
-    static let hex = "#000000"
-    static let opacity = 0.18
-}
-
-enum SidebarPresetOption: String, CaseIterable, Identifiable {
-    case nativeSidebar
-    case glassBehind
-    case softBlur
-    case popoverGlass
-    case hudGlass
-    case underWindow
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .nativeSidebar: return String(localized: "settings.preset.nativeSidebar", defaultValue: "Native Sidebar")
-        case .glassBehind: return String(localized: "settings.preset.raycastGray", defaultValue: "Raycast Gray")
-        case .softBlur: return String(localized: "settings.preset.softBlur", defaultValue: "Soft Blur")
-        case .popoverGlass: return String(localized: "settings.preset.popoverGlass", defaultValue: "Popover Glass")
-        case .hudGlass: return String(localized: "settings.preset.hudGlass", defaultValue: "HUD Glass")
-        case .underWindow: return String(localized: "settings.preset.underWindow", defaultValue: "Under Window")
-        }
-    }
-
-    var material: SidebarMaterialOption {
-        switch self {
-        case .nativeSidebar: return .sidebar
-        case .glassBehind: return .sidebar
-        case .softBlur: return .sidebar
-        case .popoverGlass: return .popover
-        case .hudGlass: return .hudWindow
-        case .underWindow: return .underWindowBackground
-        }
-    }
-
-    var blendMode: SidebarBlendModeOption {
-        switch self {
-        case .nativeSidebar: return .withinWindow
-        case .glassBehind: return .behindWindow
-        case .softBlur: return .behindWindow
-        case .popoverGlass: return .behindWindow
-        case .hudGlass: return .withinWindow
-        case .underWindow: return .withinWindow
-        }
-    }
-
-    var state: SidebarStateOption {
-        switch self {
-        case .nativeSidebar: return .followWindow
-        case .glassBehind: return .active
-        case .softBlur: return .active
-        case .popoverGlass: return .active
-        case .hudGlass: return .active
-        case .underWindow: return .followWindow
-        }
-    }
-
-    var tintHex: String {
-        switch self {
-        case .nativeSidebar: return "#000000"
-        case .glassBehind: return "#000000"
-        case .softBlur: return "#000000"
-        case .popoverGlass: return "#000000"
-        case .hudGlass: return "#000000"
-        case .underWindow: return "#000000"
-        }
-    }
-
-    var tintOpacity: Double {
-        switch self {
-        case .nativeSidebar: return 0.18
-        case .glassBehind: return 0.36
-        case .softBlur: return 0.28
-        case .popoverGlass: return 0.10
-        case .hudGlass: return 0.62
-        case .underWindow: return 0.14
-        }
-    }
-
-    var cornerRadius: Double {
-        switch self {
-        case .nativeSidebar: return 0.0
-        case .glassBehind: return 0.0
-        case .softBlur: return 0.0
-        case .popoverGlass: return 10.0
-        case .hudGlass: return 10.0
-        case .underWindow: return 6.0
-        }
-    }
-
-    var blurOpacity: Double {
-        switch self {
-        case .nativeSidebar: return 1.0
-        case .glassBehind: return 0.6
-        case .softBlur: return 0.45
-        case .popoverGlass: return 0.9
-        case .hudGlass: return 0.98
-        case .underWindow: return 0.9
-        }
-    }
 }

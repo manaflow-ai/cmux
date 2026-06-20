@@ -56,9 +56,19 @@
       "scope": ["**/*.swift"]
     },
     {
+      "path": ".github/review-bot-rules/no-test-debug-seam-in-production-source.md",
+      "description": "Source-of-truth cmux review rule against adding test-only or debug-only seams to production Swift Sources.",
+      "scope": ["**/Sources/**/*.swift"]
+    },
+    {
       "path": ".github/review-bot-rules/source-control-artifacts.md",
       "description": "Source-of-truth cmux review rule for local/generated artifacts that should not enter source control.",
       "scope": ["**/*"]
+    },
+    {
+      "path": ".github/review-bot-rules/swiftpm-package-resolved.md",
+      "description": "Source-of-truth cmux review rule for SwiftPM Package.resolved lockfile policy.",
+      "scope": ["**/Package.swift", "**/Package.resolved", "**/.gitignore", "cmux.xcodeproj/**", ".github/workflows/**"]
     },
     {
       "path": "CLAUDE.md",

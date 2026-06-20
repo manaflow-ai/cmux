@@ -774,6 +774,7 @@
         },
         "terminal": {
           "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem.",
+          "scrollSpeed": "Mnożnik stosowany do przewijania kółkiem myszy i gładzikiem w terminalu. Wyższe wartości przewijają szybciej, niższe wolniej.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
         },
