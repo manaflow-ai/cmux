@@ -805,6 +805,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// 120Hz / 0.13s at 60Hz.
     private static let viewportReportSettleThreshold = 8
     private var lastSnapshotFallbackHTML: String?
+    private static let snapshotFallbackZPosition: CGFloat = 900
     /// Daemon-authoritative effective grid (min across attached devices). When
     /// set, the Ghostty surface is pinned to this cols×rows inside the
     /// container so every attached device renders at the same grid. When
@@ -994,6 +995,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         isAccessibilityElement = false
         #endif
         addSubview(snapshotFallbackView)
+        snapshotFallbackView.layer.zPosition = Self.snapshotFallbackZPosition
         addSubview(scrollMechanicsView)
         addSubview(inputProxy)
         #if DEBUG
@@ -2210,11 +2212,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // scene-update watchdog (0x8BADF00D) kills the app. It must run off
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
+        let shouldReadFallbackSnapshot = shouldKeepSnapshotFallbackActive
         Self.outputQueue.async { [weak self] in
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+            }
+            var fallbackSnapshot: String?
+            if shouldReadFallbackSnapshot {
+                fallbackSnapshot = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT)
             }
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
@@ -2230,7 +2237,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let a11yNow = CACurrentMediaTime()
             if a11yNow - Self.lastAccessibilityTextTime > 0.5 {
                 Self.lastAccessibilityTextTime = a11yNow
-                accessibilityText = Self.accessibilitySurfaceText(surface)
+                accessibilityText = fallbackSnapshot ?? Self.accessibilitySurfaceText(surface)
             }
             #endif
             DispatchQueue.main.async {
@@ -2248,8 +2255,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 #endif
                 if !self.surfaceHasReceivedOutput {
                     self.surfaceHasReceivedOutput = true
-                    self.snapshotFallbackView.isHidden = true
                     self.scrollInitialOutputToBottomIfNeeded()
+                }
+                if let fallbackSnapshot,
+                   !fallbackSnapshot.isEmpty,
+                   self.shouldKeepSnapshotFallbackActive {
+                    self.showSnapshotFallback(text: fallbackSnapshot)
+                } else if self.hasVisibleGhosttyRendererLayer() {
+                    self.snapshotFallbackView.isHidden = true
                 }
                 let now = CACurrentMediaTime()
                 if now - self.lastProcessOutputLogTime > 1.0 {
@@ -2533,10 +2546,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if let config = runtime?.config {
                 applyBackgroundColorFromConfig(config)
             }
-            // Hide the snapshot fallback immediately. The Metal renderer
-            // handles all rendering once the surface exists.
-            snapshotFallbackView.isHidden = true
-            surfaceHasReceivedOutput = true
         }
         setNeedsGeometrySync()
         startDisplayLink()
@@ -2676,6 +2685,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if zoomOverlayShown,
            CACurrentMediaTime() - zoomOverlayLastInteraction > Self.zoomOverlayVisibleDuration {
             fadeOutZoomOverlay()
+        }
+        if !shouldKeepSnapshotFallbackActive,
+           hasVisibleGhosttyRendererLayer(),
+           !snapshotFallbackView.isHidden {
+            snapshotFallbackView.isHidden = true
         }
     }
 
@@ -3277,16 +3291,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSnapshotFallback() {
-        // Once the Metal renderer is active (surface has received output),
-        // keep the fallback hidden so the IOSurfaceLayer is visible.
-        if surfaceHasReceivedOutput {
-            snapshotFallbackView.isHidden = true
-            return
-        }
-
-        let rendererHasContents = !prefersSnapshotFallbackRendering &&
-            (layer.sublayers ?? []).contains(where: isGhosttyRendererLayerVisible)
-        if rendererHasContents {
+        if hasVisibleGhosttyRendererLayer(), !shouldKeepSnapshotFallbackActive {
             snapshotFallbackView.isHidden = true
             return
         }
@@ -3318,6 +3323,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
 
         let visibleTextLength = snapshotFallbackView.attributedText?.string.utf16.count ?? snapshotFallbackView.text.utf16.count
+        if visibleTextLength > 0 {
+            snapshotFallbackView.scrollRangeToVisible(NSRange(location: max(0, visibleTextLength - 1), length: 1))
+        }
+        snapshotFallbackView.isHidden = false
+        flushSnapshotFallbackPresentation()
+    }
+
+    private func showSnapshotFallback(text snapshot: String) {
+        guard !snapshot.isEmpty else { return }
+        if snapshotFallbackView.attributedText?.string != snapshot {
+            snapshotFallbackView.attributedText = nil
+            snapshotFallbackView.text = snapshot
+        }
+        let visibleTextLength = snapshotFallbackView.text.utf16.count
         if visibleTextLength > 0 {
             snapshotFallbackView.scrollRangeToVisible(NSRange(location: max(0, visibleTextLength - 1), length: 1))
         }
@@ -3387,6 +3406,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func isGhosttyRendererLayerVisible(_ layer: CALayer) -> Bool {
         isGhosttyRendererLayer(layer) && layer.contents != nil
+    }
+
+    private func hasVisibleGhosttyRendererLayer() -> Bool {
+        !prefersSnapshotFallbackRendering &&
+            (layer.sublayers ?? []).contains(where: isGhosttyRendererLayerVisible)
+    }
+
+    private var shouldKeepSnapshotFallbackActive: Bool {
+        pendingFontSize != nil ||
+            zoomSettleFrames != nil ||
+            pendingRenderFrames > 0 ||
+            !surfaceHasReceivedOutput ||
+            !hasVisibleGhosttyRendererLayer()
     }
 
     nonisolated private static func handleWrite(
