@@ -102,6 +102,55 @@ extension DockSplitStore {
         }
     }
 
+    nonisolated static func configurationLoadErrorMessage(for error: Error) -> String {
+        if let message = dockValidationErrorMessage(for: error) {
+            return message
+        }
+        return String(
+            localized: "dock.error.loadFailed",
+            defaultValue: "Could not load the Dock config. Check dock.json and try again."
+        )
+    }
+
+    nonisolated static func configurationOpenErrorMessage(for error: Error) -> String {
+        if let message = dockValidationErrorMessage(for: error) {
+            return message
+        }
+        return String(
+            localized: "dock.error.openFailed",
+            defaultValue: "Could not open the Dock config. Check permissions and try again."
+        )
+    }
+
+    nonisolated private static func dockValidationErrorMessage(for error: Error) -> String? {
+        let nsError = error as NSError
+        if nsError.domain == "cmux.dock",
+           let message = nsError.userInfo[NSLocalizedDescriptionKey] as? String,
+           !message.isEmpty {
+            return message
+        }
+
+        let debugDescription: String?
+        switch error {
+        case DecodingError.dataCorrupted(let context):
+            debugDescription = context.debugDescription
+        case DecodingError.keyNotFound(_, let context):
+            debugDescription = context.debugDescription
+        case DecodingError.typeMismatch(_, let context):
+            debugDescription = context.debugDescription
+        case DecodingError.valueNotFound(_, let context):
+            debugDescription = context.debugDescription
+        default:
+            debugDescription = nil
+        }
+
+        guard let message = debugDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
+              message.hasPrefix("Dock ") else {
+            return nil
+        }
+        return message
+    }
+
     nonisolated static func trustDescriptor(for resolution: DockConfigResolution) -> CmuxActionTrustDescriptor {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

@@ -262,18 +262,18 @@ extension AppDelegate {
         }
 
         if let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event),
-           let panel = shortcutBrowserPanel(panelId: panelId) {
+           let panel = shortcutBrowserPanel(panelId: panelId, in: shortcutWindow) {
             return panel
         }
 
         if let responder,
            let panelId = BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: shortcutWindow),
-           let panel = shortcutBrowserPanel(panelId: panelId) {
+           let panel = shortcutBrowserPanel(panelId: panelId, in: shortcutWindow) {
             return panel
         }
 
         if let webView = shortcutOwningWebView(for: responder) {
-            return shortcutBrowserPanel(webView: webView)
+            return shortcutBrowserPanel(webView: webView, in: shortcutWindow)
         }
 
         if let panel = shortcutFocusedBrowserPanel(in: shortcutWindow) {
@@ -320,50 +320,32 @@ extension AppDelegate {
         return NSApp.window(withWindowNumber: event.windowNumber)
     }
 
-    private func shortcutBrowserPanel(panelId: UUID) -> BrowserPanel? {
-        for manager in shortcutCandidateTabManagers() {
-            for workspace in manager.tabs {
-                if let panel = workspace.browserPanel(for: panelId) {
-                    return panel
-                }
-                if let panel = workspace.dockBrowserPanel(for: panelId) {
-                    return panel
-                }
-            }
+    private func shortcutBrowserPanel(panelId: UUID, in window: NSWindow?) -> BrowserPanel? {
+        guard let workspace = shortcutContextTabManager(in: window)?.selectedWorkspace else {
+            return nil
         }
-        return nil
+        return workspace.browserPanelIncludingDock(for: panelId)
     }
 
-    private func shortcutBrowserPanel(webView: WKWebView) -> BrowserPanel? {
-        for manager in shortcutCandidateTabManagers() {
-            for workspace in manager.tabs {
-                for panel in workspace.panels.values {
-                    guard let browserPanel = panel as? BrowserPanel,
-                          browserPanel.webView === webView else {
-                        continue
-                    }
-                    return browserPanel
-                }
-                if let panel = workspace.dockBrowserPanel(owning: webView, in: webView.window) {
-                    return panel
-                }
+    private func shortcutBrowserPanel(webView: WKWebView, in window: NSWindow?) -> BrowserPanel? {
+        guard let workspace = shortcutContextTabManager(in: window)?.selectedWorkspace else {
+            return nil
+        }
+
+        if let context = BrowserWindowPortalRegistry.paneDropContext(for: webView),
+           context.workspaceId == workspace.id,
+           let panel = workspace.browserPanelIncludingDock(for: context.panelId) {
+            return panel
+        }
+
+        for panel in workspace.panels.values {
+            guard let browserPanel = panel as? BrowserPanel,
+                  browserPanel.webView === webView else {
+                continue
             }
+            return browserPanel
         }
         return nil
-    }
-
-    private func shortcutCandidateTabManagers() -> [TabManager] {
-        let candidates = [tabManager] + mainWindowContexts.values.map { Optional($0.tabManager) }
-        var seen = Set<ObjectIdentifier>()
-        var managers: [TabManager] = []
-        for candidate in candidates {
-            guard let candidate else { continue }
-            let id = ObjectIdentifier(candidate)
-            guard !seen.contains(id) else { continue }
-            seen.insert(id)
-            managers.append(candidate)
-        }
-        return managers
     }
 
     private func shortcutOwningWebView(for responder: NSResponder?) -> WKWebView? {

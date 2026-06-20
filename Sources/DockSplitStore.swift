@@ -601,7 +601,7 @@ final class DockSplitStore: BonsplitDelegate {
         } catch {
             return .failed(
                 identity: configIdentity(rootDirectory: rootDirectory),
-                message: error.localizedDescription
+                message: configurationLoadErrorMessage(for: error)
             )
         }
     }
@@ -729,7 +729,7 @@ final class DockSplitStore: BonsplitDelegate {
                 target = try Self.preferredEditableConfigURL(rootDirectory: currentBaseDirectory())
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.configurationOpenErrorMessage(for: error)
             return
         }
 
@@ -739,7 +739,7 @@ final class DockSplitStore: BonsplitDelegate {
                     try Self.prepareEditableConfig(at: target)
                     return (target, nil)
                 } catch {
-                    return (nil, error.localizedDescription)
+                    return (nil, Self.configurationOpenErrorMessage(for: error))
                 }
             }.value
 

@@ -2,6 +2,10 @@ import AppKit
 import CmuxCore
 
 extension Workspace {
+    func browserPanelIncludingDock(for panelId: UUID) -> BrowserPanel? {
+        browserPanel(for: panelId) ?? dockBrowserPanel(for: panelId)
+    }
+
     func dockBrowserPanel(for panelId: UUID) -> BrowserPanel? {
         _dockSplit?.browserPanel(for: panelId)
     }
