@@ -6063,15 +6063,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        let cwd = workspace.resolvedWorkingDirectory()
+        let agentDiffContext = focusedAgentDiffContext(for: workspace)
+        let cwd = agentDiffContext
+            ?? workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
             cwd: cwd,
             workspaceId: workspace.id,
-            surfaceId: workspace.focusedPanelId
+            surfaceId: workspace.focusedPanelId,
+            useLastTurnSource: agentDiffContext != nil
         )
+    }
+
+    private func focusedAgentDiffContext(for workspace: Workspace) -> String? {
+        guard let surfaceId = workspace.focusedPanelId else { return nil }
+        if let repoRoot = latestAgentTurnDiffRepoRoot(workspaceId: workspace.id, surfaceId: surfaceId) {
+            return repoRoot
+        }
+        if let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId),
+           let workingDirectory = normalizedOpenDiffViewerPath(
+            snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
+           ) {
+            return workingDirectory
+        }
+        return nil
+    }
+
+    private func latestAgentTurnDiffRepoRoot(workspaceId: UUID, surfaceId: UUID) -> String? {
+        let storeURL = agentTurnDiffBaselineStoreURL()
+        guard let data = try? Data(contentsOf: storeURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let records = object["records"] as? [[String: Any]] else {
+            return nil
+        }
+        let workspaceKey = workspaceId.uuidString.lowercased()
+        let surfaceKey = surfaceId.uuidString.lowercased()
+        let candidates = records.compactMap { record -> (repoRoot: String, capturedAt: TimeInterval)? in
+            guard let recordWorkspace = normalizedOpenDiffViewerIdentifier(record["workspaceId"] as? String),
+                  let recordSurface = normalizedOpenDiffViewerIdentifier(record["surfaceId"] as? String),
+                  recordWorkspace == workspaceKey,
+                  recordSurface == surfaceKey,
+                  let repoRoot = normalizedOpenDiffViewerPath(record["repoRoot"] as? String) else {
+                return nil
+            }
+            let capturedAt = (record["capturedAt"] as? NSNumber)?.doubleValue ?? 0
+            return (repoRoot, capturedAt)
+        }
+        return candidates.max(by: { $0.capturedAt < $1.capturedAt })?.repoRoot
+    }
+
+    private func agentTurnDiffBaselineStoreURL() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let override = normalizedOpenDiffViewerPath(environment["CMUX_AGENT_HOOK_STATE_DIR"]) {
+            return URL(fileURLWithPath: override, isDirectory: true)
+                .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+    }
+
+    private func normalizedOpenDiffViewerIdentifier(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .nilIfEmpty
+    }
+
+    private func normalizedOpenDiffViewerPath(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
     }
 
     @discardableResult
@@ -6080,14 +6144,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketPath: String,
         cwd: String,
         workspaceId: UUID,
-        surfaceId: UUID?
+        surfaceId: UUID?,
+        useLastTurnSource: Bool
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
         var arguments = [
             "--socket", socketPath,
             "diff",
-            "--unstaged",
+            useLastTurnSource ? "--last-turn" : "--unstaged",
             "--cwd", cwd,
             "--workspace", workspaceId.uuidString,
             "--focus", "true",

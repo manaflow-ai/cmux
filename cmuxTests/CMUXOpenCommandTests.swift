@@ -1130,6 +1130,13 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "binary.dat"
             ]
         )
+        try writeDiffBaselineStore(
+            stateDirectoryURL: stateURL,
+            repoURL: siblingRepoURL,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            baseCommit: siblingInitialCommit
+        )
         try "after\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
         try "quoted after\n".write(to: repoURL.appendingPathComponent(quotedUntrackedPath), atomically: true, encoding: .utf8)
         try Data([0xff, 0x00, 0x6e, 0x65, 0x77])
@@ -1173,6 +1180,21 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lastTurn.patch.contains("-remove me"), lastTurn.patch)
         XCTAssertFalse(lastTurn.patch.contains("unchanged-untracked.txt"), lastTurn.patch)
         assertNoANSIEscape(lastTurn.patch)
+        let lastTurnPayload = try diffViewerPayload(from: lastTurn.html)
+        let lastTurnRepoOptions = try XCTUnwrap(lastTurnPayload["repoOptions"] as? [[String: Any]])
+        let siblingRepoLastTurnURLString = try diffViewerOptionURL(value: siblingRepoURL.path, in: lastTurnRepoOptions)
+        let siblingRepoLastTurnFileURL = try diffViewerHTMLFileURL(
+            for: siblingRepoLastTurnURLString,
+            from: lastTurn.params
+        )
+        let siblingRepoLastTurnHTML = try String(contentsOf: siblingRepoLastTurnFileURL, encoding: .utf8)
+        let siblingRepoLastTurnPatch = try String(
+            contentsOf: siblingRepoLastTurnFileURL.deletingPathExtension().appendingPathExtension("patch"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(siblingRepoLastTurnHTML.contains("\"sourceLabel\":\"git last-turn"), siblingRepoLastTurnHTML)
+        XCTAssertTrue(siblingRepoLastTurnHTML.contains("\"repoRoot\":\"\(siblingRepoURL.path)\""), siblingRepoLastTurnHTML)
+        XCTAssertTrue(siblingRepoLastTurnPatch.contains("+changed"), siblingRepoLastTurnPatch)
 
         let refLastTurn = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -2530,12 +2552,21 @@ final class CMUXOpenCommandTests: XCTestCase {
             record["untrackedPathHashes"] = untrackedPathHashes
             record["untrackedSnapshotId"] = snapshotId
         }
+        let storeURL = stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.json")
+        let existingRecords: [[String: Any]]
+        if let existingData = try? Data(contentsOf: storeURL),
+           let existingPayload = try? JSONSerialization.jsonObject(with: existingData) as? [String: Any],
+           let records = existingPayload["records"] as? [[String: Any]] {
+            existingRecords = records
+        } else {
+            existingRecords = []
+        }
         let payload: [String: Any] = [
             "version": 1,
-            "records": [record]
+            "records": existingRecords + [record]
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-        try data.write(to: stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.json"), options: .atomic)
+        try data.write(to: storeURL, options: .atomic)
     }
 
     private func bundledCLIPath() throws -> String {

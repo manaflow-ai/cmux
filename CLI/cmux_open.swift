@@ -131,7 +131,7 @@ enum CMUXDiffViewerLocalization {
 
 extension CMUXCLI {
     private enum DiffViewerLimits {
-        static let repoOptions = 4
+        static let repoOptions = 12
         static let branchBaseOptions = 4
     }
 
@@ -3401,7 +3401,7 @@ extension CMUXCLI {
               let selectedURL = urls[selectedSource] else {
             throw CLIError(message: "Failed to write diff viewer")
         }
-        let repoCandidates = gitDiffViewerRepoOptions(selectedRepoRoot: repoRoot)
+        let repoCandidates = gitDiffViewerRepoOptions(selectedRepoRoot: repoRoot, context: context)
         let repoFileURLsBySource: [DiffSource: [String: URL]] = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
             let fileURLsByRepo = Dictionary(uniqueKeysWithValues: repoCandidates.enumerated().map { index, option in
                 if option.repoRoot == repoRoot, let fileURL = fileURLs[source] {
@@ -4080,10 +4080,15 @@ extension CMUXCLI {
         }
     }
 
-    private func gitDiffViewerRepoOptions(selectedRepoRoot: String) -> [DiffViewerRepoOption] {
+    private func gitDiffViewerRepoOptions(
+        selectedRepoRoot: String,
+        context: DiffSourceContext
+    ) -> [DiffViewerRepoOption] {
         let selectedURL = URL(fileURLWithPath: selectedRepoRoot, isDirectory: true).standardizedFileURL
         var candidateURLs: [URL] = [selectedURL]
         let parentURL = selectedURL.deletingLastPathComponent()
+
+        candidateURLs.append(contentsOf: agentTurnDiffBaselineRepoURLs(context: context))
 
         if parentURL.lastPathComponent == "worktrees" {
             let hqURL = parentURL.deletingLastPathComponent()
@@ -4122,6 +4127,30 @@ extension CMUXCLI {
                 label: gitDiffViewerRepoLabel(root, selectedRepoRoot: selectedRepoRoot)
             )
         }
+    }
+
+    private func agentTurnDiffBaselineRepoURLs(context: DiffSourceContext) -> [URL] {
+        guard let workspaceId = normalizedDiffSourceValue(context.workspaceId),
+              let surfaceId = normalizedDiffSourceValue(context.surfaceId),
+              let store = try? readAgentTurnDiffBaselineStore(
+                path: CMUXAgentTurnDiffBaselineFile.path(env: ProcessInfo.processInfo.environment)
+              ) else {
+            return []
+        }
+        let matchingRecords = store.records
+            .filter { record in
+                diffScopeIdentifierEquals(record.workspaceId, workspaceId) &&
+                    diffScopeIdentifierEquals(record.surfaceId, surfaceId)
+            }
+            .sorted { $0.capturedAt > $1.capturedAt }
+        var seen: Set<String> = []
+        var urls: [URL] = []
+        for record in matchingRecords {
+            let repoRoot = standardizedDiffSourcePath(record.repoRoot)
+            guard seen.insert(repoRoot).inserted else { continue }
+            urls.append(URL(fileURLWithPath: repoRoot, isDirectory: true).standardizedFileURL)
+        }
+        return urls
     }
 
     private func gitChildRepoURLs(in directoryURL: URL) -> [URL] {
