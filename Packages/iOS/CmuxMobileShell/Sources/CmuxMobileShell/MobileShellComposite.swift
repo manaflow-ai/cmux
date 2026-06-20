@@ -611,6 +611,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var foregroundMacDeviceID: String? {
         didSet { recomputeDerivedWorkspaceState() }
     }
+    /// Persistent read-only connections to the NON-foreground Macs, each holding a
+    /// live `workspace.updated` subscription that keeps its ``workspacesByMac``
+    /// entry current (slice 3). Best-effort and fully additive: any failure tears
+    /// the entry down and the pull-to-refresh / foreground re-aggregate path
+    /// remains as the fallback. Keyed by `macDeviceID`. Today these are N direct
+    /// phone->Mac connections; the same per-Mac entries would be fed by one
+    /// phone->Durable Object stream in the planned end-state.
+    private var secondaryMacSubscriptions: [String: SecondaryMacSubscription] = [:]
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -2550,13 +2558,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    /// Fetch one OTHER Mac's workspace list read-only, for the aggregated
-    /// multi-Mac list (P3). Builds its own short-lived client (like
-    /// `requestManualAttachTicket`), so it never touches the foreground
-    /// connection. Routes are loopback-deprioritized on device. Returns the
-    /// Mac's workspaces tagged with its `macDeviceID`, or nil on any failure
-    /// (best-effort; an unreachable Mac just contributes nothing).
-    private func fetchSecondaryWorkspaceList(for mac: MobilePairedMac) async -> [MobileWorkspacePreview]? {
+    /// Build a persistent read-only client to one OTHER Mac (route + manual
+    /// ticket), or nil if it has no reachable route / the ticket fails. The caller
+    /// owns disconnecting it. Routes are loopback-deprioritized on device. Never
+    /// touches the foreground connection.
+    private func makeSecondaryClient(for mac: MobilePairedMac) async -> MobileCoreRPCClient? {
         guard let runtime else { return nil }
         let supportedKinds = runtime.supportedRouteKinds
         guard let (host, port) = Self.firstReconnectHostPortRoute(
@@ -2571,19 +2577,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket = try await manualHostTicket(name: mac.displayName ?? host, host: host, port: port)
         } catch {
             mobileShellLog.warning(
-                "secondary workspace fetch: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
             return nil
         }
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let route = supportedRoutes.first else { return nil }
-        let client = MobileCoreRPCClient(
+        return MobileCoreRPCClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
             allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         )
-        defer { Task { await client.disconnect() } }
+    }
+
+    /// Fetch one Mac's workspace list over an EXISTING client, tagged with its
+    /// `macDeviceID`. Nil on any failure (best-effort; an unreachable Mac just
+    /// contributes nothing).
+    private func fetchSecondaryWorkspaces(
+        on client: MobileCoreRPCClient,
+        macDeviceID: String
+    ) async -> [MobileWorkspacePreview]? {
+        guard let runtime else { return nil }
         do {
             let requestData = try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
             let resultData = try await client.sendRequest(
@@ -2593,44 +2608,107 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             return response.workspaces.map { remote in
                 var workspace = MobileWorkspacePreview(remote: remote)
-                workspace.macDeviceID = mac.macDeviceID
+                workspace.macDeviceID = macDeviceID
                 return workspace
             }
         } catch {
             mobileShellLog.warning(
-                "secondary workspace fetch failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                "secondary workspace fetch failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
             return nil
         }
     }
 
-    /// Refresh the read-only workspace lists for every signed-in paired Mac that
-    /// is NOT the foreground connection, writing each into its ``workspacesByMac``
-    /// entry. The derived ``workspaces`` recomputes automatically. Best-effort.
+    /// Ensure a live read-only subscription exists for every signed-in paired Mac
+    /// that is NOT the foreground connection, and drop subscriptions for Macs that
+    /// disappeared or became the foreground. Each subscription keeps its
+    /// ``workspacesByMac`` entry current via `workspace.updated` (slice 3); the
+    /// derived ``workspaces`` recomputes automatically. Idempotent and best-effort:
+    /// safe to call repeatedly (attach, pull-to-refresh, foreground).
     func refreshSecondaryMacWorkspaces() async {
-        guard let pairedMacStore else { return }
+        guard let pairedMacStore, Self.multiMacAggregationEnabled else { return }
         let account = identityProvider?.currentUserID
         // Pull the authoritative backup first so a secondary Mac that relaunched
-        // on a new port has its route refreshed locally (LWW by lastSeenAt; the
-        // live foreground route is never clobbered). Without this the once-per-
-        // launch restore leaves stale routes and the read-only fetch below dials
-        // a dead port, silently dropping that Mac from the aggregated list.
+        // on a new port has its route refreshed before we (re)connect.
         if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: account)
         }
         let macs = (try? await pairedMacStore.loadAll(stackUserID: account)) ?? []
-        for mac in macs where !mac.macDeviceID.isEmpty && mac.macDeviceID != foregroundMacDeviceID {
-            if let previews = await fetchSecondaryWorkspaceList(for: mac) {
-                // Writing the per-Mac entry recomputes the derived list (didSet);
-                // no explicit merge/publish, the aggregate is a pure derivation.
-                workspacesByMac[mac.macDeviceID] = MacWorkspaceState(
-                    macDeviceID: mac.macDeviceID,
-                    displayName: mac.displayName,
-                    workspaces: previews,
-                    status: .connected
-                )
-            }
+        let wanted = Set(macs.map(\.macDeviceID))
+            .subtracting(foregroundMacDeviceID.map { [$0] } ?? [])
+            .subtracting([""])
+        // Tear down subscriptions for Macs that are gone or are now the foreground.
+        for (macID, subscription) in secondaryMacSubscriptions where !wanted.contains(macID) {
+            subscription.cancel()
+            secondaryMacSubscriptions[macID] = nil
+            workspacesByMac[macID] = nil
         }
+        // Establish a live subscription for each newly-present secondary Mac.
+        for mac in macs where wanted.contains(mac.macDeviceID) && secondaryMacSubscriptions[mac.macDeviceID] == nil {
+            await establishSecondaryMacSubscription(for: mac)
+        }
+    }
+
+    /// Open a persistent read-only connection to `mac`, seed its workspace state,
+    /// then run a live `workspace.updated` consumer that re-fetches its list on
+    /// each change. Fully best-effort: on any failure the entry is torn down and
+    /// the pull-to-refresh / foreground re-aggregate path remains the fallback, so
+    /// a secondary subscription can never crash or block the foreground.
+    private func establishSecondaryMacSubscription(for mac: MobilePairedMac) async {
+        let macID = mac.macDeviceID
+        guard secondaryMacSubscriptions[macID] == nil,
+              let client = await makeSecondaryClient(for: mac) else { return }
+        // Re-check after the async client build so a concurrent refresh cannot
+        // open a duplicate connection; the loser disconnects its client.
+        guard secondaryMacSubscriptions[macID] == nil else {
+            await client.disconnect()
+            return
+        }
+        let subscription = SecondaryMacSubscription(macDeviceID: macID, client: client)
+        secondaryMacSubscriptions[macID] = subscription
+        let displayName = mac.displayName
+        if let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID) {
+            workspacesByMac[macID] = MacWorkspaceState(
+                macDeviceID: macID, displayName: displayName, workspaces: previews, status: .connected
+            )
+        }
+        subscription.task = Task { @MainActor [weak self] in
+            let stream = await client.subscribe(to: ["workspace.updated"])
+            await self?.enableSecondaryEventSubscription(on: client, streamID: subscription.streamID)
+            for await event in stream {
+                guard let self, !Task.isCancelled else { break }
+                // Stop if this subscription was replaced/torn down.
+                guard self.secondaryMacSubscriptions[macID]?.client === client else { break }
+                if event.topic == "workspace.updated",
+                   let previews = await self.fetchSecondaryWorkspaces(on: client, macDeviceID: macID) {
+                    self.workspacesByMac[macID] = MacWorkspaceState(
+                        macDeviceID: macID, displayName: displayName, workspaces: previews, status: .connected
+                    )
+                }
+            }
+            // Stream ended (disconnect / error): tear the entry down so a later
+            // refresh can re-establish it. The fallback keeps the list usable.
+            guard let self, self.secondaryMacSubscriptions[macID]?.client === client else { return }
+            self.secondaryMacSubscriptions[macID] = nil
+            await client.disconnect()
+        }
+    }
+
+    /// Fire the server-side `mobile.events.subscribe` enable for a secondary
+    /// connection's `workspace.updated` stream. Best-effort; the consumer loop
+    /// runs regardless and a failure just means no live pushes for that Mac.
+    private func enableSecondaryEventSubscription(on client: MobileCoreRPCClient, streamID: String) async {
+        guard let request = try? MobileCoreRPCClient.requestData(
+            method: "mobile.events.subscribe",
+            params: ["stream_id": streamID, "topics": ["workspace.updated"]]
+        ) else { return }
+        _ = try? await client.sendRequest(request)
+    }
+
+    /// Cancel and disconnect every secondary subscription (sign-out / full reset).
+    private func teardownSecondaryMacSubscriptions() {
+        for (_, subscription) in secondaryMacSubscriptions { subscription.cancel() }
+        secondaryMacSubscriptions.removeAll()
     }
 
     /// Whether the multi-Mac aggregated workspace list is enabled. Env override,
@@ -3879,9 +3957,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connections[foreground] = nil
         }
         foregroundMacDeviceID = nil
-        // Keep the now-offline foreground Mac's last-known workspaces for the
-        // offline view; drop the secondary read-only entries. The derived list
-        // recomputes to just the offline Mac's rows.
+        // Cancel the live secondary subscriptions (slice 3) and keep only the
+        // now-offline foreground Mac's last-known workspaces for the offline view;
+        // the derived list recomputes to just the offline Mac's rows.
+        teardownSecondaryMacSubscriptions()
         workspacesByMac = workspacesByMac.filter { $0.key == offlineForegroundKey }
         rawTerminalInputBuffer.clear()
     }
@@ -5811,6 +5890,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
+    }
+}
+
+/// One non-foreground Mac's persistent read-only connection plus its live
+/// `workspace.updated` consumer (slice 3). A plain holder owned and mutated only
+/// from the @MainActor composite; ``cancel`` stops the consumer and disconnects.
+@MainActor
+private final class SecondaryMacSubscription {
+    let macDeviceID: String
+    let client: MobileCoreRPCClient
+    /// A fresh per-connection event stream id for the `mobile.events.subscribe`
+    /// enable handshake (the server keys its push subscription by this).
+    let streamID: String
+    var task: Task<Void, Never>?
+
+    init(macDeviceID: String, client: MobileCoreRPCClient) {
+        self.macDeviceID = macDeviceID
+        self.client = client
+        self.streamID = "ios-secondary-events-\(macDeviceID)-\(UUID().uuidString)"
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+        let client = self.client
+        Task { await client.disconnect() }
     }
 }
 
