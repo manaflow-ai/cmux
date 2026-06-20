@@ -9,15 +9,23 @@ public import Foundation
 /// falls back to decoding the payload directly as a
 /// ``MobileTerminalRenderGridFrame`` when ``frame`` is `nil`.
 public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
+    /// The typed render-grid envelope, if the host provided one.
+    public let envelope: MobileTerminalRenderGridEnvelope?
     /// The nested render-grid frame, if the payload used the wrapped form.
     public let frame: MobileTerminalRenderGridFrame?
 
     private enum CodingKeys: String, CodingKey {
+        case role
         case frame = "render_grid"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.role) {
+            envelope = try? MobileTerminalRenderGridEnvelope(from: decoder)
+        } else {
+            envelope = nil
+        }
         frame = try container.decodeIfPresent(MobileTerminalRenderGridFrame.self, forKey: .frame)
     }
 

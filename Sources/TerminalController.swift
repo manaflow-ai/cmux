@@ -13442,6 +13442,10 @@ class TerminalController {
             payload["columns"] = renderGrid.columns
             payload["rows"] = renderGrid.rows
             payload["render_grid"] = renderGridObject
+            if let envelope = try? MobileTerminalRenderGridEnvelope.snapshot(renderGrid),
+               let envelopeObject = try? envelope.jsonObject() {
+                payload["render_grid_envelope"] = envelopeObject
+            }
         } else {
             let snapshotData = readTerminalTextFromVTExportForSnapshot(
                 terminalPanel: terminalPanel,

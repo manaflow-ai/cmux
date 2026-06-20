@@ -15,6 +15,8 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
     public let snapshotBase64: String?
     /// The render-grid snapshot frame, the preferred replay payload.
     public let renderGrid: MobileTerminalRenderGridFrame?
+    /// The typed render-grid snapshot envelope, when sent by newer hosts.
+    public let renderGridEnvelope: MobileTerminalRenderGridEnvelope?
     /// The host's explicit end sequence, used when no render grid is present.
     public let sequence: UInt64?
     /// The host grid column count (debug diagnostics only).
@@ -26,6 +28,7 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         case dataBase64 = "data_b64"
         case snapshotBase64 = "snapshot_data_b64"
         case renderGrid = "render_grid"
+        case renderGridEnvelope = "render_grid_envelope"
         case sequence = "seq"
         case columns
         case rows
@@ -38,6 +41,10 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         // A malformed render_grid must not fail the whole replay; the legacy
         // path used `try?` on the sub-object decode, so mirror that tolerance.
         renderGrid = try? container.decodeIfPresent(MobileTerminalRenderGridFrame.self, forKey: .renderGrid)
+        renderGridEnvelope = try? container.decodeIfPresent(
+            MobileTerminalRenderGridEnvelope.self,
+            forKey: .renderGridEnvelope
+        )
         sequence = try container.decodeIfPresent(UInt64.self, forKey: .sequence)
         columns = try container.decodeIfPresent(Int.self, forKey: .columns)
         rows = try container.decodeIfPresent(Int.self, forKey: .rows)

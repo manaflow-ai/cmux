@@ -13,6 +13,7 @@ public actor MobileDebugLogSink {
     private let capacity: Int
     private let startedAt: Date
     private let now: @Sendable () -> Date
+    private let mirrorURL: URL?
     private var continuations: [UUID: AsyncStream<String>.Continuation] = [:]
 
     /// Create a sink.
@@ -26,6 +27,17 @@ public actor MobileDebugLogSink {
         self.capacity = capacity
         self.now = now
         self.startedAt = now()
+        #if DEBUG && canImport(UIKit)
+        self.mirrorURL = FileManager.default
+            .urls(for: .cachesDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("cmux-mobile-debug.log", isDirectory: false)
+        if let mirrorURL {
+            try? FileManager.default.removeItem(at: mirrorURL)
+        }
+        #else
+        self.mirrorURL = nil
+        #endif
     }
 
     /// Append one timestamped line (seconds elapsed since the sink was created).
@@ -39,6 +51,7 @@ public actor MobileDebugLogSink {
         if buffer.count > capacity {
             buffer.removeFirst(buffer.count - capacity)
         }
+        appendToMirror(line)
         for continuation in continuations.values {
             continuation.yield(line)
         }
@@ -79,5 +92,21 @@ public actor MobileDebugLogSink {
 
     private func removeContinuation(_ id: UUID) {
         continuations[id] = nil
+    }
+
+    private func appendToMirror(_ line: String) {
+        #if DEBUG && canImport(UIKit)
+        guard let mirrorURL else { return }
+        let data = Data((line + "\n").utf8)
+        if let handle = try? FileHandle(forWritingTo: mirrorURL) {
+            defer { try? handle.close() }
+            try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: mirrorURL, options: .atomic)
+        }
+        #else
+        _ = line
+        #endif
     }
 }

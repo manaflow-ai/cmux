@@ -41,6 +41,86 @@ import Testing
     #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
 }
 
+@MainActor
+@Test func initialReplayBasePrecedesDeferredLiveRenderGrid() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.debugBeginInitialTerminalReplayForTesting(surfaceID: surfaceID)
+
+    let liveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 20,
+        columns: 16,
+        rows: 4,
+        text: "live-after",
+        full: false,
+        changedRows: [0, 1, 2, 3]
+    )
+    let liveEnvelope = try MobileTerminalRenderGridEnvelope.viewportDelta(liveFrame)
+    store.debugDeliverLiveRenderGridForTesting(liveEnvelope)
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+
+    var replayFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 10,
+        columns: 16,
+        rows: 4,
+        text: "replay-base"
+    )
+    replayFrame.scrollbackRows = 123
+    let replayEnvelope = try MobileTerminalRenderGridEnvelope.snapshot(replayFrame)
+    store.debugDeliverInitialTerminalReplayForTesting(replayEnvelope, surfaceID: surfaceID)
+
+    let replayChunk = try #require(await iterator.next())
+    #expect(replayChunk.scrollbackRows == 123)
+    #expect(String(decoding: replayChunk.data, as: UTF8.self).contains("replay-base"))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+
+    let liveChunk = try #require(await iterator.next())
+    #expect(liveChunk.scrollbackRows == nil)
+    #expect(String(decoding: liveChunk.data, as: UTF8.self).contains("live-after"))
+}
+
+@Test func terminalRenderSessionDropsBufferedLiveDeltasCoveredBySnapshotSequence() throws {
+    let surfaceID = "terminal"
+    var session = TerminalRenderSession()
+    session.beginSnapshot()
+
+    let staleLiveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 20,
+        columns: 16,
+        rows: 2,
+        text: "stale-live",
+        full: false,
+        changedRows: [0, 1]
+    )
+    let freshLiveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 40,
+        columns: 16,
+        rows: 2,
+        text: "fresh-live",
+        full: false,
+        changedRows: [0, 1]
+    )
+    let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 30,
+        columns: 16,
+        rows: 2,
+        text: "snapshot"
+    )
+
+    #expect(session.receiveLive(try .viewportDelta(staleLiveFrame)).isEmpty)
+    #expect(session.receiveLive(try .viewportDelta(freshLiveFrame)).isEmpty)
+
+    let delivered = session.receiveSnapshot(try .snapshot(snapshotFrame))
+
+    #expect(delivered.map(\.frame.stateSeq) == [30, 40])
+}
+
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -80,8 +160,11 @@ import Testing
     )
 
     #expect(queue.enqueue(inFlight) == inFlight)
-    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: oldFrame, replaceable: true)) == nil)
-    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: latestFrame, replaceable: true)) == nil)
+    let oldEnvelope = try MobileTerminalRenderGridEnvelope.viewportDelta(oldFrame)
+    let latestEnvelope = try MobileTerminalRenderGridEnvelope.viewportDelta(latestFrame)
+
+    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: oldEnvelope, replaceable: true)) == nil)
+    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: latestEnvelope, replaceable: true)) == nil)
 
     let maybeDelivered = queue.completeInFlight()
     let delivered = try #require(maybeDelivered)
@@ -98,7 +181,7 @@ import Testing
         rows: 2,
         full: true,
         rowSpans: [],
-        activeScreen: .alternate,
+        activeScreen: .primary,
         scrollbackRows: 42
     )
     let deltaFrame = try MobileTerminalRenderGridFrame(
@@ -111,11 +194,13 @@ import Testing
         activeScreen: .primary,
         scrollbackRows: 42
     )
-    let delivery = TerminalOutputDelivery(renderGrid: frame, replaceable: false)
-    let deltaDelivery = TerminalOutputDelivery(renderGrid: deltaFrame, replaceable: false)
+    let envelope = try MobileTerminalRenderGridEnvelope.snapshot(frame)
+    let deltaEnvelope = try MobileTerminalRenderGridEnvelope.viewportDelta(deltaFrame)
+    let delivery = TerminalOutputDelivery(renderGrid: envelope, replaceable: false)
+    let deltaDelivery = TerminalOutputDelivery(renderGrid: deltaEnvelope, replaceable: false)
     let rawDelivery = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
 
-    #expect(delivery.activeScreen == MobileTerminalRenderGridFrame.Screen.alternate)
+    #expect(delivery.activeScreen == MobileTerminalRenderGridFrame.Screen.primary)
     #expect(delivery.scrollbackRows == 42)
     #expect(delivery.replayColumns == 12)
     #expect(delivery.replayRows == 2)
@@ -196,4 +281,53 @@ import Testing
     #expect(!fullFrame.isReplaceableViewportPatchForMobileDelivery)
     #expect(fullViewportDelta.isReplaceableViewportPatchForMobileDelivery)
     #expect(!partialDelta.isReplaceableViewportPatchForMobileDelivery)
+}
+
+@Test func viewportDeltaEnvelopeRejectsFullFramesInsteadOfRewritingThem() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 3,
+        text: "a\nb\nc",
+        full: true
+    )
+
+    #expect(throws: MobileTerminalRenderGridEnvelope.ValidationError.viewportDeltaRequiresDeltaFrame) {
+        try MobileTerminalRenderGridEnvelope.viewportDelta(frame)
+    }
+}
+
+@Test func snapshotEnvelopeIsTheOnlyHistoryOwningRenderGridDelivery() throws {
+    let primaryWithScrollback = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        full: true,
+        rowSpans: [],
+        activeScreen: .primary,
+        scrollbackRows: 8,
+        scrollbackSpans: []
+    )
+    let viewportDelta = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 2,
+        columns: 12,
+        rows: 2,
+        text: "delta",
+        full: false,
+        changedRows: [0, 1]
+    )
+
+    let snapshot = try MobileTerminalRenderGridEnvelope.snapshot(primaryWithScrollback)
+    let delta = try MobileTerminalRenderGridEnvelope.viewportDelta(viewportDelta)
+
+    #expect(snapshot.ownsScrollback)
+    #expect(snapshot.scrollbackRowsForLocalMirror == 8)
+    #expect(snapshot.replayGrid?.columns == 12)
+    #expect(snapshot.replayGrid?.rows == 2)
+    #expect(!delta.ownsScrollback)
+    #expect(delta.scrollbackRowsForLocalMirror == nil)
+    #expect(delta.replayGrid == nil)
 }

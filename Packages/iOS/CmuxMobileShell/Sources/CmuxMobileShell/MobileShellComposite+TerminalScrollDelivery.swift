@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileRPC
 import Foundation
 import OSLog
@@ -89,13 +90,17 @@ extension MobileShellComposite {
                   remoteClient === client else {
                 return
             }
-            guard let payload = try? MobileTerminalReplayResponse.decode(data),
-                  let renderGrid = payload.renderGrid,
-                  renderGrid.surfaceID == delivery.surfaceID else {
+            guard let payload = try? MobileTerminalReplayResponse.decode(data) else {
                 return
             }
+            let envelope = payload.renderGridEnvelope?.frame.surfaceID == delivery.surfaceID ? payload.renderGridEnvelope :
+                payload.renderGrid.flatMap { renderGrid in
+                    guard renderGrid.surfaceID == delivery.surfaceID else { return nil }
+                    return try? MobileTerminalRenderGridEnvelope.snapshot(renderGrid)
+                }
+            guard let envelope else { return }
             deliverAuthoritativeTerminalRenderGrid(
-                renderGrid,
+                envelope,
                 expectedSurfaceID: delivery.surfaceID,
                 source: "scroll_prefetch"
             )

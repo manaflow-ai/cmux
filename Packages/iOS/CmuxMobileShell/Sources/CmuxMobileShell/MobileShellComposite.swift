@@ -33,19 +33,12 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 @MainActor
 @Observable
 public final class MobileShellComposite: MobileTerminalOutputSinking {
-    private enum TerminalOutputTransport: Equatable {
-        case renderGrid
-        case rawBytes
-
-        var eventTopics: [String] {
-            switch self {
-            case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"]
-            case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge"]
-            }
-        }
-    }
+    private static let terminalEventTopics = [
+        "workspace.updated",
+        "terminal.render_grid",
+        "notification.dismissed",
+        "notification.badge",
+    ]
 
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
 
@@ -591,8 +584,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
+    private var terminalRenderSessionsBySurfaceID: [String: TerminalRenderSession]
     private var terminalReplaySurfaceIDsPendingWorkspaceMapping: Set<String>
-    private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
@@ -721,8 +714,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
+        self.terminalRenderSessionsBySurfaceID = [:]
         self.terminalReplaySurfaceIDsPendingWorkspaceMapping = []
-        self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
@@ -3564,13 +3557,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
+        terminalRenderSessionsBySurfaceID = [:]
         terminalReplaySurfaceIDsPendingWorkspaceMapping = []
         terminalOutputQueuesBySurfaceID = [:]
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
-        terminalOutputTransport = .rawBytes
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
@@ -4384,13 +4377,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return .subscribed(alreadySubscribed: response?.alreadySubscribed)
     }
 
-    private func resolveTerminalOutputTransport(client: MobileCoreRPCClient) async -> TerminalOutputTransport {
-        let fallback: TerminalOutputTransport = .rawBytes
+    private func refreshHostStatus(client: MobileCoreRPCClient, reason: String, timeoutNanoseconds: UInt64? = nil) async {
+        let request: Data
         do {
-            let data = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
-                timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
-            )
+            request = try MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:])
+        } catch {
+            return
+        }
+        do {
+            let data: Data
+            if let timeoutNanoseconds {
+                data = try await client.sendRequest(request, timeoutNanoseconds: timeoutNanoseconds)
+            } else {
+                data = try await client.sendRequest(request)
+            }
             // The status round-trip suspends, and a reconnect/new pairing can
             // install a different `remoteClient` (and a fresh `activeTicket`)
             // in the meantime. A stale response must not mutate the current
@@ -4398,13 +4398,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // OLD Mac's identity onto the NEW connection's empty-id ticket
             // (which would persist the wrong paired-Mac record). The stale
             // listener task tears itself down via its own `remoteClient`
-            // guards; returning the fallback here is inert.
-            guard remoteClient === client else { return fallback }
+            // guards; returning here is inert.
+            guard remoteClient === client else { return }
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
-                terminalOutputTransport = fallback
                 // Preserve learned capabilities during transient status decode failures.
                 scheduleHostIdentityAdoptionIfNeeded(client: client)
-                return fallback
+                MobileDebugLog.anchormux("sync.host_status decode_failed reason=\(reason)")
+                return
             }
             supportedHostCapabilities = Set(payload.capabilities)
             await applyHostReportedIdentity(
@@ -4418,21 +4418,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // applying, run the dedicated recovery (it re-asks the token
             // provider and no-ops once an identity is adopted).
             scheduleHostIdentityAdoptionIfNeeded(client: client)
-            let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
-                payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
-            terminalOutputTransport = transport
-            MobileDebugLog.anchormux("sync.transport=\(transport == .renderGrid ? "render_grid" : "raw_bytes")")
-            return transport
+            if payload.capabilities.contains(Self.terminalRenderGridCapability) ||
+                payload.terminalFidelity == "render_grid" {
+                MobileDebugLog.anchormux("sync.host_status ok reason=\(reason) fidelity=render_grid")
+            } else {
+                MobileDebugLog.anchormux("sync.host_status legacy reason=\(reason)")
+            }
         } catch {
-            guard remoteClient === client else { return fallback }
-            terminalOutputTransport = fallback
+            guard remoteClient === client else { return }
             // Preserve learned capabilities during transient reconnect probe failures.
             // The probe is best-effort for the terminal transport, but a
             // freshly QR-paired Mac still needs its identity recovered, with
             // a real timeout instead of the probe's 750ms.
             scheduleHostIdentityAdoptionIfNeeded(client: client)
-            MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
-            return fallback
+            MobileDebugLog.anchormux("sync.host_status failed reason=\(reason)")
         }
     }
 
@@ -4443,7 +4442,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionRefreshTask = Task { @MainActor [weak self] in
             defer { self?.terminalSubscriptionRefreshTask = nil }
             guard let self else { return }
-            let topics = self.terminalOutputTransport.eventTopics
+            let topics = Self.terminalEventTopics
             _ = await self.requestTerminalEventSubscription(
                 client: client,
                 reason: reason,
@@ -4479,8 +4478,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
 
-            let outputTransport = await self?.resolveTerminalOutputTransport(client: client) ?? .rawBytes
-            let topics = outputTransport.eventTopics
+            MobileDebugLog.anchormux("sync.transport=render_grid")
+            Task { @MainActor [weak self] in
+                await self?.refreshHostStatus(
+                    client: client,
+                    reason: "event_listener_start",
+                    timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
+                )
+            }
+            let topics = Self.terminalEventTopics
             let stream = await client.subscribe(to: Set(topics))
             // Kick off the server-side enable handshake CONCURRENTLY with
             // consumption. The old structure awaited the ack here, which
@@ -4495,7 +4501,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 client: client,
                 listenerID: listenerID,
                 topics: topics,
-                transport: outputTransport
+                transportName: "render_grid"
             )
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
@@ -4510,11 +4516,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
-                } else if event.topic == "terminal.bytes" {
-                    // Raw PTY bytes coming from the Mac surface's libghostty
-                    // pty-tee. This is the compatibility fallback when the Mac
-                    // host does not advertise `terminal.render_grid.v1`.
-                    self.handleTerminalBytesEvent(event)
                 } else if event.topic == "notification.dismissed" {
                     await self.handleNotificationDismissedEvent(event)
                 } else if event.topic == "notification.badge" {
@@ -4538,7 +4539,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         client: MobileCoreRPCClient,
         listenerID: UUID,
         topics: [String],
-        transport: TerminalOutputTransport
+        transportName: String
     ) {
         guard terminalEventListenerID == listenerID else { return }
         terminalSubscriptionStartTask?.cancel()
@@ -4559,7 +4560,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             self.markMacConnectionHealthy()
-            MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+            MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transportName)")
             self.scheduleNotificationReconcile(client: client)
         }
     }
@@ -4716,7 +4717,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard renderGridLivenessProbeTask == nil else { return }
         let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
             ?? 3_000_000_000
-        let topics = terminalOutputTransport.eventTopics
+        let topics = Self.terminalEventTopics
         let probeID = UUID()
         renderGridLivenessProbeID = probeID
         renderGridLivenessProbeTask = Task { @MainActor [weak self] in
@@ -4868,8 +4869,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
-        if terminalOutputTransport == .renderGrid,
-           terminalEventListenerTask != nil {
+        if terminalEventListenerTask != nil {
             let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID]
             pendingTerminalByteEndSeqBySurfaceID[surfaceID] = max(remoteSeq, pendingSeq ?? 0)
             if let pendingSeq, localSeq < pendingSeq {
@@ -4919,23 +4919,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func deliverAuthoritativeTerminalRenderGrid(
-        _ renderGrid: MobileTerminalRenderGridFrame,
+        _ envelope: MobileTerminalRenderGridEnvelope,
         expectedSurfaceID: String? = nil,
         source: String
     ) {
-        guard expectedSurfaceID == nil || renderGrid.surfaceID == expectedSurfaceID,
-              hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
+        let surfaceID = envelope.frame.surfaceID
+        guard expectedSurfaceID == nil || surfaceID == expectedSurfaceID,
+              hasTerminalOutputSink(surfaceID: surfaceID) else {
             return
         }
-        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
-           deliveredSeq > renderGrid.stateSeq {
+        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
+           deliveredSeq > envelope.frame.stateSeq {
             MobileDebugLog.anchormux(
-                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
+                "sync.render_grid_stale source=\(source) surface=\(surfaceID) delivered=\(deliveredSeq) frame=\(envelope.frame.stateSeq)"
             )
             return
         }
-        markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)
-        deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
+        markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: envelope.frame.stateSeq)
+        deliverTerminalRenderGrid(envelope, surfaceID: surfaceID)
     }
 
     private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
@@ -4956,6 +4957,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
+        terminalRenderSessionsBySurfaceID[surfaceID] = TerminalRenderSession()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         #if DEBUG
@@ -4973,6 +4975,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderSessionsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplaySurfaceIDsPendingWorkspaceMapping.remove(surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
@@ -5059,6 +5062,82 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private func beginTerminalRenderSnapshot(surfaceID: String) {
+        var session = terminalRenderSessionsBySurfaceID[surfaceID] ?? TerminalRenderSession()
+        session.beginSnapshot()
+        terminalRenderSessionsBySurfaceID[surfaceID] = session
+    }
+
+    private func terminalRenderSnapshotEnvelopes(
+        _ envelope: MobileTerminalRenderGridEnvelope,
+        surfaceID: String
+    ) -> [MobileTerminalRenderGridEnvelope] {
+        var session = terminalRenderSessionsBySurfaceID[surfaceID] ?? TerminalRenderSession()
+        let envelopes = session.receiveSnapshot(envelope)
+        terminalRenderSessionsBySurfaceID[surfaceID] = session
+        if envelopes.count > 1 {
+            MobileDebugLog.anchormux("CMUX_REPLAY drain_buffered surface=\(surfaceID) count=\(envelopes.count - 1)")
+        }
+        return envelopes
+    }
+
+    private func terminalRenderLiveEnvelopes(
+        _ envelope: MobileTerminalRenderGridEnvelope,
+        surfaceID: String
+    ) -> [MobileTerminalRenderGridEnvelope] {
+        var session = terminalRenderSessionsBySurfaceID[surfaceID] ?? TerminalRenderSession()
+        let envelopes = session.receiveLive(envelope)
+        terminalRenderSessionsBySurfaceID[surfaceID] = session
+        #if DEBUG
+        if envelopes.isEmpty {
+            mobileShellLog.info(
+                "CMUX_REPLAY buffer/drop live render-grid surface=\(surfaceID, privacy: .public) buffered=\(session.bufferedLiveCount, privacy: .public)"
+            )
+        }
+        #endif
+        return envelopes
+    }
+
+    private func cancelTerminalRenderSnapshot(surfaceID: String, baseSeq: UInt64? = nil) {
+        var session = terminalRenderSessionsBySurfaceID[surfaceID] ?? TerminalRenderSession()
+        session.cancelSnapshot(baseSeq: baseSeq)
+        terminalRenderSessionsBySurfaceID[surfaceID] = session
+    }
+
+    private func deliverTerminalRenderGridEnvelopes(
+        _ envelopes: [MobileTerminalRenderGridEnvelope],
+        surfaceID: String,
+        source: String
+    ) {
+        for envelope in envelopes {
+            deliverAuthoritativeTerminalRenderGrid(
+                envelope,
+                expectedSurfaceID: surfaceID,
+                source: source
+            )
+        }
+    }
+
+    #if DEBUG
+    func debugBeginInitialTerminalReplayForTesting(surfaceID: String) {
+        beginTerminalRenderSnapshot(surfaceID: surfaceID)
+    }
+
+    func debugDeliverInitialTerminalReplayForTesting(
+        _ envelope: MobileTerminalRenderGridEnvelope,
+        surfaceID: String
+    ) {
+        let envelopes = terminalRenderSnapshotEnvelopes(envelope, surfaceID: surfaceID)
+        deliverTerminalRenderGridEnvelopes(envelopes, surfaceID: surfaceID, source: "test_replay")
+    }
+
+    func debugDeliverLiveRenderGridForTesting(_ envelope: MobileTerminalRenderGridEnvelope) {
+        let surfaceID = envelope.frame.surfaceID
+        let envelopes = terminalRenderLiveEnvelopes(envelope, surfaceID: surfaceID)
+        deliverTerminalRenderGridEnvelopes(envelopes, surfaceID: surfaceID, source: "test_event")
+    }
+    #endif
+
     /// Cold-attach/self-heal replay. Prefer the Mac's bounded render-grid
     /// snapshot, replacing the local iOS terminal state before live bytes
     /// resume. The VT snapshot and raw byte ring remain fallbacks, but neither
@@ -5086,6 +5165,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         terminalReplaySurfaceIDsInFlight.insert(surfaceID)
+        beginTerminalRenderSnapshot(surfaceID: surfaceID)
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.terminalReplaySurfaceIDsInFlight.remove(surfaceID) }
@@ -5104,8 +5184,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let payload = try? MobileTerminalReplayResponse.decode(data)
                 let bytes = payload?.dataBase64.flatMap { Data(base64Encoded: $0) }
                 let snapshotBytes = payload?.snapshotBase64.flatMap { Data(base64Encoded: $0) }
+                let decodedEnvelope = payload?.renderGridEnvelope
                 let decodedRenderGrid = payload?.renderGrid
-                let renderGrid = decodedRenderGrid?.surfaceID == surfaceID ? decodedRenderGrid : nil
+                let envelope = decodedEnvelope?.frame.surfaceID == surfaceID ? decodedEnvelope :
+                    decodedRenderGrid.flatMap { renderGrid in
+                        guard renderGrid.surfaceID == surfaceID else { return nil }
+                        return try? MobileTerminalRenderGridEnvelope.snapshot(renderGrid)
+                    }
+                let renderGrid = envelope?.frame
                 let replaySeq = renderGrid?.stateSeq ?? payload?.sequence
                 #if DEBUG
                 let seq = replaySeq ?? 0
@@ -5117,6 +5203,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                    let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
                    deliveredSeq > replaySeq {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
+                    self.cancelTerminalRenderSnapshot(surfaceID: surfaceID, baseSeq: deliveredSeq)
                     return
                 }
                 let deliverBytes: Data?
@@ -5137,15 +5224,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let replaySeq {
                     self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
                 }
-                if let renderGrid {
-                    self.deliverTerminalRenderGrid(renderGrid, surfaceID: surfaceID)
+                if let envelope {
+                    let envelopes = self.terminalRenderSnapshotEnvelopes(envelope, surfaceID: surfaceID)
+                    self.deliverTerminalRenderGridEnvelopes(envelopes, surfaceID: surfaceID, source: "replay")
                     return
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
+                    self.cancelTerminalRenderSnapshot(surfaceID: surfaceID, baseSeq: replaySeq)
                     return
                 }
                 self.deliverTerminalBytes(deliverBytes, surfaceID: surfaceID)
+                self.cancelTerminalRenderSnapshot(surfaceID: surfaceID, baseSeq: replaySeq)
             } catch {
+                self.cancelTerminalRenderSnapshot(surfaceID: surfaceID)
                 mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
                 // The replay request is the view-only/foreground-resume path. A
                 // definitive auth failure here (after the RPC layer's
@@ -5161,17 +5252,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let json = event.payloadJSON else {
             return
         }
-        // The frame may arrive nested under `render_grid` or as the bare payload;
-        // try the wrapper first, then fall back to decoding the whole payload.
         let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
-        guard let renderGrid = renderGridDTO?.frame ?? (try? MobileTerminalRenderGridFrame.decode(json)),
-              hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
+        let envelope = renderGridDTO?.envelope ?? (try? MobileTerminalRenderGridEnvelope.decode(json))
+        guard let envelope,
+              envelope.role == .viewportDelta,
+              hasTerminalOutputSink(surfaceID: envelope.frame.surfaceID) else {
+            MobileDebugLog.anchormux("CMUX_REPLAY live render_grid_invalid_envelope")
             return
         }
+        let renderGrid = envelope.frame
         #if DEBUG
-        mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
+        mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) role=viewport_delta full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
-        deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
+        let envelopes = terminalRenderLiveEnvelopes(envelope, surfaceID: renderGrid.surfaceID)
+        deliverTerminalRenderGridEnvelopes(envelopes, surfaceID: renderGrid.surfaceID, source: "event")
     }
 
     private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
@@ -5213,6 +5307,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let debugSeq = payload.sequence ?? 0
         mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(debugSeq, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")
         #endif
+        applyTerminalBytesEvent(payload)
+    }
+
+    private func applyTerminalBytesEvent(_ payload: MobileTerminalBytesEvent) {
+        let surfaceID = payload.surfaceID
+        let bytes = payload.bytes
         guard let seq = payload.sequence else {
             deliverTerminalBytes(bytes, surfaceID: surfaceID)
             return

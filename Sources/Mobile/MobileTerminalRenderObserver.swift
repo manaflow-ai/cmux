@@ -224,7 +224,13 @@ final class MobileTerminalRenderObserver {
                 frame = deltaFrame
             }
         } else {
-            frame = snapshot.frame
+            guard let fullViewportDelta = try? snapshot.frame.filteredRows(
+                Set(0..<snapshot.frame.rows),
+                full: false
+            ) else {
+                return
+            }
+            frame = fullViewportDelta
         }
 
         renderGridStatesBySurfaceID[surfaceID] = RenderGridState(
@@ -233,11 +239,12 @@ final class MobileTerminalRenderObserver {
             stateSeq: frame.stateSeq,
             rowSignatures: nextSignatures
         )
-        guard let payload = try? frame.jsonObject() else { return }
+        guard let envelope = try? MobileTerminalRenderGridEnvelope.viewportDelta(frame),
+              let payload = try? envelope.jsonObject() else { return }
         MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)
         #if DEBUG
         cmuxDebugLog(
-            "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(frame.full) " +
+            "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) role=viewport_delta full=\(frame.full) " +
                 "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) seq=\(frame.stateSeq)"
         )
         #endif

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileTransport
 import CmuxMobileRPC
 import Foundation
 import Testing
@@ -41,6 +42,16 @@ struct LivenessTestRuntime: MobileSyncRuntime {
     /// Bounded deadline for the watchdog's host liveness probe. Short here so
     /// the dead-stream test does not wait the production default.
     var livenessProbeTimeoutNanoseconds: UInt64 = 200_000_000
+}
+
+struct AlwaysOnlineReachability: ReachabilityProviding {
+    var isOnline: Bool { get async { true } }
+
+    func pathChanges() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            continuation.finish()
+        }
+    }
 }
 
 // MARK: - Scripted host (router + transport)
@@ -321,6 +332,7 @@ func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
         terminalID: "live-terminal",
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
+        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
         routes: [route],
         expiresAt: clock.now.addingTimeInterval(3600)
     )
@@ -345,10 +357,12 @@ func renderGridEventFrame(surfaceID: String, seq: UInt64, text: String) throws -
         rows: 4,
         text: text
     )
+    let delta = try frame.filteredRows(Set(0..<frame.rows), full: false)
+    let gridEnvelope = try MobileTerminalRenderGridEnvelope.viewportDelta(delta)
     let envelope: [String: Any] = [
         "kind": "event",
         "topic": "terminal.render_grid",
-        "payload": try frame.jsonObject(),
+        "payload": try gridEnvelope.jsonObject(),
     ]
     return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
 }
@@ -381,7 +395,12 @@ func makeConnectedStore(
         now: { clock.now },
         livenessProbeTimeoutNanoseconds: probeTimeoutNanoseconds
     )
-    let store = MobileShellComposite.preview(runtime: runtime)
+    let store = MobileShellComposite(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        reachability: AlwaysOnlineReachability(),
+        deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+    )
     store.signIn()
     let ticket = try makeTicket(clock: clock)
     let connected = await store.connectPairingURL(try attachURL(for: ticket))

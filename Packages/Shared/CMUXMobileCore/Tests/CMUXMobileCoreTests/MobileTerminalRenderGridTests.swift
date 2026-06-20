@@ -84,6 +84,88 @@ import Testing
     #expect(vt.contains("echo hell"))
 }
 
+@Test func renderGridEnvelopeSeparatesSnapshotOwnershipFromLiveDeltas() throws {
+    let snapshotFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 10,
+        columns: 8,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "alpha"),
+            .init(row: 1, column: 0, text: "beta"),
+        ],
+        scrollbackRows: 1,
+        scrollbackSpans: [.init(row: 0, column: 0, text: "old")]
+    )
+    let snapshot = try MobileTerminalRenderGridEnvelope.snapshot(snapshotFrame)
+
+    #expect(snapshot.ownsScrollback)
+    #expect(snapshot.scrollbackRowsForLocalMirror == 1)
+    #expect(snapshot.replayGrid?.columns == 8)
+    #expect(snapshot.replayGrid?.rows == 2)
+
+    let deltaFrame = try snapshotFrame.filteredRows([1], full: false)
+    let delta = try MobileTerminalRenderGridEnvelope.viewportDelta(deltaFrame)
+
+    #expect(!delta.ownsScrollback)
+    #expect(delta.scrollbackRowsForLocalMirror == nil)
+    #expect(delta.replayGrid == nil)
+}
+
+@Test func renderGridEnvelopeRejectsAmbiguousFrameRoles() throws {
+    let fullFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 11,
+        columns: 8,
+        rows: 1,
+        text: "live"
+    )
+    let deltaFrame = try fullFrame.filteredRows([0], full: false)
+
+    #expect(throws: MobileTerminalRenderGridEnvelope.ValidationError.viewportDeltaRequiresDeltaFrame) {
+        _ = try MobileTerminalRenderGridEnvelope.viewportDelta(fullFrame)
+    }
+    #expect(throws: MobileTerminalRenderGridEnvelope.ValidationError.snapshotRequiresFullFrame) {
+        _ = try MobileTerminalRenderGridEnvelope.snapshot(deltaFrame)
+    }
+}
+
+@Test func renderGridEnvelopeJSONRoundTripsRoleAndFrame() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 12,
+        columns: 8,
+        rows: 1,
+        text: "delta"
+    )
+    let envelope = try MobileTerminalRenderGridEnvelope.viewportDelta(
+        frame.filteredRows([0], full: false)
+    )
+    let object = try envelope.jsonObject()
+    let data = try JSONSerialization.data(withJSONObject: object)
+
+    #expect(try MobileTerminalRenderGridEnvelope.decode(data) == envelope)
+}
+
+@Test func renderGridEnvelopeDecodeRejectsFullLiveDeltaPayloads() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 13,
+        columns: 8,
+        rows: 1,
+        text: "full"
+    )
+    let payload: [String: Any] = [
+        "role": MobileTerminalRenderGridEnvelope.Role.viewportDelta.rawValue,
+        "render_grid": try frame.jsonObject(),
+    ]
+    let data = try JSONSerialization.data(withJSONObject: payload)
+
+    #expect(throws: MobileTerminalRenderGridEnvelope.ValidationError.viewportDeltaRequiresDeltaFrame) {
+        _ = try MobileTerminalRenderGridEnvelope.decode(data)
+    }
+}
+
 @Test func renderGridDeltaClearsRowEmptiedByBackspace() throws {
     // Deleting an entire line leaves a row with no spans at all. The delta must
     // still emit ESC[2K for that row so stale content does not survive on the

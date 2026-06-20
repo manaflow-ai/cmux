@@ -602,10 +602,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastAppliedContentScale: CGFloat = 0
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
-    private var activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
+    var activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
     var localScrollRowOffset: Double = 0
     var localScrollbackMaxRowOffset: Double = 0
-    private var localScrollbackBoundsInitialized = false
+    var localScrollbackBoundsInitialized = false
+    var localScrollbackAnchorToBottomOnNextScrollbar = false
+    var localScrollbackReplayRows: Int = 0
     private let scrollForwardingPolicy = MobileTerminalScrollForwardingPolicy()
     public var decouplePrimaryScreenScroll: Bool = true
     /// Serial background queue for `ghostty_surface_process_output`, which
@@ -810,6 +812,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
     private var lastRenderRect: CGRect = .zero
+    private var lastTerminalContainerSize: CGSize?
 
     #if DEBUG
     struct DebugGeometrySnapshot {
@@ -2257,11 +2260,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let previousMax = localScrollbackMaxRowOffset
         let wasAtBottom = !localScrollbackBoundsInitialized
             || abs(localScrollRowOffset - previousMax) < 0.5
-        localScrollbackMaxRowOffset = Double(max(0, scrollbackRows))
-        localScrollbackBoundsInitialized = true
-        if wasAtBottom || localScrollRowOffset > localScrollbackMaxRowOffset {
+        localScrollbackAnchorToBottomOnNextScrollbar = wasAtBottom
+        localScrollbackReplayRows = max(0, scrollbackRows)
+        if wasAtBottom, localScrollbackBoundsInitialized {
             localScrollRowOffset = localScrollbackMaxRowOffset
         }
+        updateCursorOverlay()
+        MobileDebugLog.anchormux(
+            "replay.metadata screen=\(activeScreen?.rawValue ?? "nil") "
+            + "scrollbackRows=\(scrollbackRows) maxOffset=\(String(format: "%.2f", localScrollbackMaxRowOffset)) "
+            + "rowOffset=\(String(format: "%.2f", localScrollRowOffset)) wasAtBottom=\(wasAtBottom) "
+            + "awaitingScrollbar=true"
+        )
     }
 
     /// Ensure the local Ghostty mirror is sized to the replay grid before a full
@@ -2270,14 +2280,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// lets the later resize collapse the mirror back to a viewport-only screen.
     public func prepareForReplayViewport(columns: Int?, rows: Int?) async {
         guard let columns, let rows, columns > 0, rows > 0 else { return }
-        if replayViewportReady(columns: columns, rows: rows) { return }
+        MobileDebugLog.anchormux(
+            "replay.prepare.begin grid=\(columns)x\(rows) "
+            + "ready=\(replayViewportReady(columns: columns, rows: rows)) "
+            + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
+            + "cell=\(Int(cellPixelSize.width))x\(Int(cellPixelSize.height)) "
+            + "render=\(Int(lastRenderRect.width))x\(Int(lastRenderRect.height)) window=\(window != nil)"
+        )
+        if replayViewportReady(columns: columns, rows: rows) {
+            MobileDebugLog.anchormux("replay.prepare.ready grid=\(columns)x\(rows) mode=already")
+            return
+        }
         applyViewSize(cols: columns, rows: rows)
-        if replayViewportReady(columns: columns, rows: rows) { return }
-        guard window != nil else { return }
+        if replayViewportReady(columns: columns, rows: rows) {
+            MobileDebugLog.anchormux("replay.prepare.ready grid=\(columns)x\(rows) mode=sync")
+            return
+        }
+        guard window != nil else {
+            MobileDebugLog.anchormux("replay.prepare.skip grid=\(columns)x\(rows) reason=no_window")
+            return
+        }
         let waiterID = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 geometryWaiters[waiterID] = continuation
+                MobileDebugLog.anchormux(
+                    "replay.prepare.wait grid=\(columns)x\(rows) waiter=\(waiterID.uuidString.prefix(8))"
+                )
                 setNeedsGeometrySync(reassertNaturalSize: false)
             }
         } onCancel: { [weak self] in
@@ -2285,6 +2314,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 self?.cancelGeometryWaiter(id: waiterID)
             }
         }
+        MobileDebugLog.anchormux(
+            "replay.prepare.ready grid=\(columns)x\(rows) mode=wait "
+            + "ready=\(replayViewportReady(columns: columns, rows: rows)) "
+            + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
+            + "cell=\(Int(cellPixelSize.width))x\(Int(cellPixelSize.height)) "
+            + "render=\(Int(lastRenderRect.width))x\(Int(lastRenderRect.height))"
+        )
     }
 
     private func replayViewportReady(columns: Int, rows: Int) -> Bool {
@@ -2296,7 +2332,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func cancelGeometryWaiter(id: UUID) {
-        geometryWaiters.removeValue(forKey: id)?.resume()
+        guard let waiter = geometryWaiters.removeValue(forKey: id) else { return }
+        MobileDebugLog.anchormux("replay.prepare.cancel waiter=\(id.uuidString.prefix(8))")
+        waiter.resume()
     }
 
     /// Process terminal output and return after the output has been applied.
@@ -2891,9 +2929,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func updateCursorOverlay() {
+    func updateCursorOverlay() {
         guard let surface,
               hostCursorVisible,
+              isViewingLiveBottom,
               window != nil,
               !isHidden,
               alpha > 0.01,
@@ -3246,8 +3285,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         for waiter in waiters {
             waiter.resume()
         }
+        if !waiters.isEmpty {
+            MobileDebugLog.anchormux(
+                "replay.geometry.resume waiters=\(waiters.count) "
+                + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
+                + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
+                + "render=\(Int(renderRect.width))x\(Int(renderRect.height))"
+            )
+        }
 
         let naturalSize = result.naturalSize
+        let currentContainerSize = CGSize(width: containerW, height: containerH)
+        let containerShrank = lastTerminalContainerSize.map {
+            currentContainerSize.width + 0.5 < $0.width || currentContainerSize.height + 0.5 < $0.height
+        } ?? false
+        lastTerminalContainerSize = currentContainerSize
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
@@ -3255,6 +3307,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
         guard shouldReportNaturalSize, naturalSize.columns > 0, naturalSize.rows > 0 else { return }
         lastReportedSize = naturalSize
+        if containerShrank {
+            pendingViewportReport = nil
+            viewportReportSettleFrames = 0
+            MobileDebugLog.anchormux("zoom.report.immediate grid=\(naturalSize.columns)x\(naturalSize.rows) reason=container_shrink")
+            delegate?.ghosttySurfaceView(self, didResize: naturalSize)
+            return
+        }
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.
         pendingViewportReport = naturalSize
@@ -3571,6 +3630,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @MainActor
     static func ringBell(for surface: ghostty_surface_t) {
         view(for: surface)?.handleBell()
+    }
+
+    @MainActor
+    static func updateScrollbar(total: UInt64, offset: UInt64, len: UInt64, for surface: ghostty_surface_t) {
+        view(for: surface)?.updateLocalScrollbackBounds(total: total, offset: offset, len: len)
     }
 
     @MainActor

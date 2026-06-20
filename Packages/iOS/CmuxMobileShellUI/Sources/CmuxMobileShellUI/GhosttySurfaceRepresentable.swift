@@ -7,8 +7,8 @@ import SwiftUI
 import UIKit
 
 /// SwiftUI wrapper that mounts a `GhosttySurfaceView` and routes the
-/// matching surface's PTY bytes (received via `terminal.bytes` events)
-/// into `ghostty_surface_process_output`. The result is that the iPhone
+/// matching surface's terminal output into `ghostty_surface_process_output`.
+/// The result is that the iPhone
 /// runs the same libghostty terminal core + Metal renderer as the Mac,
 /// fed by the Mac's own read thread byte-for-byte. No Swift VT parser,
 /// no snapshot rehydration, no cell-by-cell SwiftUI tree.
@@ -143,15 +143,25 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let surfaceView else { return }
-                    surfaceView.applyTerminalOutputMetadata(
-                        activeScreen: chunk.activeScreen,
-                        scrollbackRows: chunk.scrollbackRows
+                    MobileDebugLog.anchormux(
+                        "replay.chunk.begin surface=\(surfaceID) bytes=\(chunk.data.count) "
+                        + "screen=\(chunk.activeScreen?.rawValue ?? "nil") "
+                        + "scrollbackRows=\(chunk.scrollbackRows.map(String.init) ?? "nil") "
+                        + "grid=\(chunk.replayColumns.map(String.init) ?? "nil")x\(chunk.replayRows.map(String.init) ?? "nil")"
                     )
                     await surfaceView.prepareForReplayViewport(
                         columns: chunk.replayColumns,
                         rows: chunk.replayRows
                     )
                     await surfaceView.processOutputAndWait(chunk.data)
+                    surfaceView.applyTerminalOutputMetadata(
+                        activeScreen: chunk.activeScreen,
+                        scrollbackRows: chunk.scrollbackRows
+                    )
+                    MobileDebugLog.anchormux(
+                        "replay.chunk.done surface=\(surfaceID) bytes=\(chunk.data.count) "
+                        + "scrollbackRows=\(chunk.scrollbackRows.map(String.init) ?? "nil")"
+                    )
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken

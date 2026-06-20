@@ -5,7 +5,7 @@ import Foundation
 struct TerminalOutputDelivery: Equatable, Sendable {
     private enum Payload: Equatable, Sendable {
         case bytes(Data)
-        case renderGrid(MobileTerminalRenderGridFrame)
+        case renderGrid(MobileTerminalRenderGridEnvelope)
     }
 
     private var payload: Payload
@@ -16,8 +16,8 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replaceable = replaceable
     }
 
-    init(renderGrid frame: MobileTerminalRenderGridFrame, replaceable: Bool) {
-        self.payload = .renderGrid(frame)
+    init(renderGrid envelope: MobileTerminalRenderGridEnvelope, replaceable: Bool) {
+        self.payload = .renderGrid(envelope)
         self.replaceable = replaceable
     }
 
@@ -25,8 +25,8 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         switch payload {
         case .bytes(let bytes):
             bytes
-        case .renderGrid(let frame):
-            frame.vtPatchBytes()
+        case .renderGrid(let envelope):
+            envelope.frame.vtPatchBytes()
         }
     }
 
@@ -34,8 +34,8 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         switch payload {
         case .bytes:
             nil
-        case .renderGrid(let frame):
-            frame.activeScreen
+        case .renderGrid(let envelope):
+            envelope.frame.activeScreen
         }
     }
 
@@ -43,8 +43,8 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         switch payload {
         case .bytes:
             nil
-        case .renderGrid(let frame):
-            frame.full ? frame.scrollbackRows : nil
+        case .renderGrid(let envelope):
+            envelope.scrollbackRowsForLocalMirror
         }
     }
 
@@ -52,8 +52,8 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         switch payload {
         case .bytes:
             nil
-        case .renderGrid(let frame):
-            frame.full ? frame.columns : nil
+        case .renderGrid(let envelope):
+            envelope.replayGrid?.columns
         }
     }
 
@@ -61,8 +61,8 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         switch payload {
         case .bytes:
             nil
-        case .renderGrid(let frame):
-            frame.full ? frame.rows : nil
+        case .renderGrid(let envelope):
+            envelope.replayGrid?.rows
         }
     }
 }

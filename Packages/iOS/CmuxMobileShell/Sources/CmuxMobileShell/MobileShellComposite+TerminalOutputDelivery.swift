@@ -11,11 +11,14 @@ extension MobileShellComposite {
         )
     }
 
-    func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
+    func deliverTerminalRenderGrid(
+        _ envelope: MobileTerminalRenderGridEnvelope,
+        surfaceID: String
+    ) {
         deliverTerminalOutput(
             TerminalOutputDelivery(
-                renderGrid: frame,
-                replaceable: frame.isReplaceableViewportPatchForMobileDelivery
+                renderGrid: envelope,
+                replaceable: envelope.isReplaceableViewportDelta
             ),
             surfaceID: surfaceID
         )
