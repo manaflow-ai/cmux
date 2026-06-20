@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -361,6 +362,79 @@ struct DockSocketLifecycleTests {
             #expect(!store.containsPanel(panelId))
             #expect(!notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
         }
+    }
+
+    @Test("Dock pane routing and focused close stay in the Dock")
+    @MainActor
+    func dockPaneRoutingAndFocusedCloseStayInDock() throws {
+#if DEBUG
+        try withDockEnabled {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let activeManager = TabManager(autoWelcomeIfNeeded: false)
+            let dockManager = TabManager(autoWelcomeIfNeeded: false)
+            let fileExplorerState = FileExplorerState()
+            let dockWindowId = UUID()
+            let dockWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            dockWindow.isReleasedWhenClosed = false
+            dockWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(dockWindowId.uuidString)")
+
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = activeManager
+            TerminalController.shared.setActiveTabManager(activeManager)
+            let activeWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: activeManager)
+            appDelegate.registerMainWindow(dockWindow, windowId: dockWindowId, tabManager: dockManager, sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState(), fileExplorerState: fileExplorerState)
+            dockWindow.orderFront(nil)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: activeWindowId)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: dockWindowId)
+                activeManager.tabs.forEach { $0.teardownAllPanels() }
+                dockManager.tabs.forEach { $0.teardownAllPanels() }
+                dockWindow.orderOut(nil)
+                dockWindow.close()
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let activeWorkspace = try #require(activeManager.tabs.first)
+            let dockWorkspace = try #require(dockManager.tabs.first)
+            let dockPane = try #require(dockWorkspace.dockSplit.bonsplitController.allPaneIds.first)
+            let result = try v2Result(method: "surface.create", params: ["placement": "dock", "type": "terminal", "pane_id": dockPane.id.uuidString])
+            let dockSurfaceIdRaw = try #require(result["dock_surface_id"] as? String)
+            let dockSurfaceId = try #require(UUID(uuidString: dockSurfaceIdRaw))
+            #expect(result["window_id"] as? String == dockWindowId.uuidString)
+            #expect(result["workspace_id"] as? String == dockWorkspace.id.uuidString)
+            #expect(dockWorkspace.dockSplit.containsPanel(dockSurfaceId))
+            #expect(!activeWorkspace.dockSplit.containsPanel(dockSurfaceId))
+
+            let closeAction = KeyboardShortcutSettings.Action.closeTab
+            let hadCloseShortcut = UserDefaults.standard.object(forKey: closeAction.defaultsKey) != nil
+            let originalCloseShortcut = KeyboardShortcutSettings.shortcut(for: closeAction)
+            KeyboardShortcutSettings.setShortcut(closeAction.defaultShortcut, for: closeAction)
+            defer {
+                if hadCloseShortcut {
+                    KeyboardShortcutSettings.setShortcut(originalCloseShortcut, for: closeAction)
+                } else {
+                    KeyboardShortcutSettings.resetShortcut(for: closeAction)
+                }
+            }
+
+            let mainPanelCount = dockWorkspace.panels.count
+            let focusedMainPanel = dockWorkspace.focusedPanelId
+            fileExplorerState.setVisible(true)
+            fileExplorerState.mode = .dock
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: dockWindow)
+            let closeEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: dockWindow.windowNumber, context: nil, characters: "w", charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13))
+
+            #expect(appDelegate.debugHandleCustomShortcut(event: closeEvent))
+            #expect(!dockWorkspace.dockSplit.containsPanel(dockSurfaceId))
+            #expect(dockWorkspace.panels.count == mainPanelCount)
+            #expect(dockWorkspace.focusedPanelId == focusedMainPanel)
+        }
+#else
+        Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
     }
 
     @Test("Runtime close routes Dock terminals through the Dock lifecycle")
