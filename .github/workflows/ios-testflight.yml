@@ -46,7 +46,7 @@ permissions:
 jobs:
   decide:
     name: Decide whether a TestFlight upload is needed
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     timeout-minutes: 5
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
@@ -104,7 +104,7 @@ jobs:
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
-    runs-on: macos-26
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}

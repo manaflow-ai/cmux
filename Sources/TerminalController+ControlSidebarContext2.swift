@@ -1,7 +1,7 @@
 import CmuxControlSocket
 import CmuxRemoteSession
 import Foundation
-import CmuxWorkspaceCore
+import CmuxWorkspaces
 import CmuxSidebar
 
 /// The live-app half of the v1 sidebar telemetry/report commands
@@ -417,7 +417,7 @@ extension TerminalController {
         case .ok:
             return .ok
         case .state(let state):
-            return .state(visible: state.visible, modeRawValue: state.mode.rawValue)
+            return .state(visible: state.visible, modeRawValue: state.modeRawValue)
         case .failure(let message):
             return .failure(message: message)
         }
