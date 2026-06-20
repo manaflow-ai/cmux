@@ -256,25 +256,45 @@ struct DockControlDefinitionDecodingTests {
         #expect(store.focusedPanelId == explicitPanelId)
     }
 
+    @Test("Root changes during pending Dock load ignore stale config results")
+    @MainActor
+    func rootChangeDuringPendingLoadIgnoresStaleConfigResult() throws {
+        let oldRoot = try makeTemporaryDirectory()
+        let newRoot = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: oldRoot)
+            try? FileManager.default.removeItem(at: newRoot)
+        }
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { newRoot.path })
+        defer { store.closeAllPanels() }
+
+        let staleGeneration = store.markConfigurationLoadInFlightForTesting(rootDirectory: oldRoot.path)
+        store.setRootDirectory(newRoot.path)
+        store.setActive(isVisible: true, mode: .dock)
+
+        let staleResolution = DockConfigResolution(
+            controls: [DockControlDefinition(id: "old", title: "Old", command: "echo old")],
+            sourceURL: nil,
+            baseDirectory: oldRoot.path,
+            isProjectSource: false
+        )
+        store.applyConfigurationLoadResult(.resolved(staleResolution), generation: staleGeneration, replacingPanels: false)
+
+        #expect(store.bonsplitController.allTabIds.isEmpty)
+    }
+
     @Test("Dock browser closes when WebKit requests close")
     @MainActor
     func dockBrowserClosesWhenWebViewRequestsClose() throws {
-        let defaults = UserDefaults.standard
-        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
-        BrowserAvailabilitySettings.setDisabled(false)
-        defer {
-            if let previousBrowserDisabled = previousBrowserDisabled as? Bool {
-                BrowserAvailabilitySettings.setDisabled(previousBrowserDisabled, defaults: defaults)
-            } else {
-                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
-                NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
-            }
-        }
-
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { root.path })
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { true }
+        )
         defer { store.closeAllPanels() }
 
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)

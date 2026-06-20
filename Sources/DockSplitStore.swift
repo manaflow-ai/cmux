@@ -7,14 +7,6 @@ import CmuxTerminal
 import Observation
 import SwiftUI
 
-/// Hosts the Dock's own Bonsplit tree of `Panel`s — terminals and browsers —
-/// rendered in the right sidebar with the same split machinery as the main
-/// content area. Each workspace owns one instance via `Workspace.dockSplit`.
-///
-/// This is a lean parallel to `Workspace`'s main-area container: it owns its own
-/// `BonsplitController`, panel registry, and `BonsplitDelegate`, reusing
-/// `TerminalPanel`/`BrowserPanel` (so Dock browsers share the same browser stack
-/// — cookies, profiles, devtools — as main-split browsers).
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate {
@@ -28,6 +20,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
+    private let browserAvailabilityProvider: () -> Bool
     private var panels: [UUID: any Panel] = [:]
     private var surfaceIdToPanelId: [TabID: UUID] = [:]
     private var panelCancellables: [UUID: AnyCancellable] = [:]
@@ -36,13 +29,12 @@ final class DockSplitStore: BonsplitDelegate {
     private var configurationIdentityTask: Task<Void, Never>?
     private var configurationLoadGeneration = 0
     private var configurationIdentityGeneration = 0
+    private var configurationLoadRootDirectory: String?
     private var configurationSeedSuppressionGeneration: Int?
     private var activeConfigURL: URL?
     private var rootDirectoryOverride: String?
     private var resolvedBaseDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
-    /// The resolved config identity last loaded into the Dock tree. Project
-    /// config lookup walks upward, so multiple workspace directories can share
-    /// one authoritative `.cmux/dock.json`.
+    /// Last loaded resolved config identity.
     private var lastLoadedConfigIdentity: DockConfigIdentity?
     @ObservationIgnored var hasAppliedConfigurationSeed = false
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
@@ -52,11 +44,13 @@ final class DockSplitStore: BonsplitDelegate {
     init(
         workspaceId: UUID,
         baseDirectoryProvider: @escaping () -> String?,
-        remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local }
+        remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
+        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
     ) {
         self.workspaceId = workspaceId
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
+        self.browserAvailabilityProvider = browserAvailabilityProvider
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
@@ -141,15 +135,13 @@ final class DockSplitStore: BonsplitDelegate {
         rootDirectoryOverride = Self.normalizedBaseDirectory(directory)
     }
 
-    /// Re-seeds the Dock when the workspace's base directory changed since the
-    /// last config load (so a different project's `.cmux/dock.json` applies).
-    /// Re-seeding replaces the tree, matching the prior Dock lifecycle.
     private func reloadIfBaseDirectoryChanged() {
         guard hasLoadedConfiguration else { return }
+        let rootDirectory = currentBaseDirectory()
+        if configurationLoadTask != nil, rootDirectory != configurationLoadRootDirectory { reload(); return }
         guard configurationLoadTask == nil else { return }
         configurationIdentityGeneration += 1
         let generation = configurationIdentityGeneration
-        let rootDirectory = currentBaseDirectory()
         configurationIdentityTask?.cancel()
         configurationIdentityTask = Task.detached(priority: .utility) { [weak self] in
             let current = Self.configIdentity(rootDirectory: rootDirectory)
@@ -347,6 +339,15 @@ final class DockSplitStore: BonsplitDelegate {
         hasAppliedConfigurationSeed = true
         if configurationLoadTask != nil { configurationSeedSuppressionGeneration = configurationLoadGeneration }
     }
+
+#if DEBUG
+    func markConfigurationLoadInFlightForTesting(rootDirectory: String?) -> Int {
+        hasLoadedConfiguration = true; configurationLoadGeneration += 1
+        configurationLoadRootDirectory = rootDirectory; configurationLoadTask = Task {}
+        return configurationLoadGeneration
+    }
+#endif
+
     // MARK: - Panel construction
 
     private func makePanel(
@@ -372,7 +373,7 @@ final class DockSplitStore: BonsplitDelegate {
                 controlTitle: nil
             )
         case .browser:
-            guard BrowserAvailabilitySettings.isEnabled() else {
+            guard browserAvailabilityProvider() else {
                 if let externalURL = url ?? initialRequest?.url { _ = NSWorkspace.shared.open(externalURL) }
                 return nil
             }
@@ -398,7 +399,7 @@ final class DockSplitStore: BonsplitDelegate {
                 controlTitle: def.title
             )
         case .browser:
-            guard BrowserAvailabilitySettings.isEnabled() else { return nil }
+            guard browserAvailabilityProvider() else { return nil }
             return makeBrowserPanel(url: def.url.flatMap { URL(string: $0) })
         }
     }
@@ -574,14 +575,14 @@ final class DockSplitStore: BonsplitDelegate {
         configurationIdentityGeneration += 1
         configurationLoadTask?.cancel()
         configurationIdentityTask?.cancel()
-        configurationLoadTask = nil
-        configurationIdentityTask = nil
+        configurationLoadTask = nil; configurationIdentityTask = nil; configurationLoadRootDirectory = nil
     }
 
     private func startConfigurationLoad(replacingPanels: Bool) {
         configurationLoadGeneration += 1
         let generation = configurationLoadGeneration
         let rootDirectory = currentBaseDirectory()
+        configurationLoadRootDirectory = rootDirectory
         configurationIdentityTask?.cancel()
         configurationLoadTask?.cancel()
         configurationLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
@@ -623,7 +624,7 @@ final class DockSplitStore: BonsplitDelegate {
         replacingPanels: Bool
     ) {
         guard generation == configurationLoadGeneration else { return }
-        configurationLoadTask = nil
+        configurationLoadTask = nil; configurationLoadRootDirectory = nil
         errorMessage = nil
         trustRequest = nil
         activeConfigURL = nil
