@@ -76,30 +76,11 @@ extension TerminalController {
 }
 
 extension TerminalController {
-    nonisolated static let explicitFocusParamV2Methods: Set<String> = [
-        "workspace.create",
-        "workspace.move_to_window",
-        "surface.split",
-        "surface.create",
-        "surface.drag_to_split",
-        "surface.split_off",
-        "surface.move",
-        "surface.reorder",
-        "surface.action",
-        "tab.action",
-        "pane.create",
-        "pane.swap",
-        "pane.break",
-        "pane.join",
-        "markdown.open",
-        "browser.open_split"
-    ]
-
-    nonisolated static func explicitFocusParamAllowsFocus(commandKey: String, params: [String: Any]) -> Bool {
-        explicitFocusParamV2Methods.contains(commandKey) && explicitFocusParamValue(params)
-    }
-
-    private nonisolated static func explicitFocusParamValue(_ params: [String: Any]) -> Bool {
+    /// Resolves the legacy `[String: Any]` `focus` request parameter to a
+    /// boolean (the app-side `Any` extraction for ``ControlSocketCommandPolicy``;
+    /// the focus-intent method table itself lives in the package). Mirrors the
+    /// legacy coercion of bool / `NSNumber` / truthy strings.
+    nonisolated static func explicitFocusParamValue(_ params: [String: Any]) -> Bool {
         guard let raw = params["focus"] else { return false }
         if let bool = raw as? Bool { return bool }
         if let number = raw as? NSNumber { return number.boolValue }
