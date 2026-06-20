@@ -48,13 +48,13 @@ import CmuxBrowser
 
         let token = UUID().uuidString.lowercased()
         let openChatURL = try #require(URL(string: "http://127.0.0.1:49152/\(token)/chat.html#cmux-open-chat"))
-        let normalURL = try #require(URL(string: "http://127.0.0.1:49152/app#cmux-open-chat"))
+        let persistentLocalhostMarkerURL = try #require(URL(string: "http://127.0.0.1:49152/app#cmux-open-chat"))
 
         store.recordVisit(url: openChatURL, title: "Chat")
         store.recordTypedNavigation(url: openChatURL)
         #expect(store.entries.isEmpty)
 
-        store.recordVisit(url: normalURL, title: "Normal")
-        #expect(store.entries.map(\.url) == [normalURL.absoluteString])
+        store.recordVisit(url: persistentLocalhostMarkerURL, title: "Normal")
+        #expect(store.entries.map(\.url) == [persistentLocalhostMarkerURL.absoluteString])
     }
 }
