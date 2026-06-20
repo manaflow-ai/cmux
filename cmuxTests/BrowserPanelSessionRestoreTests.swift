@@ -32,11 +32,19 @@ struct BrowserPanelSessionRestoreTests {
         #expect(!panel.shouldRenderWebView)
         #expect(panel.webViewLifecycleState == .discarded)
         #expect(panel.shouldRenderWebViewForSessionSnapshot())
+        #expect(panel.canGoBack)
+        #expect(panel.canGoForward)
 
         panel.noteWebViewVisibility(true, reason: "test.visible")
 
         #expect(panel.shouldRenderWebView)
         #expect(panel.webViewLifecycleState == .liveVisible)
         #expect(panel.currentURL == url)
+        #expect(panel.canGoBack)
+        #expect(panel.canGoForward)
+
+        let history = panel.sessionNavigationHistorySnapshot()
+        #expect(history.backHistoryURLStrings == ["https://example.com/back"])
+        #expect(history.forwardHistoryURLStrings == ["https://example.com/forward"])
     }
 }
