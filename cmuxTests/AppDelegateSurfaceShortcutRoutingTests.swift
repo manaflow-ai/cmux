@@ -7,6 +7,7 @@ import AppKit
 @testable import cmux
 #endif
 
+@MainActor
 final class AppDelegateSurfaceShortcutRoutingTests: XCTestCase {
     func testSurfaceNumberShortcutsCycleInEventWindowWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
@@ -39,13 +40,14 @@ final class AppDelegateSurfaceShortcutRoutingTests: XCTestCase {
         appDelegate.tabManager = firstManager
         XCTAssertTrue(appDelegate.tabManager === firstManager)
 
-        let digitEvents: [(digit: Int, event: NSEvent)] = [
+        let rawDigitEvents: [(digit: Int, event: NSEvent?)] = [
             (1, makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: secondWindow.windowNumber)),
             (2, makeKeyDownEvent(key: "2", keyCode: 19, windowNumber: secondWindow.windowNumber)),
             (3, makeKeyDownEvent(key: "3", keyCode: 20, windowNumber: secondWindow.windowNumber))
-        ].compactMap { digit, event in
-            guard let event else { return nil }
-            return (digit, event)
+        ]
+        let digitEvents = rawDigitEvents.compactMap { entry -> (digit: Int, event: NSEvent)? in
+            guard let event = entry.event else { return nil }
+            return (entry.digit, event)
         }
         XCTAssertEqual(digitEvents.count, 3, "Failed to construct Ctrl+1/2/3 events")
 
