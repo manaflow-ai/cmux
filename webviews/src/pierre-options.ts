@@ -142,6 +142,9 @@ export function codeViewUnsafeCSS(): string {
     [data-expand-button] {
       font-family: var(--diffs-header-font-family, var(--diffs-header-font-fallback));
     }
+    [data-code] {
+      scrollbar-gutter: auto;
+    }
   `;
 }
 
