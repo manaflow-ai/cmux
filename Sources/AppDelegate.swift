@@ -6108,11 +6108,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func focusedAgentDiffContext(for workspace: Workspace) -> OpenDiffViewerAgentContext? {
         guard let surfaceId = workspace.focusedPanelId else { return nil }
-        if let repoRoot = latestAgentTurnDiffRepoRoot(workspaceId: workspace.id, surfaceId: surfaceId) {
+        guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
+            return nil
+        }
+        let sessionId = normalizedOpenDiffViewerIdentifier(snapshot.sessionId)
+        if let sessionId,
+           let repoRoot = latestAgentTurnDiffRepoRoot(
+            workspaceId: workspace.id,
+            surfaceId: surfaceId,
+            sessionId: sessionId
+           ) {
             return OpenDiffViewerAgentContext(cwd: repoRoot, useLastTurnSource: true)
         }
-        if let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId),
-           let workingDirectory = normalizedOpenDiffViewerPath(
+        if let workingDirectory = normalizedOpenDiffViewerPath(
             snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
            ) {
             return OpenDiffViewerAgentContext(cwd: workingDirectory, useLastTurnSource: false)
@@ -6120,7 +6128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func latestAgentTurnDiffRepoRoot(workspaceId: UUID, surfaceId: UUID) -> String? {
+    private func latestAgentTurnDiffRepoRoot(workspaceId: UUID, surfaceId: UUID, sessionId: String) -> String? {
         let storeURL = agentTurnDiffBaselineStoreURL()
         guard let data = try? Data(contentsOf: storeURL),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -6132,8 +6140,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let candidates = records.compactMap { record -> (repoRoot: String, capturedAt: TimeInterval)? in
             guard let recordWorkspace = normalizedOpenDiffViewerIdentifier(record["workspaceId"] as? String),
                   let recordSurface = normalizedOpenDiffViewerIdentifier(record["surfaceId"] as? String),
+                  let recordSession = normalizedOpenDiffViewerIdentifier(record["sessionId"] as? String),
                   recordWorkspace == workspaceKey,
                   recordSurface == surfaceKey,
+                  recordSession == sessionId,
                   let repoRoot = normalizedOpenDiffViewerPath(record["repoRoot"] as? String) else {
                 return nil
             }
