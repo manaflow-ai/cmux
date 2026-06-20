@@ -32,8 +32,10 @@ struct WorkspaceCanvasHostView: View {
     private var descriptors: [CanvasPaneDescriptor] {
         let focusedPanelId = workspace.focusedPanelId
         let closeActionLabel = String(localized: "canvas.pane.close.help", defaultValue: "Close Pane")
+        let isSplit = workspace.orderedPanelIds.count > 1
         return workspace.orderedPanelIds.compactMap { panelId in
             guard let panel = workspace.panels[panelId] else { return nil }
+            let isFocused = isWorkspaceInputActive && focusedPanelId == panelId
             return CanvasPaneDescriptor(
                 id: panelId,
                 tab: CanvasTabChrome(
@@ -41,7 +43,7 @@ struct WorkspaceCanvasHostView: View {
                     title: panel.displayTitle,
                     iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType)
                 ),
-                isFocused: isWorkspaceInputActive && focusedPanelId == panelId,
+                isFocused: isFocused,
                 closeActionLabel: closeActionLabel,
                 makeMount: { [weak workspace] container in
                     CanvasPaneContentMount(
@@ -58,6 +60,15 @@ struct WorkspaceCanvasHostView: View {
                         onFocusPanel: { [weak workspace] panelId in
                             workspace?.focusPanel(panelId)
                         }
+                    )
+                },
+                updateMount: { mount in
+                    guard let mount = mount as? CanvasPaneContentMount else { return }
+                    mount.updatePresentation(
+                        isFocused: isFocused,
+                        showsInactiveOverlay: isSplit && !isFocused,
+                        inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
+                        inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity
                     )
                 }
             )

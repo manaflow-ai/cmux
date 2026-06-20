@@ -289,6 +289,7 @@ public final class CanvasRootView: NSView {
                 paneViews[pane.id] = paneView
             }
             reconcileMount(for: pane, in: paneView)
+            updateMountState(for: pane)
             paneView.updateChrome(chrome(for: pane))
         }
     }
@@ -315,19 +316,13 @@ public final class CanvasRootView: NSView {
         }
     }
 
-    /// Builds the pane's strip chrome from the latest descriptors.
-    func chrome(for pane: CanvasPane) -> CanvasPaneChrome {
-        let tabs = pane.panelIds.compactMap { descriptorsByPanelId[$0.rawValue]?.tab }
-        let isFocused = pane.panelIds.contains { descriptorsByPanelId[$0.rawValue]?.isFocused == true }
-        let closeLabel = descriptorsByPanelId[pane.selectedPanelId.rawValue]?.closeActionLabel
-            ?? descriptorsByPanelId.values.first?.closeActionLabel
-            ?? ""
-        return CanvasPaneChrome(
-            tabs: tabs,
-            selectedTabId: pane.selectedPanelId.rawValue,
-            isFocused: isFocused,
-            closeActionLabel: closeLabel
-        )
+    /// Lets the host apply panel-specific presentation state to the pane's
+    /// selected content without exposing host panel types to the canvas package.
+    func updateMountState(for pane: CanvasPane) {
+        let selected = pane.selectedPanelId.rawValue
+        guard let mount = mounts[selected],
+              let descriptor = descriptorsByPanelId[selected] else { return }
+        descriptor.updateMount(mount)
     }
 
     func applyZOrder() {
