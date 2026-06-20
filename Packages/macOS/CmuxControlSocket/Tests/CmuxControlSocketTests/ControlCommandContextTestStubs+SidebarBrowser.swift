@@ -176,6 +176,27 @@ extension ControlBrowserContext {
         params: [String: JSONValue],
         path: String
     ) -> ControlBrowserStateLoadResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserTabList(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors
+    ) -> ControlBrowserTabListResolution { .tabManagerUnavailable }
+
+    func controlBrowserTabNew(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors,
+        rawURLString: String?
+    ) -> ControlBrowserTabNewResolution { .tabManagerUnavailable }
+
+    func controlBrowserTabSwitch(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors
+    ) -> ControlBrowserTabSwitchResolution { .tabManagerUnavailable }
+
+    func controlBrowserTabClose(
+        params: [String: JSONValue],
+        routing: ControlRoutingSelectors
+    ) -> ControlBrowserTabCloseResolution { .tabManagerUnavailable }
 }
 
 extension ControlBrowserPanelContext {

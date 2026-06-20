@@ -83,6 +83,7 @@ public final class ControlCommandCoordinator {
         if let result = handleBrowser(request) { return result }
         if let result = handleBrowserReadOnly(request) { return result }
         if let result = handleBrowserConsoleErrorsState(request) { return result }
+        if let result = handleBrowserTabs(request) { return result }
         if let result = handleBrowserUnsupported(request) { return result }
         // Only the non-JS-evaluating, main-actor browser.* methods are owned
         // here (handleBrowser / handleBrowserUnsupported). The JS-evaluating
