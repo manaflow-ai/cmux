@@ -6047,11 +6047,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Opens the diff viewer for the focused workspace of `tabManager` by spawning the
     /// bundled `cmux diff` CLI. This is the single shared diff-open path: both the
-    /// command-palette entry and the Open Diff Viewer keyboard shortcut funnel through
+    /// command-palette entries and the Open Diff Viewer keyboard shortcut funnel through
     /// here so neither duplicates diff-open logic. Returns `false` (caller beeps) when
     /// there is no focused workspace or the bundled CLI is missing.
     @discardableResult
     func openDiffViewerForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
+        openDiffViewerForFocusedWorkspace(for: tabManager, preferAgentContext: true)
+    }
+
+    @discardableResult
+    func openDirectoryDiffViewerForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
+        openDiffViewerForFocusedWorkspace(for: tabManager, preferAgentContext: false)
+    }
+
+    @discardableResult
+    private func openDiffViewerForFocusedWorkspace(
+        for tabManager: TabManager?,
+        preferAgentContext: Bool
+    ) -> Bool {
 #if DEBUG
         if let debugOpenDiffViewerHandler {
             debugOpenDiffViewerHandler()
@@ -6066,15 +6079,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        let cwd = workspace.resolvedWorkingDirectory()
+        let agentDiffContext = preferAgentContext ? focusedAgentDiffContext(for: workspace) : nil
+        let cwd = agentDiffContext?.cwd
+            ?? workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
             cwd: cwd,
             workspaceId: workspace.id,
-            surfaceId: workspace.focusedPanelId
+            surfaceId: workspace.focusedPanelId,
+            useLastTurnSource: agentDiffContext?.useLastTurnSource == true,
+            sessionId: agentDiffContext?.sessionId
         )
+    }
+
+    private func focusedAgentDiffContext(for workspace: Workspace) -> (cwd: String, useLastTurnSource: Bool, sessionId: String?)? {
+        guard let surfaceId = workspace.focusedPanelId else { return nil }
+        guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
+            return nil
+        }
+        let sessionId = normalizedOpenDiffViewerSessionId(snapshot.sessionId)
+        if let sessionId,
+           let repoRoot = latestAgentTurnDiffRepoRoot(
+            workspaceId: workspace.id,
+            surfaceId: surfaceId,
+            sessionId: sessionId
+           ) {
+            return (cwd: repoRoot, useLastTurnSource: true, sessionId: sessionId)
+        }
+        if let workingDirectory = normalizedOpenDiffViewerPath(
+            snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
+           ) {
+            return (cwd: workingDirectory, useLastTurnSource: false, sessionId: sessionId)
+        }
+        return nil
+    }
+
+    private func latestAgentTurnDiffRepoRoot(workspaceId: UUID, surfaceId: UUID, sessionId: String) -> String? {
+        let storeURL = agentTurnDiffBaselineStoreURL()
+        guard let data = try? Data(contentsOf: storeURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let records = object["records"] as? [[String: Any]] else {
+            return nil
+        }
+        let workspaceKey = workspaceId.uuidString.lowercased()
+        let surfaceKey = surfaceId.uuidString.lowercased()
+        let candidates = records.compactMap { record -> (repoRoot: String, capturedAt: TimeInterval)? in
+            guard let recordWorkspace = normalizedOpenDiffViewerIdentifier(record["workspaceId"] as? String),
+                  let recordSurface = normalizedOpenDiffViewerIdentifier(record["surfaceId"] as? String),
+                  let recordSession = normalizedOpenDiffViewerSessionId(record["sessionId"] as? String),
+                  recordWorkspace == workspaceKey,
+                  recordSurface == surfaceKey,
+                  recordSession == sessionId,
+                  let repoRoot = normalizedOpenDiffViewerPath(record["repoRoot"] as? String) else {
+                return nil
+            }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: repoRoot, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return nil
+            }
+            let capturedAt = (record["capturedAt"] as? NSNumber)?.doubleValue ?? 0
+            return (repoRoot, capturedAt)
+        }
+        return candidates.max(by: { $0.capturedAt < $1.capturedAt })?.repoRoot
+    }
+
+    private func agentTurnDiffBaselineStoreURL() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let override = normalizedOpenDiffViewerPath(environment["CMUX_AGENT_HOOK_STATE_DIR"]) {
+            let expandedOverride = (override as NSString).expandingTildeInPath
+            return URL(fileURLWithPath: expandedOverride, isDirectory: true)
+                .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+    }
+
+    private func normalizedOpenDiffViewerIdentifier(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .nilIfEmpty
+    }
+
+    private func normalizedOpenDiffViewerSessionId(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    private func normalizedOpenDiffViewerPath(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
     }
 
     @discardableResult
@@ -6083,20 +6183,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketPath: String,
         cwd: String,
         workspaceId: UUID,
-        surfaceId: UUID?
+        surfaceId: UUID?,
+        useLastTurnSource: Bool,
+        sessionId: String?
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
         var arguments = [
             "--socket", socketPath,
             "diff",
-            "--unstaged",
+            useLastTurnSource ? "--last-turn" : "--unstaged",
             "--cwd", cwd,
             "--workspace", workspaceId.uuidString,
             "--focus", "true",
         ]
         if let surfaceId {
             arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
+        }
+        if useLastTurnSource, let sessionId {
+            arguments.append(contentsOf: ["--session", sessionId])
         }
         process.arguments = arguments
         process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
