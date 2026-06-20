@@ -2595,7 +2595,8 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
     func testDuplicateBrowserPreservesDiffViewerChromeAndProxyBypass() throws {
         let workspace = Workspace()
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
-        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let token = UUID().uuidString.lowercased()
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/\(token)/diff.html#cmux-diff-viewer"))
         let browserPanel = try XCTUnwrap(
             workspace.newBrowserSurface(
                 inPane: paneId,
@@ -3440,7 +3441,8 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
     func testTemporaryDiffViewerTabCloseDoesNotStageRestoreSnapshot() throws {
         let workspace = Workspace()
-        let diffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let token = UUID().uuidString.lowercased()
+        let diffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/\(token)/diff.html#cmux-diff-viewer"))
         guard let paneId = workspace.bonsplitController.focusedPaneId,
               let browserPanel = workspace.newBrowserSurface(inPane: paneId, url: diffViewerURL, focus: false),
               let tabId = workspace.surfaceIdFromPanelId(browserPanel.id),
