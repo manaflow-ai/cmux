@@ -516,6 +516,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     #if DEBUG
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
         decorator: self,
+        aboutPanelStrings: Self.aboutPanelStrings,
+        acknowledgmentsStrings: Self.acknowledgmentsStrings,
         browserDebugContext: self,
         tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView()) },
         sidebarDebugContentProvider: {
@@ -532,6 +534,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     #else
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
         decorator: self,
+        aboutPanelStrings: Self.aboutPanelStrings,
+        acknowledgmentsStrings: Self.acknowledgmentsStrings,
         browserDebugContext: self,
         tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView()) },
         sidebarDebugContentProvider: {
@@ -544,6 +548,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     #endif
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
+    /// Localized About-panel labels resolved against the app bundle and injected
+    /// into the package-owned About window. Resolved app-side because
+    /// `String(localized:)` inside `CmuxAppKitSupportUI` would bind to the package
+    /// bundle (no `about.*` keys) and silently drop every non-English translation.
+    private static var aboutPanelStrings: AboutPanelStrings {
+        AboutPanelStrings(
+            appName: String(localized: "about.appName", defaultValue: "cmux"),
+            description: String(localized: "about.description", defaultValue: "A Ghostty-based terminal with vertical tabs\nand a notification panel for macOS."),
+            versionLabel: String(localized: "about.version", defaultValue: "Version"),
+            buildLabel: String(localized: "about.build", defaultValue: "Build"),
+            commitLabel: String(localized: "about.commit", defaultValue: "Commit"),
+            docs: String(localized: "about.docs", defaultValue: "Docs"),
+            github: String(localized: "about.github", defaultValue: "GitHub"),
+            licenses: String(localized: "about.licenses", defaultValue: "Licenses")
+        )
+    }
+    /// Localized Acknowledgments-window strings resolved against the app bundle and
+    /// injected into the package-owned Acknowledgments window, for the same
+    /// bundle-localization reason as ``aboutPanelStrings``.
+    private static var acknowledgmentsStrings: AcknowledgmentsStrings {
+        AcknowledgmentsStrings(
+            windowTitle: String(localized: "about.licenses.windowTitle", defaultValue: "Third-Party Licenses"),
+            notFound: String(localized: "about.licenses.notFound", defaultValue: "Licenses file not found.")
+        )
+    }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")

@@ -43,7 +43,15 @@ import Testing
     }
 
     @Test func coordinatorWithoutProviderDoesNotPresent() {
-        let coordinator = DebugWindowsCoordinator(decorator: nil)
+        let coordinator = DebugWindowsCoordinator(
+            decorator: nil,
+            aboutPanelStrings: AboutPanelStrings(
+                appName: "cmux", description: "desc", versionLabel: "Version",
+                buildLabel: "Build", commitLabel: "Commit", docs: "Docs",
+                github: "GitHub", licenses: "Licenses"
+            ),
+            acknowledgmentsStrings: AcknowledgmentsStrings(windowTitle: "Licenses", notFound: "none")
+        )
 
         coordinator.showFileExplorerStyleDebug()
         // No content provider was injected, so no panel is created. Reaching here
