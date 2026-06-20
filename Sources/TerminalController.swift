@@ -5532,26 +5532,10 @@ class TerminalController {
             v2BrowserEnsureDialogHooks(browserPanel: browserPanel)
             let acceptLiteral = accept ? "true" : "false"
             let textLiteral = text.map(v2JSONLiteral) ?? "null"
-            let script = """
-            (() => {
-              const q = window.__cmuxDialogQueue || [];
-              if (!q.length) return { ok: false, error: 'not_found' };
-              const entry = q.shift();
-              if (entry.type === 'confirm') {
-                window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
-                window.__cmuxDialogDefaults.confirm = \(acceptLiteral);
-              }
-              if (entry.type === 'prompt') {
-                window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
-                if (\(acceptLiteral)) {
-                  window.__cmuxDialogDefaults.prompt = \(textLiteral);
-                } else {
-                  window.__cmuxDialogDefaults.prompt = null;
-                }
-              }
-              return { ok: true, dialog: entry, remaining: q.length };
-            })()
-            """
+            let script = v2BrowserControl.dialogRespondScript(
+                acceptLiteral: acceptLiteral,
+                textLiteral: textLiteral
+            )
 
             switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, world: .page) {
             case .failure(let message):
@@ -6064,21 +6048,13 @@ class TerminalController {
         let foundation = params.mapValues(\.foundationObject)
         let scope: BrowserImportScope?
         if foundation.keys.contains("scope") {
-            guard let raw = v2String(foundation, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                  !raw.isEmpty else {
+            switch BrowserImportScope.from(rawToken: v2String(foundation, "scope")) {
+            case .empty:
                 return .scopeEmpty
-            }
-            switch raw {
-            case "cookie", "cookies", "cookiesonly", "cookies_only", "cookies-only":
-                scope = .cookiesOnly
-            case "history", "historyonly", "history_only", "history-only":
-                scope = .historyOnly
-            case "cookiesandhistory", "cookies_and_history", "cookies-and-history", "all-basic":
-                scope = .cookiesAndHistory
-            case "everything", "all":
-                scope = .everything
-            default:
+            case .invalid:
                 return .scopeInvalid
+            case .scope(let resolved):
+                scope = resolved
             }
         } else {
             scope = nil
@@ -6233,14 +6209,7 @@ class TerminalController {
             v2BrowserInitStylesBySurface[resolved.surfaceId] = styles
 
             let cssLiteral = v2JSONLiteral(css)
-            let source = """
-            (() => {
-              const el = document.createElement('style');
-              el.textContent = String(\(cssLiteral));
-              (document.head || document.documentElement || document.body).appendChild(el);
-              return true;
-            })()
-            """
+            let source = v2BrowserControl.addStyleScript(cssLiteral: cssLiteral)
 
             let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
             resolved.browserPanel.webView.configuration.userContentController.addUserScript(userScript)
