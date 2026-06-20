@@ -11619,12 +11619,10 @@ extension Workspace: BonsplitDelegate {
                 // the target resolved two lines up on the same main-actor tick,
                 // and falling through to a LOCAL close of a mirror tab would
                 // leave the remote window alive to resurrect it.
-                clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
                 _ = remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
                 return false
             } else {
                 if pendingCloseConfirmTabIds.contains(tab.id) {
-                    clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
                     return false
                 }
                 let confirmationManager = owningTabManager
@@ -11670,7 +11668,6 @@ extension Workspace: BonsplitDelegate {
 
                         // Re-resolves the target, so a window that died while the
                         // dialog was up is a no-op rather than a stray kill.
-                        self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                         _ = remoteTmuxController.handleMirrorTabCloseRequested(
                             workspaceId: self.id, panelId: panelId
                         )
@@ -11702,7 +11699,6 @@ extension Workspace: BonsplitDelegate {
                     }
                     guard activity.hasActiveCommand else {
                         self.pendingCloseConfirmTabIds.remove(tabId)
-                        self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                         _ = remoteTmuxController.handleMirrorTabCloseRequested(
                             workspaceId: self.id, panelId: panelId
                         )
