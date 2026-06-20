@@ -422,13 +422,6 @@ class TabManager: ObservableObject {
     /// `focusedPanelId(for:)` / `panelId(forSurfaceOrPanelId:…)` entry points
     /// forward here. Built in `init` (depends on `workspaces`).
     let panelIdResolver: PanelIdResolver<Workspace>
-    /// The per-window panel-title coalescer the `SurfaceMetadataCoordinator`
-    /// schedules its flush on through `SurfaceMetadataTitleHosting`. The
-    /// coalescing batch + flush logic live in the coordinator (CmuxWorkspaces);
-    /// this app-target coalescer (shared by other window-chrome call sites)
-    /// stays here and is driven via the host seam.
-    private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-
     // Wave-3 sub-models (TabManager decomposition): TabManager is the
     // per-window composition point. It owns the concrete sub-models, hosts
     // their seams, and forwards its legacy entry points.
@@ -3096,14 +3089,12 @@ class TabManager: ObservableObject {
         surfaceMetadata.focusedSurfaceTitleDidChange(tabId: tabId)
     }
 
-    // MARK: SurfaceMetadataTitleHosting (panel-title coalescing app effects)
-    // Witnesses live here in the class body because they touch the `private`
-    // panel-title coalescer and the DEBUG id/title formatters; the conformance
-    // is bound by the extension below.
-
-    func surfaceMetadataScheduleTitleFlush(_ flush: @escaping () -> Void) {
-        panelTitleUpdateCoalescer.signal(flush)
-    }
+    // MARK: SurfaceMetadataTitleHosting (panel-title app effects)
+    // Witnesses live here in the class body because they touch the selected
+    // workspace's `NSWindow` title chrome and the DEBUG id/title formatters; the
+    // conformance is bound by the extension below. The panel-title coalescer
+    // now lives in the coordinator (CmuxWorkspaces), so it is no longer hosted
+    // here.
 
     func surfaceMetadataUpdateWindowTitleIfSelected(workspaceId: UUID) {
         guard selectedTabId == workspaceId,

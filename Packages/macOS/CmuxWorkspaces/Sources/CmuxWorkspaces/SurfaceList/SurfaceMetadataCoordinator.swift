@@ -22,6 +22,16 @@ public final class SurfaceMetadataCoordinator<Tab: WorkspaceTabRepresenting> {
     private let model: WorkspacesModel<Tab>
     private weak var titleHost: (any SurfaceMetadataTitleHosting)?
 
+    /// Collapses rapid panel-title bursts into one flush on the window's main
+    /// run loop. The coordinator owns this (legacy
+    /// `TabManager.panelTitleUpdateCoalescer`, formerly reached through the
+    /// `SurfaceMetadataTitleHosting` host seam): it is per-window
+    /// coalescing bookkeeping with no app-coupling, so it lives with the rest
+    /// of the batch state. Defaults to the production
+    /// ``NotificationBurstCoalescer`` at the legacy `1.0 / 30.0` delay; tests
+    /// inject a synchronous scheduler.
+    private let titleFlushScheduler: any TitleFlushScheduling
+
     /// Identifies one pending coalesced panel-title update by its owning
     /// workspace and panel (legacy `TabManager.PanelTitleUpdateKey`).
     private struct PanelTitleUpdateKey: Hashable {
@@ -37,8 +47,17 @@ public final class SurfaceMetadataCoordinator<Tab: WorkspaceTabRepresenting> {
     /// Creates the coordinator over the window's workspace-list model. The
     /// window constructs one instance and holds it; nothing re-instantiates it
     /// per call.
-    public init(model: WorkspacesModel<Tab>) {
+    ///
+    /// `titleFlushScheduler` collapses panel-title bursts before they apply;
+    /// production callers take the default ``NotificationBurstCoalescer`` (the
+    /// legacy `1.0 / 30.0` delay), tests inject a synchronous fake so the flush
+    /// can be driven deterministically.
+    public init(
+        model: WorkspacesModel<Tab>,
+        titleFlushScheduler: any TitleFlushScheduling = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    ) {
         self.model = model
+        self.titleFlushScheduler = titleFlushScheduler
     }
 
     /// Injects the app-coupled title-effects seam. The window calls this at the
@@ -54,8 +73,9 @@ public final class SurfaceMetadataCoordinator<Tab: WorkspaceTabRepresenting> {
     /// (legacy `TabManager.enqueuePanelTitleUpdate(tabId:panelId:title:)`).
     ///
     /// An empty (whitespace-only) title is dropped. The accepted title replaces
-    /// any earlier pending entry for the same panel; the host schedules the
-    /// flush, which applies the whole batch on the next coalescer tick.
+    /// any earlier pending entry for the same panel; the coordinator's own
+    /// coalescer schedules the flush, which applies the whole batch on the next
+    /// coalescer tick.
     public func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -66,14 +86,14 @@ public final class SurfaceMetadataCoordinator<Tab: WorkspaceTabRepresenting> {
         )
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
-        titleHost?.surfaceMetadataScheduleTitleFlush { [weak self] in
+        titleFlushScheduler.signal { [weak self] in
             self?.flushPendingPanelTitleUpdates()
         }
     }
 
     /// Applies every pending coalesced title update and clears the batch
     /// (legacy `TabManager.flushPendingPanelTitleUpdates()`). Called by the
-    /// host's coalescer on its scheduled tick.
+    /// coordinator's own coalescer on its scheduled tick.
     public func flushPendingPanelTitleUpdates() {
         guard !pendingPanelTitleUpdates.isEmpty else { return }
         let updates = pendingPanelTitleUpdates
