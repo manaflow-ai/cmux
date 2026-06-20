@@ -517,12 +517,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
         decorator: self,
         browserDebugContext: self,
+        tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView()) },
         debugWindowControlsContentProvider: { NSHostingView(rootView: DebugWindowControlsView()) },
         menuBarExtraDebugContentProvider: { NSHostingView(rootView: MenuBarExtraDebugView()) },
         backgroundDebugContentProvider: { NSHostingView(rootView: BackgroundDebugView()) }
     )
     #else
-    lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self, browserDebugContext: self)
+    lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
+        decorator: self,
+        browserDebugContext: self,
+        tabBarBackdropLabContentProvider: { NSHostingView(rootView: TabBarBackdropLabView()) }
+    )
     #endif
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
