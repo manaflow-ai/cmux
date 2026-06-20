@@ -40,6 +40,14 @@ public protocol ControlSystemContext: AnyObject {
     /// `auth.login` payload's `required` field.
     func controlAuthPasswordRequired() -> Bool
 
+    /// The server's current socket path, for the `system.capabilities`
+    /// `socket_path` field (the live `socketServer.currentSocketPath`).
+    func controlSystemSocketPath() -> String
+
+    /// The server access mode's raw value, for the `system.capabilities`
+    /// `access_mode` field (the live `socketServer.accessMode.rawValue`).
+    func controlSystemAccessModeRawValue() -> String
+
     /// Reopens the previous session snapshot for `session.restore_previous`.
     ///
     /// - Returns: The restore resolution (failure carries the app-localized
