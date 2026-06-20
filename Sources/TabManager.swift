@@ -3730,6 +3730,13 @@ class TabManager: ObservableObject {
         tab.moveFocus(direction: direction)
     }
 
+    /// Cycle focus through panes in tree order, wrapping at the ends.
+    func cyclePaneFocus(forward: Bool) {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
+        tab.cycleFocus(forward: forward)
+    }
+
     // MARK: - Focus History Navigation (CmuxWorkspaceNavigation)
 
     // The back/forward stack, suppression depth, and navigation logic live
@@ -3830,6 +3837,13 @@ class TabManager: ObservableObject {
     func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: NavigationDirection) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
         tab.moveFocus(direction: direction)
+        return true
+    }
+
+    /// Cycle focus to the next or previous pane in tree order, wrapping at the ends.
+    func cycleSplitFocus(tabId: UUID, forward: Bool) -> Bool {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        tab.cycleFocus(forward: forward)
         return true
     }
 

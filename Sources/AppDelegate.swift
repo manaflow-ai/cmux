@@ -835,6 +835,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
+    private var ghosttyGotoSplitPreviousShortcut: StoredShortcut?
+    private var ghosttyGotoSplitNextShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
     /// Owns the browser omnibar selection-repeat state machine, extracted into
     /// `CmuxBrowser`. The app delegate is the composition root: it injects
@@ -10278,6 +10280,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             guard let tabManager = self.tabManager else { return }
 
+            let layout = env["CMUX_UI_TEST_GOTO_SPLIT_LAYOUT"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            if layout == "three_pane_terminal" {
+                self.setupThreePaneTerminalLayout(tabManager: tabManager)
+                return
+            }
+
             let tab = tabManager.addTab()
             guard let initialPanelId = tab.focusedPanelId else {
                 self.writeGotoSplitTestData(["setupError": "Missing initial panel id"])
@@ -10311,6 +10321,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             runSetupWhenWindowReady()
         }
+    }
+
+    /// Create a 3-pane terminal-only layout: one horizontal split (right) and one vertical split (down).
+    /// Used by `CMUX_UI_TEST_GOTO_SPLIT_LAYOUT=three_pane_terminal`.
+    /// Focus changes are recorded by `recordGotoSplitCycleMoveIfNeeded` in the Ghostty action handler.
+    private func setupThreePaneTerminalLayout(tabManager: TabManager) {
+        let tab = tabManager.addTab()
+        guard let initialPanelId = tab.focusedPanelId else {
+            writeGotoSplitTestData(["setupError": "Missing initial panel id"])
+            return
+        }
+
+        // Create horizontal split (right)
+        guard tabManager.createSplit(
+            tabId: tab.id, surfaceId: initialPanelId, direction: .right
+        ) != nil else {
+            writeGotoSplitTestData(["setupError": "Failed to create horizontal split"])
+            return
+        }
+
+        // Focus back to initial pane, then create vertical split (down)
+        tab.focusPanel(initialPanelId)
+        guard tabManager.createSplit(
+            tabId: tab.id, surfaceId: initialPanelId, direction: .down
+        ) != nil else {
+            writeGotoSplitTestData(["setupError": "Failed to create vertical split"])
+            return
+        }
+
+        // Wait for a terminal surface to become first responder before signaling
+        // setup complete. Ghostty keybinds only fire when GhosttyNSView has focus.
+        var observer: NSObjectProtocol?
+        var resolved = false
+        let deadline = Date().addingTimeInterval(6.0)
+
+        func checkAndSignal() {
+            guard !resolved else { return }
+            guard Date() < deadline else {
+                if let observer { NotificationCenter.default.removeObserver(observer) }
+                resolved = true
+                self.writeGotoSplitTestData(["setupError": "Timed out waiting for terminal focus"])
+                return
+            }
+            guard let focusedPanelId = tab.focusedPanelId,
+                  tab.terminalPanel(for: focusedPanelId) != nil,
+                  let window = NSApp.mainWindow ?? NSApp.keyWindow,
+                  window.firstResponder is NSView else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { checkAndSignal() }
+                return
+            }
+
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            resolved = true
+
+            let allPaneIds = tab.bonsplitController.allPaneIds.map(\.description)
+            let focusedPaneId = tab.bonsplitController.focusedPaneId?.description ?? ""
+
+            self.writeGotoSplitTestData([
+                "paneCount": String(allPaneIds.count),
+                "allPaneIds": allPaneIds.joined(separator: ","),
+                "focusedPaneId": focusedPaneId,
+                "ghosttyGotoSplitPreviousShortcut": ghosttyGotoSplitPreviousShortcut?.displayString ?? "",
+                "ghosttyGotoSplitNextShortcut": ghosttyGotoSplitNextShortcut?.displayString ?? "",
+                "setupComplete": "true",
+            ])
+        }
+
+        observer = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidFocusSurface,
+            object: nil,
+            queue: .main
+        ) { _ in checkAndSignal() }
+
+        // Also poll in case the notification already fired before we observed.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { checkAndSignal() }
     }
 
     private func setupBonsplitTabDragUITestIfNeeded() {
@@ -10674,6 +10759,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "ghosttyGotoSplitRightShortcut": ghosttyGotoSplitRightShortcut?.displayString ?? "",
                 "ghosttyGotoSplitUpShortcut": ghosttyGotoSplitUpShortcut?.displayString ?? "",
                 "ghosttyGotoSplitDownShortcut": ghosttyGotoSplitDownShortcut?.displayString ?? "",
+                "ghosttyGotoSplitPreviousShortcut": ghosttyGotoSplitPreviousShortcut?.displayString ?? "",
+                "ghosttyGotoSplitNextShortcut": ghosttyGotoSplitNextShortcut?.displayString ?? "",
                 "webViewFocused": "true"
             ])
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] == "1" {
@@ -11326,6 +11413,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         var updates = gotoSplitFindStateSnapshot(for: workspace)
         updates["lastMoveDirection"] = directionValue
+        writeGotoSplitTestData(updates)
+    }
+
+    func recordGotoSplitCycleMoveIfNeeded(tabId: UUID, forward: Bool) {
+        guard isGotoSplitUITestRecordingEnabled() else { return }
+        guard let tabManager = tabManagerFor(tabId: tabId),
+              let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
+
+        var updates = gotoSplitFindStateSnapshot(for: workspace)
+        updates["lastMoveDirection"] = forward ? "next" : "previous"
         writeGotoSplitTestData(updates)
     }
 
@@ -12440,6 +12537,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ghosttyGotoSplitRightShortcut = nil
             ghosttyGotoSplitUpShortcut = nil
             ghosttyGotoSplitDownShortcut = nil
+            ghosttyGotoSplitPreviousShortcut = nil
+            ghosttyGotoSplitNextShortcut = nil
             return
         }
 
@@ -12454,6 +12553,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         ghosttyGotoSplitDownShortcut = storedShortcutFromGhosttyTrigger(
             ghostty_config_trigger(config, "goto_split:down", UInt("goto_split:down".utf8.count))
+        )
+        ghosttyGotoSplitPreviousShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "goto_split:previous", UInt("goto_split:previous".utf8.count))
+        )
+        ghosttyGotoSplitNextShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "goto_split:next", UInt("goto_split:next".utf8.count))
         )
     }
 
@@ -13508,6 +13613,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .down)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)
+#endif
+            return true
+        }
+
+        if matchesGhosttyGotoSplitPreviousShortcut(event) {
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.cyclePaneFocus(forward: false)
+#if DEBUG
+            if let workspace = tabManager?.selectedWorkspace {
+                recordGotoSplitCycleMoveIfNeeded(tabId: workspace.id, forward: false)
+            }
+#endif
+            return true
+        }
+
+        if matchesGhosttyGotoSplitNextShortcut(event) {
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.cyclePaneFocus(forward: true)
+#if DEBUG
+            if let workspace = tabManager?.selectedWorkspace {
+                recordGotoSplitCycleMoveIfNeeded(tabId: workspace.id, forward: true)
+            }
 #endif
             return true
         }
@@ -15147,6 +15272,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         shortcut.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+    }
+
+    fileprivate func shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        return matchesGhosttyGotoSplitPreviousShortcut(event)
+            || matchesGhosttyGotoSplitNextShortcut(event)
+    }
+
+    private func matchesGhosttyGotoSplitPreviousShortcut(_ event: NSEvent) -> Bool {
+        guard let ghosttyGotoSplitPreviousShortcut else { return false }
+        return matchShortcut(event: event, shortcut: ghosttyGotoSplitPreviousShortcut)
+    }
+
+    private func matchesGhosttyGotoSplitNextShortcut(_ event: NSEvent) -> Bool {
+        guard let ghosttyGotoSplitNextShortcut else { return false }
+        return matchShortcut(event: event, shortcut: ghosttyGotoSplitNextShortcut)
     }
 
     private func matchesKeyboardShortcutEvent(
@@ -17247,6 +17388,13 @@ private extension NSWindow {
                     return true
                 }
                 return false
+            }
+            if AppDelegate.shared?.shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(event) == true,
+               firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
+#if DEBUG
+                cmuxDebugLog("  → terminal goto_split cycle handled before mainMenu")
+#endif
+                return true
             }
             guard let mainMenu = NSApp.mainMenu else { return false }
             let consumedByMenu = mainMenu.performKeyEquivalent(with: event)
