@@ -2095,7 +2095,7 @@ final class TerminalNotificationStore: ObservableObject {
     ) -> Bool {
         guard effects.record else { return true }
         guard let current = currentStoredNotification(matching: notification) else { return false }
-        return !current.isRead
+        return !current.isRead || notification.isRead
     }
 
     private func promptToEnableNotifications() {

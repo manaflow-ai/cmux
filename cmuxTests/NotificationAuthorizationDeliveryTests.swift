@@ -90,6 +90,19 @@ final class NotificationAuthorizationDeliveryTests {
 
         store.markRead(id: notification.id)
         #expect(!store.notificationPassesCurrentDeliveryGateForTesting(notification, effects: recordedEffects))
+
+        let alreadyReadNotification = TerminalNotification(
+            id: UUID(),
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body,
+            createdAt: notification.createdAt,
+            isRead: true
+        )
+        store.replaceNotificationsForTesting([alreadyReadNotification])
+        #expect(store.notificationPassesCurrentDeliveryGateForTesting(alreadyReadNotification, effects: recordedEffects))
     }
 
     @Test func staleDeniedAuthorizationSuppressesPhoneForwardingBeforeDeliveryMirror() async throws {
