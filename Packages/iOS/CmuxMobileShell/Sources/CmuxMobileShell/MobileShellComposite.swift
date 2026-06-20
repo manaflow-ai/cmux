@@ -1654,10 +1654,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if isSignedIn, deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil {
             startSyncSubscription()
         } else {
+            // On actual sign-out (not a flag-off while still signed in), wipe the
+            // account-derived sync cache for the teams this session touched, so
+            // the next user on this shared device never sees the previous user's
+            // devices — especially the local-only provisional rows, which the
+            // facade does not owner-filter and snapshot reconciliation preserves.
+            let teamsToClear: Set<String> = isSignedIn
+                ? []
+                : seededSyncTeams.union(syncSubscriptionTeamID.map { [$0] } ?? [])
             syncTask?.cancel()
             syncTask = nil
             syncSubscriptionTeamID = nil
             seededSyncTeams = []
+            if !isSignedIn, let syncStore, !teamsToClear.isEmpty {
+                Task { for team in teamsToClear { try? await syncStore.clear(teamID: team) } }
+            }
         }
     }
 
@@ -1715,6 +1726,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             do {
                 _ = try await PairedMacMigration(pairedStore: pairedMacStore, syncStore: syncStore)
                     .runIfNeeded(accountID: accountID, teamID: teamID)
+                // The migration await suspended. `runIfNeeded` is not
+                // cancellation-aware, so the account-derived provisional rows it
+                // just committed belong to `accountID`. If the user signed out or
+                // switched accounts while it ran, those rows must not persist or
+                // render for the new session: clear the team and abandon. (A clean
+                // sign-out also clears via the teardown path below; this covers
+                // the in-flight race.)
+                guard isSignedIn, identityProvider?.currentUserID == accountID else {
+                    try? await syncStore.clear(teamID: teamID)
+                    return nil
+                }
                 seededSyncTeams.insert(teamID)
                 await reloadDeviceListFromSyncStore(teamID: teamID)
             } catch {
