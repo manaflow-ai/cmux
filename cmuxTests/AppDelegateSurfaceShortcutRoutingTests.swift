@@ -1,5 +1,5 @@
-import XCTest
 import AppKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,124 +8,105 @@ import AppKit
 #endif
 
 @MainActor
-final class AppDelegateSurfaceShortcutRoutingTests: XCTestCase {
-    func testRightSidebarModeShortcutsDoNotFallThroughWhenResponderTemporarilyClears() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+@Suite(.serialized)
+struct AppDelegateSurfaceShortcutRoutingTests {
+    @Test func rightSidebarModeShortcutsDoNotFallThroughWhenResponderTemporarilyClears() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
 
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected focused terminal surface")
-            return
-        }
+            let window = try #require(window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let panelId = try #require(workspace.focusedPanelId)
+            let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
 
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            terminalPanel.hostedView.setVisibleInUI(true)
+            terminalPanel.hostedView.setActive(true)
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
 
-        let rawModeEvents: [(mode: RightSidebarMode, event: NSEvent?)] = [
-            (.files, makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: window.windowNumber)),
-            (.find, makeKeyDownEvent(key: "2", keyCode: 19, windowNumber: window.windowNumber)),
-            (.sessions, makeKeyDownEvent(key: "3", keyCode: 20, windowNumber: window.windowNumber))
-        ]
-        let modeEvents = rawModeEvents.compactMap { entry -> (mode: RightSidebarMode, event: NSEvent)? in
-            guard let event = entry.event else { return nil }
-            return (entry.mode, event)
-        }
-        XCTAssertEqual(modeEvents.count, 3, "Failed to construct Ctrl+1/2/3 events")
+            let modeEvents: [(mode: RightSidebarMode, event: NSEvent)] = [
+                (.files, try #require(makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: window.windowNumber))),
+                (.find, try #require(makeKeyDownEvent(key: "2", keyCode: 19, windowNumber: window.windowNumber))),
+                (.sessions, try #require(makeKeyDownEvent(key: "3", keyCode: 20, windowNumber: window.windowNumber)))
+            ]
 
-        for cycle in 0..<10 {
-            for (mode, event) in modeEvents {
-                _ = window.makeFirstResponder(nil)
+            for cycle in 0..<10 {
+                for (mode, event) in modeEvents {
+                    _ = window.makeFirstResponder(nil)
 #if DEBUG
-                XCTAssertTrue(
-                    appDelegate.debugHandleCustomShortcut(event: event),
-                    "Ctrl+\(event.charactersIgnoringModifiers ?? "?") should be handled on cycle \(cycle)"
-                )
+                    #expect(
+                        appDelegate.debugHandleCustomShortcut(event: event),
+                        "Ctrl+\(event.charactersIgnoringModifiers ?? "?") should be handled on cycle \(cycle)"
+                    )
 #else
-                XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                    Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-                XCTAssertEqual(
-                    appDelegate.fileExplorerState?.mode,
-                    mode,
-                    "Ctrl+\(event.charactersIgnoringModifiers ?? "?") should keep routing as a right-sidebar mode shortcut on cycle \(cycle)"
-                )
-                XCTAssertFalse(
-                    terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-                    "Ctrl+\(event.charactersIgnoringModifiers ?? "?") should not refocus the terminal on cycle \(cycle)"
-                )
+                    #expect(
+                        appDelegate.fileExplorerState?.mode == mode,
+                        "Ctrl+\(event.charactersIgnoringModifiers ?? "?") should keep routing as a right-sidebar mode shortcut on cycle \(cycle)"
+                    )
+                    #expect(
+                        !terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+                        "Ctrl+\(event.charactersIgnoringModifiers ?? "?") should not refocus the terminal on cycle \(cycle)"
+                    )
+                }
             }
         }
     }
 
-    func testSurfaceNumberShortcutsCycleInEventWindowWhenActiveManagerIsStale() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
+    @Test func surfaceNumberShortcutsCycleInEventWindowWhenActiveManagerIsStale() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
-        defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
+            let firstWindowId = appDelegate.createMainWindow()
+            let secondWindowId = appDelegate.createMainWindow()
+            defer {
+                closeWindow(withId: firstWindowId)
+                closeWindow(withId: secondWindowId)
+            }
 
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let firstWorkspace = firstManager.selectedWorkspace,
-              let secondWorkspace = secondManager.selectedWorkspace,
-              secondWorkspace.newTerminalSurfaceInFocusedPane(focus: true) != nil,
-              secondWorkspace.newTerminalSurfaceInFocusedPane(focus: true) != nil else {
-            XCTFail("Expected two window contexts and three surfaces in the event window")
-            return
-        }
+            let firstManager = try #require(appDelegate.tabManagerFor(windowId: firstWindowId))
+            let secondManager = try #require(appDelegate.tabManagerFor(windowId: secondWindowId))
+            let secondWindow = try #require(window(withId: secondWindowId))
+            let firstWorkspace = try #require(firstManager.selectedWorkspace)
+            let secondWorkspace = try #require(secondManager.selectedWorkspace)
+            _ = try #require(secondWorkspace.newTerminalSurfaceInFocusedPane(focus: true))
+            _ = try #require(secondWorkspace.newTerminalSurfaceInFocusedPane(focus: true))
 
-        let expectedSurfaceIds = Array(secondWorkspace.orderedPanelIds.prefix(3))
-        XCTAssertEqual(expectedSurfaceIds.count, 3, "Test needs three ordered surfaces")
-        XCTAssertNotEqual(firstWorkspace.id, secondWorkspace.id)
+            let expectedSurfaceIds = Array(secondWorkspace.orderedPanelIds.prefix(3))
+            #expect(expectedSurfaceIds.count == 3, "Test needs three ordered surfaces")
+            #expect(firstWorkspace.id != secondWorkspace.id)
 
-        appDelegate.tabManager = firstManager
-        XCTAssertTrue(appDelegate.tabManager === firstManager)
+            appDelegate.tabManager = firstManager
+            #expect(appDelegate.tabManager === firstManager)
 
-        let rawDigitEvents: [(digit: Int, event: NSEvent?)] = [
-            (1, makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: secondWindow.windowNumber)),
-            (2, makeKeyDownEvent(key: "2", keyCode: 19, windowNumber: secondWindow.windowNumber)),
-            (3, makeKeyDownEvent(key: "3", keyCode: 20, windowNumber: secondWindow.windowNumber))
-        ]
-        let digitEvents = rawDigitEvents.compactMap { entry -> (digit: Int, event: NSEvent)? in
-            guard let event = entry.event else { return nil }
-            return (entry.digit, event)
-        }
-        XCTAssertEqual(digitEvents.count, 3, "Failed to construct Ctrl+1/2/3 events")
+            let digitEvents: [(digit: Int, event: NSEvent)] = [
+                (1, try #require(makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: secondWindow.windowNumber))),
+                (2, try #require(makeKeyDownEvent(key: "2", keyCode: 19, windowNumber: secondWindow.windowNumber))),
+                (3, try #require(makeKeyDownEvent(key: "3", keyCode: 20, windowNumber: secondWindow.windowNumber)))
+            ]
 
-        withTemporaryShortcut(action: .selectSurfaceByNumber) {
-            for cycle in 0..<10 {
-                for (digit, event) in digitEvents {
+            try withTemporaryShortcut(action: .selectSurfaceByNumber) {
+                for cycle in 0..<10 {
+                    for (digit, event) in digitEvents {
 #if DEBUG
-                    XCTAssertTrue(
-                        appDelegate.debugHandleCustomShortcut(event: event),
-                        "Ctrl+\(digit) should be handled on cycle \(cycle)"
-                    )
+                        #expect(
+                            appDelegate.debugHandleCustomShortcut(event: event),
+                            "Ctrl+\(digit) should be handled on cycle \(cycle)"
+                        )
 #else
-                    XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+                        Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-                    XCTAssertEqual(
-                        secondWorkspace.focusedPanelId,
-                        expectedSurfaceIds[digit - 1],
-                        "Ctrl+\(digit) should focus surface \(digit) in the event window on cycle \(cycle)"
-                    )
+                        #expect(
+                            secondWorkspace.focusedPanelId == expectedSurfaceIds[digit - 1],
+                            "Ctrl+\(digit) should focus surface \(digit) in the event window on cycle \(cycle)"
+                        )
+                    }
                 }
             }
         }
@@ -146,7 +127,7 @@ final class AppDelegateSurfaceShortcutRoutingTests: XCTestCase {
         )
     }
 
-    private func withTemporaryShortcut(action: KeyboardShortcutSettings.Action, _ body: () -> Void) {
+    private func withTemporaryShortcut(action: KeyboardShortcutSettings.Action, _ body: () throws -> Void) rethrows {
         let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
         let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
         defer {
@@ -163,7 +144,42 @@ final class AppDelegateSurfaceShortcutRoutingTests: XCTestCase {
 #if DEBUG
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
 #endif
-        body()
+        try body()
+    }
+
+    private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
+        let actionsWithPersistedShortcut = Set(
+            KeyboardShortcutSettings.Action.allCases.filter {
+                UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
+            }
+        )
+        let savedShortcutsByAction = Dictionary(
+            uniqueKeysWithValues: actionsWithPersistedShortcut.map { action in
+                (action, KeyboardShortcutSettings.shortcut(for: action))
+            }
+        )
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-surface-shortcut-routing"
+        )
+        KeyboardShortcutSettings.resetAll()
+#if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            for action in KeyboardShortcutSettings.Action.allCases {
+                if actionsWithPersistedShortcut.contains(action),
+                   let savedShortcut = savedShortcutsByAction[action] {
+                    KeyboardShortcutSettings.setShortcut(savedShortcut, for: action)
+                } else {
+                    KeyboardShortcutSettings.resetShortcut(for: action)
+                }
+            }
+#if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+        }
+        try body()
     }
 
     private func window(withId windowId: UUID) -> NSWindow? {
