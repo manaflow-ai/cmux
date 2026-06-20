@@ -88,4 +88,15 @@ struct HostBrowserSignInFlowHarness {
             await Task.yield()
         }
     }
+
+    func waitForPendingUserRequest(timeout: Duration = .seconds(2)) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while await client.pendingUserRequests == 0 {
+            if clock.now >= deadline {
+                preconditionFailure("Timed out waiting for a pending user request")
+            }
+            await Task.yield()
+        }
+    }
 }

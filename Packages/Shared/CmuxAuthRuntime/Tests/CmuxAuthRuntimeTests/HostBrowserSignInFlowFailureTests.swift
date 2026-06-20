@@ -78,9 +78,7 @@ import Testing
         harness.factory.sessions[0].deliver(
             harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0]))
         )
-        while await harness.client.pendingUserRequests == 0 {
-            await Task.yield()
-        }
+        await harness.waitForPendingUserRequest()
 
         await harness.client.setCurrentUserError(AuthError.networkError)
         await harness.flow.signOut()

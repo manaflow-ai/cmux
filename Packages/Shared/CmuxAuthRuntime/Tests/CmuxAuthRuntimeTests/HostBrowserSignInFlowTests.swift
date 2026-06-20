@@ -176,9 +176,7 @@ import Testing
             .value)
 
         harness.factory.sessions[0].cancel()
-        while harness.flow.isSigningIn {
-            await Task.yield()
-        }
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
 
         let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: fallbackState))
 
@@ -202,9 +200,7 @@ import Testing
             .value)
 
         harness.factory.sessions[0].cancel()
-        while harness.flow.isSigningIn {
-            await Task.yield()
-        }
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
 
         let failedRetry = URL(string: "cmux-dev://auth-callback?other=1&cmux_auth_state=\(fallbackState)")!
         #expect(await harness.flow.handleCallbackURL(failedRetry) == false)
@@ -234,9 +230,7 @@ import Testing
             .value)
 
         harness.factory.sessions[0].cancel()
-        while harness.flow.isSigningIn {
-            await Task.yield()
-        }
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
         await harness.flow.signOut()
 
         let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: fallbackState))
@@ -256,9 +250,7 @@ import Testing
         await harness.waitForSession()
         harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
         // Wait until the completion path is blocked inside the user fetch.
-        while await harness.client.pendingUserRequests == 0 {
-            await Task.yield()
-        }
+        await harness.waitForPendingUserRequest()
 
         await harness.flow.signOut()
         await harness.client.openUserGate()
@@ -285,9 +277,7 @@ import Testing
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
         harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
-        while await harness.client.pendingUserRequests == 0 {
-            await Task.yield()
-        }
+        await harness.waitForPendingUserRequest()
 
         // Past the 1s attempt timeout, but well under both the 30s slow-hint
         // threshold and the 60s caller deadline, so only the abandoned-attempt
@@ -313,9 +303,7 @@ import Testing
 
         // The user can still finish in the popup after the caller's deadline.
         harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
-        while harness.coordinator.isAuthenticated == false {
-            await Task.yield()
-        }
+        await harness.waitForCondition { harness.coordinator.isAuthenticated }
         #expect(harness.coordinator.currentUser == user)
     }
 
@@ -413,9 +401,7 @@ import Testing
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
         harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
-        while await harness.client.pendingUserRequests == 0 {
-            await Task.yield()
-        }
+        await harness.waitForPendingUserRequest()
 
         // Sign-out parks inside its credential capture, before its local
         // clear.
