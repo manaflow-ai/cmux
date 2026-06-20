@@ -22,6 +22,12 @@ import Testing
         #expect(withoutToggle > withToggle)
     }
 
+    @Test func reservesOverviewButtonWithoutChatToggle() {
+        let cap = MobileNavTitleWidth.cap(contentWidth: 393, hasChatToggle: false)
+        let trailing = MobileNavTitleWidth.trailingReserveBase + MobileNavTitleWidth.terminalOverviewReserve
+        #expect(cap == 393 - 2 * max(MobileNavTitleWidth.leadingReserve, trailing))
+    }
+
     @Test func neverBelowFloor() {
         #expect(
             MobileNavTitleWidth.cap(contentWidth: 120, hasChatToggle: true)

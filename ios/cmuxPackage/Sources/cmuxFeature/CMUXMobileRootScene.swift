@@ -190,10 +190,7 @@ public struct CMUXMobileRootScene: View {
         #if os(iOS)
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_OVERVIEW_PREVIEW"] == "1" {
-            CMUXMobileAppView(
-                store: MobileShellComposite.terminalOverviewPreviewHarnessStore(),
-                onboardingStore: onboardingStore
-            )
+            CMUXMobilePreviewShellView(store: MobileShellComposite.terminalOverviewPreviewHarnessStore())
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
         } else {
