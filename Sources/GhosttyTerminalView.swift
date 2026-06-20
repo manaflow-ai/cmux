@@ -4730,18 +4730,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let selectedRows = keyboardCopyModeVisualLineScreenRows(
             surface: surface,
             usePendingScrollFallback: true
-        ) else { return nil }
+        ),
+              let metrics = keyboardCopyModeGridMetrics(surface: surface),
+              metrics.columns > 0,
+              let lowerRow = UInt32(exactly: selectedRows.lowerBound),
+              let upperRow = UInt32(exactly: selectedRows.upperBound),
+              let lastColumn = UInt32(exactly: metrics.columns - 1) else { return nil }
         let topLeft = ghostty_point_s(
             tag: GHOSTTY_POINT_SCREEN,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            coord: GHOSTTY_POINT_COORD_EXACT,
             x: 0,
-            y: 0
+            y: lowerRow
         )
         let bottomRight = ghostty_point_s(
             tag: GHOSTTY_POINT_SCREEN,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
+            coord: GHOSTTY_POINT_COORD_EXACT,
+            x: lastColumn,
+            y: upperRow
         )
         let selection = ghostty_selection_s(
             top_left: topLeft,
@@ -4752,14 +4757,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var text = ghostty_text_s()
         guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
-        let screenText = text.text.map {
+        let selectedText = text.text.map {
             String(decoding: Data(bytes: $0, count: Int(text.text_len)), as: UTF8.self)
         } ?? ""
-        return TerminalKeyboardCopyModeClipboardFormatter().visualLineFallbackText(fromScreenText: screenText, rows: selectedRows)
+        return TerminalKeyboardCopyModeClipboardFormatter().trimTrailingLinePadding(selectedText)
     }
 
     private func keyboardCopyModeVisualLineSelectionFitsVisibleRange(surface: ghostty_surface_t) -> Bool {
         _ = flushPendingScrollbarIfAvailable()
+        if keyboardCopyModePendingViewportJumpSync,
+           keyboardCopyModePendingViewportJumpVisualLineReselect {
+            return false
+        }
+
         guard let metrics = keyboardCopyModeGridMetrics(surface: surface),
               let selectedRows = keyboardCopyModeVisualLineScreenRows(surface: surface) else { return false }
 
