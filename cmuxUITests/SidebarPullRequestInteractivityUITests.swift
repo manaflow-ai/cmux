@@ -171,8 +171,8 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        pollUntil(timeout: timeout) {
-            socketCommand("ping") == "PONG"
+        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
+            self.socketCommand("ping") == "PONG"
         }
     }
 

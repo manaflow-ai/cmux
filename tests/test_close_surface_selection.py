@@ -55,6 +55,32 @@ def _wait_focused_index(client: cmux, index: int, timeout: float = 4.0) -> bool:
     return False
 
 
+def _wait_focused_id(
+    client: cmux,
+    expected_id: str,
+    expected_index: Optional[int] = None,
+    timeout: float = 4.0,
+) -> Optional[SurfaceTuple]:
+    """Poll list_surfaces() until the focused surface matches expected_id (and
+    optionally expected_index). Focus reassignment after a close is applied
+    asynchronously by the app, so a single read can observe stale state. Returns
+    the focused tuple once it settles to the expected value, else the last
+    observed focused tuple (or None) at the deadline."""
+    start = time.time()
+    last = None
+    while time.time() - start < timeout:
+        focused = _focused(client.list_surfaces())
+        last = focused
+        if (
+            focused is not None
+            and focused[1] == expected_id
+            and (expected_index is None or focused[0] == expected_index)
+        ):
+            return focused
+        time.sleep(0.05)
+    return last
+
+
 def _ensure_surfaces(client: cmux, count: int) -> None:
     surfaces = client.list_surfaces()
     while len(surfaces) < count:
@@ -88,10 +114,9 @@ def test_close_middle_keeps_index(client: cmux) -> TestResult:
         expected_next_id = before[2][1]
 
         client.close_surface()  # closes focused surface
-        time.sleep(0.25)
 
-        after = client.list_surfaces()
-        focused = _focused(after)
+        # Focus reassignment after close is asynchronous; poll for it to settle.
+        focused = _wait_focused_id(client, expected_next_id, expected_index=1, timeout=6.0)
         if focused is None:
             result.failure("No focused surface after close")
             return result
@@ -129,10 +154,9 @@ def test_close_last_selects_previous(client: cmux) -> TestResult:
             return result
 
         client.close_surface()
-        time.sleep(0.25)
 
-        after = client.list_surfaces()
-        focused = _focused(after)
+        # Focus reassignment after close is asynchronous; poll for it to settle.
+        focused = _wait_focused_id(client, expected_prev_id, timeout=6.0)
         if focused is None:
             result.failure("No focused surface after close")
             return result

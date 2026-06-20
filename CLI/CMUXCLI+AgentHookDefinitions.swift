@@ -368,7 +368,15 @@ extension CMUXCLI {
     }
 
     static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
-        agentHookShellCommand("cmux hooks \(def.name) \(event.cmuxSubcommand)", for: def)
+        let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
+        if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
+            return codexFireAndForgetAgentHookShellCommand(command, for: def)
+        }
+        return agentHookShellCommand(command, for: def)
+    }
+
+    private static func codexHookCanRunFireAndForget(_ subcommand: String) -> Bool {
+        subcommand == "session-start" || subcommand == "prompt-submit"
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
@@ -387,9 +395,7 @@ extension CMUXCLI {
     private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
 
     private static func agentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
-        if usesPinnedHookDispatch(def) {
-            return pinnedAgentHookShellCommand(command, for: def)
-        }
+        if usesPinnedHookDispatch(def) { return pinnedAgentHookShellCommand(command, for: def) }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || echo '{}'; else echo '{}'; fi"
     }

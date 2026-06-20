@@ -57,3 +57,19 @@ no review. An `--external` build is different: the FIRST external build of a new
 external tester can install it. Subsequent external builds of the same version
 ship without re-review. Plan a version bump's first external cut around that
 ~24h gate.
+
+## TestFlight GitHub Actions signing
+
+`.github/workflows/ios-testflight.yml` uses manual export signing because Xcode's
+automatic App Store Connect export has produced IPAs whose signed app entitlements
+omit `aps-environment=production`. That upload is intentionally blocked because
+TestFlight push would silently fail.
+
+Required GitHub secrets:
+
+- `ASC_API_KEY_ID`
+- `ASC_API_ISSUER_ID`
+- `ASC_API_KEY_P8_BASE64`
+- `IOS_DISTRIBUTION_CERTIFICATE_BASE64` (base64-encoded `.p12` for an Apple Distribution certificate on team `7WLXT3NR37`)
+- `IOS_DISTRIBUTION_CERTIFICATE_PASSWORD`
+- `IOS_BETA_PROVISIONING_PROFILE_BASE64` (base64-encoded App Store profile for `dev.cmux.app.beta`, with `aps-environment=production`)

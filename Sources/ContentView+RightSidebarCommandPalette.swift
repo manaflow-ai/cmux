@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import AppKit
 
 extension ContentView {
@@ -9,6 +10,8 @@ extension ContentView {
         switch commandId {
         case "palette.newWorkspace":
             return .newTab
+        case "palette.newBrowserWorkspace":
+            return .newBrowserWorkspace
         case "palette.newWindow":
             return .newWindow
         case "palette.openFolder":
@@ -79,6 +82,8 @@ extension ContentView {
             return .attachTextBoxFile
         case "palette.terminalSendCtrlF":
             return .sendCtrlFToTerminal
+        case "palette.terminalClearScreenKeepScrollback":
+            return .clearScreenKeepScrollback
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":

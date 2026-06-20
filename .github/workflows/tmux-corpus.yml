@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   remote-daemon-fuzz:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -69,6 +69,18 @@ jobs:
       # and cheap so xcodebuild can restart/finish the suite.
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -121,6 +133,9 @@ jobs:
           path: .ci-source-packages
           key: tmux-corpus-spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: tmux-corpus-spm-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Prepare isolated DerivedData
         run: |

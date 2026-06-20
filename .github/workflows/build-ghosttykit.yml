@@ -15,6 +15,18 @@ jobs:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
       GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-v1
     steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -73,11 +85,16 @@ jobs:
           key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
           restore-keys: zig-packages-
 
-      - name: Build GhosttyKit.xcframework
+      - name: Install zig
         if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
           ./scripts/install-zig-ci.sh
+
+      - name: Build GhosttyKit.xcframework
+        if: steps.check-release.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
           cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
       - name: Package xcframework
