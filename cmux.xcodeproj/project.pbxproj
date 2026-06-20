@@ -944,6 +944,7 @@
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
 		FB0CA0510000000000000007 /* Workspace+ReactGrabWorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0CA0510000000000000008 /* Workspace+ReactGrabWorkspaceContext.swift */; };
 		E30798000000000000000004 /* Workspace+SessionRestoreHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30798000000000000000003 /* Workspace+SessionRestoreHosting.swift */; };
+		E3B7A4000000000000000D10 /* Workspace+SplitDetachHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */; };
 		E3B7A4000000000000000A10 /* Workspace+SplitMoveReorderHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */; };
 		E3B7A40000000000000005C0 /* Workspace+SurfaceLifecycleHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */; };
 		E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */; };
@@ -1943,6 +1944,7 @@
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		FB0CA0510000000000000008 /* Workspace+ReactGrabWorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ReactGrabWorkspaceContext.swift"; sourceTree = "<group>"; };
 		E30798000000000000000003 /* Workspace+SessionRestoreHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreHosting.swift"; sourceTree = "<group>"; };
+		E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitDetachHosting.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitMoveReorderHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceLifecycleHosting.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceSurfaceTreeReading.swift"; sourceTree = "<group>"; };
@@ -2413,6 +2415,7 @@
 				E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */,
 				E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */,
 				E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */,
+				E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */,
 				E3B7A40000000000000005D1 /* Workspace+AgentHibernationHosting.swift */,
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
@@ -4116,6 +4119,7 @@
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 				FB0CA0510000000000000007 /* Workspace+ReactGrabWorkspaceContext.swift in Sources */,
 				E30798000000000000000004 /* Workspace+SessionRestoreHosting.swift in Sources */,
+				E3B7A4000000000000000D10 /* Workspace+SplitDetachHosting.swift in Sources */,
 				E3B7A4000000000000000A10 /* Workspace+SplitMoveReorderHosting.swift in Sources */,
 				E3B7A40000000000000005C0 /* Workspace+SurfaceLifecycleHosting.swift in Sources */,
 				E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */,
