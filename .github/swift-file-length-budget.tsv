@@ -9,7 +9,7 @@
 11411	Sources/Panels/BrowserPanel.swift
 11127	Sources/GhosttyTerminalView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-9086	Sources/TerminalController.swift
+8496	Sources/TerminalController.swift
 7988	Sources/Panels/BrowserPanelView.swift
 7303	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
@@ -219,6 +219,7 @@
 516	Sources/TerminalImageTransfer.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
+511	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/RemotePTY/ControlRemotePTYWorker.swift
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift

@@ -825,6 +825,7 @@
 		C0DE00000000000000000C46 /* TerminalController+ControlNotificationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C45 /* TerminalController+ControlNotificationContext.swift */; };
 		C0DE00000000000000000C56 /* TerminalController+ControlPaneContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C55 /* TerminalController+ControlPaneContext.swift */; };
 		C0DE00000000000000000C70 /* TerminalController+ControlProjectContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C6F /* TerminalController+ControlProjectContext.swift */; };
+		E0DE00000000000000000FE1 /* TerminalController+ControlRemotePTYReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DE00000000000000000FE2 /* TerminalController+ControlRemotePTYReading.swift */; };
 		C0DE00000000000000000FE1 /* TerminalController+ControlRemoteTmuxReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000FE2 /* TerminalController+ControlRemoteTmuxReading.swift */; };
 		C0DE00000000000000000C72 /* TerminalController+ControlSidebarContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C71 /* TerminalController+ControlSidebarContext.swift */; };
 		C0DE00000000000000000C74 /* TerminalController+ControlSidebarContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C73 /* TerminalController+ControlSidebarContext2.swift */; };
@@ -1820,6 +1821,7 @@
 		C0DE00000000000000000C45 /* TerminalController+ControlNotificationContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlNotificationContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C55 /* TerminalController+ControlPaneContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlPaneContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C6F /* TerminalController+ControlProjectContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlProjectContext.swift"; sourceTree = "<group>"; };
+		E0DE00000000000000000FE2 /* TerminalController+ControlRemotePTYReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlRemotePTYReading.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000FE2 /* TerminalController+ControlRemoteTmuxReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlRemoteTmuxReading.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C71 /* TerminalController+ControlSidebarContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C73 /* TerminalController+ControlSidebarContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSidebarContext2.swift"; sourceTree = "<group>"; };
@@ -2727,6 +2729,7 @@
 				CE24906539C19AB10E4C1C71 /* RemoteTmuxPostAttachAction.swift */,
 				59B80C0A6FC64A59BD274E1E /* RemoteTmuxProcessCancellation.swift */,
 				C0DE00000000000000000FE2 /* TerminalController+ControlRemoteTmuxReading.swift */,
+				E0DE00000000000000000FE2 /* TerminalController+ControlRemotePTYReading.swift */,
 				50FE16F529BD6FBA4FBDECFC /* RemoteTmuxController.swift */,
 				9E3E94F6022485BB12789444 /* RemoteTmuxSessionEndAction.swift */,
 				0E17C0DE0E17C0DE0E17C001 /* RemoteTmuxTransportRegistry.swift */,
@@ -4007,6 +4010,7 @@
 				C0DE00000000000000000C46 /* TerminalController+ControlNotificationContext.swift in Sources */,
 				C0DE00000000000000000C56 /* TerminalController+ControlPaneContext.swift in Sources */,
 				C0DE00000000000000000C70 /* TerminalController+ControlProjectContext.swift in Sources */,
+				E0DE00000000000000000FE1 /* TerminalController+ControlRemotePTYReading.swift in Sources */,
 				C0DE00000000000000000FE1 /* TerminalController+ControlRemoteTmuxReading.swift in Sources */,
 				C0DE00000000000000000C72 /* TerminalController+ControlSidebarContext.swift in Sources */,
 				C0DE00000000000000000C74 /* TerminalController+ControlSidebarContext2.swift in Sources */,
