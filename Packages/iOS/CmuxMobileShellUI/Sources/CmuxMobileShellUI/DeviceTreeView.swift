@@ -82,13 +82,15 @@ struct DeviceTreeView: View {
                 } else {
                     Section {
                         ForEach(computers) { computer in
-                            MacComputerRow(computer: computer)
-                                .swipeActions(edge: .trailing) {
-                                    removeButton(for: computer)
-                                }
-                                .contextMenu {
-                                    removeButton(for: computer)
-                                }
+                            NavigationLink(value: computer.deviceId) {
+                                MacComputerRow(computer: computer)
+                            }
+                            .swipeActions(edge: .trailing) {
+                                removeButton(for: computer)
+                            }
+                            .contextMenu {
+                                removeButton(for: computer)
+                            }
                         }
                     } footer: {
                         Text(L10n.string(
@@ -99,6 +101,9 @@ struct DeviceTreeView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .navigationDestination(for: String.self) { deviceId in
+                MacComputerDetailView(store: store, macDeviceID: deviceId)
+            }
             .navigationTitle(L10n.string("mobile.computers.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

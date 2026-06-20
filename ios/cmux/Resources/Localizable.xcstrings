@@ -1021,6 +1021,142 @@
         }
       }
     },
+    "mobile.computers.field.deviceId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスID"
+          }
+        }
+      }
+    },
+    "mobile.computers.field.lastSeen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last seen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終確認"
+          }
+        }
+      }
+    },
+    "mobile.computers.field.pairedSince": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired since"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング日"
+          }
+        }
+      }
+    },
+    "mobile.computers.field.phone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This phone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この電話"
+          }
+        }
+      }
+    },
+    "mobile.computers.field.reported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reports"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告"
+          }
+        }
+      }
+    },
+    "mobile.computers.field.role": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Role"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "役割"
+          }
+        }
+      }
+    },
+    "mobile.computers.field.routeUpdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route updated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルート更新"
+          }
+        }
+      }
+    },
+    "mobile.computers.field.workspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
+      }
+    },
     "mobile.computers.footer": {
       "extractionState": "manual",
       "localizations": {
@@ -1068,6 +1204,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未接続"
+          }
+        }
+      }
+    },
+    "mobile.computers.presenceFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presence is the Mac's own heartbeat to the presence service, not your phone's connection. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone — usually a Tailscale or route problem."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレゼンスは Mac 自身のハートビートであり、電話の接続ではありません。プレゼンスがオンラインなのに「この電話」が未接続の場合、Mac は他からは到達できるが電話からは到達できません。通常は Tailscale かルートの問題です。"
           }
         }
       }
@@ -1136,6 +1289,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@を削除しますか？"
+          }
+        }
+      }
+    },
+    "mobile.computers.role.foreground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active (foreground)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブ（フォアグラウンド）"
+          }
+        }
+      }
+    },
+    "mobile.computers.section.connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        }
+      }
+    },
+    "mobile.computers.section.identity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "識別情報"
+          }
+        }
+      }
+    },
+    "mobile.computers.section.presence": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presence (from server)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレゼンス（サーバー）"
+          }
+        }
+      }
+    },
+    "mobile.computers.section.routes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Routes the phone can dial"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電話が接続できるルート"
           }
         }
       }
