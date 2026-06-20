@@ -39,7 +39,7 @@ extension RemoteTmuxError {
 
     /// Flattens control/format/separator scalars to spaces and caps length, so raw
     /// remote diagnostics stay readable and bounded in user-facing error text. Mirrors
-    /// the scalar categories rejected by `TerminalController.remoteTmuxValueHasHiddenCharacter`.
+    /// the scalar categories rejected by `ControlRemoteTmuxWorker.remoteTmuxValueHasHiddenCharacter`.
     private static func sanitizedDetail(_ raw: String) -> String {
         let space: Unicode.Scalar = " "
         var scalars = String.UnicodeScalarView()
