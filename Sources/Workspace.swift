@@ -567,15 +567,13 @@ extension Workspace {
             return nil
         }
         let paneTabs = bonsplitController.tabs(inPane: pane)
-        let paneAnchorPanelId: UUID? = {
-            if tabIndex + 1 < paneTabs.count {
-                return panelIdFromSurfaceId(paneTabs[tabIndex + 1].id)
-            }
-            if tabIndex > 0 {
-                return panelIdFromSurfaceId(paneTabs[tabIndex - 1].id)
-            }
-            return nil
-        }()
+        // The neighbor-selection rule (prefer the next tab, fall back to the
+        // previous, none when the closing tab is alone) lives in
+        // SessionRestoreCoordinator; Workspace resolves the chosen tab's surface
+        // id to its panel id against the live pane-tree state.
+        let paneAnchorPanelId: UUID? = sessionRestoreCoordinator
+            .paneAnchorNeighborIndex(forClosedTabIndex: tabIndex, tabCount: paneTabs.count)
+            .flatMap { panelIdFromSurfaceId(paneTabs[$0].id) }
         let fallbackPlan = bonsplitController.treeSnapshot().browserCloseFallbackPlan(
             forPaneId: pane.id.uuidString
         )
