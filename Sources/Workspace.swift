@@ -1422,6 +1422,17 @@ extension Workspace {
                 } else {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
+                // When we're about to drive `claude --resume` for a restored Claude
+                // pane, arm the auto-responder so it can answer Claude's
+                // compacted-session resume menu per the user's `claudeResumeMode`
+                // setting (no-op for `.ask`, the default).
+                if restorableAgent.kind == .claude,
+                   restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput {
+                    ClaudeResumeAutoResponderController.shared.arm(
+                        panel: terminalPanel,
+                        mode: ClaudeResumeModeSettings.mode()
+                    )
+                }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {

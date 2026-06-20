@@ -20,6 +20,7 @@ public struct TerminalSection: View {
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
+    @State private var claudeResumeMode: DefaultsValueModel<ClaudeResumeMode>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
     @State private var maxLive: DefaultsValueModel<Int>
@@ -43,6 +44,7 @@ public struct TerminalSection: View {
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
+        _claudeResumeMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.claudeResumeMode))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
         _maxLive = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationMaxLiveTerminals))
@@ -68,6 +70,7 @@ public struct TerminalSection: View {
             scrollBar,
             copyOnSelect,
             autoResume,
+            claudeResumeMode,
             hibernation,
             idleSeconds,
             maxLive,
@@ -78,6 +81,17 @@ public struct TerminalSection: View {
             memGuardrailThresholdGB,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    private func claudeResumeModeName(_ mode: ClaudeResumeMode) -> String {
+        switch mode {
+        case .ask:
+            return String(localized: "settings.terminal.claudeResumeMode.ask", defaultValue: "Ask each time")
+        case .full:
+            return String(localized: "settings.terminal.claudeResumeMode.full", defaultValue: "Resume full session")
+        case .summary:
+            return String(localized: "settings.terminal.claudeResumeMode.summary", defaultValue: "Resume from summary")
+        }
     }
 
     /// Persists a new tab-bar font size, cancelling any in-flight save so a
@@ -240,6 +254,22 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalAgentAutoResumeToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.claudeResumeMode"),
+                String(localized: "settings.terminal.claudeResumeMode", defaultValue: "Claude Resume Prompt"),
+                subtitle: String(localized: "settings.terminal.claudeResumeMode.subtitle", defaultValue: "When auto-resuming a compacted Claude Code session, cmux can answer its “Resume from summary / Resume full session” prompt for you."),
+                controlWidth: 220
+            ) {
+                Picker("", selection: Binding(get: { claudeResumeMode.current }, set: { claudeResumeMode.set($0) })) {
+                    ForEach(ClaudeResumeMode.allCases, id: \.self) { mode in
+                        Text(claudeResumeModeName(mode)).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsTerminalClaudeResumeModePicker")
             }
             SettingsCardDivider()
             SettingsCardRow(

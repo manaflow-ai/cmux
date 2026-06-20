@@ -27,6 +27,15 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
+    /// How cmux answers Claude Code's compacted-session resume prompt when it
+    /// auto-resumes a Claude agent on restore. Default `.ask` leaves the prompt
+    /// for the user; `.full`/`.summary` auto-select that option.
+    public let claudeResumeMode = DefaultsKey<ClaudeResumeMode>(
+        id: "terminal.claudeResumeMode",
+        defaultValue: .ask,
+        userDefaultsKey: "terminal.claudeResumeMode"
+    )
+
     public let agentHibernationEnabled = DefaultsKey<Bool>(
         id: "terminal.agentHibernation.enabled",
         defaultValue: false,
