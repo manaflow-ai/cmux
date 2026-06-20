@@ -609,6 +609,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
     var terminalOverviewPreviewLinesByID: [MobileTerminalPreview.ID: [String]] = [:]
     var terminalOverviewPreviewUpdatedAtByID: [MobileTerminalPreview.ID: Date] = [:]
+    @ObservationIgnored var terminalCloseRequestGeneration = 0 // Latest close response wins.
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -5540,7 +5541,6 @@ private extension CmxAttachTicket {
             authToken: authToken
         )
     }
-
 }
 
 private extension MobileWorkspacePreview {

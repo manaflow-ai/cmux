@@ -134,6 +134,8 @@ extension MobileShellComposite {
         in workspaceID: MobileWorkspacePreview.ID
     ) async {
         guard let client = remoteClient else { return }
+        terminalCloseRequestGeneration &+= 1
+        let closeGeneration = terminalCloseRequestGeneration
         do {
             let response = try await Self.requestCloseRemoteTerminal(
                 workspaceID: workspaceID,
@@ -143,12 +145,15 @@ extension MobileShellComposite {
             )
             guard remoteClient === client,
                   connectionState == .connected,
+                  closeGeneration == terminalCloseRequestGeneration,
                   !Task.isCancelled else { return }
             terminalOverviewPreviewLinesByID[terminalID] = nil
             terminalOverviewPreviewUpdatedAtByID[terminalID] = nil
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
         } catch {
-            guard remoteClient === client, !Task.isCancelled else { return }
+            guard remoteClient === client,
+                  closeGeneration == terminalCloseRequestGeneration,
+                  !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
             terminalOverviewLog.error("terminal close failed workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) error=\(String(describing: error), privacy: .public)")
