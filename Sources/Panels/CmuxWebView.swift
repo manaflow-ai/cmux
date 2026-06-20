@@ -3,6 +3,9 @@ import Bonsplit
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
+#if DEBUG
+import CmuxTestSupport
+#endif
 
 extension WKWebView {
     nonisolated private static var cmuxSetPageMutedSelector: Selector {
