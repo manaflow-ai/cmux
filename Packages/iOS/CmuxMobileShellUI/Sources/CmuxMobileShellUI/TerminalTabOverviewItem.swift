@@ -6,4 +6,5 @@ struct TerminalTabOverviewItem: Identifiable, Equatable, Sendable {
     var title: String
     var previewLines: [String]
     var isSelected: Bool
+    var canClose: Bool
 }

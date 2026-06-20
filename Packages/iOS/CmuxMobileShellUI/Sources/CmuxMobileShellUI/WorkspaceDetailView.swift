@@ -835,7 +835,8 @@ struct WorkspaceDetailView: View {
                 id: terminal.id,
                 title: terminal.name,
                 previewLines: store.terminalOverviewPreviewLines(for: terminal.id) ?? [],
-                isSelected: terminal.id == selectedTerminal?.id && activeBrowser == nil
+                isSelected: terminal.id == selectedTerminal?.id && activeBrowser == nil,
+                canClose: terminal.canClose
             )
         }
     }

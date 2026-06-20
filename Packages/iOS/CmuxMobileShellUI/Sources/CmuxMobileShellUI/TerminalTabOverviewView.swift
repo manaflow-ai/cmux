@@ -22,7 +22,7 @@ struct TerminalTabOverviewView: View {
                     ForEach(items) { item in
                         TerminalTabOverviewCard(
                             item: item,
-                            canClose: canCloseTabs && items.count > 1,
+                            canClose: canCloseTabs && item.canClose && items.count > 1,
                             onSelect: { onSelect(item.id) },
                             onClose: { onClose(item.id) }
                         )
