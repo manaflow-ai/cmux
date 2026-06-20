@@ -87,7 +87,14 @@ class TerminalController {
     // Pure transforms over the raw arg string; holds no state and reaches no
     // app singletons, so the `report_*`/sidebar-mutation handlers forward to it.
     private nonisolated let sidebarMetadataArgumentParser = SidebarMetadataArgumentParser()
-    private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
+    /// The pure focus-mutation classification tables (CmuxControlSocket). Holds
+    /// no live state; one source of truth for which commands may steal focus.
+    nonisolated let socketCommandPolicy = ControlSocketCommandPolicy.standard
+    /// The runtime focus-allowance stack (CmuxControlSocket), injected per-router
+    /// state replacing the former process-wide `socketCommandFocusAllowanceStackKey`
+    /// thread-dictionary static. One instance per controller (one router per
+    /// process today), so the allowance is genuinely instance-scoped.
+    nonisolated let socketCommandFocusAllowance = ControlSocketFocusAllowanceStack()
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
@@ -140,41 +147,6 @@ class TerminalController {
     static var terminalSurfaceUnavailableSocketError: String {
         "ERROR: \(terminalSurfaceUnavailableMessage)"
     }
-
-    private nonisolated static let focusIntentV1Commands: Set<String> = [
-        "focus_window",
-        "select_workspace",
-        "focus_surface",
-        "focus_pane",
-        "focus_surface_by_panel",
-        "focus_webview",
-        "focus_notification",
-        "activate_app",
-        "debug_right_sidebar_focus",
-    ]
-
-    private nonisolated static let focusIntentV2Methods: Set<String> = [
-        "window.focus",
-        "workspace.select",
-        "workspace.next",
-        "workspace.previous",
-        "workspace.last",
-        "workspace.group.focus",
-        "surface.focus",
-        "pane.focus",
-        "pane.last",
-        "file.open",
-        "browser.focus_webview",
-        "browser.focus",
-        "browser.tab.switch",
-        "notification.open",
-        "notification.jump_to_unread",
-        "debug.command_palette.toggle",
-        "debug.notification.focus",
-        "debug.app.activate",
-        "debug.right_sidebar.focus",
-        "feed.jump"
-    ]
 
     /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
     /// `kind:N` handle registry and the moved command domains (window so far,
@@ -457,15 +429,11 @@ class TerminalController {
     }
 
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
-        !currentSocketCommandFocusAllowanceStack().isEmpty
+        shared.socketCommandFocusAllowance.isCommandActive
     }
 
     nonisolated static func socketCommandAllowsInAppFocusMutations() -> Bool {
-        allowsInAppFocusMutationsForActiveSocketCommand()
-    }
-
-    private nonisolated static func allowsInAppFocusMutationsForActiveSocketCommand() -> Bool {
-        currentSocketCommandFocusAllowanceStack().last ?? false
+        shared.socketCommandFocusAllowance.topAllowsFocusMutation
     }
 
     /// Relaxed to `internal` so the v1 `move_workspace_to_window` /
@@ -473,7 +441,7 @@ class TerminalController {
     /// read the active socket command's focus-allowance, matching the legacy v1
     /// bodies exactly.
     func socketCommandAllowsInAppFocusMutations() -> Bool {
-        Self.allowsInAppFocusMutationsForActiveSocketCommand()
+        socketCommandFocusAllowance.topAllowsFocusMutation
     }
 
     func v2FocusAllowed(requested: Bool = true) -> Bool {
@@ -494,15 +462,19 @@ class TerminalController {
         }
     }
 
+    /// Classifies whether a command of this shape may mutate in-app focus.
+    /// Extracts the two `Any`-shaped legacy inputs (the v2 `focus` param and the
+    /// v1 `right_sidebar` args) here in the app target and forwards the resolved
+    /// booleans to the pure ``ControlSocketCommandPolicy``.
     private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
-        if isV2 {
-            return focusIntentV2Methods.contains(commandKey)
-                || explicitFocusParamAllowsFocus(commandKey: commandKey, params: params)
-        }
-        if commandKey == "right_sidebar" {
-            return rightSidebarCommandAllowsInAppFocusMutations(args: params["args"] as? String ?? "")
-        }
-        return focusIntentV1Commands.contains(commandKey)
+        shared.socketCommandPolicy.allowsInAppFocusMutations(
+            commandKey: commandKey,
+            isV2: isV2,
+            explicitFocusParam: isV2 && explicitFocusParamValue(params),
+            rightSidebarAllowsFocus: !isV2 && commandKey == "right_sidebar"
+                ? rightSidebarCommandAllowsInAppFocusMutations(args: params["args"] as? String ?? "")
+                : false
+        )
     }
 
     private nonisolated static func rightSidebarCommandAllowsInAppFocusMutations(args: String) -> Bool {
@@ -520,36 +492,7 @@ class TerminalController {
 
     nonisolated func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, params: [String: Any] = [:], _ body: () -> T) -> T {
         let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(commandKey: commandKey, isV2: isV2, params: params)
-        var stack = Self.currentSocketCommandFocusAllowanceStack()
-        stack.append(allowsFocusMutation)
-        Self.setCurrentSocketCommandFocusAllowanceStack(stack)
-        defer {
-            var stack = Self.currentSocketCommandFocusAllowanceStack()
-            if !stack.isEmpty {
-                _ = stack.popLast()
-            }
-            Self.setCurrentSocketCommandFocusAllowanceStack(stack)
-        }
-        return body()
-    }
-
-    private nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
-        Thread.current.threadDictionary[socketCommandFocusAllowanceStackKey] as? [Bool] ?? []
-    }
-
-    private nonisolated static func setCurrentSocketCommandFocusAllowanceStack(_ stack: [Bool]) {
-        if stack.isEmpty {
-            Thread.current.threadDictionary.removeObject(forKey: socketCommandFocusAllowanceStackKey)
-        } else {
-            Thread.current.threadDictionary[socketCommandFocusAllowanceStackKey] = stack
-        }
-    }
-
-    private nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
-        let previous = currentSocketCommandFocusAllowanceStack()
-        setCurrentSocketCommandFocusAllowanceStack(stack)
-        defer { setCurrentSocketCommandFocusAllowanceStack(previous) }
-        return body()
+        return socketCommandFocusAllowance.withPolicy(allowsInAppFocusMutations: allowsFocusMutation, body)
     }
 
 #if DEBUG
@@ -2244,17 +2187,17 @@ class TerminalController {
     }
 
     nonisolated func v2MainSync<T>(_ body: @MainActor () -> T) -> T {
-        let policyStack = Self.currentSocketCommandFocusAllowanceStack()
+        let policyStack = socketCommandFocusAllowance.currentStack()
         if Thread.isMainThread {
             return MainActor.assumeIsolated {
-                Self.withSocketCommandPolicyStack(policyStack) {
+                socketCommandFocusAllowance.withStack(policyStack) {
                     body()
                 }
             }
         }
         return DispatchQueue.main.sync {
             MainActor.assumeIsolated {
-                Self.withSocketCommandPolicyStack(policyStack) {
+                socketCommandFocusAllowance.withStack(policyStack) {
                     body()
                 }
             }
