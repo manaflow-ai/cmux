@@ -16,6 +16,67 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    timeout-minutes: 5
+    outputs:
+      macos: ${{ steps.detect.outputs.macos }}
+      web: ${{ steps.detect.outputs.web }}
+      go: ${{ steps.detect.outputs.go }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect CI change areas
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          emit_all_areas() {
+            echo "macos=true" >> "$GITHUB_OUTPUT"
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          }
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if ! MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" \
+              || ! git diff --name-only "$MERGE_BASE" "$HEAD_SHA" > /tmp/cmux-ci-changed-files.txt; then
+              echo "Could not compute PR diff; running all CI areas." >&2
+              emit_all_areas
+              exit 0
+            fi
+
+            if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then
+              echo "PR diff is empty; running all CI areas."
+              emit_all_areas
+              exit 0
+            fi
+
+            # This guard lives in workflow YAML, before the PR-editable detector
+            # runs. Router/workflow edits must fail open even if a PR breaks the
+            # detector's own self-change classification.
+            if grep -Eq '^(\.github/workflows/ci\.yml|scripts/ci/[^/]+\.py|tests/test_ci_change_areas\.py)$' /tmp/cmux-ci-changed-files.txt; then
+              echo "CI router changed; running all CI areas."
+              emit_all_areas
+              exit 0
+            fi
+
+            python3 scripts/ci/detect_ci_change_areas.py \
+              --event-name "$EVENT_NAME" \
+              --files-from /tmp/cmux-ci-changed-files.txt
+            exit 0
+          fi
+
+          python3 scripts/ci/detect_ci_change_areas.py \
+            --event-name "$EVENT_NAME" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA"
+
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     steps:
@@ -59,6 +120,9 @@ jobs:
       - name: Validate app-host xcodebuild attempt budget
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
 
+      - name: Validate cmux profiling support scripts
+        run: ./tests/test_start_cmux_profiling.sh
+
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
@@ -85,6 +149,9 @@ jobs:
 
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
+
+      - name: Validate CI change area filter
+        run: python3 tests/test_ci_change_areas.py
 
       - name: Validate release attestation retry guard
         run: ./tests/test_ci_attestation_retry.sh
@@ -132,6 +199,8 @@ jobs:
         run: python3 scripts/check-test-determinism.py --strict
 
   remote-daemon-tests:
+    needs: changes
+    if: ${{ needs.changes.outputs.go == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     steps:
       - name: Checkout
@@ -151,6 +220,8 @@ jobs:
         run: ./tests/test_remote_daemon_release_assets.sh
 
   web-typecheck:
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     defaults:
       run:
@@ -174,6 +245,8 @@ jobs:
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
   react-apps-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     steps:
       - name: Checkout
@@ -205,6 +278,8 @@ jobs:
         run: bun run react-doctor:ci
 
   web-db-migrations:
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     defaults:
       run:
@@ -253,14 +328,11 @@ jobs:
         run: bun run test:db:behavior
 
   tests:
-    # TEMPORARY (2026-06-18): pinned to hosted runners. The self-hosted austin
-    # mac-minis in the MACOS_RUNNER_15 pool cannot broker the XCTest control
-    # session with testmanagerd ("Timed out 120s initiating control session
-    # with daemon" -> Executed 0 tests -> idle-timeout), so this required check
-    # can never go green there. Revert to
-    # `${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}` once the austin
-    # runners are repaired (GUI login session + automation mode + unwedged
-    # testmanagerd). Tracked by the CI-flakiness handoff.
+    needs: changes
+    if: ${{ needs.changes.outputs.macos == 'true' }}
+    # App-host XCTest needs a runner that can broker testmanagerd control
+    # sessions. Keep this job on the hosted GUI-capable pool until the
+    # MACOS_RUNNER_15/Austin runner-infra issue is fixed separately.
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 75
     env:
@@ -663,6 +735,8 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
 
   tests-build-and-lag:
+    needs: changes
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     # Build the full cmux scheme and run the lag regression on macOS CI.
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
@@ -992,6 +1066,8 @@ jobs:
           rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
 
   release-ghostty-cli-helper:
+    needs: changes
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
@@ -1048,7 +1124,10 @@ jobs:
           overwrite: true
 
   release-build:
-    needs: release-ghostty-cli-helper
+    needs:
+      - changes
+      - release-ghostty-cli-helper
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
@@ -1057,7 +1136,7 @@ jobs:
     # Release builds need enough disk for a universal Release build plus the
     # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
     # of the generic persistent macOS 26 pool.
-    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'warp-macos-26-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1190,6 +1269,8 @@ jobs:
           [[ "$SDK_VERSION" == 26.* ]]
 
   ui-regressions:
+    needs: changes
+    if: ${{ needs.changes.outputs.macos == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
@@ -1661,3 +1742,45 @@ jobs:
           fi
           scripts/ci/virtual-display-lock.sh release || true
           rm -f "${VDISPLAY_PERSISTENT_HELPER_PATH:-}" "${VDISPLAY_PERSISTENT_READY:-}" "${VDISPLAY_PERSISTENT_ID_PATH:-}" "${VDISPLAY_PERSISTENT_LOG:-}"
+
+  ci-status:
+    needs:
+      - changes
+      - workflow-guard-tests
+      - remote-daemon-tests
+      - web-typecheck
+      - react-apps-check
+      - web-db-migrations
+      - tests
+      - tests-build-and-lag
+      - release-ghostty-cli-helper
+      - release-build
+      - ui-regressions
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    steps:
+      - name: Check routed CI jobs
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["CI_NEEDS"])
+          allowed = {"success", "skipped"}
+          bad = {
+              name: data["result"]
+              for name, data in sorted(needs.items())
+              if data["result"] not in allowed
+          }
+
+          if bad:
+              for name, result in bad.items():
+                  print(f"{name}: {result}", file=sys.stderr)
+              sys.exit(1)
+
+          for name, data in sorted(needs.items()):
+              print(f"{name}: {data['result']}")
+          PY

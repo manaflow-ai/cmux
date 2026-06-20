@@ -1836,6 +1836,9 @@ struct ContentView: View {
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
         .padding(.top, effectiveTitlebarPadding)
+        .overlay(alignment: .top) {
+            PaneMemoryGuardrailBanner(guardrail: PaneMemoryGuardrail.shared, tabManager: tabManager)
+        }
     }
 
     private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {
@@ -5573,10 +5576,6 @@ struct ContentView: View {
         case .opencode:
             return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
         case .custom:
-            // Reaching here means `forkCommand != nil` (top guard), i.e. the
-            // agent's registration declares a `forkCommand` template, so it is
-            // fork-able. There is no per-agent fork-capability probe for custom
-            // agents (unlike opencode's version probe), so trust the template.
             return .supportedWithoutProbe
         default:
             return .unsupported
@@ -12050,6 +12049,7 @@ struct VerticalTabsSidebar: View {
             target: contextMenuPinTarget
         )
         let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
+        let liveHasMemoryWarning = sidebarUnread.hasMemoryWarning(forWorkspaceId: tab.id)
         let liveLatestNotificationText: String? = showsSidebarNotificationMessage
             ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
             : nil
@@ -12121,6 +12121,7 @@ struct VerticalTabsSidebar: View {
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
+            hasMemoryWarning: liveHasMemoryWarning,
             latestNotificationText: liveLatestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
@@ -12919,6 +12920,7 @@ struct TabItemView: View, Equatable {
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
+        lhs.hasMemoryWarning == rhs.hasMemoryWarning &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
@@ -12947,6 +12949,10 @@ struct TabItemView: View, Equatable {
     let canCloseWorkspace: Bool
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
+    /// True when any pane in this workspace is over the runaway-memory
+    /// threshold. Precomputed snapshot value (snapshot-boundary rule); drives
+    /// the orange warning badge alongside the unread badge.
+    let hasMemoryWarning: Bool
     let latestNotificationText: String?
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
@@ -13341,6 +13347,20 @@ struct TabItemView: View, Equatable {
                             .foregroundColor(activeUnreadBadgeTextColor)
                     }
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+                }
+
+                if hasMemoryWarning {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: scaledFontSize(11), weight: .semibold))
+                        .foregroundColor(.orange)
+                        .safeHelp(String(
+                            localized: "sidebar.memoryWarning.tooltip",
+                            defaultValue: "A pane in this workspace is using a lot of memory"
+                        ))
+                        .accessibilityLabel(String(
+                            localized: "sidebar.memoryWarning.accessibilityLabel",
+                            defaultValue: "High memory warning"
+                        ))
                 }
 
                 if workspaceSnapshot.isPinned {
