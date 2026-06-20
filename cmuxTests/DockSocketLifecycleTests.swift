@@ -215,6 +215,30 @@ struct DockSocketLifecycleTests {
         }
     }
 
+    @Test("Dock unavailable beats browser-disabled external fallback")
+    @MainActor
+    func dockUnavailableBeatsBrowserDisabledExternalFallback() throws {
+        try withDockDisabled {
+            try withBrowserDisabled {
+                try withSocketAppContext { _, workspace, _ in
+                    for method in ["surface.create", "pane.create"] {
+                        var params = ["placement": "dock", "type": "browser", "url": "https://example.com"]
+                        if method == "pane.create" {
+                            params["direction"] = "right"
+                        }
+                        let envelope = try v2Envelope(method: method, params: params)
+
+                        #expect(envelope["ok"] as? Bool == false)
+                        let error = try #require(envelope["error"] as? [String: Any])
+                        #expect(error["code"] as? String == "invalid_params")
+                        #expect(error["message"] as? String == "Dock placement is disabled")
+                        #expect(workspace.dockSplit.bonsplitController.allTabIds.isEmpty)
+                    }
+                }
+            }
+        }
+    }
+
     @Test("surface.close closes Dock surfaces")
     @MainActor
     func surfaceCloseClosesDockSurfaces() throws {
