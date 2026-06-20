@@ -525,7 +525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ))
         },
         debugWindowControlsContentProvider: { NSHostingView(rootView: DebugWindowControlsView()) },
-        menuBarExtraDebugContentProvider: { NSHostingView(rootView: MenuBarExtraDebugView()) },
+        menuBarExtraDebugRefresh: { AppDelegate.shared?.refreshMenuBarExtraForDebug() },
         backgroundDebugContentProvider: { NSHostingView(rootView: BackgroundDebugView()) }
     )
     #else
