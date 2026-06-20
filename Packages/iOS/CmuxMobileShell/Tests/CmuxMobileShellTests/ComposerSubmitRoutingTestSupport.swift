@@ -275,7 +275,10 @@ private actor RoutingTransport: CmxByteTransport {
 /// deterministic end-to-end exercise of submitComposer's routing over the real
 /// terminal.paste / terminal.paste_image RPC frames.
 @MainActor
-func makeRoutingConnectedStore(router: RoutingHostRouter) async throws -> MobileShellComposite {
+func makeRoutingConnectedStore(
+    router: RoutingHostRouter,
+    offlineAgentNoteQueue: (any OfflineAgentNoteQueueStoring)? = nil
+) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router)
     )
@@ -286,13 +289,15 @@ func makeRoutingConnectedStore(router: RoutingHostRouter) async throws -> Mobile
     let store = MobileShellComposite(
         runtime: runtime,
         isSignedIn: true,
+        connectionState: .connected,
         workspaces: [
             MobileWorkspacePreview(
                 id: .init(rawValue: RoutingHostRouter.workspaceID),
                 name: "Routing Workspace",
                 terminals: terminals
             ),
-        ]
+        ],
+        offlineAgentNoteQueue: offlineAgentNoteQueue
     )
     // 127.0.0.1 is a Stack-auth-trusted route, so authorized requests carry the
     // Stack token and do not throw insecureManualRoute before reaching the

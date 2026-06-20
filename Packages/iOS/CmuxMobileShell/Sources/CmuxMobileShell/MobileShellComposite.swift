@@ -127,6 +127,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .none:
                 break
             }
+            if connectionState == .connected {
+                scheduleOfflineAgentNoteDrain()
+            }
         }
     }
     public private(set) var macConnectionStatus: MobileMacConnectionStatus
@@ -414,6 +417,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``terminalInputText`` behaves exactly as before. Injected from the app
     /// composition root.
     private let draftStore: (any TerminalDraftStoring)?
+    /// Durable queue for text notes captured while the Mac is unreachable.
+    private let offlineAgentNoteQueue: (any OfflineAgentNoteQueueStoring)?
+    /// Notes loaded from ``offlineAgentNoteQueue`` and rendered in the composer.
+    public private(set) var offlineAgentNotes: [OfflineAgentNote] = []
+    /// Guards the initial queue load from storage.
+    @ObservationIgnored private var isLoadingOfflineAgentNotes = false
+    /// Guards reconnect/retry drains so two connection edges cannot replay the
+    /// same note concurrently.
+    @ObservationIgnored private var isDrainingOfflineAgentNotes = false
 
     /// True while a saved draft is being loaded INTO ``terminalInputText``, so
     /// its `didSet` does not immediately re-save the just-loaded value (which
@@ -662,10 +674,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
-        draftStore: (any TerminalDraftStoring)? = nil
+        draftStore: (any TerminalDraftStoring)? = nil,
+        offlineAgentNoteQueue: (any OfflineAgentNoteQueueStoring)? = nil
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
+        self.offlineAgentNoteQueue = offlineAgentNoteQueue
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
         self.presence = presence
@@ -729,6 +743,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
+        loadOfflineAgentNotes()
     }
 
     isolated deinit {
@@ -803,6 +818,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // never land after the wipe and leak into the next account's session.
         if let draftStore {
             enqueueDraftOperation { await draftStore.clearAllDrafts() }
+        }
+        if offlineAgentNoteQueue != nil {
+            offlineAgentNotes = []
+            persistOfflineAgentNotes()
         }
         // Drop unflushed keystroke snapshots too: an armed flush that runs
         // before the wipe would only write text the wipe then deletes, but the
@@ -2977,7 +2996,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Empty text is "nothing to send", which is a success from the caller's
         // point of view (an images-only send has no text to keep on failure).
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
-        guard remoteClient != nil else { return false }
+        guard remoteClient != nil else {
+            return await enqueueOfflineAgentNote(
+                text: text,
+                workspaceID: workspaceID,
+                terminalID: terminalID
+            )
+        }
         // Reject a re-entrant send (e.g. a double tap on Send) so the same text
         // is not pasted twice. The flag is set/cleared on the main actor around
         // the await, so no second call can slip past it.
@@ -3880,6 +3905,163 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         selectedTerminalID = selectedWorkspace.preferredTerminal?.id
+    }
+
+    // MARK: - Offline agent notes
+
+    private func loadOfflineAgentNotes() {
+        guard let offlineAgentNoteQueue, !isLoadingOfflineAgentNotes else { return }
+        isLoadingOfflineAgentNotes = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let loaded = await offlineAgentNoteQueue.loadNotes()
+            let loadedIDs = Set(loaded.map(\.id))
+            let locallyQueued = self.offlineAgentNotes.filter { !loadedIDs.contains($0.id) }
+            self.offlineAgentNotes = loaded + locallyQueued
+            self.isLoadingOfflineAgentNotes = false
+            self.scheduleOfflineAgentNoteDrain()
+        }
+    }
+
+    private func persistOfflineAgentNotes() {
+        guard let offlineAgentNoteQueue else { return }
+        let snapshot = offlineAgentNotes
+        Task { await offlineAgentNoteQueue.saveNotes(snapshot) }
+    }
+
+    @discardableResult
+    private func enqueueOfflineAgentNote(
+        text: String,
+        workspaceID: MobileWorkspacePreview.ID?,
+        terminalID: MobileTerminalPreview.ID?
+    ) async -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let now = runtime?.now() ?? Date()
+        let note = OfflineAgentNote(
+            text: text,
+            workspaceID: workspaceID?.rawValue,
+            terminalID: terminalID?.rawValue,
+            createdAt: now,
+            updatedAt: now
+        )
+        offlineAgentNotes.append(note)
+        persistOfflineAgentNotes()
+        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: terminalID)
+        analytics.capture("ios_offline_agent_note_queued", [
+            "has_target_terminal": .bool(terminalID != nil),
+        ])
+        return true
+    }
+
+    public func retryOfflineAgentNotes() async {
+        for index in offlineAgentNotes.indices where offlineAgentNotes[index].status == .failed {
+            offlineAgentNotes[index].status = .pending
+            offlineAgentNotes[index].lastError = nil
+            offlineAgentNotes[index].updatedAt = runtime?.now() ?? Date()
+        }
+        persistOfflineAgentNotes()
+        await drainOfflineAgentNotes()
+    }
+
+    public func deleteOfflineAgentNote(id: OfflineAgentNote.ID) async {
+        offlineAgentNotes.removeAll { $0.id == id }
+        persistOfflineAgentNotes()
+    }
+
+    public func clearSentOfflineAgentNotes() async {
+        offlineAgentNotes.removeAll { $0.status == .sent }
+        persistOfflineAgentNotes()
+    }
+
+    private func scheduleOfflineAgentNoteDrain() {
+        guard connectionState == .connected,
+              remoteClient != nil,
+              offlineAgentNotes.contains(where: { $0.status == .pending || $0.status == .failed }) else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            await self?.drainOfflineAgentNotes()
+        }
+    }
+
+    private func drainOfflineAgentNotes() async {
+        guard !isDrainingOfflineAgentNotes,
+              connectionState == .connected,
+              remoteClient != nil else {
+            return
+        }
+        isDrainingOfflineAgentNotes = true
+        defer { isDrainingOfflineAgentNotes = false }
+
+        for noteID in offlineAgentNotes
+            .filter({ $0.status == .pending || $0.status == .failed })
+            .map(\.id) {
+            guard connectionState == .connected, remoteClient != nil else { break }
+            guard let index = offlineAgentNotes.firstIndex(where: { $0.id == noteID }) else { continue }
+            let note = offlineAgentNotes[index]
+            guard let target = offlineAgentNoteTarget(for: note) else {
+                markOfflineAgentNote(
+                    id: noteID,
+                    status: .failed,
+                    lastError: "No terminal is available for this note."
+                )
+                continue
+            }
+            markOfflineAgentNote(id: noteID, status: .sending, lastError: nil)
+            let sent = await sendRemoteTerminalPaste(
+                note.text,
+                submitKey: "return",
+                workspaceID: target.workspaceID,
+                terminalID: target.terminalID
+            )
+            if sent {
+                markOfflineAgentNote(id: noteID, status: .sent, lastError: nil, sentAt: runtime?.now() ?? Date())
+                analytics.capture("ios_offline_agent_note_sent", [:])
+            } else {
+                markOfflineAgentNote(
+                    id: noteID,
+                    status: .failed,
+                    lastError: "The Mac did not accept this note. Retry when the connection is stable."
+                )
+                analytics.capture("ios_offline_agent_note_failed", [:])
+            }
+        }
+    }
+
+    private func markOfflineAgentNote(
+        id: OfflineAgentNote.ID,
+        status: OfflineAgentNote.Status,
+        lastError: String?,
+        sentAt: Date? = nil
+    ) {
+        guard let index = offlineAgentNotes.firstIndex(where: { $0.id == id }) else { return }
+        offlineAgentNotes[index].status = status
+        offlineAgentNotes[index].lastError = lastError
+        offlineAgentNotes[index].sentAt = sentAt ?? offlineAgentNotes[index].sentAt
+        offlineAgentNotes[index].updatedAt = runtime?.now() ?? Date()
+        persistOfflineAgentNotes()
+    }
+
+    private func offlineAgentNoteTarget(
+        for note: OfflineAgentNote
+    ) -> (workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID)? {
+        if let workspaceID = note.workspaceID,
+           let terminalID = note.terminalID,
+           workspaces.contains(where: { workspace in
+               workspace.id.rawValue == workspaceID
+                   && workspace.terminals.contains(where: { $0.id.rawValue == terminalID })
+           }) {
+            return (
+                MobileWorkspacePreview.ID(rawValue: workspaceID),
+                MobileTerminalPreview.ID(rawValue: terminalID)
+            )
+        }
+        guard let workspace = selectedWorkspace,
+              let terminal = selectedTerminal else {
+            return nil
+        }
+        return (workspace.id, terminal.id)
     }
 
     // MARK: - Per-terminal composer drafts
