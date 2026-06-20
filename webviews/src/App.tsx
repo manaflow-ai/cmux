@@ -564,6 +564,12 @@ function Toolbar({
   return (
     <header id="toolbar">
       <SourceControls label={label} onNavigate={onNavigate} payload={payload} />
+      {/* The jump-to-file select duplicates the Files sidebar (both scroll to a
+          file). It is the only file-jump control when the sidebar is hidden, so
+          it always renders, but its centered middle grid track is collapsed via
+          CSS whenever the sidebar is actually visible (sidebar shown AND viewport
+          wide enough that the sidebar is not media-auto-hidden), letting
+          toolbar-left reclaim the space. */}
       <div className="toolbar-middle flex min-w-0 flex-1 items-center justify-center gap-1.5">
         <JumpSelect items={state.items} label={label} onJump={onJump} selectedItemId={state.activeItemId} />
       </div>
@@ -715,6 +721,7 @@ function devBranchPickerMockEnabled(): boolean {
 function devBranchPickerMock(): BranchPickerPayload {
   return {
     repoRoot: "/tmp/mock-repo",
+    headRef: "feat-x",
     currentRef: "main",
     currentReason: "fork point",
     confidence: "low",

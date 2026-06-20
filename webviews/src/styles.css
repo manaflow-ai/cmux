@@ -106,6 +106,10 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(124px, 0.9fr) auto;
   align-items: center;
+  /* When the Files sidebar is shown, JumpSelect is not rendered (it duplicates
+     the sidebar's file navigation). Collapse the centered middle track so
+     toolbar-left (source/repo/base) reclaims that space. Declared here for
+     scope; the actual collapse is the body[data-files-hidden="false"] rule. */
   gap: 7px;
   min-height: 32px;
   padding: 3px 4px 3px 8px;
@@ -113,6 +117,20 @@ body {
   background: var(--cmux-diff-toolbar-bg);
   color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
   z-index: 50;
+}
+/* Sidebar visible (and wide enough that it is not media-auto-hidden at <=520px):
+   the JumpSelect duplicates the sidebar, so collapse the centered middle track
+   and hide it, letting toolbar-left (source/repo/base) reclaim the space. Below
+   520px the sidebar auto-hides, so JumpSelect must stay (handled by the 520px
+   media block restoring the template + middle cell). The 760px stacked layout
+   re-declares its own template and overrides this for its range. */
+@media (min-width: 521px) {
+  body[data-files-hidden="false"] #toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  body[data-files-hidden="false"] .toolbar-middle {
+    display: none;
+  }
 }
 .toolbar-left,
 .toolbar-middle,
@@ -158,7 +176,13 @@ body {
   font: inherit;
 }
 #source-select {
-  flex: 0 2 76px;
+  /* The source select tells the user whether they are viewing
+     unstaged/staged/branch/last-turn, so it must never collapse to invisible.
+     A real min-width floor keeps a few chars of label + the dropdown chevron
+     always on screen; low flex-shrink so it ellipsizes gracefully instead of
+     vanishing as the toolbar narrows. */
+  flex: 0 1 76px;
+  min-width: 58px;
 }
 #source-select:hover,
 #repo-select:hover,
@@ -177,7 +201,11 @@ body {
   width: 100%;
 }
 #repo-select {
-  flex: 0 6 92px;
+  /* Same floor rationale as #source-select: degrade by ellipsis, never to zero
+     width. Repo labels are longer so it keeps a slightly larger floor and a bit
+     more shrink than the source select. */
+  flex: 0 2 92px;
+  min-width: 54px;
 }
 #base-select {
   flex: 0 1 120px;
@@ -202,11 +230,12 @@ body {
   align-items: center;
   min-width: 0;
   /* Base is the primary action of this toolbar: it claims the remaining space in
-     toolbar-left and holds a floor so the compact, highly-shrinkable source/repo
-     selects are the crush victims, not the base button. The min-width keeps at
-     least `Base: <ref>` visible at realistic diff-panel widths. */
+     toolbar-left. Its floor is lowered to 120px so the source/repo selects keep
+     their own min-width floors (58px / 54px) and stay visible in a narrow panel
+     instead of being crushed to zero. The base ref itself still has its own 6ch
+     floor inside the button. */
   flex: 1 1 auto;
-  min-width: 156px;
+  min-width: 120px;
 }
 .base-picker-button {
   display: inline-flex;
@@ -257,6 +286,20 @@ body {
   flex: 0 0 auto;
   font-weight: 500;
   color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
+}
+.base-picker-head {
+  /* Read-only head side of the comparison (current branch / detached HEAD). It
+     is the least important token, so it ellipsizes FIRST: a higher flex-shrink
+     than the base ref and a smaller min-width floor (4ch) mean it gives up
+     characters before the base ref does, but it does not vanish entirely while
+     any space remains. */
+  flex: 0 8 auto;
+  min-width: 4ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: color-mix(in lab, var(--cmux-diff-fg) 62%, var(--cmux-diff-bg));
 }
 .base-picker-ref {
   /* The ref is the priority token and the LAST thing to ellipsize. The

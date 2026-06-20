@@ -12,6 +12,7 @@ import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
 
 export type BranchPickerPayload = {
   repoRoot: string;
+  headRef: string;
   currentRef: string;
   currentReason: string;
   confidence: "high" | "low";
@@ -211,7 +212,7 @@ export function BranchBasePicker({
             <span className="base-picker-text">{buttonText}</span>
           </>
         ) : (
-          <BranchBaseButtonLabel label={label} picker={picker} />
+          <BranchBaseButtonLabel picker={picker} />
         )}
       </button>
       {open ? (
@@ -267,12 +268,17 @@ export function BranchBasePicker({
 }
 
 // Full, untruncated button label as a plain string for the visual `title`
-// tooltip. Mirrors what BranchBaseButtonLabel renders: `Base: <ref> (<reason>)
-// +<ahead> -<behind>`, with the low-confidence `~` prefix and omitting empty
-// parts, so a truncated button still exposes the complete value on hover.
+// tooltip. Mirrors what BranchBaseButtonLabel renders: `Comparing <head>
+// against <base> (<reason>) +<ahead> -<behind>`, with the low-confidence `~`
+// prefix and omitting empty parts, so a truncated button still exposes the
+// complete comparison on hover.
 function baseButtonTitle(label: DiffViewerLabelResolver, picker: BranchPickerPayload): string {
   const low = picker.confidence === "low";
-  const parts = [label("branchPickerBasePrefix"), picker.currentRef];
+  const parts = [
+    label("branchPickerComparing")
+      .replace("{head}", picker.headRef)
+      .replace("{base}", picker.currentRef),
+  ];
   if (picker.currentReason) {
     parts.push(`(${low ? "~" : ""}${picker.currentReason})`);
   }
@@ -283,10 +289,8 @@ function baseButtonTitle(label: DiffViewerLabelResolver, picker: BranchPickerPay
 }
 
 function BranchBaseButtonLabel({
-  label,
   picker,
 }: {
-  label: DiffViewerLabelResolver;
   picker: BranchPickerPayload;
 }) {
   const low = picker.confidence === "low";
@@ -294,7 +298,11 @@ function BranchBaseButtonLabel({
   const aheadBehind = picker.aheadBehind;
   return (
     <span className="base-picker-label">
-      <span className="base-picker-prefix">{label("branchPickerBasePrefix")}</span>
+      {/* Head side: read-only context. It ellipsizes BEFORE the base ref (it has
+          a smaller min-width floor and lower priority), but stays visible while
+          space allows. The arrow points head -> base. */}
+      <span className="base-picker-head">{picker.headRef}</span>
+      <Icon name="arrow" />
       <span className="base-picker-ref">{picker.currentRef}</span>
       {/* Secondaries live in their own flex group that absorbs all the shrink
           (high flex-shrink + overflow:hidden), so as the toolbar narrows the

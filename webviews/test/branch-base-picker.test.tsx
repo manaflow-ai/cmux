@@ -49,6 +49,7 @@ function pickerPayload(remoteCount: number): BranchPickerPayload {
   };
   return {
     repoRoot: "/tmp/mock",
+    headRef: "feat-x",
     currentRef: "origin/main",
     currentReason: "fork point",
     confidence: "high",
@@ -73,6 +74,33 @@ test("base picker caps a huge remotes group and shows a type-to-filter affordanc
   expect(more).toBeTruthy();
   // 2304 - 8 visible = 2296 hidden.
   expect(more?.textContent).toContain("2296 more, type to filter");
+});
+
+test("button renders the head -> base comparison with the base as the bold ref", () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  renderPicker(pickerPayload(0));
+
+  const head = document.querySelector(".base-picker-head");
+  const ref = document.querySelector(".base-picker-ref");
+  expect(head?.textContent).toBe("feat-x");
+  expect(ref?.textContent).toBe("origin/main");
+  // The "Base:" prefix is gone; the head ref and an arrow icon are the read-only
+  // context, the base ref is the primary token.
+  expect(document.querySelector(".base-picker-prefix")).toBeNull();
+  expect(document.querySelector(".base-picker-label svg")).toBeTruthy();
+});
+
+test("button title is the full untruncated comparison string", () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  renderPicker(pickerPayload(0));
+
+  const button = document.querySelector<HTMLButtonElement>(".base-picker-button");
+  // Comparing <head> against <base> (<reason>) +a -b, untruncated for hover.
+  expect(button?.getAttribute("title")).toBe(
+    "Comparing feat-x against origin/main (fork point) +1 -1",
+  );
 });
 
 test("empty filter caps each group and flags the hidden tail count", () => {

@@ -4621,8 +4621,21 @@ extension CMUXCLI {
             repoRoot: repoRoot,
             groupID: groupID
         )
+        // The head side of the comparison: a branch diff shows what the current
+        // branch + working tree contains that the base does not, so name the
+        // current branch (or a short SHA when HEAD is detached) and let the UI
+        // render it as `<headRef> -> <base>` so the comparison is never implicit.
+        let headRef: String
+        if let branch = gitCurrentBranchName(in: repoRoot), !branch.isEmpty {
+            headRef = branch
+        } else if let shortSHA = try? gitSingleLine(["rev-parse", "--short", "HEAD"], in: repoRoot) {
+            headRef = "HEAD@\(shortSHA)"
+        } else {
+            headRef = "HEAD"
+        }
         var picker: [String: Any] = [
             "repoRoot": repoRoot,
+            "headRef": headRef,
             "currentRef": base.ref,
             "currentReason": base.reason,
             "confidence": base.confidence,
