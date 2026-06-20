@@ -33,12 +33,14 @@ final class SSHPTYAttachReconnectInputFilter {
         filterEnabled: Bool,
         beforeForwardingInput: (@Sendable () async -> Void)? = nil
     ) throws -> SSHPTYAttachReconnectInputFilterControl? {
-        let filterState = filterEnabled ? try drainQueuedProbeReplies(inputFD: inputFD, fd: fd) : nil
+        let filterState = filterEnabled
+            ? SSHPTYAttachReconnectInputFilterState(isFiltering: true, pending: [])
+            : nil
         var stopSignalFDs = [Int32](repeating: -1, count: 2)
         let filterControl: SSHPTYAttachReconnectInputFilterControl?
         let stopSignalReadFD: Int32?
         let stopAcknowledgementWriteFD: Int32?
-        if filterState == nil {
+        if !filterEnabled {
             filterControl = nil
             stopSignalReadFD = nil
             stopAcknowledgementWriteFD = nil
@@ -71,38 +73,6 @@ final class SSHPTYAttachReconnectInputFilter {
             )
         }
         return filterControl
-    }
-
-    private static func drainQueuedProbeReplies(inputFD: Int32, fd: Int32) throws -> SSHPTYAttachReconnectInputFilterState? {
-        let reconnectInputFilter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        var buffer = [UInt8](repeating: 0, count: 8192)
-        while true {
-            guard stdinHasReadyInput(inputFD: inputFD, timeoutMilliseconds: 0) else {
-                return reconnectInputFilter.snapshotForPump()
-            }
-
-            let count = Darwin.read(inputFD, &buffer, buffer.count)
-            if count > 0 {
-                let input = reconnectInputFilter.filter(Data(buffer.prefix(count)))
-                if !input.isEmpty {
-                    try writeAll(fd: fd, data: input)
-                }
-                if !reconnectInputFilter.hasPendingInput,
-                   !reconnectInputFilter.isFilteringAtProbeBoundary {
-                    return nil
-                }
-            } else if count == 0 {
-                let input = reconnectInputFilter.finish()
-                if !input.isEmpty {
-                    try writeAll(fd: fd, data: input)
-                }
-                _ = shutdown(fd, SHUT_WR)
-                return nil
-            } else if errno != EINTR {
-                _ = shutdown(fd, SHUT_WR)
-                return nil
-            }
-        }
     }
 
     private static func pumpStdin(
@@ -324,13 +294,6 @@ final class SSHPTYAttachReconnectInputFilter {
         return data
     }
 
-    private func snapshotForPump() -> SSHPTYAttachReconnectInputFilterState? {
-        guard isFiltering else {
-            return nil
-        }
-        return SSHPTYAttachReconnectInputFilterState(isFiltering: isFiltering, pending: pending)
-    }
-
     private static func reconnectProbeReplySequence(
         in bytes: [UInt8],
         at start: Int
@@ -450,23 +413,6 @@ final class SSHPTYAttachReconnectInputFilter {
         case 0x79:
             return intermediates.elementsEqual([dollar])
         default:
-            return false
-        }
-    }
-
-    private static func stdinHasReadyInput(inputFD: Int32, timeoutMilliseconds: Int32) -> Bool {
-        var stdinPoll = pollfd(fd: inputFD, events: Int16(POLLIN), revents: 0)
-        while true {
-            let result = Darwin.poll(&stdinPoll, 1, timeoutMilliseconds)
-            if result > 0 {
-                return (stdinPoll.revents & Int16(POLLIN)) != 0
-            }
-            if result == 0 {
-                return false
-            }
-            if errno == EINTR {
-                continue
-            }
             return false
         }
     }
