@@ -25,8 +25,8 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 /// The decomposed home object the iOS shell views bind to.
 ///
 /// Holds the connection lifecycle, network-recovery state machine,
-/// workspace/terminal list state, and the render-grid-vs-raw-bytes terminal
-/// output pipeline behind one `@Observable` read surface. Constructed at the
+/// workspace/terminal list state, and the typed render-grid terminal output
+/// pipeline behind one `@Observable` read surface. Constructed at the
 /// app composition root with its collaborators injected as protocol seams
 /// (``MobileSyncRuntime``, ``MobilePairedMacStoring``, ``MobileIdentityProviding``,
 /// ``ReachabilityProviding``, ``MobileClientIDRepository``).
@@ -581,8 +581,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
-    private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
-    private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
+    private var deliveredTerminalOutputSeqBySurfaceID: [String: UInt64]
+    private var pendingTerminalOutputSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
     private var terminalRenderSessionsBySurfaceID: [String: TerminalRenderSession]
     private var terminalReplaySurfaceIDsPendingWorkspaceMapping: Set<String>
@@ -711,8 +711,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.connectionGeneration = UUID()
         self.connectionAttemptGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
-        self.deliveredTerminalByteEndSeqBySurfaceID = [:]
-        self.pendingTerminalByteEndSeqBySurfaceID = [:]
+        self.deliveredTerminalOutputSeqBySurfaceID = [:]
+        self.pendingTerminalOutputSeqBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalRenderSessionsBySurfaceID = [:]
         self.terminalReplaySurfaceIDsPendingWorkspaceMapping = []
@@ -3554,8 +3554,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func resetTerminalOutputTracking() {
-        deliveredTerminalByteEndSeqBySurfaceID = [:]
-        pendingTerminalByteEndSeqBySurfaceID = [:]
+        deliveredTerminalOutputSeqBySurfaceID = [:]
+        pendingTerminalOutputSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalRenderSessionsBySurfaceID = [:]
         terminalReplaySurfaceIDsPendingWorkspaceMapping = []
@@ -4867,11 +4867,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let remoteSeq = payload.terminalSeq else {
             return
         }
-        let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
+        let localSeq = deliveredTerminalOutputSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
         if terminalEventListenerTask != nil {
-            let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID]
-            pendingTerminalByteEndSeqBySurfaceID[surfaceID] = max(remoteSeq, pendingSeq ?? 0)
+            let pendingSeq = pendingTerminalOutputSeqBySurfaceID[surfaceID]
+            pendingTerminalOutputSeqBySurfaceID[surfaceID] = max(remoteSeq, pendingSeq ?? 0)
             if let pendingSeq, localSeq < pendingSeq {
                 MobileDebugLog.anchormux("sync.input_seq_still_behind surface=\(surfaceID) local=\(localSeq) pending=\(pendingSeq) remote=\(remoteSeq)")
                 diagnosticLog?.record(DiagnosticEvent(
@@ -4908,12 +4908,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    private func markTerminalBytesDelivered(surfaceID: String, endSeq: UInt64) {
-        let current = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
-        deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = max(current, endSeq)
-        if let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID],
+    private func markTerminalOutputDelivered(surfaceID: String, endSeq: UInt64) {
+        let current = deliveredTerminalOutputSeqBySurfaceID[surfaceID] ?? 0
+        deliveredTerminalOutputSeqBySurfaceID[surfaceID] = max(current, endSeq)
+        if let pendingSeq = pendingTerminalOutputSeqBySurfaceID[surfaceID],
            endSeq >= pendingSeq {
-            pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            pendingTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
             MobileDebugLog.anchormux("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
         }
     }
@@ -4928,14 +4928,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               hasTerminalOutputSink(surfaceID: surfaceID) else {
             return
         }
-        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
+        if let deliveredSeq = deliveredTerminalOutputSeqBySurfaceID[surfaceID],
            deliveredSeq > envelope.frame.stateSeq {
             MobileDebugLog.anchormux(
                 "sync.render_grid_stale source=\(source) surface=\(surfaceID) delivered=\(deliveredSeq) frame=\(envelope.frame.stateSeq)"
             )
             return
         }
-        markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: envelope.frame.stateSeq)
+        markTerminalOutputDelivered(surfaceID: surfaceID, endSeq: envelope.frame.stateSeq)
         deliverTerminalRenderGrid(envelope, surfaceID: surfaceID)
     }
 
@@ -4958,8 +4958,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalRenderSessionsBySurfaceID[surfaceID] = TerminalRenderSession()
-        deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
-        pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        deliveredTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
@@ -4973,8 +4973,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
-        deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
-        pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        deliveredTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderSessionsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplaySurfaceIDsPendingWorkspaceMapping.remove(surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
@@ -5139,10 +5139,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     #endif
 
     /// Cold-attach/self-heal replay. Prefer the Mac's bounded render-grid
-    /// snapshot, replacing the local iOS terminal state before live bytes
-    /// resume. The VT snapshot and raw byte ring remain fallbacks, but neither
-    /// is the target architecture: a byte tail is not a complete screen state
-    /// for TUIs, and a VT export is still a replay stream rather than state.
+    /// snapshot, replacing the local iOS terminal state before live render-grid
+    /// deltas resume. The VT snapshot and raw byte ring are legacy host
+    /// compatibility fallbacks for replay only; neither participates in the
+    /// live transport model.
     private func requestTerminalReplay(surfaceID: String) {
         guard let client = remoteClient else {
             #if DEBUG
@@ -5200,7 +5200,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) snapshotBytes=\(snapshotBytes?.count ?? -1, privacy: .public) renderGrid=\(renderGrid != nil, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")
                 #endif
                 if let replaySeq,
-                   let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
+                   let deliveredSeq = self.deliveredTerminalOutputSeqBySurfaceID[surfaceID],
                    deliveredSeq > replaySeq {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
                     self.cancelTerminalRenderSnapshot(surfaceID: surfaceID, baseSeq: deliveredSeq)
@@ -5222,7 +5222,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     MobileDebugLog.anchormux("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
                 }
                 if let replaySeq {
-                    self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
+                    self.markTerminalOutputDelivered(surfaceID: surfaceID, endSeq: replaySeq)
                 }
                 if let envelope {
                     let envelopes = self.terminalRenderSnapshotEnvelopes(envelope, surfaceID: surfaceID)
@@ -5292,60 +5292,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         applyAuthoritativeUnreadBadge(unreadCount)
-    }
-
-    private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
-        guard
-            let json = event.payloadJSON,
-            let payload = MobileTerminalBytesEvent.decode(json)
-        else {
-            return
-        }
-        let surfaceID = payload.surfaceID
-        let bytes = payload.bytes
-        #if DEBUG
-        let debugSeq = payload.sequence ?? 0
-        mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(debugSeq, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")
-        #endif
-        applyTerminalBytesEvent(payload)
-    }
-
-    private func applyTerminalBytesEvent(_ payload: MobileTerminalBytesEvent) {
-        let surfaceID = payload.surfaceID
-        let bytes = payload.bytes
-        guard let seq = payload.sequence else {
-            deliverTerminalBytes(bytes, surfaceID: surfaceID)
-            return
-        }
-        let endSeq = seq &+ UInt64(bytes.count)
-        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] {
-            if seq > deliveredSeq {
-                MobileDebugLog.anchormux("sync.byte_gap surface=\(surfaceID) delivered=\(deliveredSeq) next=\(seq)")
-                diagnosticLog?.record(DiagnosticEvent(
-                    .byteGap,
-                    surface: Self.diagnosticSurfaceHandle(surfaceID),
-                    a: Int(clamping: deliveredSeq),
-                    b: Int(clamping: seq)
-                ))
-                mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) deliveredSeq=\(deliveredSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
-                resyncTerminalOutput(
-                    reason: "seq_gap",
-                    restartEventStream: false,
-                    surfaceIDs: [surfaceID]
-                )
-                return
-            }
-            if endSeq <= deliveredSeq {
-                return
-            }
-            let overlap = deliveredSeq - seq
-            let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
-            deliverTerminalBytes(deliverBytes, surfaceID: surfaceID)
-            markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
-            return
-        }
-        deliverTerminalBytes(bytes, surfaceID: surfaceID)
-        markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {

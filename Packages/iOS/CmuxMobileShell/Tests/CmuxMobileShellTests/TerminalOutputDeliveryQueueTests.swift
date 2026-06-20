@@ -251,7 +251,7 @@ import Testing
     #expect(queue.isIdle)
 }
 
-@Test func renderGridViewportPatchIsReplaceableOnlyWhenEveryRowIsCleared() throws {
+@Test func viewportDeltaEnvelopeIsReplaceableOnlyWhenEveryRowIsCleared() throws {
     let fullFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal",
         stateSeq: 1,
@@ -278,9 +278,13 @@ import Testing
         changedRows: [1]
     )
 
-    #expect(!fullFrame.isReplaceableViewportPatchForMobileDelivery)
-    #expect(fullViewportDelta.isReplaceableViewportPatchForMobileDelivery)
-    #expect(!partialDelta.isReplaceableViewportPatchForMobileDelivery)
+    let snapshot = try MobileTerminalRenderGridEnvelope.snapshot(fullFrame)
+    let fullDelta = try MobileTerminalRenderGridEnvelope.viewportDelta(fullViewportDelta)
+    let partial = try MobileTerminalRenderGridEnvelope.viewportDelta(partialDelta)
+
+    #expect(!snapshot.isReplaceableViewportDelta)
+    #expect(fullDelta.isReplaceableViewportDelta)
+    #expect(!partial.isReplaceableViewportDelta)
 }
 
 @Test func viewportDeltaEnvelopeRejectsFullFramesInsteadOfRewritingThem() throws {
