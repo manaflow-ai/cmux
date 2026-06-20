@@ -196,6 +196,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var workspaces: [MobileWorkspacePreview] {
         didSet {
             workspaceTopologyVersion &+= 1
+            terminalWorkspaceIDsByTerminalID = workspaces.terminalWorkspaceIndex
             prunePendingAttachmentsForMissingTerminals()
         }
     }
@@ -599,6 +600,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    /// The in-flight raw-input drain loop. Retained (not fire-and-forget) so it
+    /// isn't orphaned and tests can await it deterministically via
+    /// ``drainRawTerminalInputForTesting()``. Cleared connection contexts cancel
+    /// this task before resetting the buffer, so a suspended stale drain cannot
+    /// resume and consume input from the next session. Not observed: it
+    /// sequences async delivery, not view state.
+    @ObservationIgnored private var rawTerminalInputDrainTask: Task<Void, Never>?
+    @ObservationIgnored private var terminalWorkspaceIDsByTerminalID: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
     private var pairingAttemptID: UUID
 
     public var phase: MobileShellPhase {
@@ -728,6 +737,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
+        self.terminalWorkspaceIDsByTerminalID = workspaces.terminalWorkspaceIndex
         self.pairingAttemptID = UUID()
     }
 
@@ -845,7 +855,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = false
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        resetRawTerminalInputBuffer()
         reportedViewportSizesByTerminalKey = [:]
         workspaces = PreviewMobileHost.workspaces
         // Group sections are account-scoped like `pairedMacs`/`registryDevices`
@@ -3182,6 +3192,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private func workspaceID(forTerminalID terminalID: MobileTerminalPreview.ID) -> MobileWorkspacePreview.ID? {
+        if let workspaceID = terminalWorkspaceIDsByTerminalID[terminalID] {
+            return workspaceID
+        }
+        guard let workspace = workspaces.first(where: { workspace in
+            workspace.terminals.contains(where: { $0.id == terminalID })
+        }) else {
+            return nil
+        }
+        terminalWorkspaceIDsByTerminalID[terminalID] = workspace.id
+        return workspace.id
+    }
+
     public func sendTerminalRawInput(_ text: String) {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
@@ -3193,13 +3216,48 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
+        enqueueRawTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Raw-bytes entry point for a specific surface (iOS keystrokes, paste, and
+    /// mouse reports from ``GhosttySurfaceView``). Enqueues synchronously into the
+    /// coalescing FIFO so fast typing keeps its order; a per-keystroke
+    /// `Task { await submit }` could reorder it (issue #6082).
+    public func sendTerminalRawInput(_ data: Data, surfaceID: String) {
+        guard !data.isEmpty else { return }
+        guard let text = String(data: data, encoding: .utf8) else { return }
+        let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+        guard let workspaceID = workspaceID(forTerminalID: terminalID) else {
+            #if DEBUG
+            mobileShellLog.info("skip raw terminal input enqueue surface not found surface=\(surfaceID, privacy: .private)")
+            #endif
+            return
+        }
+        enqueueRawTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Enqueue raw input into the coalescing FIFO and start the drain loop when
+    /// idle. Shared by both raw-input entry points for strict in-order delivery.
+    private func enqueueRawTerminalInput(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) {
         switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
             terminalID: terminalID
         ) {
         case .startDraining:
-            Task { @MainActor [weak self] in
+            // Retain the drain loop (not fire-and-forget) so it isn't orphaned
+            // and tests can await it via `drainRawTerminalInputForTesting()`.
+            // Ordering is already guaranteed by the buffer's `isDraining` flag
+            // (a new `.startDraining` only fires once the prior drain emptied
+            // the queue), so we deliberately do NOT chain onto the previous
+            // task: chaining would make a fresh session's first keystroke block
+            // on a stale drain still awaiting an in-flight RPC from a dropped
+            // connection.
+            rawTerminalInputDrainTask = Task { @MainActor [weak self] in
                 await self?.drainRawTerminalInputBuffer()
             }
         case .queued:
@@ -3244,12 +3302,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let text = String(data: data, encoding: .utf8) else {
             return
         }
-        let workspaceCandidate = workspaces.first(where: { workspace in
-            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
-        })
-        guard let workspace = workspaceCandidate else { return }
         let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
+        guard let workspaceID = workspaceID(forTerminalID: terminalID) else { return }
+        await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
     private func submitTerminalRawInput(
@@ -3263,7 +3318,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func drainRawTerminalInputBuffer() async {
-        while let chunk = rawTerminalInputBuffer.nextBatch() {
+        while !Task.isCancelled, let chunk = rawTerminalInputBuffer.nextBatch() {
             await submitTerminalRawInput(
                 chunk.text,
                 workspaceID: chunk.workspaceID,
@@ -3286,7 +3341,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        resetRawTerminalInputBuffer()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
@@ -3528,6 +3583,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearActiveConnectionContext()
         macConnectionStatus = .unavailable
         replaceRemoteClient(with: nil)
+        resetRawTerminalInputBuffer()
+    }
+
+    private func resetRawTerminalInputBuffer() {
+        rawTerminalInputDrainTask?.cancel()
+        rawTerminalInputDrainTask = nil
         rawTerminalInputBuffer.clear()
     }
 
@@ -3583,7 +3644,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        resetRawTerminalInputBuffer()
         clearPairingError()
         clearPairingVersionWarning()
         return attemptID
@@ -3917,6 +3978,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// store. Test seam: lets tests assert on store contents without sleeping.
     func drainDraftOperationsForTesting() async {
         await draftOperationTail?.value
+    }
+
+    /// Wait until the raw terminal input drain loop has delivered everything
+    /// enqueued so far. Test seam: lets tests assert on sent `terminal.input`
+    /// RPCs deterministically instead of polling with `Task.sleep`, and ensures
+    /// the drain task has finished before the test tears down.
+    func drainRawTerminalInputForTesting() async {
+        await rawTerminalInputDrainTask?.value
     }
 
     /// Save the live ``terminalInputText`` under the currently selected
@@ -5529,6 +5598,18 @@ private extension CmxAttachTicket {
         )
     }
 
+}
+
+private extension Array where Element == MobileWorkspacePreview {
+    var terminalWorkspaceIndex: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] {
+        var index: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
+        for workspace in self {
+            for terminal in workspace.terminals where index[terminal.id] == nil {
+                index[terminal.id] = workspace.id
+            }
+        }
+        return index
+    }
 }
 
 private extension MobileWorkspacePreview {
