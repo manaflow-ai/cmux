@@ -6362,6 +6362,50 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testWindowKeyRestoreRefocusesFocusedTerminalAfterResponderClears() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView),
+              let focusController = appDelegate.keyboardFocusCoordinator(for: window) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
+        appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
+
+        XCTAssertTrue(window.makeFirstResponder(nil), "Expected simulated window resign to clear first responder")
+        XCTAssertFalse(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to lose first responder before window-key restoration"
+        )
+
+        XCTAssertTrue(
+            focusController.restoreTargetAfterWindowBecameKey(),
+            "Window key restoration should reapply focused terminal first responder before the next keyDown"
+        )
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
+        }
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Window key restoration should restore the focused terminal surface as first responder"
+        )
+        XCTAssertTrue(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
+    }
+
     func testWindowPerformKeyEquivalentDefersTerminalPasteMenuMissToGhosttyBindingResolution() {
         let previousMainMenu = NSApp.mainMenu
         let probeWindow = NSWindow(
