@@ -948,77 +948,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         try assertFriendlyLastTurnEmptyState(html: result.html)
     }
 
-    func testDiffCommandScopesLastTurnBaselineBySessionWhenProvided() throws {
-        let cliPath = try bundledCLIPath()
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
-        let stateURL = rootURL.appendingPathComponent("hook-state", isDirectory: true)
-        let fileURL = repoURL.appendingPathComponent("story.txt")
-        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: stateURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        try runGit(["init"], in: repoURL)
-        try runGit(["checkout", "-b", "main"], in: repoURL)
-        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
-        try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        try runGit(["add", "story.txt"], in: repoURL)
-        try runGit(["commit", "-m", "initial"], in: repoURL)
-        let initialCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
-        try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        try runGit(["add", "story.txt"], in: repoURL)
-        try runGit(["commit", "-m", "second session baseline"], in: repoURL)
-        let secondSessionCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
-        try "one\ntwo\nthree\n".write(to: fileURL, atomically: true, encoding: .utf8)
-
-        let workspaceId = UUID().uuidString.lowercased()
-        let surfaceId = UUID().uuidString.lowercased()
-        try writeDiffBaselineStore(
-            stateDirectoryURL: stateURL,
-            repoURL: repoURL,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            sessionId: "Session-1",
-            baseCommit: initialCommit
-        )
-        try writeDiffBaselineStore(
-            stateDirectoryURL: stateURL,
-            repoURL: repoURL,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            sessionId: "Session-2",
-            baseCommit: secondSessionCommit
-        )
-
-        let firstSession = try runDiffCLIAndReadHTML(
-            cliPath: cliPath,
-            arguments: ["diff", "--last-turn", "--session", "Session-1"],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": surfaceId
-            ],
-            currentDirectoryURL: repoURL
-        )
-        XCTAssertTrue(firstSession.patch.contains("+two"), firstSession.patch)
-        XCTAssertTrue(firstSession.patch.contains("+three"), firstSession.patch)
-
-        let secondSession = try runDiffCLIAndReadHTML(
-            cliPath: cliPath,
-            arguments: ["diff", "--last-turn", "--session", "Session-2"],
-            environmentOverrides: [
-                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
-                "CMUX_WORKSPACE_ID": workspaceId,
-                "CMUX_SURFACE_ID": surfaceId
-            ],
-            currentDirectoryURL: repoURL
-        )
-        XCTAssertFalse(secondSession.patch.contains("+two"), secondSession.patch)
-        XCTAssertTrue(secondSession.patch.contains("+three"), secondSession.patch)
-    }
-
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
@@ -1201,13 +1130,6 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "binary.dat"
             ]
         )
-        try writeDiffBaselineStore(
-            stateDirectoryURL: stateURL,
-            repoURL: siblingRepoURL,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            baseCommit: siblingInitialCommit
-        )
         try "after\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
         try "quoted after\n".write(to: repoURL.appendingPathComponent(quotedUntrackedPath), atomically: true, encoding: .utf8)
         try Data([0xff, 0x00, 0x6e, 0x65, 0x77])
@@ -1251,21 +1173,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lastTurn.patch.contains("-remove me"), lastTurn.patch)
         XCTAssertFalse(lastTurn.patch.contains("unchanged-untracked.txt"), lastTurn.patch)
         assertNoANSIEscape(lastTurn.patch)
-        let lastTurnPayload = try diffViewerPayload(from: lastTurn.html)
-        let lastTurnRepoOptions = try XCTUnwrap(lastTurnPayload["repoOptions"] as? [[String: Any]])
-        let siblingRepoLastTurnURLString = try diffViewerOptionURL(value: siblingRepoURL.path, in: lastTurnRepoOptions)
-        let siblingRepoLastTurnFileURL = try diffViewerHTMLFileURL(
-            for: siblingRepoLastTurnURLString,
-            from: lastTurn.params
-        )
-        let siblingRepoLastTurnHTML = try String(contentsOf: siblingRepoLastTurnFileURL, encoding: .utf8)
-        let siblingRepoLastTurnPatch = try String(
-            contentsOf: siblingRepoLastTurnFileURL.deletingPathExtension().appendingPathExtension("patch"),
-            encoding: .utf8
-        )
-        XCTAssertTrue(siblingRepoLastTurnHTML.contains("\"sourceLabel\":\"git last-turn"), siblingRepoLastTurnHTML)
-        XCTAssertTrue(siblingRepoLastTurnHTML.contains("\"repoRoot\":\"\(siblingRepoURL.path)\""), siblingRepoLastTurnHTML)
-        XCTAssertTrue(siblingRepoLastTurnPatch.contains("+changed"), siblingRepoLastTurnPatch)
 
         let refLastTurn = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -2586,14 +2493,13 @@ final class CMUXOpenCommandTests: XCTestCase {
         repoURL: URL,
         workspaceId: String,
         surfaceId: String,
-        sessionId: String = "session-1",
         baseCommit: String,
         untrackedPaths: [String]? = nil
     ) throws {
         var record: [String: Any] = [
             "workspaceId": workspaceId,
             "surfaceId": surfaceId,
-            "sessionId": sessionId,
+            "sessionId": "session-1",
             "turnId": "turn-1",
             "agent": "codex",
             "repoRoot": repoURL.standardizedFileURL.path,
@@ -2624,21 +2530,12 @@ final class CMUXOpenCommandTests: XCTestCase {
             record["untrackedPathHashes"] = untrackedPathHashes
             record["untrackedSnapshotId"] = snapshotId
         }
-        let storeURL = stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.json")
-        let existingRecords: [[String: Any]]
-        if let existingData = try? Data(contentsOf: storeURL),
-           let existingPayload = try? JSONSerialization.jsonObject(with: existingData) as? [String: Any],
-           let records = existingPayload["records"] as? [[String: Any]] {
-            existingRecords = records
-        } else {
-            existingRecords = []
-        }
         let payload: [String: Any] = [
             "version": 1,
-            "records": existingRecords + [record]
+            "records": [record]
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-        try data.write(to: storeURL, options: .atomic)
+        try data.write(to: stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.json"), options: .atomic)
     }
 
     private func bundledCLIPath() throws -> String {

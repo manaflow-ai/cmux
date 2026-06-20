@@ -6042,17 +6042,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return activeCommandPaletteWindow()
     }
 
-    private enum OpenDiffViewerSourceMode {
-        case agentIfAvailable
-        case directory
-    }
-
-    private struct OpenDiffViewerAgentContext {
-        var cwd: String
-        var useLastTurnSource: Bool
-        var sessionId: String?
-    }
-
     /// Opens the diff viewer for the focused workspace of `tabManager` by spawning the
     /// bundled `cmux diff` CLI. This is the single shared diff-open path: both the
     /// command-palette entries and the Open Diff Viewer keyboard shortcut funnel through
@@ -6060,18 +6049,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// there is no focused workspace or the bundled CLI is missing.
     @discardableResult
     func openDiffViewerForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
-        openDiffViewerForFocusedWorkspace(for: tabManager, sourceMode: .agentIfAvailable)
+        openDiffViewerForFocusedWorkspace(for: tabManager, preferAgentContext: true)
     }
 
     @discardableResult
     func openDirectoryDiffViewerForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
-        openDiffViewerForFocusedWorkspace(for: tabManager, sourceMode: .directory)
+        openDiffViewerForFocusedWorkspace(for: tabManager, preferAgentContext: false)
     }
 
     @discardableResult
     private func openDiffViewerForFocusedWorkspace(
         for tabManager: TabManager?,
-        sourceMode: OpenDiffViewerSourceMode
+        preferAgentContext: Bool
     ) -> Bool {
 #if DEBUG
         if let debugOpenDiffViewerHandler {
@@ -6087,13 +6076,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        let agentDiffContext: OpenDiffViewerAgentContext?
-        switch sourceMode {
-        case .agentIfAvailable:
-            agentDiffContext = focusedAgentDiffContext(for: workspace)
-        case .directory:
-            agentDiffContext = nil
-        }
+        let agentDiffContext = preferAgentContext ? focusedAgentDiffContext(for: workspace) : nil
         let cwd = agentDiffContext?.cwd
             ?? workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
@@ -6108,7 +6091,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func focusedAgentDiffContext(for workspace: Workspace) -> OpenDiffViewerAgentContext? {
+    private func focusedAgentDiffContext(for workspace: Workspace) -> (cwd: String, useLastTurnSource: Bool, sessionId: String?)? {
         guard let surfaceId = workspace.focusedPanelId else { return nil }
         guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
             return nil
@@ -6120,12 +6103,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             surfaceId: surfaceId,
             sessionId: sessionId
            ) {
-            return OpenDiffViewerAgentContext(cwd: repoRoot, useLastTurnSource: true, sessionId: sessionId)
+            return (cwd: repoRoot, useLastTurnSource: true, sessionId: sessionId)
         }
         if let workingDirectory = normalizedOpenDiffViewerPath(
             snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
            ) {
-            return OpenDiffViewerAgentContext(cwd: workingDirectory, useLastTurnSource: false, sessionId: sessionId)
+            return (cwd: workingDirectory, useLastTurnSource: false, sessionId: sessionId)
         }
         return nil
     }
