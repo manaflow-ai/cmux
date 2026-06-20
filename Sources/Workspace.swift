@@ -2177,6 +2177,13 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// observer hooks are required.
     private let splitLifecycle = SplitLifecycleCoordinator()
 
+    /// The split move/reorder coordinator (CmuxPanes): owns the surface
+    /// move/reorder commands against the live split tree (move to a pane, move to
+    /// the adjacent pane, reorder within a pane, realign remote-tmux mirror
+    /// tabs). `Workspace` is its ``SplitMoveReorderHosting`` host (see the
+    /// conformance file); the legacy Panel-Operations methods below forward here.
+    let splitMoveReorder = SplitMoveReorderCoordinator()
+
     /// Legacy Combine bridge for the remaining `workspace.$panels`
     /// subscribers. Driven exclusively from `panelsWillChange(to:)`, so it
     /// emits the new value during willSet and replays the current value on
@@ -3024,6 +3031,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         surfaceLifecycle.attach(host: self)
+        splitMoveReorder.attach(host: self)
         sessionRestoreCoordinator.attach(host: self)
         unreadModel.attach(host: self)
         unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
@@ -3409,7 +3417,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// `didFocusPane`, each of which runs the full `applyTabSelection` activation
     /// (focus moves, hibernation resume, focus-LRU record). A reactive tmux-driven
     /// reorder must not run any of that because the user's selection/focus is unchanged.
-    private var isApplyingRemoteTmuxTabReorder = false
+    var isApplyingRemoteTmuxTabReorder = false
     private var pendingRemoteSurfaceTTYName: String?
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
     private var pendingRemoteSurfacePortKickReason: PortScanKickReason?
@@ -8063,43 +8071,17 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 
     @discardableResult
     func moveSurface(panelId: UUID, toPane paneId: PaneID, atIndex index: Int? = nil, focus: Bool = true) -> Bool {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
-        guard bonsplitController.allPaneIds.contains(paneId) else { return false }
-        guard bonsplitController.moveTab(tabId, toPane: paneId, atIndex: index) else { return false }
-
-        if focus {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(tabId)
-            focusPanel(panelId)
-        } else {
-            scheduleFocusReconcile()
-        }
-        scheduleTerminalGeometryReconcile()
-        return true
+        splitMoveReorder.moveSurface(panelId: panelId, toPane: paneId, atIndex: index, focus: focus)
     }
 
     @discardableResult
     private func moveSurfaceToAdjacentPane(panelId: UUID, direction: NavigationDirection) -> Bool {
-        guard panels[panelId] != nil,
-              let sourcePaneId = paneId(forPanelId: panelId),
-              let targetPaneId = bonsplitController.adjacentPane(to: sourcePaneId, direction: direction) else {
-            return false
-        }
-        return moveSurface(panelId: panelId, toPane: targetPaneId, focus: true)
+        splitMoveReorder.moveSurfaceToAdjacentPane(panelId: panelId, direction: direction)
     }
 
     @discardableResult
     func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
-        guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
-
-        if focus, let paneId = paneId(forPanelId: panelId) {
-            applyTabSelection(tabId: tabId, inPane: paneId)
-        } else {
-            scheduleFocusReconcile()
-        }
-        scheduleTerminalGeometryReconcile()
-        return true
+        splitMoveReorder.reorderSurface(panelId: panelId, toIndex: index, focus: focus)
     }
 
     /// Reorders this workspace's remote-tmux mirror tabs so their left-to-right
@@ -8123,36 +8105,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// final order. A drag-aware guard would need bonsplit to expose drag state.
     @discardableResult
     func reorderRemoteTmuxMirrorTabs(toPanelOrder panelOrder: [UUID]) -> Bool {
-        // All mirror tabs must live in a single pane: a global tmux window order
-        // can't be expressed across a user-arranged split. If the requested panels
-        // resolve to more than one pane (or none), skip rather than reorder a
-        // subset of one pane.
-        let presentPaneIds = Set(panelOrder.compactMap { paneId(forPanelId: $0) })
-        guard presentPaneIds.count == 1, let paneId = presentPaneIds.first else { return false }
-        let currentPanelIds = bonsplitController.tabs(inPane: paneId).compactMap { panelIdFromSurfaceId($0.id) }
-        guard let desired = RemoteTmuxSessionMirror.mirrorTabReorder(current: currentPanelIds, requested: panelOrder) else { return false }
-#if DEBUG
-        cmuxDebugLog("remote-tmux: reorder mirror tabs ws=\(id.uuidString.prefix(5)) count=\(desired.count)")
-#endif
-
-        let savedSelectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id
-        let savedFocusedPaneId = bonsplitController.focusedPaneId
-
-        isApplyingRemoteTmuxTabReorder = true
-        defer { isApplyingRemoteTmuxTabReorder = false }
-        for (index, panelId) in desired.enumerated() {
-            guard let tabId = surfaceIdFromPanelId(panelId) else { continue }
-            _ = bonsplitController.reorderTab(tabId, toIndex: index)
-        }
-        // Restore bonsplit's internal selection + focus (the loop moved them to the
-        // last-reordered tab). cmux's own focus/selection were never touched (the
-        // delegate handlers short-circuited), so this just realigns bonsplit with
-        // the user's unchanged state — no `applyTabSelection` runs.
-        if let savedSelectedTabId { bonsplitController.selectTab(savedSelectedTabId) }
-        if let savedFocusedPaneId { bonsplitController.focusPane(savedFocusedPaneId) }
-
-        scheduleTerminalGeometryReconcile()
-        return true
+        splitMoveReorder.reorderRemoteTmuxMirrorTabs(toPanelOrder: panelOrder)
     }
 
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
@@ -9121,7 +9074,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 
     /// Reconcile focus/first-responder convergence.
     /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
-    private func scheduleFocusReconcile() {
+    func scheduleFocusReconcile() {
         guard portalRenderingEnabled else { return }
 #if DEBUG
         if isDetachingCloseTransaction {
@@ -10568,7 +10521,7 @@ extension Workspace: BonsplitDelegate {
 
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
     /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
-    private func applyTabSelection(
+    func applyTabSelection(
         tabId: TabID,
         inPane pane: PaneID,
         reassertAppKitFocus: Bool = true,
