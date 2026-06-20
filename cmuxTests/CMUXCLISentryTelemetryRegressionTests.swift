@@ -64,18 +64,18 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
         )
     }
 
-    func testUnexpectedSocketTelemetryCaptureDoesNotSynchronouslyFlushSentry() throws {
+    func testUnexpectedSocketTelemetryStoresWithoutBlockingForSentryFlush() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-sentry-flush-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let socketPath = "127.0.0.1:\(unusedRelayPort())"
+        let socketPath = "127.0.0.1:\(try unusedRelayPort())"
         let captureProbePath = root.appendingPathComponent("sentry-capture-probe.txt", isDirectory: false).path
-        let flushProbePath = root.appendingPathComponent("sentry-flush-probe.txt", isDirectory: false).path
+        let storeProbePath = root.appendingPathComponent("sentry-store-probe.txt", isDirectory: false).path
         var environment = sentryProbeEnvironment(socketPath: socketPath, probePath: captureProbePath)
-        environment["CMUX_CLI_SENTRY_FLUSH_PROBE_PATH"] = flushProbePath
+        environment["CMUX_CLI_SENTRY_STORE_PROBE_PATH"] = storeProbePath
 
         let result = runProcess(
             executablePath: cliPath,
@@ -91,9 +91,9 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
             FileManager.default.fileExists(atPath: captureProbePath),
             "Unexpected relay auth failures should still be captured as telemetry-worthy errors. Output: \(result.stdout)"
         )
-        XCTAssertFalse(
-            FileManager.default.fileExists(atPath: flushProbePath),
-            "CLI telemetry capture must not synchronously flush Sentry on the command's exit path."
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: storeProbePath),
+            "Unexpected relay auth failures should be stored durably without synchronously flushing Sentry. Output: \(result.stdout)"
         )
     }
 
@@ -112,19 +112,50 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
         return environment
     }
 
-    private func unusedRelayPort() -> Int {
-        49_152 + Int.random(in: 0..<10_000)
+    private func unusedRelayPort() throws -> Int {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw posixError("socket failed")
+        }
+        defer { close(fd) }
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(0)
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                Darwin.bind(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            throw posixError("bind failed")
+        }
+        guard listen(fd, 1) == 0 else {
+            throw posixError("listen failed")
+        }
+
+        var boundAddress = sockaddr_in()
+        var boundLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &boundAddress) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                getsockname(fd, socketPointer, &boundLength)
+            }
+        }
+        guard nameResult == 0 else {
+            throw posixError("getsockname failed")
+        }
+
+        return Int(UInt16(bigEndian: boundAddress.sin_port))
     }
 
     private func createStaleSocketFile(at path: String) throws {
         unlink(path)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
-            throw NSError(
-                domain: NSPOSIXErrorDomain,
-                code: Int(errno),
-                userInfo: [NSLocalizedDescriptionKey: "socket failed: \(String(cString: strerror(errno)))"]
-            )
+            throw posixError("socket failed")
         }
         defer { close(fd) }
 
@@ -151,12 +182,16 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
             }
         }
         guard bindResult == 0 else {
-            throw NSError(
-                domain: NSPOSIXErrorDomain,
-                code: Int(errno),
-                userInfo: [NSLocalizedDescriptionKey: "bind failed: \(String(cString: strerror(errno)))"]
-            )
+            throw posixError("bind failed")
         }
+    }
+
+    private func posixError(_ message: String) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(errno),
+            userInfo: [NSLocalizedDescriptionKey: "\(message): \(String(cString: strerror(errno)))"]
+        )
     }
 
     private func runProcess(
