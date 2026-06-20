@@ -2468,6 +2468,51 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func staleRenderGridReplaySchedulesFreshHistoryReplay() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = StaleReplayRetryRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let collector = TerminalOutputCollector()
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    collector.mount(store: store, surfaceID: "live-terminal")
+
+    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    for _ in 0..<200 where collector.lines.count < 1 {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    store.debugRequestTerminalReplayForTesting(surfaceID: "live-terminal")
+    _ = try await waitForRequestCount("mobile.terminal.replay", count: 3, router: router)
+    for _ in 0..<200 where collector.lines.count < 2 {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+
+    let initial = try terminalRenderGridReplacementText(seq: 20, text: "current")
+    let fresh = try terminalRenderGridReplacementText(seq: 22, text: "fresh")
+    #expect(collector.lines == [initial, fresh])
+    collector.unmount()
+}
+
+@MainActor
 @Test func terminalRenderGridEventsDriveMountedSink() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -3447,6 +3492,58 @@ private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
                 ),
                 terminalRenderGridEventFrame(seq: 2, text: "live", styled: true),
             ])
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
+private actor StaleReplayRetryRouter: RequestAwareTransportRouter {
+    private var requests: [RecordedRPCRequest] = []
+    private var replayCount = 0
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(
+                workspaceID: "live-workspace",
+                title: "Live Workspace",
+                terminalID: "live-terminal"
+            )
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: true)
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: ["stream_id": "events"])
+        case "mobile.terminal.replay":
+            replayCount += 1
+            switch replayCount {
+            case 1:
+                return try rpcTerminalReplayFrame(
+                    seq: 20,
+                    rawText: "unused-tail",
+                    renderGridText: "current"
+                )
+            case 2:
+                return try rpcTerminalReplayFrame(
+                    seq: 10,
+                    rawText: "stale-tail",
+                    renderGridText: "stale"
+                )
+            default:
+                return try rpcTerminalReplayFrame(
+                    seq: 22,
+                    rawText: "fresh-tail",
+                    renderGridText: "fresh"
+                )
+            }
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }

@@ -584,6 +584,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var deliveredTerminalOutputSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalOutputSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
+    private var terminalReplaySurfaceIDsPendingRetry: Set<String>
     private var terminalRenderSessionsBySurfaceID: [String: TerminalRenderSession]
     private var terminalReplaySurfaceIDsPendingWorkspaceMapping: Set<String>
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
@@ -714,6 +715,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deliveredTerminalOutputSeqBySurfaceID = [:]
         self.pendingTerminalOutputSeqBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
+        self.terminalReplaySurfaceIDsPendingRetry = []
         self.terminalRenderSessionsBySurfaceID = [:]
         self.terminalReplaySurfaceIDsPendingWorkspaceMapping = []
         self.terminalByteContinuationsBySurfaceID = [:]
@@ -3575,6 +3577,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredTerminalOutputSeqBySurfaceID = [:]
         pendingTerminalOutputSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
+        terminalReplaySurfaceIDsPendingRetry = []
         terminalRenderSessionsBySurfaceID = [:]
         terminalReplaySurfaceIDsPendingWorkspaceMapping = []
         terminalOutputQueuesBySurfaceID = [:]
@@ -4993,6 +4996,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplaySurfaceIDsPendingRetry.remove(surfaceID)
         terminalRenderSessionsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplaySurfaceIDsPendingWorkspaceMapping.remove(surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
@@ -5122,6 +5126,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalRenderSessionsBySurfaceID[surfaceID] = session
     }
 
+    private func scheduleTerminalReplayRetry(
+        surfaceID: String,
+        deliveredSeq: UInt64,
+        replaySeq: UInt64
+    ) {
+        guard hasTerminalOutputSink(surfaceID: surfaceID),
+              remoteClient != nil,
+              !terminalReplaySurfaceIDsPendingRetry.contains(surfaceID) else {
+            return
+        }
+        terminalReplaySurfaceIDsPendingRetry.insert(surfaceID)
+        MobileDebugLog.anchormux(
+            "CMUX_REPLAY retry_scheduled surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)"
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.terminalReplaySurfaceIDsPendingRetry.remove(surfaceID)
+            guard self.hasTerminalOutputSink(surfaceID: surfaceID),
+                  self.remoteClient != nil else {
+                return
+            }
+            self.requestTerminalReplay(surfaceID: surfaceID)
+        }
+    }
+
     private func deliverTerminalRenderGridEnvelopes(
         _ envelopes: [MobileTerminalRenderGridEnvelope],
         surfaceID: String,
@@ -5153,6 +5182,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let surfaceID = envelope.frame.surfaceID
         let envelopes = terminalRenderLiveEnvelopes(envelope, surfaceID: surfaceID)
         deliverTerminalRenderGridEnvelopes(envelopes, surfaceID: surfaceID, source: "test_event")
+    }
+
+    func debugRequestTerminalReplayForTesting(surfaceID: String) {
+        requestTerminalReplay(surfaceID: surfaceID)
     }
     #endif
 
@@ -5223,6 +5256,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                    deliveredSeq > replaySeq {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
                     self.cancelTerminalRenderSnapshot(surfaceID: surfaceID, baseSeq: deliveredSeq)
+                    self.scheduleTerminalReplayRetry(
+                        surfaceID: surfaceID,
+                        deliveredSeq: deliveredSeq,
+                        replaySeq: replaySeq
+                    )
                     return
                 }
                 let deliverBytes: Data?
