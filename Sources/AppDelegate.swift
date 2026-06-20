@@ -2114,7 +2114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
         clearConfiguredShortcutChordState()
-        if Self.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: isTerminatingApp) {
+        if Self.sessionPersistenceDecisionPolicy.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: isTerminatingApp) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
     }
@@ -2468,17 +2468,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
-        if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
+        if Self.sessionPersistenceDecisionPolicy.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
         }
-    }
-
-    nonisolated static func shouldSaveSessionSnapshotOnRestoreCompletion(
-        isManualReopen: Bool
-    ) -> Bool {
-        !isManualReopen
     }
 
     @discardableResult
@@ -2582,6 +2576,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         minimumWindowWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
         minimumWindowHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
     )
+
+    /// Pure persist/autosave decision policy, lifted to
+    /// ``CmuxWorkspaces/SessionPersistenceDecisionPolicy``. A stateless value,
+    /// so a shared constant rather than per-call instantiation. The static
+    /// decision helpers below forward to this instance so call sites (and the
+    /// `SessionPersistenceTests` that drive each branch) stay byte-identical.
+    private nonisolated static let sessionPersistenceDecisionPolicy = SessionPersistenceDecisionPolicy()
 
     /// Maps the app's `Codable` display DTO into the resolver's runtime input.
     private nonisolated static func sessionSourceDisplaySnapshot(
@@ -2805,7 +2806,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             if let window = context.window ?? windowForMainWindowId(context.windowId) {
-                Self.hashFrame(window.frame, into: &hasher)
+                Self.sessionPersistenceDecisionPolicy.hashFrame(window.frame, into: &hasher)
             } else {
                 hasher.combine(-1)
             }
@@ -2821,7 +2822,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
-        if Self.shouldSkipSessionSaveDuringRestore(
+        if Self.sessionPersistenceDecisionPolicy.shouldSkipSessionSaveDuringRestore(
             isApplyingSessionRestore: isApplyingSessionRestore,
             includeScrollback: includeScrollback
         ) {
@@ -2830,7 +2831,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
-        let writeSynchronously = Self.shouldWriteSessionSnapshotSynchronously(
+        let writeSynchronously = Self.sessionPersistenceDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
             isTerminatingApp: isTerminatingApp,
             includeScrollback: includeScrollback
         )
@@ -2932,35 +2933,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
-        !isTerminatingApp
-    }
-
-    nonisolated static func shouldSaveSessionSnapshotAfterMainWindowRegistration(
-        isTerminatingApp: Bool,
-        didApplyStartupSessionRestore: Bool,
-        isApplyingSessionRestore: Bool
-    ) -> Bool {
-        !isTerminatingApp && !didApplyStartupSessionRestore && !isApplyingSessionRestore
-    }
-
-    nonisolated static func shouldSkipSessionSaveDuringRestore(
-        isApplyingSessionRestore: Bool,
-        includeScrollback: Bool
-    ) -> Bool {
-        isApplyingSessionRestore && !includeScrollback
-    }
-
-    nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
-        !isTerminatingApp
-    }
-
-    nonisolated static func shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp _: Bool) -> Bool {
-        // App switching must stay cheap. The autosave timer, window/session lifecycle,
-        // power-off, update relaunch, and termination paths still persist session state.
-        false
-    }
-
     /// Performs one scheduled session-snapshot autosave, called by
     /// ``SessionAutosaveScheduler`` after it has cleared the typing-quiet
     /// deferral and taken the in-flight latch. Lifted from the legacy
@@ -3019,7 +2991,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
 #endif
-        if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
+        if Self.sessionPersistenceDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
             isTerminatingApp: isTerminatingApp,
             includeScrollback: false,
             previousFingerprint: lastSessionAutosaveFingerprint,
@@ -3100,33 +3072,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionAutosaveScheduler.recordTypingActivity()
     }
 
-    nonisolated static func shouldWriteSessionSnapshotSynchronously(
-        isTerminatingApp: Bool,
-        includeScrollback: Bool
-    ) -> Bool {
-        isTerminatingApp && includeScrollback
-    }
-
-    nonisolated static func shouldSkipSessionAutosaveForUnchangedFingerprint(
-        isTerminatingApp: Bool,
-        includeScrollback: Bool,
-        previousFingerprint: Int?,
-        currentFingerprint: Int?,
-        lastPersistedAt: Date,
-        now: Date,
-        maximumAutosaveSkippableInterval: TimeInterval = 60
-    ) -> Bool {
-        guard !isTerminatingApp,
-              !includeScrollback,
-              let previousFingerprint,
-              let currentFingerprint,
-              previousFingerprint == currentFingerprint else {
-            return false
-        }
-
-        return now.timeIntervalSince(lastPersistedAt) < maximumAutosaveSkippableInterval
-    }
-
     private func updateSessionAutosaveSaveState(
         includeScrollback: Bool,
         persistedAt: Date,
@@ -3135,17 +3080,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !isTerminatingApp, !includeScrollback else { return }
         lastSessionAutosaveFingerprint = fingerprint
         lastSessionAutosavePersistedAt = persistedAt
-    }
-
-    private nonisolated static func hashFrame(_ frame: NSRect, into hasher: inout Hasher) {
-        let standardized = frame.standardized
-        let quantized = [
-            standardized.origin.x,
-            standardized.origin.y,
-            standardized.size.width,
-            standardized.size.height,
-        ].map { Int(($0 * 2).rounded()) }
-        quantized.forEach { hasher.combine($0) }
     }
 
     private func persistSessionSnapshot(
@@ -3424,7 +3358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
-        if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+        if Self.sessionPersistenceDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
             isApplyingSessionRestore: isApplyingSessionRestore
@@ -13183,7 +13117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // During app termination we already persisted a full snapshot (with scrollback)
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
-        if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
+        if Self.sessionPersistenceDecisionPolicy.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)
         }
     }
