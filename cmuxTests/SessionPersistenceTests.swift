@@ -13,6 +13,9 @@ import CmuxTerminal
 #endif
 
 final class SessionPersistenceTests: XCTestCase {
+    // Pure persist/autosave decision policy, lifted to CmuxWorkspaces.
+    private static let sessionDecisionPolicy = SessionPersistenceDecisionPolicy()
+
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
@@ -760,34 +763,34 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testWindowUnregisterSnapshotPersistencePolicy() {
-        XCTAssertTrue(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: false))
-        XCTAssertFalse(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
+        XCTAssertTrue(Self.sessionDecisionPolicy.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: false))
+        XCTAssertFalse(Self.sessionDecisionPolicy.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
     }
 
     func testMainWindowRegistrationSnapshotSavePolicySkipsStartupRestore() {
         XCTAssertTrue(
-            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
                 isApplyingSessionRestore: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: true,
                 didApplyStartupSessionRestore: false,
                 isApplyingSessionRestore: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: true,
                 isApplyingSessionRestore: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotAfterMainWindowRegistration(
                 isTerminatingApp: false,
                 didApplyStartupSessionRestore: false,
                 isApplyingSessionRestore: true
@@ -797,19 +800,19 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testShouldSkipSessionSaveDuringRestorePolicy() {
         XCTAssertTrue(
-            AppDelegate.shouldSkipSessionSaveDuringRestore(
+            Self.sessionDecisionPolicy.shouldSkipSessionSaveDuringRestore(
                 isApplyingSessionRestore: true,
                 includeScrollback: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionSaveDuringRestore(
+            Self.sessionDecisionPolicy.shouldSkipSessionSaveDuringRestore(
                 isApplyingSessionRestore: true,
                 includeScrollback: true
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionSaveDuringRestore(
+            Self.sessionDecisionPolicy.shouldSkipSessionSaveDuringRestore(
                 isApplyingSessionRestore: false,
                 includeScrollback: false
             )
@@ -818,43 +821,43 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testSessionAutosaveTickPolicySkipsWhenTerminating() {
         XCTAssertTrue(
-            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: false)
+            Self.sessionDecisionPolicy.shouldRunSessionAutosaveTick(isTerminatingApp: false)
         )
         XCTAssertFalse(
-            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: true)
+            Self.sessionDecisionPolicy.shouldRunSessionAutosaveTick(isTerminatingApp: true)
         )
     }
 
     func testApplicationResignDoesNotTriggerSessionSnapshotSave() {
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: false)
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: false)
         )
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: true)
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: true)
         )
     }
 
     func testSessionSnapshotSynchronousWritePolicy() {
         XCTAssertFalse(
-            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+            Self.sessionDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: false,
                 includeScrollback: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+            Self.sessionDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: false,
                 includeScrollback: true
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+            Self.sessionDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: true,
                 includeScrollback: false
             )
         )
         XCTAssertTrue(
-            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+            Self.sessionDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
                 isTerminatingApp: true,
                 includeScrollback: true
             )
@@ -863,12 +866,12 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testRestoreCompletionSavePolicySkipsManualReopen() {
         XCTAssertTrue(
-            AppDelegate.shouldSaveSessionSnapshotOnRestoreCompletion(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotOnRestoreCompletion(
                 isManualReopen: false
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSaveSessionSnapshotOnRestoreCompletion(
+            Self.sessionDecisionPolicy.shouldSaveSessionSnapshotOnRestoreCompletion(
                 isManualReopen: true
             )
         )
@@ -877,14 +880,13 @@ final class SessionPersistenceTests: XCTestCase {
     func testUnchangedAutosaveFingerprintSkipsWithinStalenessWindow() {
         let now = Date()
         XCTAssertTrue(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            Self.sessionDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
                 isTerminatingApp: false,
                 includeScrollback: false,
                 previousFingerprint: 1234,
                 currentFingerprint: 1234,
                 lastPersistedAt: now.addingTimeInterval(-5),
-                now: now,
-                maximumAutosaveSkippableInterval: 60
+                now: now
             )
         )
     }
@@ -892,14 +894,13 @@ final class SessionPersistenceTests: XCTestCase {
     func testUnchangedAutosaveFingerprintDoesNotSkipAfterStalenessWindow() {
         let now = Date()
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            Self.sessionDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
                 isTerminatingApp: false,
                 includeScrollback: false,
                 previousFingerprint: 1234,
                 currentFingerprint: 1234,
                 lastPersistedAt: now.addingTimeInterval(-120),
-                now: now,
-                maximumAutosaveSkippableInterval: 60
+                now: now
             )
         )
     }
@@ -907,7 +908,7 @@ final class SessionPersistenceTests: XCTestCase {
     func testUnchangedAutosaveFingerprintNeverSkipsTerminatingOrScrollbackWrites() {
         let now = Date()
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            Self.sessionDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
                 isTerminatingApp: true,
                 includeScrollback: false,
                 previousFingerprint: 1234,
@@ -917,7 +918,7 @@ final class SessionPersistenceTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            Self.sessionDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
                 isTerminatingApp: false,
                 includeScrollback: true,
                 previousFingerprint: 1234,
