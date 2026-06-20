@@ -14,7 +14,7 @@
 7303	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6318	cmuxTests/SessionPersistenceTests.swift
-6175	cmuxTests/GhosttyConfigTests.swift
+6077	cmuxTests/GhosttyConfigTests.swift
 6151	CLI/cmux_open.swift
 6072	Sources/TextBoxInput.swift
 5922	cmuxTests/TerminalAndGhosttyTests.swift
@@ -65,7 +65,7 @@
 1466	Sources/FileExplorerStore.swift
 1426	Sources/VaultAgentProcessScanner.swift
 1412	Sources/RemoteTmuxControlConnection.swift
-1411	Sources/cmuxApp.swift
+1321	Sources/cmuxApp.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1373	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
