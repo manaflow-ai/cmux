@@ -3570,19 +3570,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
                 self.panelTitles[browserPanel.id] = nextTitle
             }
             let resolvedTitle = self.resolvedPanelTitle(panelId: browserPanel.id, fallback: nextTitle)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
-            let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
-            let mutedUpdate: Bool? = existing.isAudioMuted == isMuted ? nil : isMuted
-            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
-            self.bonsplitController.updateTab(
-                tabId,
-                title: titleUpdate,
-                iconImageData: faviconUpdate,
+            SurfaceTabDisplayUpdatePlan(
+                existing: existing,
+                resolvedTitle: resolvedTitle,
                 hasCustomTitle: self.panelCustomTitles[browserPanel.id] != nil,
-                isLoading: loadingUpdate,
-                isAudioMuted: mutedUpdate
-            )
+                iconImageData: .some(favicon),
+                isLoading: isLoading,
+                isAudioMuted: isMuted
+            ).apply(to: self.bonsplitController, tabId: tabId)
         }
         panelSubscriptions[browserPanel.id] = subscription
         publishBrowserOpenTabSuggestion(for: browserPanel)
@@ -3642,15 +3637,12 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
                     self.panelTitles[markdownPanel.id] = newTitle
                 }
                 let resolvedTitle = self.resolvedPanelTitle(panelId: markdownPanel.id, fallback: newTitle)
-                let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-                let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
-                guard titleUpdate != nil || dirtyUpdate != nil else { return }
-                self.bonsplitController.updateTab(
-                    tabId,
-                    title: titleUpdate,
+                SurfaceTabDisplayUpdatePlan(
+                    existing: existing,
+                    resolvedTitle: resolvedTitle,
                     hasCustomTitle: self.panelCustomTitles[markdownPanel.id] != nil,
-                    isDirty: dirtyUpdate
-                )
+                    isDirty: isDirty
+                ).apply(to: self.bonsplitController, tabId: tabId)
             }
         panelSubscriptions[markdownPanel.id] = subscription
     }
@@ -3677,17 +3669,13 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             }
             let resolvedTitle = self.resolvedPanelTitle(panelId: filePreviewPanel.id, fallback: newTitle)
             let resolvedIcon = RenderableSystemSymbol.resolvedSurfaceTabIcon(displayIcon)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let iconUpdate: String?? = existing.icon == resolvedIcon ? nil : .some(resolvedIcon)
-            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
-            guard titleUpdate != nil || iconUpdate != nil || dirtyUpdate != nil else { return }
-            self.bonsplitController.updateTab(
-                tabId,
-                title: titleUpdate,
-                icon: iconUpdate,
+            SurfaceTabDisplayUpdatePlan(
+                existing: existing,
+                resolvedTitle: resolvedTitle,
                 hasCustomTitle: self.panelCustomTitles[filePreviewPanel.id] != nil,
-                isDirty: dirtyUpdate
-            )
+                icon: .some(resolvedIcon),
+                isDirty: isDirty
+            ).apply(to: self.bonsplitController, tabId: tabId)
         }
         panelSubscriptions[filePreviewPanel.id] = subscription
     }
@@ -3703,15 +3691,12 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
                 self.panelTitles[agentPanel.id] = newTitle
             }
             let resolvedTitle = self.resolvedPanelTitle(panelId: agentPanel.id, fallback: newTitle)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
-            guard titleUpdate != nil || dirtyUpdate != nil else { return }
-            self.bonsplitController.updateTab(
-                tabId,
-                title: titleUpdate,
+            SurfaceTabDisplayUpdatePlan(
+                existing: existing,
+                resolvedTitle: resolvedTitle,
                 hasCustomTitle: self.panelCustomTitles[agentPanel.id] != nil,
-                isDirty: dirtyUpdate
-            )
+                isDirty: isDirty
+            ).apply(to: self.bonsplitController, tabId: tabId)
         }
         agentSessionPanelCallbackIds.insert(agentPanel.id)
     }
