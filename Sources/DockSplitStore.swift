@@ -36,6 +36,7 @@ final class DockSplitStore: BonsplitDelegate {
     private var configurationIdentityTask: Task<Void, Never>?
     private var configurationLoadGeneration = 0
     private var configurationIdentityGeneration = 0
+    private var configurationSeedSuppressionGeneration: Int?
     private var activeConfigURL: URL?
     private var rootDirectoryOverride: String?
     private var resolvedBaseDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
@@ -101,7 +102,7 @@ final class DockSplitStore: BonsplitDelegate {
         return nil
     }
 
-    private func surfaceId(forPanelId panelId: UUID) -> TabID? {
+    func surfaceId(forPanelId panelId: UUID) -> TabID? {
         surfaceIdToPanelId.first { $0.value == panelId }?.key
     }
 
@@ -221,6 +222,7 @@ final class DockSplitStore: BonsplitDelegate {
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
             return nil
         }
+        recordExplicitPanelCreation()
         if focus {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(tabId)
@@ -265,6 +267,7 @@ final class DockSplitStore: BonsplitDelegate {
                   let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: rootPane, tracksTerminalTitle: true) else {
                 return nil
             }
+            recordExplicitPanelCreation()
             if focus {
                 bonsplitController.focusPane(rootPane)
                 bonsplitController.selectTab(tabId)
@@ -299,6 +302,7 @@ final class DockSplitStore: BonsplitDelegate {
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
         applyVisibility(to: panel)
+        recordExplicitPanelCreation()
         if focus {
             focusPanel(panel.id)
         } else {
@@ -340,6 +344,10 @@ final class DockSplitStore: BonsplitDelegate {
         return panels.keys.first
     }
 
+    private func recordExplicitPanelCreation() {
+        hasAppliedConfigurationSeed = true
+        if configurationLoadTask != nil { configurationSeedSuppressionGeneration = configurationLoadGeneration }
+    }
     // MARK: - Panel construction
 
     private func makePanel(
@@ -610,7 +618,7 @@ final class DockSplitStore: BonsplitDelegate {
         }
     }
 
-    private func applyConfigurationLoadResult(
+    func applyConfigurationLoadResult(
         _ result: DockConfigurationLoadResult,
         generation: Int,
         replacingPanels: Bool
@@ -632,10 +640,11 @@ final class DockSplitStore: BonsplitDelegate {
                 return
             }
             sourceLabel = Self.sourceLabel(for: resolution)
-            let shouldSeed = replacingPanels || !hasAppliedConfigurationSeed
+            let shouldSeed = configurationSeedSuppressionGeneration != generation && (replacingPanels || !hasAppliedConfigurationSeed)
             if shouldSeed {
                 seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
             }
+            if configurationSeedSuppressionGeneration == generation { configurationSeedSuppressionGeneration = nil }
             hasAppliedConfigurationSeed = true
         case .failed(let identity, let message):
             lastLoadedConfigIdentity = identity

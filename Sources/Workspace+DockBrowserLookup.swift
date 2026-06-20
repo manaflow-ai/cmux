@@ -64,7 +64,26 @@ extension DockSplitStore {
             remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
+        panel.webViewDidRequestClose = { [weak self, weak panel] in
+            guard let self, let panel else { return }
+            guard self.browserPanel(for: panel.id) === panel else { return }
+#if DEBUG
+            cmuxDebugLog(
+                "dock.browser.close.requestedByPage ws=\(self.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5))"
+            )
+#endif
+            _ = self.closePanel(panel.id, force: true)
+        }
         return panel
+    }
+
+    func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+        guard let tabId = surfaceId(forPanelId: panelId) else { return false }
+        if force { forceCloseDockTabIds.insert(tabId) }
+        let closed = bonsplitController.closeTab(tabId)
+        if force && !closed { forceCloseDockTabIds.remove(tabId) }
+        return closed
     }
 
     func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {

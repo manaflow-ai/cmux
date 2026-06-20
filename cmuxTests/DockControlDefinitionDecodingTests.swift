@@ -229,4 +229,60 @@ struct DockControlDefinitionDecodingTests {
         #expect(store.bonsplitController.selectedTab(inPane: rootPane)?.id == firstTabId)
         #expect(store.focusedPanelId == firstPanelId)
     }
+
+    @Test("Explicit Dock creation suppresses a late initial config seed")
+    @MainActor
+    func explicitCreationSuppressesLateInitialConfigSeed() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { root.path })
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let explicitPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let configuredControl = DockControlDefinition(id: "configured", title: "Configured", command: "echo configured")
+        let lateResolution = DockConfigResolution(
+            controls: [configuredControl],
+            sourceURL: nil,
+            baseDirectory: root.path,
+            isProjectSource: false
+        )
+
+        store.applyConfigurationLoadResult(.resolved(lateResolution), generation: 1, replacingPanels: false)
+
+        #expect(store.bonsplitController.allTabIds.count == 1)
+        #expect(store.containsPanel(explicitPanelId))
+        #expect(store.focusedPanelId == explicitPanelId)
+    }
+
+    @Test("Dock browser closes when WebKit requests close")
+    @MainActor
+    func dockBrowserClosesWhenWebViewRequestsClose() throws {
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer {
+            if let previousBrowserDisabled {
+                defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+        }
+
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { root.path })
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let panelId = try #require(store.newSurface(kind: .browser, inPane: rootPane, url: URL(string: "https://example.com"), focus: true))
+        let panel = try #require(store.browserPanel(for: panelId))
+
+        panel.webViewDidRequestClose?()
+
+        #expect(store.bonsplitController.allTabIds.isEmpty)
+        #expect(!store.containsPanel(panelId))
+    }
 }
