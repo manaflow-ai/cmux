@@ -1285,7 +1285,7 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
     if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
         return true
     }
-    guard url.fragment == "cmux-diff-viewer",
+    guard browserIsInternalWebviewHistoryMarker(url.fragment),
           url.scheme?.lowercased() == "http",
           let host = url.host else {
         return false
@@ -1295,6 +1295,17 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
             forAliasHost: host,
             aliasHost: RemoteLoopbackProxyAlias.aliasHost
         ) != nil
+}
+
+private func browserIsInternalWebviewHistoryMarker(_ fragment: String?) -> Bool {
+    guard var fragment = fragment?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !fragment.isEmpty else {
+        return false
+    }
+    while fragment.hasPrefix("/") {
+        fragment.removeFirst()
+    }
+    return fragment == "cmux-diff-viewer" || fragment == "cmux-open-chat"
 }
 
 @MainActor

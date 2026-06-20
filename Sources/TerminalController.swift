@@ -6106,7 +6106,7 @@ class TerminalController {
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
         if BrowserAvailabilitySettings.isDisabled() {
-            if v2IsDiffViewerURL(url) {
+            if v2IsInternalCmuxWebviewURL(url) {
                 return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
             }
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
@@ -6166,7 +6166,7 @@ class TerminalController {
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
             let transparentBackground = v2Bool(params, "transparent_background") ?? false
-            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
+            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsInternalCmuxWebviewURL(url)
 
             var createdSplit = true
             var placementStrategy = "split_right"
@@ -6229,14 +6229,25 @@ class TerminalController {
         return result
     }
 
-    private func v2IsDiffViewerURL(_ url: URL?) -> Bool {
+    private func v2IsInternalCmuxWebviewURL(_ url: URL?) -> Bool {
         guard let url else { return false }
         if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
             return true
         }
         return url.scheme?.lowercased() == "http" &&
             url.host == "127.0.0.1" &&
-            url.fragment == "cmux-diff-viewer"
+            v2IsInternalWebviewHistoryMarker(url.fragment)
+    }
+
+    private func v2IsInternalWebviewHistoryMarker(_ fragment: String?) -> Bool {
+        guard var fragment = fragment?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !fragment.isEmpty else {
+            return false
+        }
+        while fragment.hasPrefix("/") {
+            fragment.removeFirst()
+        }
+        return fragment == "cmux-diff-viewer" || fragment == "cmux-open-chat"
     }
 
     private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {

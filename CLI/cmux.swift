@@ -3285,6 +3285,7 @@ struct CMUXCLI {
         }
         if command == "open" { try runOpenCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "diff" { try runDiffCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
+        if command == "open-chat" || command == "chat" { try runOpenChatCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "restore-session" {
             try runRestoreSession(
                 commandArgs: commandArgs,
@@ -5222,6 +5223,7 @@ struct CMUXCLI {
         "browser-status",
         "capabilities",
         "capture-pane",
+        "chat",
         "claude-hook",
         "claude-teams",
         "clear-history",
@@ -5297,6 +5299,7 @@ struct CMUXCLI {
         "omo",
         "omx",
         "open",
+        "open-chat",
         "open-browser",
         "open-notification",
         "paste-buffer",
@@ -15998,6 +16001,7 @@ struct CMUXCLI {
             return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
         case "open": return openSubcommandUsage()
         case "diff": return diffSubcommandUsage()
+        case "open-chat", "chat": return openChatSubcommandUsage()
         case "markdown":
             return """
             Usage: cmux markdown open <path> [options]
@@ -34121,6 +34125,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
+          open-chat|chat [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--workspace-name <name>] [--focus <true|false>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
@@ -34239,6 +34244,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
+          open-chat|chat [--cwd <path>] [--workspace-name <name>] [--focus <true|false>] (open the Codex-style Chat composer in a browser split)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status
