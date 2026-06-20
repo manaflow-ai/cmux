@@ -245,6 +245,14 @@ def _collect_all_scrollbacks(client: cmux) -> str:
     workspaces = client.list_workspaces()
     for index in range(len(workspaces)):
         client.select_workspace(index)
+        # Wait until the selection has propagated before reading scrollback,
+        # instead of a fixed settle sleep (deadline-bounded poll on the real
+        # is-selected signal).
+        deadline = time.time() + 1.0
+        while time.time() < deadline:
+            if any(i == index and selected for i, _wid, _title, selected in client.list_workspaces()):
+                break
+            time.sleep(0.02)
         chunks.append(_read_scrollback(client))
     return "\n".join(chunks)
 
