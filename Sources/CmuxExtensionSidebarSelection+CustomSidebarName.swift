@@ -1,32 +1,21 @@
 import Foundation
 
+#if DEBUG
+private enum CustomSidebarDirectoryOverrideForTesting {
+    @TaskLocal static var value: URL?
+}
+#endif
+
 extension CmuxExtensionSidebarSelection {
     #if DEBUG
-    private static let customSidebarsDirectoryOverrideLock = NSRecursiveLock()
-    private static var customSidebarsDirectoryOverrideStorage: URL?
-
-    private(set) static var customSidebarsDirectoryOverrideForTesting: URL? {
-        get {
-            customSidebarsDirectoryOverrideLock.lock()
-            defer { customSidebarsDirectoryOverrideLock.unlock() }
-            return customSidebarsDirectoryOverrideStorage
-        }
-        set {
-            customSidebarsDirectoryOverrideLock.lock()
-            defer { customSidebarsDirectoryOverrideLock.unlock() }
-            customSidebarsDirectoryOverrideStorage = newValue
-        }
+    static var customSidebarsDirectoryOverrideForTesting: URL? {
+        CustomSidebarDirectoryOverrideForTesting.value
     }
 
     static func withCustomSidebarsDirectoryForTesting<T>(_ directory: URL, _ body: () throws -> T) rethrows -> T {
-        customSidebarsDirectoryOverrideLock.lock()
-        let previous = customSidebarsDirectoryOverrideStorage
-        customSidebarsDirectoryOverrideStorage = directory
-        defer {
-            customSidebarsDirectoryOverrideStorage = previous
-            customSidebarsDirectoryOverrideLock.unlock()
+        try CustomSidebarDirectoryOverrideForTesting.$value.withValue(directory) {
+            try body()
         }
-        return try body()
     }
     #endif
 
