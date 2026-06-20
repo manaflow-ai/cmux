@@ -2,7 +2,72 @@ import Foundation
 import Testing
 
 @testable import CmuxWorkspaces
+import Bonsplit
 import CmuxTerminalCore
+
+/// A scriptable ``SurfaceCreationHosting`` stub that records the coordinator's
+/// callbacks so the inheritance-config walk can be tested without a live
+/// workspace, panel registry, or Ghostty surface.
+@MainActor
+private final class StubSurfaceCreationHost: SurfaceCreationHosting {
+    /// The ordered candidate IDs the walk should iterate.
+    var candidatePanelIds: [UUID] = []
+    /// Per-panel inherited config, or absent when the panel has no live surface.
+    var liveConfigs: [UUID: CmuxSurfaceConfigTemplate] = [:]
+    /// Per-panel lineage-root font points.
+    var rootedFontPoints: [UUID: Float] = [:]
+    /// Per-panel runtime surface font points.
+    var runtimeFontPoints: [UUID: Float] = [:]
+    /// The last-known font points used for the fallback config.
+    var lastKnownInheritanceFontPoints: Float?
+
+    // Recorded writes for assertions.
+    /// The lineage-root seeds applied via `commitInheritanceSelection` (a
+    /// non-`nil` `rootedFontPoints` argument), in call order.
+    private(set) var recordedFontPoints: [(points: Float, panelId: UUID)] = []
+    /// The positive final font sizes recorded as last-known, in call order.
+    private(set) var recordedLastFontPoints: [Float] = []
+    /// The panel IDs remembered as inheritance sources, in call order.
+    private(set) var rememberedSources: [UUID] = []
+    private(set) var fallbackLogs: [Float] = []
+
+    func configInheritanceCandidatePanelIds(
+        preferredPanelId: UUID?,
+        inPane preferredPaneId: PaneID?
+    ) -> [UUID] {
+        candidatePanelIds
+    }
+
+    func probeInheritanceCandidate(panelId: UUID) -> SurfaceInheritanceCandidateProbe? {
+        guard let config = liveConfigs[panelId] else { return nil }
+        return SurfaceInheritanceCandidateProbe(
+            inheritedConfig: config,
+            rootedFontPoints: rootedFontPoints[panelId],
+            runtimeFontPoints: runtimeFontPoints[panelId]
+        )
+    }
+
+    func commitInheritanceSelection(
+        panelId: UUID,
+        rootedFontPoints points: Float?,
+        finalConfigFontPoints: Float
+    ) {
+        if let points {
+            recordedFontPoints.append((points, panelId))
+            rootedFontPoints[panelId] = points
+        }
+        // The host always remembers the source for a chosen live candidate,
+        // matching the legacy unconditional `rememberTerminalConfigInheritanceSource`.
+        rememberedSources.append(panelId)
+        if finalConfigFontPoints > 0 {
+            recordedLastFontPoints.append(finalConfigFontPoints)
+        }
+    }
+
+    func logInheritanceFallback(fontPoints: Float) {
+        fallbackLogs.append(fontPoints)
+    }
+}
 
 @MainActor
 @Suite("SurfaceCreationCoordinator")
@@ -168,5 +233,96 @@ struct SurfaceCreationCoordinatorTests {
         )
         #expect(resolved != nil)
         #expect(resolved?.waitAfterCommand == true)
+    }
+
+    @Test("The inheritance walk picks the first live candidate and seeds a positive rooted font")
+    func inheritedConfigPicksFirstLiveCandidate() {
+        let host = StubSurfaceCreationHost()
+        let dead = UUID()
+        let live = UUID()
+        let later = UUID()
+        host.candidatePanelIds = [dead, live, later]
+        // `dead` has no live surface, so it is skipped.
+        var liveConfig = CmuxSurfaceConfigTemplate()
+        liveConfig.fontSize = 12
+        host.liveConfigs[live] = liveConfig
+        // A seeded lineage root that diverges from runtime by > 0.05 promotes runtime.
+        host.rootedFontPoints[live] = 14
+        host.runtimeFontPoints[live] = 18
+
+        let resolved = coordinator.resolveInheritedConfig(host: host, preferredPanelId: nil, inPane: nil)
+
+        #expect(resolved?.fontSize == 18)
+        // Only the live candidate's seed is recorded, never `dead` or `later`.
+        #expect(host.recordedFontPoints.count == 1)
+        #expect(host.recordedFontPoints.first?.points == 18)
+        #expect(host.recordedFontPoints.first?.panelId == live)
+        #expect(host.rememberedSources == [live])
+        #expect(host.recordedLastFontPoints == [18])
+        #expect(host.fallbackLogs.isEmpty)
+    }
+
+    @Test("A non-positive rooted font leaves the live config's font untouched and records it as last-known")
+    func inheritedConfigKeepsConfigFontWhenNoRoot() {
+        let host = StubSurfaceCreationHost()
+        let live = UUID()
+        host.candidatePanelIds = [live]
+        var liveConfig = CmuxSurfaceConfigTemplate()
+        liveConfig.fontSize = 16
+        host.liveConfigs[live] = liveConfig
+        // No rooted lineage and a 0 config-derived root → resolvedInheritanceFontPoints
+        // falls back to the config font (16), which is not > 0-rooted, so the
+        // walk does NOT overwrite config.fontSize via the rooted branch... but
+        // resolvedInheritanceFontPoints returns 16 (>0), so it IS applied + seeded.
+        host.runtimeFontPoints[live] = 9
+
+        let resolved = coordinator.resolveInheritedConfig(host: host, preferredPanelId: nil, inPane: nil)
+
+        #expect(resolved?.fontSize == 16)
+        #expect(host.recordedFontPoints.first?.points == 16)
+        #expect(host.recordedLastFontPoints == [16])
+        #expect(host.rememberedSources == [live])
+    }
+
+    @Test("No live candidate falls back to the host's last-known font and logs the fallback")
+    func inheritedConfigFallsBackToLastKnown() {
+        let host = StubSurfaceCreationHost()
+        host.candidatePanelIds = [UUID(), UUID()] // none have live surfaces
+        host.lastKnownInheritanceFontPoints = 13
+
+        let resolved = coordinator.resolveInheritedConfig(host: host, preferredPanelId: nil, inPane: nil)
+
+        #expect(resolved?.fontSize == 13)
+        #expect(host.fallbackLogs == [13])
+        #expect(host.recordedFontPoints.isEmpty)
+        #expect(host.rememberedSources.isEmpty)
+    }
+
+    @Test("No live candidate and no last-known font returns nil")
+    func inheritedConfigReturnsNilWhenNothingKnown() {
+        let host = StubSurfaceCreationHost()
+        host.candidatePanelIds = [UUID()]
+        host.lastKnownInheritanceFontPoints = nil
+
+        #expect(coordinator.resolveInheritedConfig(host: host, preferredPanelId: nil, inPane: nil) == nil)
+        #expect(host.fallbackLogs.isEmpty)
+    }
+
+    @Test("A zero final font size is not recorded as the last-known value")
+    func inheritedConfigSkipsLastKnownWhenFontNonPositive() {
+        let host = StubSurfaceCreationHost()
+        let live = UUID()
+        host.candidatePanelIds = [live]
+        // Live config with font 0, no rooted lineage, no runtime → resolved font is
+        // nil (no application), config.fontSize stays 0, so last-known is NOT set.
+        host.liveConfigs[live] = CmuxSurfaceConfigTemplate()
+
+        let resolved = coordinator.resolveInheritedConfig(host: host, preferredPanelId: nil, inPane: nil)
+
+        #expect(resolved?.fontSize == 0)
+        #expect(host.recordedFontPoints.isEmpty)
+        #expect(host.recordedLastFontPoints.isEmpty)
+        // The source is still remembered (legacy remembers on every live candidate).
+        #expect(host.rememberedSources == [live])
     }
 }

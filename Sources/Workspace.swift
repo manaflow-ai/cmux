@@ -2100,11 +2100,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 
     /// The surface-creation coordinator (CmuxWorkspaces): owns the value-typed
     /// resolution rules shared by the terminal-creation paths — the startup
-    /// working-directory pick over an ordered candidate list and the inherited
-    /// zoom font-point arithmetic. The legacy `resolvedTerminalStartupWorkingDirectory`
-    /// / `normalizedTerminalWorkingDirectory` / `resolvedTerminalInheritanceFontPoints`
-    /// helpers below forward here; `Workspace` still gathers the candidate values
-    /// from its own registry because that requires live reads.
+    /// working-directory pick over an ordered candidate list, the inherited zoom
+    /// font-point arithmetic, and the inheritance-config candidate walk, which it
+    /// orchestrates back through ``SurfaceCreationHosting`` (conformed below). The
+    /// legacy `resolvedTerminalStartupWorkingDirectory` /
+    /// `normalizedTerminalWorkingDirectory` / `inheritedTerminalConfig` helpers
+    /// forward here; `Workspace` still supplies the live reads and writes
+    /// (candidate panels, Ghostty surface probes, lineage bookkeeping) through the
+    /// seam because those require the live panel registry and the C bridge.
     let surfaceCreation = SurfaceCreationCoordinator()
 
     /// The session-restore coordinator (CmuxWorkspaces): owns the
@@ -6236,18 +6239,6 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         lastTerminalConfigInheritanceFontPoints = fontPoints
     }
 
-    private func resolvedTerminalInheritanceFontPoints(
-        for terminalPanel: TerminalPanel,
-        sourceSurface: ghostty_surface_t,
-        inheritedConfig: CmuxSurfaceConfigTemplate
-    ) -> Float? {
-        surfaceCreation.resolvedInheritanceFontPoints(
-            rootedFontPoints: terminalInheritanceFontPointsByPanelId[terminalPanel.id],
-            runtimeFontPoints: cmuxCurrentSurfaceFontSizePoints(sourceSurface),
-            inheritedConfigFontPoints: inheritedConfig.fontSize
-        )
-    }
-
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
         if let sourceSurface = terminalPanel.surface.surface,
@@ -6354,52 +6345,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         preferredPanelId: UUID? = nil,
         inPane preferredPaneId: PaneID? = nil
     ) -> CmuxSurfaceConfigTemplate? {
-        // Walk candidates in priority order and use the first panel that still exposes
-        // a runtime surface pointer.
-        for terminalPanel in terminalPanelConfigInheritanceCandidates(
+        surfaceCreation.resolveInheritedConfig(
+            host: self,
             preferredPanelId: preferredPanelId,
             inPane: preferredPaneId
-        ) {
-            // Pin the panel and its TerminalSurface wrapper for the duration of
-            // this iteration. The raw ghostty_surface_t extracted below is owned
-            // by `surface` (the TerminalSurface) — ARC must not release it while
-            // ghostty_surface_inherited_config or cmuxCurrentSurfaceFontSizePoints
-            // is still reading through the pointer.
-            let surface = terminalPanel.surface
-            guard let sourceSurface = surface.surface else { continue }
-            var config = cmuxInheritedSurfaceConfig(
-                sourceSurface: sourceSurface,
-                context: GHOSTTY_SURFACE_CONTEXT_SPLIT
-            )
-            if let rootedFontPoints = resolvedTerminalInheritanceFontPoints(
-                for: terminalPanel,
-                sourceSurface: sourceSurface,
-                inheritedConfig: config
-            ), rootedFontPoints > 0 {
-                config.fontSize = rootedFontPoints
-                terminalInheritanceFontPointsByPanelId[terminalPanel.id] = rootedFontPoints
-            }
-            // Prevent ARC from releasing panel/surface before the C calls above complete.
-            withExtendedLifetime((terminalPanel, surface)) {}
-            rememberTerminalConfigInheritanceSource(terminalPanel)
-            if config.fontSize > 0 {
-                lastTerminalConfigInheritanceFontPoints = config.fontSize
-            }
-            return config
-        }
-
-        if let fallbackFontPoints = lastTerminalConfigInheritanceFontPoints {
-            var config = CmuxSurfaceConfigTemplate()
-            config.fontSize = fallbackFontPoints
-#if DEBUG
-            cmuxDebugLog(
-                "zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fallbackFontPoints))"
-            )
-#endif
-            return config
-        }
-
-        return nil
+        )
     }
 
     /// Create a new split with a terminal panel
@@ -10480,6 +10430,43 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 // MARK: - BonsplitDelegate
 
 // MARK: - PaneTreeHosting (legacy @Published observer hooks)
+
+// `SurfaceCreationHosting` (CmuxWorkspaces) supplies the live panel/Ghostty reads
+// and writes for the coordinator's inheritance walk; the protocol carries the
+// per-member contract. `probeInheritanceCandidate` pins the panel/surface once
+// (the legacy single pin) for both C reads; `commitInheritanceSelection` applies
+// the writes in the legacy order (seed → remember → record-last).
+extension Workspace: SurfaceCreationHosting {
+    func configInheritanceCandidatePanelIds(preferredPanelId: UUID?, inPane preferredPaneId: PaneID?) -> [UUID] {
+        terminalPanelConfigInheritanceCandidates(preferredPanelId: preferredPanelId, inPane: preferredPaneId).map(\.id)
+    }
+
+    func probeInheritanceCandidate(panelId: UUID) -> SurfaceInheritanceCandidateProbe? {
+        guard let terminalPanel = terminalPanel(for: panelId) else { return nil }
+        let surface = terminalPanel.surface
+        guard let sourceSurface = surface.surface else { return nil }
+        defer { withExtendedLifetime((terminalPanel, surface)) {} }
+        return SurfaceInheritanceCandidateProbe(
+            inheritedConfig: cmuxInheritedSurfaceConfig(sourceSurface: sourceSurface, context: GHOSTTY_SURFACE_CONTEXT_SPLIT),
+            rootedFontPoints: terminalInheritanceFontPointsByPanelId[panelId],
+            runtimeFontPoints: cmuxCurrentSurfaceFontSizePoints(sourceSurface)
+        )
+    }
+
+    func commitInheritanceSelection(panelId: UUID, rootedFontPoints: Float?, finalConfigFontPoints: Float) {
+        if let rootedFontPoints { terminalInheritanceFontPointsByPanelId[panelId] = rootedFontPoints }
+        if let terminalPanel = terminalPanel(for: panelId) { rememberTerminalConfigInheritanceSource(terminalPanel) }
+        if finalConfigFontPoints > 0 { lastTerminalConfigInheritanceFontPoints = finalConfigFontPoints }
+    }
+
+    var lastKnownInheritanceFontPoints: Float? { lastTerminalConfigInheritanceFontPoints }
+
+    func logInheritanceFallback(fontPoints: Float) {
+#if DEBUG
+        cmuxDebugLog("zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fontPoints))")
+#endif
+    }
+}
 
 extension Workspace: PaneTreeHosting {
     /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
