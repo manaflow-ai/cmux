@@ -11106,7 +11106,7 @@ extension Workspace: PaneTreeHosting {
 
 extension Workspace: BonsplitDelegate {
     @MainActor
-    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
+    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID, tabCloseButtonClose: Bool) -> Bool {
         let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
         guard panels.count <= 1,
               panelIdFromSurfaceId(tabId) != nil,
@@ -11114,7 +11114,7 @@ extension Workspace: BonsplitDelegate {
               manager.tabs.contains(where: { $0.id == id }) else {
             return false
         }
-        return manager.closeWorkspaceOnLastSurfacePreferenceEnabled()
+        return !tabCloseButtonClose || manager.closeWorkspaceOnLastSurfacePreferenceEnabled()
     }
 
     @MainActor
@@ -11750,7 +11750,7 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
+        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id, tabCloseButtonClose: tabCloseButtonClose) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
             if tabCloseButtonClose {
