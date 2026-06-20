@@ -7720,16 +7720,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     @objc func copyUpdateLogs(_ sender: Any?) {
-        let logText = updateLog.snapshot()
-        let payload: String
-        if logText.isEmpty {
-            payload = "No update logs captured.\nLog file: \(updateLog.logPath())"
-        } else {
-            payload = logText + "\nLog file: \(updateLog.logPath())"
-        }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(payload, forType: .string)
+        pasteboard.setString(updateLog.clipboardPayload(), forType: .string)
     }
     @objc func copyFocusLogs(_ sender: Any?) {
         let logText = focusLog.snapshot()

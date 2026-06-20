@@ -12,6 +12,25 @@ public protocol UpdateLogging: Sendable {
     /// Appends one line to the update log. Implementations timestamp the line themselves.
     func append(_ message: String)
 
+    /// The current contents of the in-memory log buffer, newest-last, one entry per line.
+    /// Surfaced through ``clipboardPayload()`` for the "Copy Update Logs" menu action.
+    func snapshot() -> String
+
     /// The filesystem path of the log file, surfaced to users in error details.
     func logPath() -> String
+}
+
+extension UpdateLogging {
+    /// The human-readable text the "Copy Update Logs" menu action places on the pasteboard:
+    /// the captured log snapshot (or a "no logs" notice) followed by the log file path.
+    ///
+    /// This is the updater-domain formatting that previously lived inline in `AppDelegate`;
+    /// the app target now only writes the returned string to `NSPasteboard`.
+    public func clipboardPayload() -> String {
+        let logText = snapshot()
+        if logText.isEmpty {
+            return "No update logs captured.\nLog file: \(logPath())"
+        }
+        return logText + "\nLog file: \(logPath())"
+    }
 }
