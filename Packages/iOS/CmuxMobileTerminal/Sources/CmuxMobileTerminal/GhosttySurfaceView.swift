@@ -1704,56 +1704,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// The toolbar's button row is bottom-pinned inside its container (see
     /// `TerminalInputTextView.dockedButtonRowHeight`), so the controls always hug the
-    /// band's bottom no matter how tall the container is — the round-6 fix for "toolbar
-    /// rides up off the keyboard on a letterbox/resize", kept for free because the
-    /// toolbar never leaves the surface. When there is no composer band, the toolbar's
-    /// TOP floats up to the rendered terminal's bottom (`lastRenderRect.maxY`) to
-    /// absorb the sub-cell remainder (no terminal-background gap above the bar). When
-    /// the composer band is open, the toolbar is exactly its button band and the
-    /// composer below absorbs the layout.
+    /// band's bottom no matter how tall the container is. When there is no composer
+    /// band, the toolbar's TOP floats up to the visible terminal bottom
+    /// (`lastVisibleRenderRect.maxY`) to absorb the sub-cell remainder without exposing
+    /// the hidden backing row. When the composer band is open, the toolbar is exactly
+    /// its button band and the composer below absorbs the layout.
     ///
     /// While the HIDE button has suppressed the chrome (``chromeHidden``) the dock is
     /// off screen (both frames `.zero`); the grid reservation matches (it reserves 0),
     /// so the terminal reclaims the whole height.
     private func bottomDockFrames() -> (composer: CGRect, toolbar: CGRect) {
-        let occupied = keyboardOccupancyInBounds
-        // While the HIDE button has suppressed the chrome, collapse the dock to a
-        // zero-height strip pinned at the bottom edge (NOT `CGRect.zero` at the origin,
-        // which would make the next show animate the bar growing out of the top-left
-        // corner). The toolbar is also `isHidden`, so this is purely about leaving a
-        // sane frame to animate from/to.
-        let bottomEdge = chromeHidden ? bounds.height : bounds.height - occupied
-        let width = bounds.width
-        let effectiveComposerHeight = chromeHidden ? 0 : composerBandHeight
-        // Composer band sits directly above the keyboard (or the safe-area inset),
-        // pinned to the bottom edge; the toolbar's button band reserves
-        // `persistentToolbarHeight` directly above the composer. At height 0 the band
-        // frame is a zero-height strip AT `bottomEdge` (composerTop == bottomEdge), so a
-        // close animates a smooth downward height-collapse into the toolbar/keyboard
-        // edge rather than flying to the origin (item 3).
-        let composerTop = bottomEdge - effectiveComposerHeight
-        let composerFrame = CGRect(x: 0, y: max(0, composerTop), width: width, height: effectiveComposerHeight)
-        // Toolbar's reserved bottom is the composer's top (or the bottom edge with no
-        // composer), and its reserved top is one button-row band above that.
-        let toolbarBottom = effectiveComposerHeight > 0 ? composerTop : bottomEdge
-        let toolbarReservedTop = toolbarBottom - Self.persistentToolbarHeight
-        // Toolbar top: with a composer band below, the toolbar container is exactly its
-        // button band (no slack to absorb — the composer owns the space below). Without
-        // a composer, let the top float up to the rendered terminal's bottom so the
-        // container's background fills the sub-cell remainder (libghostty floors the
-        // grid to whole cells and top-anchors the render, so `lastRenderRect.maxY` is at
-        // or above `toolbarReservedTop`). Never drop below `toolbarReservedTop` (that
-        // would re-open the gap) and never go negative.
-        let toolbarTop: CGFloat
-        if effectiveComposerHeight > 0 {
-            toolbarTop = max(0, toolbarReservedTop)
-        } else {
-            let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
-            let renderBottom = visibleRenderRect.isEmpty ? toolbarReservedTop : visibleRenderRect.maxY
-            toolbarTop = max(0, min(renderBottom, toolbarReservedTop))
-        }
-        let toolbarFrame = CGRect(x: 0, y: toolbarTop, width: width, height: toolbarBottom - toolbarTop)
-        return (composerFrame, toolbarFrame)
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
+        return TerminalLetterboxGeometry.bottomDockFrames(
+            bounds: bounds.size,
+            keyboardOccupancy: keyboardOccupancyInBounds,
+            chromeHidden: chromeHidden,
+            composerBandHeight: composerBandHeight,
+            toolbarHeight: Self.persistentToolbarHeight,
+            visibleRenderRect: visibleRenderRect
+        )
     }
 
     /// Position the composer band and the docked toolbar from ``bottomDockFrames()``.
@@ -3293,7 +3262,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastRenderRect = renderRect
         let visibleSize = result.visibleRenderSize ?? renderRect.size
         lastVisibleRenderRect = CGRect(origin: renderRect.origin, size: visibleSize)
-        // The docked toolbar's top hugs `lastRenderRect.maxY` (see
+        // The docked toolbar's top hugs `lastVisibleRenderRect.maxY` (see
         // ``bottomDockFrames()``), so re-seat the whole bottom dock now that the
         // rendered terminal bottom has moved; otherwise the bar keeps the pre-geometry
         // position and the sub-cell gap above it reappears.

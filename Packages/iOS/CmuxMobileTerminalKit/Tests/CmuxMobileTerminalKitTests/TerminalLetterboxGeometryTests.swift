@@ -304,6 +304,36 @@ struct TerminalLetterboxGeometryTests {
         #expect(visible == CGSize(width: 402, height: 480))
     }
 
+    @Test("bottom dock anchors to visible terminal rect instead of hidden spare row")
+    func bottomDockUsesVisibleRenderRect() {
+        let frames = TerminalLetterboxGeometry.bottomDockFrames(
+            bounds: CGSize(width: 402, height: 700),
+            keyboardOccupancy: 34,
+            chromeHidden: false,
+            composerBandHeight: 0,
+            toolbarHeight: 44,
+            visibleRenderRect: CGRect(x: 0, y: 0, width: 402, height: 608)
+        )
+
+        #expect(frames.composer == CGRect(x: 0, y: 666, width: 402, height: 0))
+        #expect(frames.toolbar == CGRect(x: 0, y: 608, width: 402, height: 58))
+    }
+
+    @Test("composer band owns bottom slack when open")
+    func bottomDockWithComposerUsesButtonBand() {
+        let frames = TerminalLetterboxGeometry.bottomDockFrames(
+            bounds: CGSize(width: 402, height: 700),
+            keyboardOccupancy: 34,
+            chromeHidden: false,
+            composerBandHeight: 120,
+            toolbarHeight: 44,
+            visibleRenderRect: CGRect(x: 0, y: 0, width: 402, height: 608)
+        )
+
+        #expect(frames.composer == CGRect(x: 0, y: 546, width: 402, height: 120))
+        #expect(frames.toolbar == CGRect(x: 0, y: 502, width: 402, height: 44))
+    }
+
     @Test("visible render size keeps a stable viewport when spare rows exceed the backing box")
     func visibleRenderSizeAlwaysLeavesViewport() {
         let visible = TerminalLetterboxGeometry.visibleRenderSize(

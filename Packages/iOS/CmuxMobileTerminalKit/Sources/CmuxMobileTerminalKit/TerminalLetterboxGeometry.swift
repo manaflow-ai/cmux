@@ -183,6 +183,52 @@ public struct TerminalLetterboxGeometry {
         )
     }
 
+    /// Frames for the bottom composer and toolbar dock.
+    ///
+    /// The terminal can render hidden backing rows below the visible viewport.
+    /// Bottom chrome must anchor to the visible rect, not the backing rect, or
+    /// the spare row still affects prompt stability by moving the toolbar one
+    /// hidden row too low.
+    public static func bottomDockFrames(
+        bounds: CGSize,
+        keyboardOccupancy: CGFloat,
+        chromeHidden: Bool,
+        composerBandHeight: CGFloat,
+        toolbarHeight: CGFloat,
+        visibleRenderRect: CGRect
+    ) -> (composer: CGRect, toolbar: CGRect) {
+        let clampedKeyboardOccupancy = max(0, keyboardOccupancy)
+        let bottomEdge = chromeHidden ? bounds.height : bounds.height - clampedKeyboardOccupancy
+        let width = bounds.width
+        let effectiveComposerHeight = chromeHidden ? 0 : max(0, composerBandHeight)
+        let clampedToolbarHeight = max(0, toolbarHeight)
+
+        let composerTop = bottomEdge - effectiveComposerHeight
+        let composerFrame = CGRect(
+            x: 0,
+            y: max(0, composerTop),
+            width: width,
+            height: effectiveComposerHeight
+        )
+
+        let toolbarBottom = effectiveComposerHeight > 0 ? composerTop : bottomEdge
+        let toolbarReservedTop = toolbarBottom - clampedToolbarHeight
+        let toolbarTop: CGFloat
+        if effectiveComposerHeight > 0 {
+            toolbarTop = max(0, toolbarReservedTop)
+        } else {
+            let renderBottom = visibleRenderRect.isEmpty ? toolbarReservedTop : visibleRenderRect.maxY
+            toolbarTop = max(0, min(renderBottom, toolbarReservedTop))
+        }
+        let toolbarFrame = CGRect(
+            x: 0,
+            y: toolbarTop,
+            width: width,
+            height: toolbarBottom - toolbarTop
+        )
+        return (composerFrame, toolbarFrame)
+    }
+
     /// Whether the surface should be letterbox-pinned to `effective` inside the
     /// container, and the candidate pinned point size when it should.
     ///
