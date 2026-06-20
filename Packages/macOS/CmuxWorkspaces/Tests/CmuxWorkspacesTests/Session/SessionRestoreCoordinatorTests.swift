@@ -394,4 +394,63 @@ struct SessionRestoreCoordinatorTests {
     func anchorLastOfTwoFallsBack() {
         #expect(coordinator().paneAnchorNeighborIndex(forClosedTabIndex: 1, tabCount: 2) == 0)
     }
+
+    // MARK: - Persisted panel ordering
+
+    @Test("panel order: sidebar order wins, remaining appended in given order")
+    func panelOrderMergesSources() {
+        let a = UUID(), b = UUID(), c = UUID(), d = UUID()
+        let result = coordinator().persistedPanelIdOrder(
+            sidebarOrdered: [a, b],
+            remaining: [c, d],
+            limit: 100
+        )
+        #expect(result == [a, b, c, d])
+    }
+
+    @Test("panel order: ids already in the sidebar order are dropped from remaining")
+    func panelOrderDeduplicatesAcrossSources() {
+        let a = UUID(), b = UUID(), c = UUID()
+        // `b` appears in both sources; the sidebar (first source) wins its slot
+        // and the remaining copy is dropped.
+        let result = coordinator().persistedPanelIdOrder(
+            sidebarOrdered: [a, b],
+            remaining: [b, c],
+            limit: 100
+        )
+        #expect(result == [a, b, c])
+    }
+
+    @Test("panel order: duplicates within a single source collapse to the first")
+    func panelOrderDeduplicatesWithinSource() {
+        let a = UUID(), b = UUID()
+        let result = coordinator().persistedPanelIdOrder(
+            sidebarOrdered: [a, a, b],
+            remaining: [b, b, a],
+            limit: 100
+        )
+        #expect(result == [a, b])
+    }
+
+    @Test("panel order: result is truncated to the limit after de-duplication")
+    func panelOrderTruncatesToLimit() {
+        let a = UUID(), b = UUID(), c = UUID(), d = UUID()
+        let result = coordinator().persistedPanelIdOrder(
+            sidebarOrdered: [a, b],
+            remaining: [c, d],
+            limit: 3
+        )
+        #expect(result == [a, b, c])
+    }
+
+    @Test("panel order: a zero limit yields no panels")
+    func panelOrderZeroLimit() {
+        let a = UUID()
+        let result = coordinator().persistedPanelIdOrder(
+            sidebarOrdered: [a],
+            remaining: [],
+            limit: 0
+        )
+        #expect(result.isEmpty)
+    }
 }
