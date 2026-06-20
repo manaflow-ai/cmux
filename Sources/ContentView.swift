@@ -1898,7 +1898,7 @@ struct ContentView: View {
 
     private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
         let panel = sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
-            rightSidebarPanel
+            rightSidebarPanel(appearance: appearance)
         }
         .overlay(alignment: .leading) {
             if rightSidebarVisible {
@@ -1913,13 +1913,14 @@ struct ContentView: View {
         return panel
     }
 
-    private var rightSidebarPanel: some View {
+    private func rightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
         return RightSidebarPanelView(
             tabManager: tabManager,
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
+            windowAppearance: appearance,
             workspaceId: tabManager.selectedTabId,
             onResumeSession: { entry in
                 resumeSession(entry: entry)

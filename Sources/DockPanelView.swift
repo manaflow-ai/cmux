@@ -1,7 +1,7 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxTerminal
-import CmuxTerminalEngine
 import SwiftUI
 
 /// Right-sidebar Dock. Renders the workspace's Dock `BonsplitController` tree
@@ -11,8 +11,14 @@ struct DockPanelView: View {
     let store: DockSplitStore
     let isSidebarVisible: Bool
     let mode: RightSidebarMode
+    let rootDirectory: String?
+    let windowAppearance: WindowAppearanceSnapshot
 
-    @State private var appearanceConfig = GhosttyConfig.load()
+    @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
+
+    private var appearance: PanelAppearance {
+        PanelAppearance.fromConfig(appearanceConfig)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,12 +26,16 @@ struct DockPanelView: View {
             Divider()
             content
         }
+        .background(Color(nsColor: appearance.backgroundColor))
         .background(
             DockKeyboardFocusBridge(store: store)
                 .frame(width: 1, height: 1)
         )
         .accessibilityIdentifier("DockPanel")
-        .onAppear { store.setActive(isVisible: isSidebarVisible, mode: mode) }
+        .onAppear {
+            refreshAppearance(reason: "onAppear")
+            store.setActive(isVisible: isSidebarVisible, mode: mode)
+        }
         .onDisappear { store.setVisibleInUI(false) }
         .onChange(of: isSidebarVisible) { _, visible in
             store.setActive(isVisible: visible, mode: mode)
@@ -33,9 +43,21 @@ struct DockPanelView: View {
         .onChange(of: mode) { _, newMode in
             store.setActive(isVisible: isSidebarVisible, mode: newMode)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            appearanceConfig = GhosttyConfig.load()
+        .onChange(of: rootDirectory) { _, _ in
+            store.setActive(isVisible: isSidebarVisible, mode: mode)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            refreshAppearance(reason: "ghosttyConfigDidReload")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            refreshAppearance(reason: "ghosttyDefaultBackgroundDidChange")
+        }
+    }
+
+    private func refreshAppearance(reason: String) {
+        let next = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
+        appearanceConfig = next
+        store.applyGhosttyChrome(from: next)
     }
 
     private var toolbar: some View {
@@ -110,7 +132,8 @@ struct DockPanelView: View {
         } else {
             DockSplitContentView(
                 store: store,
-                appearance: PanelAppearance.fromConfig(appearanceConfig)
+                appearance: appearance,
+                windowAppearance: windowAppearance
             )
         }
     }
@@ -121,6 +144,7 @@ struct DockPanelView: View {
 private struct DockSplitContentView: View {
     let store: DockSplitStore
     let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
 
     /// Portal z-priority for Dock-hosted terminal/browser surfaces. Kept low so
     /// Dock surfaces never overlay main-area surfaces.
@@ -155,6 +179,8 @@ private struct DockSplitContentView: View {
                 portalPriority: Self.portalPriority,
                 isSplit: isSplit,
                 appearance: appearance,
+                windowAppearance: windowAppearance,
+                customSidebarTabManager: nil,
                 hasUnreadNotification: false,
                 terminalAgentContext: "",
                 paneOwnershipOverride: isSelectedInPane,

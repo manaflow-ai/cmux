@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
@@ -121,6 +122,7 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
+    let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
@@ -413,7 +415,9 @@ struct RightSidebarPanelView: View {
                     DockPanelView(
                         store: workspace.dockSplit,
                         isSidebarVisible: fileExplorerState.isVisible,
-                        mode: fileExplorerState.mode
+                        mode: fileExplorerState.mode,
+                        rootDirectory: workspace.currentDirectory,
+                        windowAppearance: windowAppearance
                     )
                     .id(workspace.id)
                 } else {

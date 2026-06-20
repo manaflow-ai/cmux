@@ -59,6 +59,15 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// The split was routed to the remote tmux mirror backing the workspace;
     /// the pane arrives asynchronously via `%layout-change`.
     case routedToRemote(windowID: UUID?, workspaceID: UUID, typeRawValue: String)
+    /// The pane was created in the right-sidebar Dock. Dock handles are scoped to
+    /// the Dock container and are not ordinary workspace surface/pane ids.
+    case createdDock(
+        windowID: UUID?,
+        workspaceID: UUID,
+        dockPaneID: UUID?,
+        dockSurfaceID: UUID,
+        typeRawValue: String
+    )
     /// The pane was created. Carries the echoed identity (window and pane may be
     /// absent; workspace and the new surface are present) and the resolved panel
     /// type's raw value.

@@ -399,11 +399,11 @@ extension TerminalController {
         guard let newPanelId else {
             return .createFailed
         }
-        return .created(
+        return .createdDock(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            paneID: paneId.id,
-            surfaceID: newPanelId,
+            dockPaneID: paneId.id,
+            dockSurfaceID: newPanelId,
             typeRawValue: panelType.rawValue
         )
     }

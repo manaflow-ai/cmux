@@ -222,6 +222,7 @@ extension TerminalController: ControlPaneContext {
                 url: url,
                 orientation: orientation,
                 insertFirst: insertFirst,
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
                 inputs: inputs
             )
         }
@@ -350,6 +351,7 @@ extension TerminalController: ControlPaneContext {
         url: URL?,
         orientation: SplitOrientation,
         insertFirst: Bool,
+        initialDividerPosition: CGFloat?,
         inputs: ControlPaneCreateInputs
     ) -> ControlPaneCreateResolution {
         let dock = ws.dockSplit
@@ -370,6 +372,7 @@ extension TerminalController: ControlPaneContext {
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
+            initialDividerPosition: initialDividerPosition,
             focus: focus
         )
         guard let newPanelId else {
@@ -377,11 +380,11 @@ extension TerminalController: ControlPaneContext {
         }
         let paneUUID = dock.paneId(forPanelId: newPanelId)?.id
         let windowId = v2ResolveWindowId(tabManager: tabManager)
-        return .created(
+        return .createdDock(
             windowID: windowId,
             workspaceID: ws.id,
-            paneID: paneUUID,
-            surfaceID: newPanelId,
+            dockPaneID: paneUUID,
+            dockSurfaceID: newPanelId,
             typeRawValue: panelType.rawValue
         )
     }

@@ -260,6 +260,21 @@ extension ControlCommandCoordinator {
                 workspaceID: workspaceID,
                 typeRawValue: typeRawValue
             )
+        case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
+            return .ok(.object([
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "placement": .string("dock"),
+                "pane_id": .null,
+                "pane_ref": .null,
+                "surface_id": .null,
+                "surface_ref": .null,
+                "dock_pane_id": orNull(dockPaneID?.uuidString),
+                "dock_surface_id": .string(dockSurfaceID.uuidString),
+                "type": .string(typeRawValue),
+            ]))
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

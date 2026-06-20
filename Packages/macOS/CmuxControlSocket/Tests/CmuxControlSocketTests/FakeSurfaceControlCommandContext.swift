@@ -3,6 +3,7 @@ import Foundation
 
 @MainActor
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
+    var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
@@ -17,6 +18,14 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlMoveWindow(id: UUID, toDisplayMatching query: String) -> String? { nil }
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? { nil }
     func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
+    func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
+
+    func controlPaneCreate(
+        routing: ControlRoutingSelectors,
+        inputs: ControlPaneCreateInputs
+    ) -> ControlPaneCreateResolution {
+        paneCreateResolution
+    }
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,

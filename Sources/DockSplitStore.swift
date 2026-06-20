@@ -1,9 +1,9 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAppKitSupportUI
 import CmuxCore
 import CmuxTerminal
-import CmuxTerminalEngine
 import Observation
 import SwiftUI
 
@@ -243,7 +243,8 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     private static func makeConfiguration() -> BonsplitConfiguration {
-        BonsplitConfiguration(
+        let config = GhosttyConfig.load()
+        return BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
             allowCloseLastPane: false,
@@ -253,8 +254,33 @@ final class DockSplitStore: BonsplitDelegate {
             contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
             tabBarVisibility: .always,
-            appearance: .default
+            appearance: makeAppearance(from: config)
         )
+    }
+
+    private static func makeAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
+        let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
+        let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
+            usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
+        )
+        return BonsplitConfiguration.Appearance(
+            tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
+            tabTitleFontSize: config.surfaceTabBarFontSize,
+            splitButtonBackdropEffect: Workspace.bonsplitSplitButtonBackdropEffect(),
+            splitButtonTooltips: Workspace.currentSplitButtonTooltips(),
+            enableAnimations: false,
+            chromeColors: Workspace.bonsplitChromeColors(
+                backgroundColor: config.backgroundColor,
+                backgroundOpacity: config.backgroundOpacity,
+                sharesWindowBackdrop: sharesWindowBackdrop,
+                renderingMode: renderingMode
+            ),
+            usesSharedBackdrop: sharesWindowBackdrop
+        )
+    }
+
+    func applyGhosttyChrome(from config: GhosttyConfig) {
+        bonsplitController.configuration.appearance = Self.makeAppearance(from: config)
     }
 
     // MARK: - Lookups
@@ -388,6 +414,7 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        initialDividerPosition: CGFloat? = nil,
         focus: Bool = true
     ) -> UUID? {
         ensureLoaded()
@@ -423,7 +450,13 @@ final class DockSplitStore: BonsplitDelegate {
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = panel.id
-        guard bonsplitController.splitPane(sourcePaneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+        guard bonsplitController.splitPane(
+            sourcePaneId,
+            orientation: orientation,
+            withTab: newTab,
+            insertFirst: insertFirst,
+            initialDividerPosition: initialDividerPosition
+        ) != nil else {
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
             panels.removeValue(forKey: panel.id)
             panel.close()

@@ -28,6 +28,8 @@ cmux new-surface --type browser --placement dock --url https://example.com   # a
 
 `--placement` accepts `workspace` (default) or `dock`. The Dock hosts terminal and browser panes only.
 
+Dock-created handles are returned as Dock-scoped response fields: `dock_surface_id` and `dock_pane_id`. The ordinary workspace fields `surface_id` and `pane_id` are `null` for Dock placement, because existing workspace surface and pane RPCs route through the main content split tree.
+
 ## Configuration
 
 Dock is configured with JSON:
