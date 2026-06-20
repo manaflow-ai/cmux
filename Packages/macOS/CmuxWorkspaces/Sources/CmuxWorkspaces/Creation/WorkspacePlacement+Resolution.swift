@@ -1,15 +1,14 @@
-import CmuxSettings
+public import CmuxSettings
 import Foundation
 
-/// App-side placement resolution for new workspaces.
+/// Placement resolution for new workspaces.
 ///
-/// Fused-enum split status (TabManager decomposition): the legacy
-/// `WorkspacePlacementSettings` namespace enum is gone — its storage key is
-/// the CmuxSettings catalog's `app.newWorkspacePlacement` entry and the
-/// app's `WorkspacePlacement` enum converged onto the catalog's
-/// `WorkspacePlacement` value type. The pure resolvers below are **staged
-/// for CmuxWorkspaces (Wave 4)**, where they move with the workspace
-/// creation coordinator.
+/// Lifted one-for-one from the app-target `WorkspacePlacement+Resolution.swift`
+/// extension, which was explicitly staged here to move with the workspace
+/// creation coordinator. The legacy `WorkspacePlacementSettings` namespace enum
+/// was already retired into the CmuxSettings catalog's `app.newWorkspacePlacement`
+/// entry; these are the pure resolvers that read that setting and turn a
+/// placement into an insertion index.
 extension WorkspacePlacement {
     /// The placement to apply for a new workspace: an explicit call-site
     /// override wins, then iMessage mode pins `.top`, then the stored
@@ -31,7 +30,7 @@ extension WorkspacePlacement {
     /// The insertion index for a new workspace under this placement, given
     /// the current selection and pinned-prefix shape of the tab list.
     /// Pure arithmetic; clamps every input into the valid range.
-    func insertionIndex(
+    public func insertionIndex(
         selectedIndex: Int?,
         selectedIsPinned: Bool,
         pinnedCount: Int,

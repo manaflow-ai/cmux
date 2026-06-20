@@ -510,6 +510,13 @@ class TabManager: ObservableObject {
     // teardown stay here, inverted through the CloseConfirming conformance
     // (localized strings + confirmClose, in this file's class body).
     let workspaceClosing: WorkspaceCloseCoordinator<Workspace>
+    // Pure new-workspace insertion planning over the workspaces model
+    // (CmuxWorkspaces): the pre-creation snapshot, its live-order remap, and the
+    // placement-driven insertion index. The creation orchestration (Workspace
+    // boot, chrome inheritance, port ordinal, lifecycle publish, selection/focus,
+    // welcome send) is irreducibly app-coupled and stays in this file, calling
+    // these computations.
+    let workspaceCreating: WorkspaceCreationCoordinator<Workspace>
     private var shouldRecordFocusHistory: Bool {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
@@ -569,6 +576,17 @@ class TabManager: ObservableObject {
         workspaceCommands = WorkspaceCommandCoordinator(model: workspaces, reordering: workspaceReordering)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
         workspaceClosing = WorkspaceCloseCoordinator(model: workspaces)
+#if DEBUG
+        let workspaceCreationDebugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
+#else
+        let workspaceCreationDebugLog: @Sendable (String) -> Void = { _ in }
+#endif
+        workspaceCreating = WorkspaceCreationCoordinator(
+            model: workspaces,
+            settings: settings,
+            catalog: settingsCatalog,
+            debugLog: workspaceCreationDebugLog
+        )
 #if DEBUG
         let sidebarGitDebugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
 #else
@@ -1298,31 +1316,18 @@ class TabManager: ObservableObject {
     /// for obtaining `preferredWorkingDirectory` and `inheritedTerminalFontPoints` through
     /// `self` (where `self.tabs` keeps all Workspace objects alive) so that no local
     /// Workspace references are needed here.
+    // Snapshot building lives in WorkspaceCreationCoordinator (CmuxWorkspaces);
+    // this forwarder keeps the legacy entry point for the creation paths that
+    // already hold the captured live workspaces.
     func workspaceCreationSnapshotLite(
         currentTabs: [Workspace],
         currentSelectedTabId: UUID?,
         preferredWorkingDirectory: String?,
         inheritedTerminalFontPoints: Float?
     ) -> WorkspaceCreationSnapshot {
-        var tabSnapshots: [WorkspaceCreationTabSnapshot] = []
-        tabSnapshots.reserveCapacity(currentTabs.count)
-        for workspace in currentTabs {
-            // Keep each Workspace alive while copying the tiny value snapshot out of it.
-            // The optimized arm64 Nightly build can otherwise over-release during
-            // Collection.map, crashing here in swift_release / snapshot creation.
-            let snapshot = withExtendedLifetime(workspace) {
-                WorkspaceCreationTabSnapshot(workspace: workspace)
-            }
-            tabSnapshots.append(snapshot)
-        }
-        let selectedTabSnapshot = currentSelectedTabId.flatMap { selectedTabId in
-            tabSnapshots.first(where: { $0.id == selectedTabId })
-        }
-
-        return WorkspaceCreationSnapshot(
-            tabs: tabSnapshots,
-            selectedTabId: currentSelectedTabId,
-            selectedTabWasPinned: selectedTabSnapshot?.isPinned ?? false,
+        workspaceCreating.workspaceCreationSnapshotLite(
+            currentTabs: currentTabs,
+            currentSelectedTabId: currentSelectedTabId,
             preferredWorkingDirectory: preferredWorkingDirectory,
             inheritedTerminalFontPoints: inheritedTerminalFontPoints
         )
@@ -1335,30 +1340,6 @@ class TabManager: ObservableObject {
             preferredWorkingDirectory: preferredWorkingDirectoryForNewTab(),
             inheritedTerminalFontPoints: inheritedTerminalFontPointsForNewWorkspace()
         )
-    }
-
-    private func orderedLiveWorkspaceCreationTabs(
-        from snapshot: WorkspaceCreationSnapshot
-    ) -> [WorkspaceCreationTabSnapshot]? {
-        let currentTabs = tabs
-        let snapshotTabsById = Dictionary(uniqueKeysWithValues: snapshot.tabs.map { ($0.id, $0) })
-        var orderedTabs: [WorkspaceCreationTabSnapshot] = []
-        orderedTabs.reserveCapacity(currentTabs.count)
-
-        for workspace in currentTabs {
-            guard let tabSnapshot = snapshotTabsById[workspace.id] else {
-#if DEBUG
-                cmuxDebugLog(
-                    "workspace.create.reentrantSnapshotFallback " +
-                    "snapshotCount=\(snapshot.tabs.count) liveCount=\(currentTabs.count)"
-                )
-#endif
-                return nil
-            }
-            orderedTabs.append(tabSnapshot)
-        }
-
-        return orderedTabs
     }
 
     private func terminalPanelForWorkspaceConfigInheritanceSource(
@@ -1455,39 +1436,14 @@ class TabManager: ObservableObject {
         newTabInsertIndex(snapshot: workspaceCreationSnapshot(), placementOverride: placementOverride)
     }
 
+    // Placement-driven insertion-index math lives in
+    // WorkspaceCreationCoordinator (CmuxWorkspaces); this forwarder keeps the
+    // legacy entry point used by the creation paths.
     func newTabInsertIndex(
         snapshot: WorkspaceCreationSnapshot,
         placementOverride: WorkspacePlacement? = nil
     ) -> Int {
-        let placement = WorkspacePlacement.effectivePlacement(
-            placementOverride: placementOverride,
-            settings: settings,
-            catalog: settingsCatalog
-        )
-        let liveTabs = orderedLiveWorkspaceCreationTabs(from: snapshot) ?? snapshot.tabs
-        let pinnedCount = liveTabs.reduce(into: 0) { partial, tab in
-            if tab.isPinned {
-                partial += 1
-            }
-        }
-
-        switch placement {
-        case .top:
-            return pinnedCount
-        case .end:
-            return liveTabs.count
-        case .afterCurrent:
-            if let selectedTabId = snapshot.selectedTabId,
-               let selectedIndex = liveTabs.firstIndex(where: { $0.id == selectedTabId }) {
-                return placement.insertionIndex(
-                    selectedIndex: selectedIndex,
-                    selectedIsPinned: snapshot.selectedTabWasPinned,
-                    pinnedCount: pinnedCount,
-                    totalCount: liveTabs.count
-                )
-            }
-            return snapshot.selectedTabWasPinned ? pinnedCount : liveTabs.count
-        }
+        workspaceCreating.newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
     }
 
     private func preferredWorkingDirectoryForNewTab() -> String? {
