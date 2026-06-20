@@ -1840,10 +1840,61 @@ extension CMUXCLI {
         return DiffBranchBase(ref: fallback, reason: DiffBranchBaseReason.default, confidence: "low")
     }
 
+    /// Process-level memo for `diffBranchBasePRBaseRef`. The diff-viewer HTTP
+    /// server dispatches requests on concurrent queues and a single refs build
+    /// resolves the PR base twice (heuristic chain + explicit Suggested row), so
+    /// without this the ~0.7s `gh pr view` round-trip runs 2x per popover open
+    /// and again on every reopen. Entries store the resolved ref AND the nil
+    /// outcome (a repo with no PR is not re-queried) under a short TTL. Guarded
+    /// by `os_unfair_lock` since callers run on concurrent dispatch queues.
+    private enum DiffBranchBasePRCache {
+        struct Entry {
+            var value: String?
+            var storedAt: TimeInterval
+        }
+
+        static let ttl: TimeInterval = 30
+        private static var lock = os_unfair_lock()
+        private static var entries: [String: Entry] = [:]
+
+        /// Returns `.some(value)` on a fresh hit (value may itself be `nil`,
+        /// meaning "no PR base"), or `nil` on a miss/expiry so the caller
+        /// recomputes.
+        static func lookup(_ repoRoot: String, now: TimeInterval) -> String?? {
+            os_unfair_lock_lock(&lock)
+            defer { os_unfair_lock_unlock(&lock) }
+            guard let entry = entries[repoRoot], now - entry.storedAt <= ttl else {
+                return nil
+            }
+            return .some(entry.value)
+        }
+
+        static func store(_ repoRoot: String, value: String?, now: TimeInterval) {
+            os_unfair_lock_lock(&lock)
+            defer { os_unfair_lock_unlock(&lock) }
+            entries[repoRoot] = Entry(value: value, storedAt: now)
+        }
+    }
+
     /// Best-effort PR base branch via `gh pr view`. Returns nil when gh is
     /// missing, unauthenticated, there is no PR, or the base ref is unknown
-    /// locally. A short timeout keeps the picker responsive offline.
+    /// locally. A short timeout keeps the picker responsive offline. Memoized at
+    /// process scope (see `DiffBranchBasePRCache`) so redundant calls within and
+    /// across refs requests collapse to one network round-trip. The observable
+    /// result is unchanged; only timing differs.
     private func diffBranchBasePRBaseRef(in repoRoot: String) -> String? {
+        let now = Date().timeIntervalSince1970
+        if let cached = DiffBranchBasePRCache.lookup(repoRoot, now: now) {
+            return cached
+        }
+        let value = computeDiffBranchBasePRBaseRef(in: repoRoot)
+        DiffBranchBasePRCache.store(repoRoot, value: value, now: now)
+        return value
+    }
+
+    /// Uncached `gh pr view` resolution. Do not call directly; go through
+    /// `diffBranchBasePRBaseRef` so the process-level memo applies.
+    private func computeDiffBranchBasePRBaseRef(in repoRoot: String) -> String? {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
             arguments: [
@@ -2125,6 +2176,244 @@ extension CMUXCLI {
         }
 
         return groups
+    }
+
+    // MARK: - Stale-while-revalidate refs cache
+
+    /// On-disk payload format for the refs cache. `groupsJSON` holds the exact
+    /// serialized `groups` array (`[[String: Any]]` encoded with `.sortedKeys`),
+    /// so re-embedding it under `{"groups": ...}` reproduces byte-identical
+    /// output to a fresh compute. Bump `schemaVersion` on any shape change so old
+    /// files are ignored rather than mis-decoded.
+    private struct DiffBranchRefsCacheFile: Codable {
+        static let currentSchemaVersion = 1
+        var schemaVersion: Int
+        var computedAt: Double
+        var repoRoot: String
+        /// The serialized `groups` array (NOT the full `{"groups": ...}` payload).
+        var groupsJSON: Data
+    }
+
+    /// Process-level dedupe of background refresh work and the lock guarding the
+    /// in-flight set. A separate refresh per (repoRoot, base) key avoids
+    /// recomputing the same refs many times when a burst of popover opens lands
+    /// within the TTL window.
+    private enum DiffBranchRefsCacheState {
+        /// How long a cached payload is served before a background refresh is
+        /// kicked off (HTTP path) or a synchronous recompute happens (CLI path).
+        static let ttl: TimeInterval = 20
+        private static var lock = os_unfair_lock()
+        private static var refreshing: Set<String> = []
+
+        /// Try to claim a refresh for `key`. Returns true if the caller now owns
+        /// the refresh (no other refresh in flight), false to skip (dogpile
+        /// prevention).
+        static func beginRefresh(_ key: String) -> Bool {
+            os_unfair_lock_lock(&lock)
+            defer { os_unfair_lock_unlock(&lock) }
+            if refreshing.contains(key) { return false }
+            refreshing.insert(key)
+            return true
+        }
+
+        static func endRefresh(_ key: String) {
+            os_unfair_lock_lock(&lock)
+            defer { os_unfair_lock_unlock(&lock) }
+            refreshing.remove(key)
+        }
+    }
+
+    /// Cache key folds repoRoot and the selected base together so a different
+    /// selected base never serves a wrong Suggested row. The HTTP refs route
+    /// passes no base today (nil), so its key is repoRoot-only.
+    private func diffBranchRefsCacheKey(repoRoot: String, selectedBaseRef: String?) -> String {
+        if let selectedBaseRef, !selectedBaseRef.isEmpty {
+            return repoRoot + "\u{0}" + selectedBaseRef
+        }
+        return repoRoot
+    }
+
+    private func diffBranchRefsCacheURL(
+        repoRoot: String,
+        selectedBaseRef: String?,
+        rootDirectory: URL
+    ) -> URL {
+        var hasher = SHA256()
+        hasher.update(data: Data(diffBranchRefsCacheKey(
+            repoRoot: repoRoot,
+            selectedBaseRef: selectedBaseRef
+        ).utf8))
+        let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return rootDirectory.appendingPathComponent(".refs-cache-\(digest).json", isDirectory: false)
+    }
+
+    /// Serialize `groups` exactly as the endpoints do (`[[String: Any]]` with
+    /// `.sortedKeys`). This is the inner array; the endpoint wraps it as
+    /// `{"groups": <this>}`.
+    private func diffBranchRefGroupsArrayData(_ groups: [DiffBranchRefGroup]) throws -> Data {
+        try JSONSerialization.data(
+            withJSONObject: groups.map(\.jsonObject),
+            options: [.sortedKeys]
+        )
+    }
+
+    /// Wrap a serialized groups array into the final `{"groups": ...}` payload
+    /// with byte layout identical to a direct `JSONSerialization` of the whole
+    /// object: `.sortedKeys` orders the single top-level key deterministically
+    /// and `JSONSerialization` emits no insignificant whitespace.
+    private func diffBranchRefsPayloadData(fromGroupsArray groupsArray: Data) -> Data {
+        var payload = Data("{\"groups\":".utf8)
+        payload.append(groupsArray)
+        payload.append(Data("}".utf8))
+        return payload
+    }
+
+    /// Read + validate a cache file. Returns nil on any problem (missing,
+    /// unreadable, corrupt JSON, schema mismatch, repoRoot mismatch) so the
+    /// caller recomputes. Never throws, never serves garbage.
+    private func readDiffBranchRefsCache(
+        repoRoot: String,
+        selectedBaseRef: String?,
+        rootDirectory: URL
+    ) -> DiffBranchRefsCacheFile? {
+        let url = diffBranchRefsCacheURL(
+            repoRoot: repoRoot,
+            selectedBaseRef: selectedBaseRef,
+            rootDirectory: rootDirectory
+        )
+        guard let data = try? Data(contentsOf: url),
+              let file = try? JSONDecoder().decode(DiffBranchRefsCacheFile.self, from: data),
+              file.schemaVersion == DiffBranchRefsCacheFile.currentSchemaVersion,
+              file.repoRoot == repoRoot else {
+            return nil
+        }
+        return file
+    }
+
+    /// Atomically write the refs cache with 0600 perms, matching the security
+    /// posture of `.branch-session-*.json` and `.server.json`. Best-effort: a
+    /// write failure just means the next request recomputes.
+    private func writeDiffBranchRefsCache(
+        groupsArray: Data,
+        repoRoot: String,
+        selectedBaseRef: String?,
+        computedAt: Double,
+        rootDirectory: URL
+    ) {
+        let file = DiffBranchRefsCacheFile(
+            schemaVersion: DiffBranchRefsCacheFile.currentSchemaVersion,
+            computedAt: computedAt,
+            repoRoot: repoRoot,
+            groupsJSON: groupsArray
+        )
+        let url = diffBranchRefsCacheURL(
+            repoRoot: repoRoot,
+            selectedBaseRef: selectedBaseRef,
+            rootDirectory: rootDirectory
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(file) else { return }
+        try? data.write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    /// Compute the refs groups, serialize the array, and write the cache. Shared
+    /// by the synchronous-miss path and the background refresh. Returns the
+    /// serialized groups array on success.
+    @discardableResult
+    private func computeAndCacheDiffBranchRefs(
+        repoRoot: String,
+        selectedBaseRef: String?,
+        rootDirectory: URL
+    ) -> Data? {
+        let groups = diffBranchRefGroups(in: repoRoot, selectedBaseRef: selectedBaseRef)
+        guard let groupsArray = try? diffBranchRefGroupsArrayData(groups) else { return nil }
+        writeDiffBranchRefsCache(
+            groupsArray: groupsArray,
+            repoRoot: repoRoot,
+            selectedBaseRef: selectedBaseRef,
+            computedAt: Date().timeIntervalSince1970,
+            rootDirectory: rootDirectory
+        )
+        return groupsArray
+    }
+
+    /// Stale-while-revalidate refs payload for the long-lived HTTP server.
+    /// Returns the final `{"groups": ...}` payload Data, byte-identical to an
+    /// uncached build. On a cache hit it returns immediately; if the entry is
+    /// older than the TTL it additionally kicks off a background recompute that
+    /// atomically rewrites the cache (deduped so concurrent opens don't stampede
+    /// git). On a miss it computes synchronously, writes the cache, and returns.
+    func cachedDiffBranchRefGroupsPayloadForHTTP(
+        repoRoot: String,
+        selectedBaseRef: String?,
+        rootDirectory: URL
+    ) -> Data {
+        if let cached = readDiffBranchRefsCache(
+            repoRoot: repoRoot,
+            selectedBaseRef: selectedBaseRef,
+            rootDirectory: rootDirectory
+        ) {
+            let payload = diffBranchRefsPayloadData(fromGroupsArray: cached.groupsJSON)
+            if Date().timeIntervalSince1970 - cached.computedAt > DiffBranchRefsCacheState.ttl {
+                let key = diffBranchRefsCacheKey(repoRoot: repoRoot, selectedBaseRef: selectedBaseRef)
+                if DiffBranchRefsCacheState.beginRefresh(key) {
+                    DispatchQueue.global(qos: .utility).async {
+                        defer { DiffBranchRefsCacheState.endRefresh(key) }
+                        self.computeAndCacheDiffBranchRefs(
+                            repoRoot: repoRoot,
+                            selectedBaseRef: selectedBaseRef,
+                            rootDirectory: rootDirectory
+                        )
+                    }
+                }
+            }
+            return payload
+        }
+
+        // Miss: compute synchronously, write, return. Fall back to a direct
+        // build if serialization of the cache array somehow fails.
+        if let groupsArray = computeAndCacheDiffBranchRefs(
+            repoRoot: repoRoot,
+            selectedBaseRef: selectedBaseRef,
+            rootDirectory: rootDirectory
+        ) {
+            return diffBranchRefsPayloadData(fromGroupsArray: groupsArray)
+        }
+        let groups = diffBranchRefGroups(in: repoRoot, selectedBaseRef: selectedBaseRef)
+        let payload: [String: Any] = ["groups": groups.map(\.jsonObject)]
+        return (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]))
+            ?? Data("{\"groups\":[]}".utf8)
+    }
+
+    /// Cache-aware refs payload for the one-shot CLI/custom-scheme path. This
+    /// process exits right after responding, so a background thread would be
+    /// killed mid-flight: serve a fresh-enough cache (< TTL) if present, else
+    /// compute synchronously and write the cache. No background refresh.
+    func cachedDiffBranchRefGroupsPayloadForCLI(
+        repoRoot: String,
+        selectedBaseRef: String?,
+        rootDirectory: URL
+    ) -> Data {
+        if let cached = readDiffBranchRefsCache(
+            repoRoot: repoRoot,
+            selectedBaseRef: selectedBaseRef,
+            rootDirectory: rootDirectory
+        ), Date().timeIntervalSince1970 - cached.computedAt <= DiffBranchRefsCacheState.ttl {
+            return diffBranchRefsPayloadData(fromGroupsArray: cached.groupsJSON)
+        }
+        if let groupsArray = computeAndCacheDiffBranchRefs(
+            repoRoot: repoRoot,
+            selectedBaseRef: selectedBaseRef,
+            rootDirectory: rootDirectory
+        ) {
+            return diffBranchRefsPayloadData(fromGroupsArray: groupsArray)
+        }
+        let groups = diffBranchRefGroups(in: repoRoot, selectedBaseRef: selectedBaseRef)
+        let payload: [String: Any] = ["groups": groups.map(\.jsonObject)]
+        return (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]))
+            ?? Data("{\"groups\":[]}".utf8)
     }
 
     private func gitSingleLine(_ arguments: [String], in directory: String) throws -> String {
@@ -4725,9 +5014,11 @@ extension CMUXCLI {
         guard diffViewerRepoIsAllowed(repo, rootDirectory: rootDirectory) else {
             throw CLIError(message: "Repository is not in the diff viewer allow-list")
         }
-        let groups = diffBranchRefGroups(in: repo, selectedBaseRef: base)
-        let payload: [String: Any] = ["groups": groups.map(\.jsonObject)]
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        let data = cachedDiffBranchRefGroupsPayloadForCLI(
+            repoRoot: repo,
+            selectedBaseRef: base,
+            rootDirectory: rootDirectory
+        )
         cliWriteStdout(data)
         cliWriteStdout(Data("\n".utf8))
     }
@@ -5489,9 +5780,11 @@ extension CMUXCLI {
             return
         }
         let selectedBase = query["base"]
-        let groups = diffBranchRefGroups(in: repoRoot, selectedBaseRef: selectedBase)
-        let payload: [String: Any] = ["groups": groups.map(\.jsonObject)]
-        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        let data = cachedDiffBranchRefGroupsPayloadForHTTP(
+            repoRoot: repoRoot,
+            selectedBaseRef: selectedBase,
+            rootDirectory: rootDirectory
+        )
         try sendDiffViewerHTTPResponse(
             fileDescriptor: fd,
             status: 200,
