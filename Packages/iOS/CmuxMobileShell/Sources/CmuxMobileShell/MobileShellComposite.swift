@@ -136,6 +136,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
     public private(set) var connectionErrorGuidance: String?
+    /// The foreground pairing attempt's network / authentication / trust statuses.
+    public var pairingChecklist: MobilePairingChecklist? { pairingChecklistState.checklist }
     /// A warning that must be accepted before pairing continues, currently used
     /// for Mac/iPhone app-version skew.
     public private(set) var pairingVersionWarning: String?
@@ -511,6 +513,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reading it again would report the first successful pair as `is_first_pair:
     /// false` and break the first-pair funnel.
     private var pairingAttemptIsFirstPair = false
+    private var pairingChecklistState = MobilePairingChecklistState()
     private var pendingPairingVersionWarningURL: String?
 
     /// The structured diagnostic log, injected from the app composition root.
@@ -1161,8 +1164,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func connectManualHost(name: String, host: String, port: Int) async {
+        await performConnectManualHost(name: name, host: host, port: port, isForegroundPairing: true)
+    }
+
+    /// Manual-host connect shared by the foreground Add Device flow and the
+    /// non-foreground paths (background reconnect, host switch, device-tree tap).
+    /// Only foreground attempts publish ``pairingChecklist`` (issue #6084).
+    func performConnectManualHost(
+        name: String,
+        host: String,
+        port: Int,
+        isForegroundPairing: Bool
+    ) async {
+        pairingChecklistState.setForegroundAttempt(isForegroundPairing)
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+            pairingChecklistState.clearChecklist()
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             connectionErrorGuidance = nil
             connectionState = .disconnected
@@ -1177,6 +1194,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard (1...65535).contains(port) else {
+            pairingChecklistState.clearChecklist()
             connectionError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
             connectionErrorGuidance = nil
             connectionState = .disconnected
@@ -1317,7 +1335,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.isReconnectingStoredMac = false
             self.didFinishStoredMacReconnectAttempt = true
         }
-        await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
+        await performConnectManualHost(name: mac.displayName ?? host, host: host, port: port, isForegroundPairing: false)
         restoringDeadline.cancel()
         // A newer attempt may have started during the connect; it now owns the flags.
         guard generation == storedMacReconnectGeneration else { return false }
@@ -1795,7 +1813,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // stale/offline. Excluding it would strand the user on a same-device tag
         // switch failure.
         let previousActive = pairedMacs.first { $0.isActive }
-        await connectManualHost(name: device.displayName ?? host, host: host, port: port)
+        await performConnectManualHost(name: device.displayName ?? host, host: host, port: port, isForegroundPairing: false)
         // Persist as the active paired Mac only when the live connection is to
         // THIS route (a switch tapped while this connect was in flight could win
         // the connection; matching the live route avoids persisting a stale
@@ -1882,7 +1900,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
             return
         }
-        await connectManualHost(name: target.displayName ?? host, host: host, port: port)
+        await performConnectManualHost(name: target.displayName ?? host, host: host, port: port, isForegroundPairing: false)
         // Persist the active row only if the live connection is to THIS Mac's
         // route. A different switch tapped while this connect was in flight
         // supersedes it via `beginPairingAttempt`, leaving `connectionState`
@@ -2190,6 +2208,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ rawValue: String? = nil,
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
+        pairingChecklistState.setForegroundAttempt(true)
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         _ = beginPairingValidationAttempt()
         connectionAttemptGeneration = UUID()
@@ -2474,16 +2493,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: probeTicket,
             allowsStackAuthFallback: true
         )
-        let resultData = try await client.sendRequest(
-            MobileCoreRPCClient.requestData(
-                method: "mobile.attach_ticket.create",
-                params: [
-                    "ttl_seconds": 3600,
-                    "scope": "mac",
-                ]
-            ),
-            timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
-        )
+        let generation = connectionAttemptGeneration
+        let resultData: Data
+        do {
+            resultData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.attach_ticket.create",
+                    params: [
+                        "ttl_seconds": 3600,
+                        "scope": "mac",
+                    ]
+                ),
+                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+            )
+        } catch {
+            if await client.didAttemptHostSend(), isCurrentConnectionAttempt(generation) {
+                pairingChecklistState.markReachedMac()
+            }
+            throw error
+        }
+        if isCurrentConnectionAttempt(generation) {
+            pairingChecklistState.markReachedMac()
+        }
         let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
         return try response.ticket.constrainingRoutes(to: [route], fallbackDisplayName: displayName)
     }
@@ -3373,7 +3404,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return nil
                 } catch {
                     lastError = error
+                    let didReachHost = await client.didAttemptHostSend()
                     guard isCurrentConnectionAttempt(generation) else { return nil }
+                    if didReachHost {
+                        pairingChecklistState.markReachedMac()
+                    }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
@@ -3592,6 +3627,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func beginPairingValidationAttempt(method: String? = nil) -> UUID {
         let attemptID = UUID()
         pairingAttemptID = attemptID
+        pairingChecklistState.beginValidationAttempt(hasMethod: method != nil)
         if let method {
             pairingAttemptStartedAt = runtime?.now() ?? Date()
             pairingAttemptMethod = method
@@ -3614,6 +3650,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the attempt timing so a later state change can't double-fire.
     private func recordPairingSucceeded() {
         guard let method = pairingAttemptMethod else { return }
+        pairingChecklistState.markConnected()
         var props: [String: AnalyticsValue] = [
             "method": .string(method),
             "is_first_pair": .bool(pairingAttemptIsFirstPair),
@@ -3666,6 +3703,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingAttemptID = UUID()
         pairingAttemptStartedAt = nil
         pairingAttemptMethod = nil
+        pairingChecklistState.clearChecklist()
     }
 
     /// Apply a classified pairing failure to the user-visible error surface and
@@ -3683,6 +3721,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionError = category.message
         }
         connectionErrorGuidance = category.guidance
+        pairingChecklistState.resolveFailure(category, hasInstrumentedAttempt: pairingAttemptMethod != nil)
         recordPairingFailed(reason: category.analyticsReason, phase: phase)
     }
 
@@ -3767,6 +3806,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyPairingFailure(category ?? .unknown(host: nil, port: nil), phase: phase)
             return
         }
+        pairingChecklistState.resolveFailure(
+            category ?? .unknown(host: nil, port: nil),
+            hasInstrumentedAttempt: pairingAttemptMethod != nil
+        )
         recordPairingFailed(reason: category?.analyticsReason ?? "other", phase: phase)
     }
 
@@ -5398,6 +5441,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
+        pairingChecklistState.resolveFailure(category, hasInstrumentedAttempt: pairingAttemptMethod != nil)
         // Only emits while a pairing attempt is in flight: `recordPairingFailed`
         // no-ops once `pairingAttemptMethod` is nil (cleared on success and by
         // `invalidatePairingAttempt`), so live-connection auth failures that
@@ -5459,76 +5503,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 private struct MobileTerminalViewportKey: Hashable, Sendable {
     var workspaceID: MobileWorkspacePreview.ID
     var terminalID: MobileTerminalPreview.ID
-}
-
-private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
-    var ticket: CmxAttachTicket
-
-    static func decode(_ data: Data) throws -> MobileManualAttachTicketCreateResponse {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(MobileManualAttachTicketCreateResponse.self, from: data)
-    }
-}
-
-private extension MobileShellComposite {
-    static func mobileShellVersionDisplay(
-        version: String?,
-        build: String?,
-        compatibilityVersion: Int?
-    ) -> String {
-        let version = version ?? mobileShellCompatibilityDisplay(compatibilityVersion)
-        guard let build = mobileShellNormalizedNonEmpty(build) else { return version }
-        return "\(version) (\(build))"
-    }
-
-    static func mobileShellCompatibilityDisplay(_ compatibilityVersion: Int?) -> String {
-        guard let compatibilityVersion, compatibilityVersion > 0 else {
-            return L10n.string(
-                "mobile.pairing.compatibilityUnknown",
-                defaultValue: "unknown compatibility"
-            )
-        }
-        return String(
-            format: L10n.string(
-                "mobile.pairing.compatibilityDisplayFormat",
-                defaultValue: "compatibility %@"
-            ),
-            "\(compatibilityVersion)"
-        )
-    }
-
-    static func mobileShellNormalizedEmail(_ value: String?) -> String? {
-        mobileShellNormalizedNonEmpty(value)?.lowercased()
-    }
-
-    static func mobileShellNormalizedNonEmpty(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-}
-
-private extension CmxAttachTicket {
-    func constrainingRoutes(
-        to routes: [CmxAttachRoute],
-        fallbackDisplayName: String
-    ) throws -> CmxAttachTicket {
-        try CmxAttachTicket(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            macDeviceID: macDeviceID,
-            macDisplayName: macDisplayName ?? fallbackDisplayName,
-            macUserEmail: macUserEmail,
-            macUserID: macUserID,
-            macPairingCompatibilityVersion: macPairingCompatibilityVersion,
-            macAppVersion: macAppVersion,
-            macAppBuild: macAppBuild,
-            routes: routes,
-            expiresAt: expiresAt,
-            authToken: authToken
-        )
-    }
-
 }
 
 private extension MobileWorkspacePreview {

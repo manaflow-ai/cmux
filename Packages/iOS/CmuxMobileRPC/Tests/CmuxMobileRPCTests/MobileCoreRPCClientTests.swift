@@ -126,6 +126,35 @@ import Testing
         _ = try? await firstTask.value
     }
 
+    @Test func didAttemptHostSendStaysFalseWhenTransportNeverConnects() async throws {
+        // A route that fails to connect must not report a host send: pairing relies
+        // on this so an unreachable route never marks the network gate as reached
+        // (issue #6084).
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59222)
+        let runtime = TestMobileSyncRuntime(transportFactory: ConnectFailingTransportFactory())
+        let ticket = try CmxAttachTicket(
+            workspaceID: "ws",
+            terminalID: "t",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list", id: "list")
+        await #expect(throws: (any Error).self) {
+            _ = try await client.sendRequest(request)
+        }
+        let reached = await client.didAttemptHostSend()
+        #expect(!reached, "a transport that never connects must not report a host send")
+    }
+
     @Test func workspaceListResponseDecodesSnakeCaseWireShape() throws {
         let json = Data("""
         {

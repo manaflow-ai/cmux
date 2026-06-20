@@ -384,7 +384,13 @@ func makeConnectedStore(
     let store = MobileShellComposite.preview(runtime: runtime)
     store.signIn()
     let ticket = try makeTicket(clock: clock)
-    let connected = await store.connectPairingURL(try attachURL(for: ticket))
-    #expect(connected, "scripted connect must succeed")
+    // The scripted ticket carries no Mac compatibility version, which the host now
+    // treats as skew and gates behind a "Continue anyway" approval; accept it so
+    // the connect proceeds, mirroring the user tapping through the warning.
+    var result = await store.connectPairingURLResult(try attachURL(for: ticket))
+    if result == .needsUserApproval {
+        result = await store.acceptPairingVersionWarning()
+    }
+    #expect(result.didConnect, "scripted connect must succeed")
     return store
 }
