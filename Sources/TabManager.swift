@@ -441,6 +441,18 @@ class TabManager: ObservableObject {
         resolveFocusedBrowser: { [weak self] in self?.focusedBrowserPanel },
         resolveFocusedMarkdown: { [weak self] in self?.focusedMarkdownPanel }
     )
+    /// Focused-terminal command surface: find/search, keyboard copy-mode, the
+    /// Ctrl-F force-stop chord, the text-box input toggle/focus/attach, the
+    /// keep-scrollback clear, and the text-box hide-escape arm, routed to the
+    /// focused terminal panel with the find commands falling back to the focused
+    /// browser panel (CmuxTerminal). `lazy` so the resolver closures can read
+    /// this window's focus state; all three close over `self` weakly and run on
+    /// the MainActor where TabManager lives. Mirrors `focusedBrowserController`.
+    private(set) lazy var focusedTerminalCommands = FocusedTerminalCommandCoordinator(
+        resolveFocusedTerminal: { [weak self] in self?.selectedTerminalPanel },
+        resolveFocusedBrowser: { [weak self] in self?.focusedBrowserPanel },
+        resolveWorkspaceTerminals: { [weak self] in self?.selectedWorkspaceTerminalPanels ?? [] }
+    )
     /// React Grab toggle resolution + orchestration (CmuxBrowser). Stateless;
     /// each call passes the target workspace as a `ReactGrabWorkspaceContext`.
     let reactGrabController = ReactGrabController()
@@ -837,172 +849,83 @@ class TabManager: ObservableObject {
         selectedWorkspace?.panels.values.compactMap { $0 as? TerminalPanel } ?? []
     }
 
+    // MARK: - Focused-terminal command surface (CmuxTerminal)
+    //
+    // The find/search, keyboard copy-mode, Ctrl-F chord, text-box, and
+    // keep-scrollback-clear command bodies live in
+    // `FocusedTerminalCommandCoordinator` (CmuxTerminal), driven by the
+    // `focusedTerminalCommands` coordinator above through the
+    // `FocusedTerminalCommanding` / `FocusedTerminalFindFallback` seams the
+    // panels conform to. These remain as thin forwarders for the existing call
+    // sites (keyboard shortcuts, command palette, View menu, the command
+    // socket). Mirrors the `focusedBrowserController` forwarders.
+
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
+        focusedTerminalCommands.isFindVisible
     }
 
     var canUseSelectionForFind: Bool {
-        selectedTerminalPanel?.hasSelection() == true
+        focusedTerminalCommands.canUseSelectionForFind
     }
 
     @discardableResult
     func startSearch() -> Bool {
-        if let panel = selectedTerminalPanel {
-            let hadExistingSearch = panel.searchState != nil
-            panel.hostedView.preparePanelFocusIntentForActivation(.findField)
-            let recoveredNeedle = hadExistingSearch ? "" : panel.surface.lastSearchNeedle
-            let handled = panel.surface.startOrFocusSearch(initialNeedle: recoveredNeedle) { surface in
-                NotificationCenter.default.post(
-                    name: .ghosttySearchFocus,
-                    object: surface,
-                    userInfo: [FindFocusNotificationKey.selectAll: !hadExistingSearch && !recoveredNeedle.isEmpty]
-                )
-            }
-#if DEBUG
-            cmuxDebugLog(
-                "find.startSearch workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-                "panel=\(panel.id.uuidString.prefix(5)) existing=\(hadExistingSearch ? "yes" : "no") " +
-                "handled=\(handled ? 1 : 0) " +
-                "firstResponder=\(String(describing: panel.surface.uiWindow?.firstResponder))"
-            )
-#endif
-            return handled
-        }
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        browserPanel.startFind()
-        return browserPanel.searchState != nil
+        focusedTerminalCommands.startSearch()
     }
 
     func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panel.id.uuidString.prefix(5))"
-        )
-#endif
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("search_selection")
+        focusedTerminalCommands.searchSelection()
     }
 
     func findNext() {
-        if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:next")
-            return
-        }
-
-        focusedBrowserPanel?.findNext()
+        focusedTerminalCommands.findNext()
     }
 
     func findPrevious() {
-        if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:previous")
-            return
-        }
-
-        focusedBrowserPanel?.findPrevious()
+        focusedTerminalCommands.findPrevious()
     }
 
     @discardableResult
     func toggleFocusedTerminalCopyMode() -> Bool {
-        guard let panel = selectedTerminalPanel else { return false }
-        return panel.surface.toggleKeyboardCopyMode()
+        focusedTerminalCommands.toggleFocusedTerminalCopyMode()
     }
 
-    /// Forwards a single Ctrl-F (`^F`) key press to the focused terminal surface,
-    /// faithfully encoded through Ghostty so it matches whatever the running TUI
-    /// would receive from a real keystroke.
-    ///
-    /// This is the non-keyboard escape hatch for control chords that a focused TUI
-    /// reads off the raw tty. The motivating case is Claude Code's force-stop, which
-    /// is only exposed as "press Ctrl-F twice"; invoke this action twice to deliver
-    /// it. Delivery bypasses cmux's shortcut/menu/responder layers entirely.
-    ///
-    /// - Returns: `true` when the chord was sent or queued for the focused terminal,
-    ///   `false` when no terminal panel is focused.
     @discardableResult
     func sendCtrlFToFocusedTerminal() -> Bool {
-        guard let panel = selectedTerminalPanel else { return false }
-        let result = panel.sendNamedKeyResult("ctrl-f")
-        if result == .sent {
-            panel.surface.forceRefresh(reason: "tabManager.sendCtrlFToFocusedTerminal")
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "terminal.sendCtrlF workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panel.id.uuidString.prefix(5)) result=\(result)"
-        )
-#endif
-        return result.accepted
+        focusedTerminalCommands.sendCtrlFToFocusedTerminal()
     }
 
     @discardableResult
     func toggleFocusedTerminalTextBox() -> Bool {
-        guard let panel = selectedTerminalPanel else { return false }
-        return panel.toggleTextBoxInput()
+        focusedTerminalCommands.toggleFocusedTerminalTextBox()
     }
 
-    /// Clears the focused terminal's visible screen while preserving scrollback.
-    ///
-    /// See `TerminalSurface.clearScreenKeepingScrollback()`. The shared model path
-    /// behind the Cmd+Shift+K shortcut and the "Clear Screen (Keep Scrollback)"
-    /// command palette entry.
-    ///
-    /// - Returns: `true` when a focused terminal performed the clear, `false` when
-    ///   no terminal panel is focused.
     @discardableResult
     func clearFocusedTerminalKeepingScrollback() -> Bool {
-        guard let panel = selectedTerminalPanel else { return false }
-        let cleared = panel.clearScreenKeepingScrollback()
-        if cleared {
-            panel.surface.forceRefresh(reason: "tabManager.clearFocusedTerminalKeepingScrollback")
-        }
-        return cleared
+        focusedTerminalCommands.clearFocusedTerminalKeepingScrollback()
     }
 
     @discardableResult
     func focusFocusedTerminalTextBoxInputOrTerminal() -> Bool {
-        guard let panel = selectedTerminalPanel else { return false }
-        return panel.focusTextBoxInputOrTerminal()
+        focusedTerminalCommands.focusFocusedTerminalTextBoxInputOrTerminal()
     }
 
     @discardableResult
     func attachFileToFocusedTerminalTextBoxInput() -> Bool {
-        guard let panel = selectedTerminalPanel else { return false }
-        return panel.attachFileToTextBoxInput()
+        focusedTerminalCommands.attachFileToFocusedTerminalTextBoxInput()
     }
 
     @discardableResult
     func consumeFocusedTerminalTextBoxHideEscapeIfArmed(in window: NSWindow?) -> Bool {
-        guard let focusedPanel = selectedTerminalPanel else {
-            clearFocusedTerminalTextBoxHideEscapeArm()
-            return false
-        }
-        let consumed = focusedPanel.consumeTextBoxHideEscapeIfArmed(in: window)
-        guard !consumed else { return true }
-        for panel in selectedWorkspaceTerminalPanels {
-            if panel === focusedPanel { continue }
-            panel.clearTextBoxHideEscapeArm()
-        }
-        return false
+        focusedTerminalCommands.consumeFocusedTerminalTextBoxHideEscapeIfArmed(in: window)
     }
 
     func clearFocusedTerminalTextBoxHideEscapeArm() {
-        for panel in selectedWorkspaceTerminalPanels {
-            panel.clearTextBoxHideEscapeArm()
-        }
+        focusedTerminalCommands.clearFocusedTerminalTextBoxHideEscapeArm()
     }
 
     func hideFind() {
-        if let panel = selectedTerminalPanel {
-            panel.searchState = nil
-            return
-        }
-
-        focusedBrowserPanel?.hideFind()
+        focusedTerminalCommands.hideFind()
     }
 
     func makeWorkspaceForCreation(
