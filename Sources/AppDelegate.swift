@@ -1203,6 +1203,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
     )
+    /// Finder NSServices pasteboard path resolver (CmuxWindowing);
+    /// composition-root owned. The `@objc openWindow`/`openTab` selector
+    /// targets stay in the app target (AppKit dispatches the service to them)
+    /// and forward their pasteboard here; the file-URL reading is backed by the
+    /// app-target ``PasteboardFileURLReader`` through
+    /// ``PasteboardServiceFileURLReader``.
+    private let serviceOpenResolver: any ServiceOpenResolving = ServiceOpenPasteboardResolver(
+        fileURLReader: PasteboardServiceFileURLReader()
+    )
     /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
     /// owned. The `NSApplication` AX swizzle forwards to it behind
     /// ``AccessibilityWindowCaching``.
@@ -6347,24 +6356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func servicePathURLs(from pasteboard: NSPasteboard) -> [URL] {
-        let pathURLs = PasteboardFileURLReader.fileURLs(from: pasteboard)
-        if !pathURLs.isEmpty {
-            return pathURLs
-        }
-
-        if let raw = pasteboard.string(forType: .string), !raw.isEmpty {
-            return raw
-                .split(whereSeparator: \.isNewline)
-                .map { line in
-                    let text = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let fileURL = URL(string: text), fileURL.isFileURL {
-                        return fileURL
-                    }
-                    return URL(fileURLWithPath: text)
-                }
-        }
-
-        return []
+        serviceOpenResolver.pathURLs(from: pasteboard)
     }
 
     private func openWorkspaceFromService(workingDirectory: String) {
