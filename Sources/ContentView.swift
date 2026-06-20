@@ -4600,8 +4600,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         // built-in views are always offered; `descriptors` adds the hosted
         // extension sidebar only while the experimental Extensions beta is on.
         var extensionSidebar: [CommandPaletteCommandContribution] = []
-        for descriptor in CmuxExtensionSidebarSelection.descriptors {
-            let title = CmuxExtensionSidebarSelection.localizedTitle(for: descriptor)
+        for descriptor in CmuxExtensionSidebarSelection().descriptors {
+            let title = CmuxExtensionSidebarSelection().localizedTitle(for: descriptor)
             let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
             extensionSidebar.append(
                 CommandPaletteCommandContribution(
@@ -4875,9 +4875,9 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         // extension sidebar) regardless of the beta flag, so a contribution that
         // was visible when the flag was on still resolves after a runtime flip.
         // Visibility is gated by `descriptors`; the handler set is the superset.
-        for descriptor in CmuxExtensionSidebarSelection.allDescriptors {
+        for descriptor in CmuxExtensionSidebarSelection().allDescriptors {
             registry.register(commandId: CommandPaletteHashedCommandID(domain: .extensionSidebar, key: descriptor.id).value) {
-                CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
+                CmuxExtensionSidebarSelection().setProviderId(descriptor.id)
             }
         }
         for mode in RightSidebarMode.allCases {
@@ -6794,264 +6794,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
 
 }
 
-
-enum CmuxExtensionSidebarSelection {
-    static let defaultsKey = "cmuxExtensionSidebar.providerId"
-    static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
-    static let defaultProviderId = CmuxSidebarProviderDescriptor.defaultWorkspacesID
-    static let hostedExtensionsProviderId = "cmux.sidebar.extensions"
-
-    /// Synchronous read of the experimental Extensions flag for the on-demand
-    /// AppKit/static paths (the toggle menu, the command-palette builder, the
-    /// extensions-browser opener) that have no `SettingsRuntime` in scope and
-    /// run outside the SwiftUI update cycle.
-    ///
-    /// SwiftUI views bind reactively via `@LiveSetting(\.betaFeatures.extensions)`.
-    /// This synchronous read resolves the same catalog key
-    /// (`BetaFeaturesCatalogSection.extensions`) against `UserDefaults`, which is
-    /// the same suite and key the store persists to, so the catalog stays the
-    /// single definition of the key, decode, and default.
-    static var isEnabled: Bool {
-        // Read the single beta-features section, not the whole `SettingCatalog`.
-        // Constructing the full catalog allocates ~20 sub-sections (including
-        // `AutomationCatalogSection`/`SecretFileKey`) just to reach one flag;
-        // doing that on the SwiftUI body's hot path turned the sidebar
-        // re-render into a CPU catastrophe (issue #5970).
-        let key = BetaFeaturesCatalogSection().extensions
-        return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
-    }
-
-    static var providers: [any CmuxSidebarProvider] {
-        SidebarExamples.providers
-    }
-
-    // MARK: - Custom sidebars (beta)
-
-    /// Provider-id prefix for user/agent-authored custom sidebars. The
-    /// suffix after the prefix is the sidebar's file base name.
-    static let customSidebarProviderPrefix = "cmux.sidebar.custom."
-
-    /// Synchronous read of the experimental custom-sidebars flag, mirroring
-    /// ``isEnabled`` for the AppKit/static paths (the picker menu).
-    static var customSidebarsEnabled: Bool {
-        // See ``isEnabled``: read only the beta-features section so a body-path
-        // access does not allocate the entire `SettingCatalog` (issue #5970).
-        let key = BetaFeaturesCatalogSection().customSidebars
-        return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
-    }
-
-    /// Directory custom sidebars are authored into.
-    static var customSidebarsDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
-    }
-
-    /// One provider descriptor per `<name>.swift`/`<name>.json` file in the
-    /// sidebars directory (`.swift` preferred when both exist), titled by the
-    /// file's base name.
-    static var customSidebarDescriptors: [CmuxSidebarProviderDescriptor] {
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: customSidebarsDirectory,
-            includingPropertiesForKeys: nil
-        ) else { return [] }
-        var extensionByName: [String: String] = [:]
-        for url in entries {
-            let ext = url.pathExtension.lowercased()
-            guard ext == "swift" || ext == "json" else { continue }
-            let name = url.deletingPathExtension().lastPathComponent
-            if extensionByName[name] == "swift" { continue }
-            extensionByName[name] = ext
-        }
-        return extensionByName.keys.sorted().map { name in
-            CmuxSidebarProviderDescriptor(
-                id: customSidebarProviderPrefix + name,
-                title: CmuxSidebarProviderLocalizedText(key: "sidebar.provider.custom.\(name)", defaultValue: name),
-                subtitle: CmuxSidebarProviderLocalizedText(
-                    key: "sidebar.provider.custom.subtitle",
-                    defaultValue: String(localized: "sidebar.provider.custom.subtitle", defaultValue: "Custom sidebar")
-                ),
-                systemImageName: "wand.and.stars",
-                isHostProvided: false
-            )
-        }
-    }
-
-    /// Resolves a custom-sidebar provider id to its backing file URL
-    /// (`.swift` preferred), or `nil` if neither file exists.
-    static func customSidebarFileURL(forProviderId providerId: String) -> URL? {
-        customSidebarFileURL(forProviderId: providerId, sidebarsDirectory: customSidebarsDirectory)
-    }
-
-    static func customSidebarFileURL(forProviderId providerId: String, sidebarsDirectory: URL) -> URL? {
-        guard providerId.hasPrefix(customSidebarProviderPrefix) else { return nil }
-        let name = String(providerId.dropFirst(customSidebarProviderPrefix.count))
-        guard isValidCustomSidebarFileBaseName(name) else { return nil }
-        let swiftURL = sidebarsDirectory.appendingPathComponent("\(name).swift", isDirectory: false)
-        if FileManager.default.fileExists(atPath: swiftURL.path) { return swiftURL }
-        let jsonURL = sidebarsDirectory.appendingPathComponent("\(name).json", isDirectory: false)
-        if FileManager.default.fileExists(atPath: jsonURL.path) { return jsonURL }
-        return nil
-    }
-
-    private static func isValidCustomSidebarFileBaseName(_ name: String) -> Bool {
-        guard !name.isEmpty, name != ".", name != ".." else { return false }
-        return name == (name as NSString).lastPathComponent
-    }
-
-    /// The always-available built-in views: the default workspaces sidebar plus
-    /// the bundled preset providers (Project Worktrees, Attention Queue, Dev
-    /// Servers, Last Prompt, Super Compact, Browser Stack). These ship
-    /// independently of the experimental Extensions feature, so they stay in
-    /// the switcher menu regardless of the beta flag.
-    static var builtInDescriptors: [CmuxSidebarProviderDescriptor] {
-        [.defaultWorkspaces] + providers.map { $0.descriptor }
-    }
-
-    /// Descriptors offered in the switcher menu and command palette. The hosted
-    /// extension entry belongs to the experimental Extensions feature, so it is
-    /// only offered while that beta is enabled; the built-in views are always
-    /// offered.
-    static var descriptors: [CmuxSidebarProviderDescriptor] {
-        var result = isEnabled ? builtInDescriptors + [hostedExtensionsDescriptor] : builtInDescriptors
-        if customSidebarsEnabled { result += customSidebarDescriptors }
-        return result
-    }
-
-    /// Every descriptor that can ever be selected, ignoring feature gates. Used
-    /// to register command-palette handlers so a runtime flag flip always has a
-    /// handler to invoke; what is *shown* uses ``descriptors``.
-    static var allDescriptors: [CmuxSidebarProviderDescriptor] {
-        builtInDescriptors + [hostedExtensionsDescriptor] + customSidebarDescriptors
-    }
-
-    static var hostedExtensionsDescriptor: CmuxSidebarProviderDescriptor {
-        let selectedName = UserDefaults.standard.string(forKey: selectedExtensionNameDefaultsKey)?.nilIfEmpty
-        return CmuxSidebarProviderDescriptor(
-            id: hostedExtensionsProviderId,
-            title: CmuxSidebarProviderLocalizedText(
-                key: "sidebar.provider.extensions.title",
-                defaultValue: selectedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar")
-            ),
-            subtitle: CmuxSidebarProviderLocalizedText(
-                key: "sidebar.provider.extensions.subtitle",
-                defaultValue: selectedName == nil
-                    ? String(localized: "sidebar.provider.extensions.subtitle", defaultValue: "Custom sidebar")
-                    : String(localized: "sidebar.provider.extensions.selectedSubtitle", defaultValue: "Sidebar extension")
-            ),
-            systemImageName: "puzzlepiece.extension",
-            isHostProvided: true
-        )
-    }
-
-    static func descriptor(for providerId: String) -> CmuxSidebarProviderDescriptor {
-        descriptors.first { $0.id == providerId } ?? .defaultWorkspaces
-    }
-
-    /// Whether an already-`effectiveProviderId`-resolved selection renders the
-    /// built-in default workspaces sidebar. This mirrors
-    /// `descriptor(for:).id == defaultWorkspacesID` exactly for an effective id,
-    /// but WITHOUT building the full ``descriptors`` list — which constructs a
-    /// `SettingCatalog` twice (via ``isEnabled``/``customSidebarsEnabled``) and
-    /// enumerates the custom-sidebars directory. Those are far too expensive to
-    /// run on every SwiftUI body pass; doing so was the multiplier behind the
-    /// ~100% CPU re-render loop in issue #5970. Only cheap static lookups and at
-    /// most two `fileExists` probes run here, so it is safe for the body.
-    ///
-    /// The input must be ``effectiveProviderId``'s output: that already routes a
-    /// hosted/custom selection back to the default sidebar while its feature gate
-    /// is off, so this only needs to confirm the resolved id maps to a renderable
-    /// non-default view.
-    static func resolvesToDefaultSidebar(effectiveProviderId id: String) -> Bool {
-        if id == defaultProviderId { return true }
-        if id == hostedExtensionsProviderId { return false }
-        if id.hasPrefix(customSidebarProviderPrefix) {
-            // A custom selection survives only while its backing file exists;
-            // otherwise the descriptor lookup falls back to the default sidebar.
-            return customSidebarFileURL(forProviderId: id) == nil
-        }
-        // Bundled preset providers are always registered regardless of any beta
-        // flag; an unknown/stale id has no provider and falls back to default.
-        return provider(for: id) == nil
-    }
-
-    static func provider(for providerId: String) -> (any CmuxSidebarProvider)? {
-        providers.first { $0.descriptor.id == providerId }
-    }
-
-    /// Resolves the persisted provider selection to the provider that is
-    /// actually rendered. The hosted-extensions provider is part of the
-    /// experimental Extensions feature, so a persisted hosted selection falls
-    /// back to the default workspaces sidebar while the beta is disabled,
-    /// otherwise turning the feature off would strand the user on an empty
-    /// sidebar with no switcher entry to escape it. Built-in views are always
-    /// honored, so the switcher and its active-view checkmark keep working
-    /// regardless of the beta flag.
-    static func effectiveProviderId(_ persistedProviderId: String, extensionsEnabled: Bool) -> String {
-        if persistedProviderId == hostedExtensionsProviderId, !extensionsEnabled {
-            return defaultProviderId
-        }
-        return persistedProviderId
-    }
-
-    static func localizedTitle(for descriptor: CmuxSidebarProviderDescriptor) -> String {
-        localizedText(descriptor.title)
-    }
-
-    static func localizedText(_ text: CmuxSidebarProviderLocalizedText) -> String {
-        NSLocalizedString(
-            text.key,
-            tableName: "Localizable",
-            bundle: .main,
-            value: text.defaultValue,
-            comment: ""
-        )
-    }
-
-    static func setProviderId(_ providerId: String, defaults: UserDefaults = .standard) {
-        defaults.set(providerId, forKey: defaultsKey)
-    }
-
-    @MainActor
-    static func showMenu(anchorView: NSView, event: NSEvent?) {
-        // The right-click menu switches between the always-available built-in
-        // views (and the hosted extension sidebar when the experimental
-        // Extensions beta is enabled, plus any beta custom sidebars), so it is
-        // shown regardless of the flag.
-        let menu = NSMenu()
-        let persistedProviderId = UserDefaults.standard.string(forKey: defaultsKey) ?? defaultProviderId
-        let selectedProviderId = descriptor(
-            for: effectiveProviderId(persistedProviderId, extensionsEnabled: isEnabled)
-        ).id
-        for descriptor in descriptors {
-            let item = NSMenuItem(
-                title: localizedTitle(for: descriptor),
-                action: #selector(CmuxExtensionSidebarMenuTarget.selectProvider(_:)),
-                keyEquivalent: ""
-            )
-            item.representedObject = descriptor.id
-            item.target = CmuxExtensionSidebarMenuTarget.shared
-            item.state = selectedProviderId == descriptor.id ? .on : .off
-            item.image = NSImage(systemSymbolName: descriptor.systemImageName, accessibilityDescription: nil)
-            menu.addItem(item)
-        }
-        menu.popUp(
-            positioning: nil,
-            at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
-            in: anchorView
-        )
-    }
-}
-
-@MainActor
-private final class CmuxExtensionSidebarMenuTarget: NSObject {
-    static let shared = CmuxExtensionSidebarMenuTarget()
-
-    @objc func selectProvider(_ sender: NSMenuItem) {
-        guard let providerId = sender.representedObject as? String else { return }
-        CmuxExtensionSidebarSelection.setProviderId(providerId)
-    }
-}
-
 @MainActor
 private final class SidebarTabItemSettingsStore: ObservableObject {
     @Published private(set) var snapshot: SidebarTabItemSettingsSnapshot
@@ -7235,11 +6977,11 @@ struct VerticalTabsSidebar: View {
             // which would otherwise flash the default sidebar for a frame
             // before swapping to the custom one.
             _ = customSidebarsExperimentalEnabled
-            return CmuxExtensionSidebarSelection.customSidebarsEnabled
+            return CmuxExtensionSidebarSelection().customSidebarsEnabled
                 ? selected
                 : CmuxExtensionSidebarSelection.defaultProviderId
         }
-        return CmuxExtensionSidebarSelection.effectiveProviderId(
+        return CmuxExtensionSidebarSelection().effectiveProviderId(
             selectedExtensionSidebarProviderId,
             extensionsEnabled: extensionsExperimentalEnabled
         )
@@ -7598,7 +7340,7 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
+            if CmuxExtensionSidebarSelection().resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -7905,7 +7647,7 @@ struct VerticalTabsSidebar: View {
                 snapshotUpdateToken: extensionSidebarUpdateToken,
                 actionHandler: { handleCMUXSidebarExtensionAction($0) },
                 onUseDefaultSidebar: {
-                    CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
+                    CmuxExtensionSidebarSelection().setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
                 }
             )
             .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
@@ -7925,7 +7667,7 @@ struct VerticalTabsSidebar: View {
                 )
             )
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
-                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
+                  let customSidebarURL = CmuxExtensionSidebarSelection().customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
@@ -8145,7 +7887,7 @@ struct VerticalTabsSidebar: View {
         // `descriptors` list (SettingCatalog + custom-sidebars directory scan)
         // on every TimelineView tick. See issue #5970.
         let providerId = effectiveExtensionSidebarProviderId
-        if let provider = CmuxExtensionSidebarSelection.provider(for: providerId) {
+        if let provider = CmuxExtensionSidebarSelection().provider(for: providerId) {
             let context = CmuxSidebarProviderRenderContext(now: now)
             if let contextualProvider = provider as? any CmuxContextualSidebarProvider {
                 return contextualProvider.render(snapshot: snapshot, context: context)
@@ -8772,8 +8514,8 @@ struct VerticalTabsSidebar: View {
     }
 
     private func handleExtensionSidebarMutation(_ mutation: CmuxSidebarProviderMutation) -> Bool {
-        let descriptor = CmuxExtensionSidebarSelection.descriptor(for: effectiveExtensionSidebarProviderId)
-        guard let provider = CmuxExtensionSidebarSelection.provider(for: descriptor.id) as? any CmuxMutableSidebarProvider else {
+        let descriptor = CmuxExtensionSidebarSelection().descriptor(for: effectiveExtensionSidebarProviderId)
+        guard let provider = CmuxExtensionSidebarSelection().provider(for: descriptor.id) as? any CmuxMutableSidebarProvider else {
             return false
         }
         do {
@@ -8856,7 +8598,7 @@ struct VerticalTabsSidebar: View {
         case .plain(let value):
             return value
         case .localized(let localized):
-            return CmuxExtensionSidebarSelection.localizedText(localized)
+            return CmuxExtensionSidebarSelection().localizedText(localized)
         case .relativeDate(let date, _):
             return CmuxExtensionRelativeTimeFormatter.string(from: date, to: now)
         }
@@ -8959,7 +8701,7 @@ struct VerticalTabsSidebar: View {
 
     private func extensionSidebarTreeSectionTitle(_ section: CmuxSidebarProviderTreeSection) -> String {
         if let titleText = section.titleText {
-            return CmuxExtensionSidebarSelection.localizedText(titleText)
+            return CmuxExtensionSidebarSelection().localizedText(titleText)
         }
         return section.title
     }

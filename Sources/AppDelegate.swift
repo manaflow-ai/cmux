@@ -10473,7 +10473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Defensive gate: the extensions browser is part of the experimental
         // Extensions feature. Its entry points are hidden while disabled, but
         // guard here too so no other path can open it.
-        guard CmuxExtensionSidebarSelection.isEnabled else { return nil }
+        guard CmuxExtensionSidebarSelection().isEnabled else { return nil }
         let preferredWindow = anchorView?.window ?? shortcutRoutingActiveWindow
         let targetTabManager = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)
         guard let workspace = targetTabManager?.selectedWorkspace,

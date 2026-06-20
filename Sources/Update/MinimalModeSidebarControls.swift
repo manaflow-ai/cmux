@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxSidebar
 import CmuxTestSupport
 import SwiftUI
 
@@ -196,7 +197,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         }
         switch slot {
         case .toggleSidebar:
-            CmuxExtensionSidebarSelection.showMenu(anchorView: self, event: event)
+            CmuxExtensionSidebarSelection().showMenu(anchorView: self, event: event)
         case .newTab:
             _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
         case .focusHistoryBack:

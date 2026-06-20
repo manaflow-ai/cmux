@@ -5,6 +5,7 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebar
 import CmuxTestSupport
 import SwiftUI
 
@@ -957,7 +958,7 @@ struct TitlebarControlsView: View {
                 onToggleSidebar()
             },
                 rightClickAction: { anchorView, event in
-                    CmuxExtensionSidebarSelection.showMenu(anchorView: anchorView, event: event)
+                    CmuxExtensionSidebarSelection().showMenu(anchorView: anchorView, event: event)
                 }) {
                 sidebarIconLabel(config: config, iconGeometryKeyPrefix: "titlebarControl_toggleSidebarIcon")
             }
