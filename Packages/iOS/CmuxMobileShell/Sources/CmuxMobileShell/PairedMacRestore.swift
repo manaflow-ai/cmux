@@ -98,13 +98,25 @@ public struct PairedMacRestore: Sendable {
                 markActive = hasLocalActive ? false : record.isActive
             }
             do {
+                let backupDate = Date(timeIntervalSince1970: backupSeconds)
                 try await store.upsert(
                     macDeviceID: record.macDeviceID,
                     displayName: record.displayName,
                     routes: record.routes,
                     markActive: markActive,
                     stackUserID: accountID,
-                    now: Date(timeIntervalSince1970: backupSeconds)
+                    now: backupDate
+                )
+                // Apply the user customizations from the (fresher) backup so a
+                // rename / color / icon set on another device lands here. Set
+                // verbatim (including nil) so a cleared override clears here too;
+                // `upsert` preserves customizations, so this is the only writer.
+                try await store.setCustomization(
+                    macDeviceID: record.macDeviceID,
+                    customName: record.customName,
+                    customColor: record.customColor,
+                    customIcon: record.customIcon,
+                    now: backupDate
                 )
                 restored += 1
             } catch {

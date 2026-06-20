@@ -98,16 +98,32 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         if markActive {
             await mirrorAccountScope(account)
         } else {
-            let ms = now.timeIntervalSince1970 * 1000.0
-            await backup.upload(ops: [.upsert(PairedMacBackupRecord(
-                macDeviceID: macDeviceID,
-                displayName: displayName,
-                routes: routes,
-                createdAt: ms,
-                lastSeenAt: ms,
-                isActive: false
-            ))])
+            // Upload the COMPLETE current record (read back from local) rather than
+            // a record built from just these params, so an existing customization
+            // (name/color/icon) is preserved instead of clobbered with nil.
+            await uploadCurrentRecord(macDeviceID: macDeviceID, account: account)
         }
+    }
+
+    public func setCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        now: Date
+    ) async throws {
+        try await inner.setCustomization(
+            macDeviceID: macDeviceID,
+            customName: customName,
+            customColor: customColor,
+            customIcon: customIcon,
+            now: now
+        )
+        // Mirror the customization to the DO so it appears on the user's other
+        // signed-in devices. Best-effort, like every other backup write.
+        guard let account = try? await accountForMac(macDeviceID) else { return }
+        lastSignedInAccount = account
+        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account)
     }
 
     public func loadAll(stackUserID: String?) async throws -> [MobilePairedMac] {
@@ -210,17 +226,33 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// changed (e.g. the flipped active flag).
     private func mirrorAccountScope(_ account: String) async {
         guard let macs = try? await inner.loadAll(stackUserID: account), !macs.isEmpty else { return }
-        let ops: [PairedMacBackupOp] = macs.map { mac in
-            .upsert(PairedMacBackupRecord(
-                macDeviceID: mac.macDeviceID,
-                displayName: mac.displayName,
-                routes: mac.routes,
-                createdAt: mac.createdAt.timeIntervalSince1970 * 1000.0,
-                lastSeenAt: mac.lastSeenAt.timeIntervalSince1970 * 1000.0,
-                isActive: mac.isActive
-            ))
-        }
-        await backup.upload(ops: ops)
+        await backup.upload(ops: macs.map { .upsert(Self.backupRecord(from: $0)) })
+    }
+
+    /// Build the COMPLETE backup record for a Mac from the local row, so every
+    /// upload carries displayName, routes, active AND the user customizations —
+    /// otherwise a route-refresh upload would clobber the synced customizations
+    /// with `nil`. Timestamps are ms since epoch (the backup wire format).
+    static func backupRecord(from mac: MobilePairedMac) -> PairedMacBackupRecord {
+        PairedMacBackupRecord(
+            macDeviceID: mac.macDeviceID,
+            displayName: mac.displayName,
+            routes: mac.routes,
+            createdAt: mac.createdAt.timeIntervalSince1970 * 1000.0,
+            lastSeenAt: mac.lastSeenAt.timeIntervalSince1970 * 1000.0,
+            isActive: mac.isActive,
+            customName: mac.customName,
+            customColor: mac.customColor,
+            customIcon: mac.customIcon
+        )
+    }
+
+    /// Upload the current complete record for one Mac (read back from the local
+    /// store so customizations are preserved). Best-effort.
+    private func uploadCurrentRecord(macDeviceID: String, account: String) async {
+        guard let mac = (try? await inner.loadAll(stackUserID: account))?
+            .first(where: { $0.macDeviceID == macDeviceID }) else { return }
+        await backup.upload(ops: [.upsert(Self.backupRecord(from: mac))])
     }
 
     /// Run the backup restore once per signed-in (account, team) scope this

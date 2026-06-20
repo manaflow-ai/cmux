@@ -16,6 +16,11 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
     public var createdAt: Double
     public var lastSeenAt: Double
     public var isActive: Bool
+    /// User customizations, synced per user. Optional + decoded leniently so an
+    /// older client/record without them round-trips to `nil`.
+    public var customName: String?
+    public var customColor: String?
+    public var customIcon: String?
 
     public init(
         macDeviceID: String,
@@ -23,7 +28,10 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         routes: [CmxAttachRoute],
         createdAt: Double,
         lastSeenAt: Double,
-        isActive: Bool
+        isActive: Bool,
+        customName: String? = nil,
+        customColor: String? = nil,
+        customIcon: String? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -31,6 +39,9 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         self.createdAt = createdAt
         self.lastSeenAt = lastSeenAt
         self.isActive = isActive
+        self.customName = customName
+        self.customColor = customColor
+        self.customIcon = customIcon
     }
 }
 

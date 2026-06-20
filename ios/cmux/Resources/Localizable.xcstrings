@@ -987,6 +987,23 @@
         }
       }
     },
+    "mobile.computers.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
     "mobile.computers.diagnosticFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -1021,6 +1038,40 @@
         }
       }
     },
+    "mobile.computers.field.color": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色"
+          }
+        }
+      }
+    },
+    "mobile.computers.field.customEmoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom emoji…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム絵文字…"
+          }
+        }
+      }
+    },
     "mobile.computers.field.deviceId": {
       "extractionState": "manual",
       "localizations": {
@@ -1038,6 +1089,23 @@
         }
       }
     },
+    "mobile.computers.field.icon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコン"
+          }
+        }
+      }
+    },
     "mobile.computers.field.lastSeen": {
       "extractionState": "manual",
       "localizations": {
@@ -1051,6 +1119,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "最終確認"
+          }
+        }
+      }
+    },
+    "mobile.computers.field.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前"
           }
         }
       }
@@ -1306,6 +1391,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "アクティブ（フォアグラウンド）"
+          }
+        }
+      }
+    },
+    "mobile.computers.section.appearance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外観"
           }
         }
       }

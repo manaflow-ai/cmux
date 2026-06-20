@@ -68,6 +68,13 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// id). Not part of the Mac's reported data, so it has a default and is set by
     /// derivation, not the decoders.
     public var machineColorIndex: Int? = nil
+    /// The owning Mac's user color override ("palette:<n>" or "#RRGGBB"), stamped
+    /// during aggregation so the workspace avatar matches the computer's color.
+    /// `nil` = use ``machineColorIndex`` (the automatic color).
+    public var machineCustomColor: String? = nil
+    /// The owning Mac's user icon override (SF Symbol name or emoji), stamped
+    /// during aggregation. `nil` = the automatic icon.
+    public var machineCustomIcon: String? = nil
 
     /// Creates a workspace preview.
     /// - Parameters:

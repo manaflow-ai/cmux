@@ -73,6 +73,12 @@ export interface PairedMacBackupRecord {
   /** epoch ms; also the render sort key */
   lastSeenAt: number;
   isActive: boolean;
+  /** Per-user customizations, opaque to the worker (synced across the user's
+   * devices). `customColor` is "palette:<n>" or "#RRGGBB"; `customIcon` is an
+   * SF Symbol name or an emoji. */
+  customName?: string;
+  customColor?: string;
+  customIcon?: string;
 }
 
 export type PairedMacBackupOp =
@@ -134,6 +140,18 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
     if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
       return { ok: false, error: "invalid_display_name" };
     }
+    // User customizations: opaque strings, bounded like the display name. Over-long
+    // values are rejected rather than silently truncated.
+    const customName = trimmedString(r.customName);
+    const customColor = trimmedString(r.customColor);
+    const customIcon = trimmedString(r.customIcon);
+    if (
+      customName.length > MAX_DISPLAY_NAME_LENGTH ||
+      customColor.length > MAX_DISPLAY_NAME_LENGTH ||
+      customIcon.length > MAX_DISPLAY_NAME_LENGTH
+    ) {
+      return { ok: false, error: "invalid_customization" };
+    }
     const createdAt = finiteNumber(r.createdAt);
     const lastSeenAt = finiteNumber(r.lastSeenAt);
     if (createdAt === null || lastSeenAt === null) {
@@ -162,6 +180,9 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
         createdAt,
         lastSeenAt,
         isActive: r.isActive === true,
+        customName: customName || undefined,
+        customColor: customColor || undefined,
+        customIcon: customIcon || undefined,
       },
     });
   }
@@ -182,6 +203,11 @@ export function pairedMacShapeEqual(a: PairedMacBackupRecord, b: PairedMacBackup
     a.macDeviceID === b.macDeviceID &&
     (a.displayName ?? "") === (b.displayName ?? "") &&
     a.isActive === b.isActive &&
+    // User customizations are part of the shape: a rename / color / icon change
+    // must mint a rev and broadcast so the user's other devices receive it.
+    (a.customName ?? "") === (b.customName ?? "") &&
+    (a.customColor ?? "") === (b.customColor ?? "") &&
+    (a.customIcon ?? "") === (b.customIcon ?? "") &&
     JSON.stringify(a.routes) === JSON.stringify(b.routes)
   );
 }

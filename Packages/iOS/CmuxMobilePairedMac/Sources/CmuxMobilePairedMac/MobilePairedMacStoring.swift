@@ -37,6 +37,23 @@ public protocol MobilePairedMacStoring: Sendable {
     /// - Parameter macDeviceID: Mac to activate.
     func setActive(macDeviceID: String) async throws
 
+    /// Set the user's per-Mac customizations (synced per user). Leaves the
+    /// Mac-reported name, routes, and active flag untouched, and bumps
+    /// `lastSeenAt` so the change is the freshest write for LWW sync.
+    /// - Parameters:
+    ///   - macDeviceID: Mac to customize.
+    ///   - customName: Name override, or `nil` to clear it.
+    ///   - customColor: Color override (`"palette:<n>"` / `"#RRGGBB"`), or `nil`.
+    ///   - customIcon: Icon override (SF Symbol name or emoji), or `nil`.
+    ///   - now: Timestamp for `lastSeenAt`.
+    func setCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        now: Date
+    ) async throws
+
     /// Remove a single paired Mac.
     /// - Parameter macDeviceID: Mac to forget.
     func remove(macDeviceID: String) async throws

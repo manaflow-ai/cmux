@@ -154,6 +154,20 @@ describe("applyBackupOps", () => {
     expect(changed).toHaveLength(1);
   });
 
+  it("a customization-only change syncs (not a same-shape no-op)", async () => {
+    const storage = new FakeStorage();
+    const base = record("mac-a", "10.0.0.1", 22);
+    const first = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: base }], T0);
+    expect(first).toHaveLength(1);
+    // Same routes/name/active but a NEW custom name: must mint a delta so the
+    // user's other devices receive the rename.
+    const renamed = { ...base, customName: "Studio at home", lastSeenAt: base.lastSeenAt + 1000 };
+    const second = await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: renamed }], T0 + 1000);
+    expect(second).toHaveLength(1);
+    const live = await listLiveBackup(storage, "user-1");
+    expect(live.find((r) => r.macDeviceID === "mac-a")?.customName).toBe("Studio at home");
+  });
+
   it("per-user paired-Mac tombstones are discoverable and GC-able (no unbounded growth)", async () => {
     const storage = new FakeStorage();
     await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "192.168.1.50", 22) }], T0);

@@ -21,6 +21,10 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// The Mac's distinct color index (matches its workspaces' avatar color in the
     /// list). `nil` falls back to a hash of the device id.
     var colorIndex: Int?
+    /// User color override ("palette:<n>" / "#RRGGBB"), wins over `colorIndex`.
+    var customColor: String?
+    /// User icon override (SF Symbol name or emoji), wins over the platform icon.
+    var customIcon: String?
     /// The PHONE'S live connection to this Mac. `nil` = the phone is not connected
     /// to it (no foreground/secondary). This drives the connection dot.
     let connectionStatus: MobileMacConnectionStatus?
@@ -50,10 +54,15 @@ struct MacComputerRow: View {
                 Circle()
                     .fill(avatarGradient)
                     .frame(width: 40, height: 40)
-                Image(systemName: platformSymbol)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .accessibilityHidden(true)
+                switch MacAvatarIcon.resolve(custom: computer.customIcon, defaultSymbol: platformSymbol) {
+                case .symbol(let name):
+                    Image(systemName: name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .accessibilityHidden(true)
+                case .emoji(let emoji):
+                    Text(emoji).font(.system(size: 20)).accessibilityHidden(true)
+                }
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(computer.title)
@@ -101,10 +110,12 @@ struct MacComputerRow: View {
     private var isConnected: Bool { computer.connectionStatus == .connected }
 
     private var avatarGradient: LinearGradient {
-        if let colorIndex = computer.colorIndex {
-            return MachineAvatarColors.gradient(index: colorIndex)
-        }
-        return MachineAvatarColors.gradient(machineID: computer.deviceId, fallbackID: computer.deviceId)
+        MachineAvatarColors.gradient(
+            customColor: computer.customColor,
+            fallbackIndex: computer.colorIndex,
+            machineID: computer.deviceId,
+            fallbackID: computer.deviceId
+        )
     }
 
     private var platformSymbol: String {

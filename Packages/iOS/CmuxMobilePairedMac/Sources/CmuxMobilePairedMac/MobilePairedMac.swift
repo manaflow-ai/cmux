@@ -20,9 +20,28 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     public var isActive: Bool
     /// Stack Auth user that owns this pairing, if any.
     public var stackUserID: String?
+    /// User's custom name override. When set, wins over the Mac-reported
+    /// ``displayName`` everywhere. `nil` = use the Mac-reported name. Synced per
+    /// user so the rename appears on every signed-in device.
+    public var customName: String?
+    /// User's custom color override, synced per user. `nil` = the automatic
+    /// position-based color. `"palette:<n>"` selects one of the built-in machine
+    /// colors; `"#RRGGBB"` is a custom color. Opaque to the store/worker.
+    public var customColor: String?
+    /// User's custom icon override, synced per user. `nil` = the automatic icon.
+    /// An SF Symbol name (ASCII, e.g. `"desktopcomputer"`) or an emoji.
+    public var customIcon: String?
 
     /// The Mac device identifier doubles as the stable `Identifiable` id.
     public var id: String { macDeviceID }
+
+    /// The name to show: the user's custom override if set, else the Mac-reported
+    /// name, else the device id.
+    public var resolvedName: String {
+        if let customName, !customName.isEmpty { return customName }
+        if let displayName, !displayName.isEmpty { return displayName }
+        return macDeviceID
+    }
 
     /// Creates a paired-Mac value.
     /// - Parameters:
@@ -40,7 +59,10 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         createdAt: Date,
         lastSeenAt: Date,
         isActive: Bool,
-        stackUserID: String?
+        stackUserID: String?,
+        customName: String? = nil,
+        customColor: String? = nil,
+        customIcon: String? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -49,5 +71,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.lastSeenAt = lastSeenAt
         self.isActive = isActive
         self.stackUserID = stackUserID
+        self.customName = customName
+        self.customColor = customColor
+        self.customIcon = customIcon
     }
 }

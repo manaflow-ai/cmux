@@ -1,5 +1,8 @@
 import CmuxMobileShellModel
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// The shared machine color palette: a deterministic gradient per owning Mac so a
 /// computer and all of its workspaces read with the same color across the
@@ -37,5 +40,89 @@ enum MachineAvatarColors {
             slotCount: palettes.count
         )
         return LinearGradient(colors: palettes[slot], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    /// Resolve a Mac's avatar gradient honoring its user override first:
+    /// `"palette:<n>"` picks a built-in swatch, `"#RRGGBB"` a custom solid color;
+    /// otherwise fall back to the assigned color index, then the id hash.
+    static func gradient(
+        customColor: String?,
+        fallbackIndex: Int?,
+        machineID: String?,
+        fallbackID: String
+    ) -> LinearGradient {
+        if let customColor, !customColor.isEmpty {
+            if customColor.hasPrefix("palette:"),
+               let n = Int(customColor.dropFirst("palette:".count)) {
+                return gradient(index: n)
+            }
+            if let color = Color(hexString: customColor) {
+                return LinearGradient(
+                    colors: [color, color.opacity(0.72)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+            }
+        }
+        if let fallbackIndex { return gradient(index: fallbackIndex) }
+        return gradient(machineID: machineID, fallbackID: fallbackID)
+    }
+}
+
+/// How a Mac's avatar icon should render: an SF Symbol or a literal emoji. The
+/// custom-icon override is a single opaque string — an ASCII SF Symbol name or an
+/// emoji — so we classify by whether it contains non-ASCII scalars.
+enum MacAvatarIcon: Hashable {
+    case symbol(String)
+    case emoji(String)
+
+    /// Resolve from a user override (`custom`), falling back to a default SF
+    /// Symbol when the override is absent.
+    static func resolve(custom: String?, defaultSymbol: String) -> MacAvatarIcon {
+        guard let custom, !custom.isEmpty else { return .symbol(defaultSymbol) }
+        if custom.unicodeScalars.contains(where: { $0.value > 127 }) { return .emoji(custom) }
+        return .symbol(custom)
+    }
+}
+
+extension Color {
+    /// Parse a `#RGB` / `#RRGGBB` / `#RRGGBBAA` hex string. `nil` when malformed.
+    init?(hexString: String) {
+        var hex = hexString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hex.hasPrefix("#") else { return nil }
+        hex.removeFirst()
+        guard let value = UInt64(hex, radix: 16) else { return nil }
+        let r, g, b, a: Double
+        switch hex.count {
+        case 3:
+            r = Double((value >> 8) & 0xF) / 15
+            g = Double((value >> 4) & 0xF) / 15
+            b = Double(value & 0xF) / 15
+            a = 1
+        case 6:
+            r = Double((value >> 16) & 0xFF) / 255
+            g = Double((value >> 8) & 0xFF) / 255
+            b = Double(value & 0xFF) / 255
+            a = 1
+        case 8:
+            r = Double((value >> 24) & 0xFF) / 255
+            g = Double((value >> 16) & 0xFF) / 255
+            b = Double((value >> 8) & 0xFF) / 255
+            a = Double(value & 0xFF) / 255
+        default:
+            return nil
+        }
+        self = Color(.sRGB, red: r, green: g, blue: b, opacity: a)
+    }
+
+    /// `#RRGGBB` for a resolved color, for persisting a custom color pick.
+    var hexString: String? {
+        #if canImport(UIKit)
+        let ui = UIColor(self)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard ui.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+        #else
+        return nil
+        #endif
     }
 }

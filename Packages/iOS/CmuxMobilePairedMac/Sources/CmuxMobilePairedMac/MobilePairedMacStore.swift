@@ -14,7 +14,7 @@ private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: 
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 1
+    public static let currentSchemaVersion: Int32 = 2
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -99,8 +99,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         switch version {
         case 0:
             try migrateToV1()
-            try setUserVersion(1)
+            try migrateToV2()
+            try setUserVersion(2)
         case 1:
+            try migrateToV2()
+            try setUserVersion(2)
+        case 2:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -145,6 +149,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             );
         """)
         try exec("CREATE INDEX IF NOT EXISTS idx_routes_device ON mac_routes(mac_device_id);")
+    }
+
+    /// v2: user-editable, per-user-synced customizations (additive columns, all
+    /// nullable so older rows and older builds are unaffected).
+    private func migrateToV2() throws {
+        for column in ["custom_name", "custom_color", "custom_icon"] {
+            try exec("ALTER TABLE paired_macs ADD COLUMN \(column) TEXT;")
+        }
     }
 
     // MARK: - Public API
@@ -227,6 +239,30 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    public func setCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        now: Date = Date()
+    ) throws {
+        try ensureReady()
+        // Bump last_seen_at so the change is the freshest write for this record and
+        // the LWW backup/restore propagates it to the user's other devices. Leaves
+        // display_name / routes / is_active untouched (the Mac owns those).
+        try exec("""
+            UPDATE paired_macs
+            SET custom_name = ?, custom_color = ?, custom_icon = ?, last_seen_at = ?
+            WHERE mac_device_id = ?;
+        """, binding: [
+            customName.map(BindValue.text) ?? .null,
+            customColor.map(BindValue.text) ?? .null,
+            customIcon.map(BindValue.text) ?? .null,
+            .real(now.timeIntervalSince1970),
+            .text(macDeviceID),
+        ])
+    }
+
     public func remove(macDeviceID: String) throws {
         try ensureReady()
         try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
@@ -265,6 +301,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let createdAt: Date
         let lastSeenAt: Date
         let isActive: Bool
+        var customName: String? = nil
+        var customColor: String? = nil
+        var customIcon: String? = nil
     }
 
     private func fetchMacRow(macDeviceID: String) throws -> MacRow? {
@@ -339,7 +378,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         }
         let whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
         let sql = """
-            SELECT mac_device_id, display_name, stack_user_id, created_at, last_seen_at, is_active
+            SELECT mac_device_id, display_name, stack_user_id, created_at, last_seen_at, is_active,
+                   custom_name, custom_color, custom_icon
             FROM paired_macs
             \(whereClause)
             ORDER BY last_seen_at DESC;
@@ -364,7 +404,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 stackUserID: storedStackUserID,
                 createdAt: createdAt,
                 lastSeenAt: lastSeenAt,
-                isActive: isActive
+                isActive: isActive,
+                customName: Self.readNullableText(statement, column: 6),
+                customColor: Self.readNullableText(statement, column: 7),
+                customIcon: Self.readNullableText(statement, column: 8)
             ))
         }
 
@@ -377,7 +420,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 createdAt: row.createdAt,
                 lastSeenAt: row.lastSeenAt,
                 isActive: row.isActive,
-                stackUserID: row.stackUserID
+                stackUserID: row.stackUserID,
+                customName: row.customName,
+                customColor: row.customColor,
+                customIcon: row.customIcon
             )
         }
     }

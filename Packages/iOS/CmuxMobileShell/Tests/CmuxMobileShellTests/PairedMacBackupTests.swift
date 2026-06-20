@@ -248,6 +248,56 @@ private actor MutableBackup: PairedMacBackingUp {
         #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty) // nothing written
     }
 
+    @Test func restoreAppliesCustomizationsFromBackup() async throws {
+        // A rename / color / icon set on another device arrives via the backup and
+        // is written into the local store on restore.
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup(records: [
+            PairedMacBackupRecord(
+                macDeviceID: "mac-a",
+                displayName: "Mini",
+                routes: [try route("10.0.0.1", 22)],
+                createdAt: 1_000_000,
+                lastSeenAt: 9_000_000_000_000,
+                isActive: false,
+                customName: "Home Studio",
+                customColor: "palette:3",
+                customIcon: "🖥️"
+            ),
+        ])
+        _ = await PairedMacRestore(store: inner, backup: backup).run(accountID: "user-1")
+        let mac = try await inner.loadAll(stackUserID: "user-1").first { $0.macDeviceID == "mac-a" }
+        #expect(mac?.customName == "Home Studio")
+        #expect(mac?.customColor == "palette:3")
+        #expect(mac?.customIcon == "🖥️")
+        // The Mac-reported name is preserved alongside the override.
+        #expect(mac?.displayName == "Mini")
+        #expect(mac?.resolvedName == "Home Studio")
+    }
+
+    @Test func setCustomizationPersistsAndPreservesMacData() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await inner.upsert(
+            macDeviceID: "mac-a", displayName: "Mini",
+            routes: [try route("10.0.0.1", 22)], markActive: true,
+            stackUserID: "user-1", now: Date(timeIntervalSince1970: 1_000)
+        )
+        try await inner.setCustomization(
+            macDeviceID: "mac-a", customName: "Studio", customColor: "#FF8800",
+            customIcon: "desktopcomputer", now: Date(timeIntervalSince1970: 2_000)
+        )
+        let mac = try await inner.loadAll(stackUserID: "user-1").first
+        #expect(mac?.customName == "Studio")
+        #expect(mac?.customColor == "#FF8800")
+        #expect(mac?.customIcon == "desktopcomputer")
+        // setCustomization leaves the Mac's reported name + routes + active intact.
+        #expect(mac?.displayName == "Mini")
+        #expect(mac?.isActive == true)
+        #expect(mac?.routes.count == 1)
+    }
+
     @Test func emptyBackupLeavesLocalUntouched() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -48,9 +48,11 @@ struct DeviceTreeView: View {
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
             return MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
-                title: mac.displayName ?? mac.macDeviceID,
+                title: mac.resolvedName,
                 platform: "mac",
                 colorIndex: colorIndex[mac.macDeviceID],
+                customColor: mac.customColor,
+                customIcon: mac.customIcon,
                 connectionStatus: connectionStatuses[mac.macDeviceID],
                 presence: presence,
                 routeDescription: Self.routeDescription(for: mac.routes),

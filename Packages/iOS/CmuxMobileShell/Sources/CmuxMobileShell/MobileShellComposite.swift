@@ -3002,10 +3002,55 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             foregroundKey = nil
         }
-        workspaces = MobileWorkspaceAggregation.derivedWorkspaces(
+        var derived = MobileWorkspaceAggregation.derivedWorkspaces(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+        // Stamp per-Mac user color/icon overrides from pairedMacs so every
+        // workspace avatar matches its computer's customization (same place the
+        // aggregation already assigned the automatic color index).
+        let customByMac = pairedMacs.reduce(into: [String: MobilePairedMac]()) { dict, mac in
+            if mac.customColor != nil || mac.customIcon != nil { dict[mac.macDeviceID] = mac }
+        }
+        if !customByMac.isEmpty {
+            derived = derived.map { workspace in
+                guard let macID = workspace.macDeviceID, let mac = customByMac[macID] else { return workspace }
+                var copy = workspace
+                copy.machineCustomColor = mac.customColor
+                copy.machineCustomIcon = mac.customIcon
+                return copy
+            }
+        }
+        workspaces = derived
         workspaceGroups = MobileWorkspaceAggregation.derivedGroups(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+    }
+
+    /// Set the user's per-Mac customizations (name / color / icon), persist them
+    /// locally, sync them to the per-user backup (so the user's other devices get
+    /// them), and re-derive so the workspace avatars + Computers screen update.
+    /// Empty strings are normalized to `nil` (cleared).
+    public func updateMacCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?
+    ) async {
+        func normalized(_ s: String?) -> String? {
+            let t = s?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (t?.isEmpty == false) ? t : nil
+        }
+        do {
+            try await pairedMacStore?.setCustomization(
+                macDeviceID: macDeviceID,
+                customName: normalized(customName),
+                customColor: normalized(customColor),
+                customIcon: normalized(customIcon),
+                now: Date()
+            )
+        } catch {
+            mobileShellLog.error("setCustomization failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+        await loadPairedMacs()
+        recomputeDerivedWorkspaceState()
     }
 
     /// Replace or merge the foreground Mac's workspace state. The single seam the

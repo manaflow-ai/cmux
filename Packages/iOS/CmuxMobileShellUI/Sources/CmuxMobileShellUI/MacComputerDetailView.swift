@@ -21,6 +21,17 @@ struct MacComputerDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var pendingRemoval = false
+    @State private var editName = ""
+    @State private var customColorPick = Color.blue
+    @State private var customEmoji = ""
+    @State private var didLoadEdits = false
+
+    /// Curated icon choices: a few computer/utility SF Symbols + emojis.
+    private static let symbolChoices = [
+        "desktopcomputer", "macbook", "laptopcomputer", "server.rack",
+        "terminal", "display", "bolt.fill", "star.fill", "heart.fill", "flame.fill",
+    ]
+    private static let emojiChoices = ["💻", "🖥️", "⚡️", "🔥", "⭐️", "🚀", "🐧", "🍎", "🎮", "👾"]
 
     private var pairedMac: MobilePairedMac? {
         store.pairedMacs.first { $0.macDeviceID == macDeviceID }
@@ -38,14 +49,23 @@ struct MacComputerDetailView: View {
 
     var body: some View {
         Form {
+            appearanceSection
             connectionSection
             presenceSection
             routesSection
             identitySection
             actionsSection
         }
-        .navigationTitle(pairedMac?.displayName ?? macDeviceID)
+        .navigationTitle(pairedMac?.resolvedName ?? macDeviceID)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            guard !didLoadEdits else { return }
+            didLoadEdits = true
+            editName = pairedMac?.customName ?? ""
+            if let hex = pairedMac?.customColor, let color = Color(hexString: hex) {
+                customColorPick = color
+            }
+        }
         .confirmationDialog(
             String(format: L10n.string("mobile.computers.removeTitleFormat", defaultValue: "Remove %@?"),
                    pairedMac?.displayName ?? macDeviceID),
@@ -61,6 +81,142 @@ struct MacComputerDetailView: View {
         } message: {
             Text(L10n.string("mobile.computers.removeMessage",
                              defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."))
+        }
+    }
+
+    // MARK: - Appearance editing
+
+    @ViewBuilder
+    private var appearanceSection: some View {
+        Section(L10n.string("mobile.computers.section.appearance", defaultValue: "Appearance")) {
+            LabeledContent(L10n.string("mobile.computers.field.name", defaultValue: "Name")) {
+                TextField(pairedMac?.displayName ?? macDeviceID, text: $editName)
+                    .multilineTextAlignment(.trailing)
+                    .submitLabel(.done)
+                    .onSubmit { applyName(editName) }
+                    .accessibilityIdentifier("MobileComputerNameField")
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.string("mobile.computers.field.color", defaultValue: "Color"))
+                    .font(.subheadline)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        autoChip(isSelected: pairedMac?.customColor == nil) { applyColor(nil) }
+                        ForEach(Array(MachineAvatarColors.palettes.indices), id: \.self) { i in
+                            colorSwatch(index: i)
+                        }
+                        ColorPicker("", selection: $customColorPick, supportsOpacity: false)
+                            .labelsHidden()
+                            .onChange(of: customColorPick) { _, newColor in
+                                if let hex = newColor.hexString { applyColor(hex) }
+                            }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.string("mobile.computers.field.icon", defaultValue: "Icon"))
+                    .font(.subheadline)
+                iconWrap
+                TextField(
+                    L10n.string("mobile.computers.field.customEmoji", defaultValue: "Custom emoji…"),
+                    text: $customEmoji
+                )
+                .submitLabel(.done)
+                .onSubmit {
+                    let trimmed = customEmoji.trimmingCharacters(in: .whitespaces)
+                    if !trimmed.isEmpty { applyIcon(trimmed); customEmoji = "" }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var iconWrap: some View {
+        let symbols = Self.symbolChoices.map { MacAvatarIcon.symbol($0) }
+        let emojis = Self.emojiChoices.map { MacAvatarIcon.emoji($0) }
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
+            autoChip(isSelected: pairedMac?.customIcon == nil) { applyIcon(nil) }
+            ForEach(symbols + emojis, id: \.self) { icon in iconChip(icon) }
+        }
+    }
+
+    @ViewBuilder
+    private func iconChip(_ icon: MacAvatarIcon) -> some View {
+        let value: String = { if case let .symbol(s) = icon { return s } else if case let .emoji(e) = icon { return e } else { return "" } }()
+        let isSelected = pairedMac?.customIcon == value
+        Button { applyIcon(value) } label: {
+            Group {
+                switch icon {
+                case .symbol(let name): Image(systemName: name).font(.body)
+                case .emoji(let emoji): Text(emoji).font(.body)
+                }
+            }
+            .frame(width: 36, height: 36)
+            .background(isSelected ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.12), in: Circle())
+            .overlay(Circle().strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func colorSwatch(index: Int) -> some View {
+        let isSelected = pairedMac?.customColor == "palette:\(index)"
+        Button { applyColor("palette:\(index)") } label: {
+            Circle()
+                .fill(MachineAvatarColors.gradient(index: index))
+                .frame(width: 30, height: 30)
+                .overlay(Circle().strokeBorder(isSelected ? Color.primary : .clear, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func autoChip(isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(L10n.string("mobile.computers.auto", defaultValue: "Auto"))
+                .font(.caption.weight(.medium))
+                .frame(width: 36, height: 36)
+                .background(isSelected ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.12), in: Circle())
+                .overlay(Circle().strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func applyName(_ name: String?) {
+        let mac = pairedMac
+        let n = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            await store.updateMacCustomization(
+                macDeviceID: macDeviceID,
+                customName: (n?.isEmpty == false) ? n : nil,
+                customColor: mac?.customColor,
+                customIcon: mac?.customIcon
+            )
+        }
+    }
+
+    private func applyColor(_ color: String?) {
+        let mac = pairedMac
+        Task {
+            await store.updateMacCustomization(
+                macDeviceID: macDeviceID,
+                customName: mac?.customName,
+                customColor: color,
+                customIcon: mac?.customIcon
+            )
+        }
+    }
+
+    private func applyIcon(_ icon: String?) {
+        let mac = pairedMac
+        Task {
+            await store.updateMacCustomization(
+                macDeviceID: macDeviceID,
+                customName: mac?.customName,
+                customColor: mac?.customColor,
+                customIcon: icon
+            )
         }
     }
 
