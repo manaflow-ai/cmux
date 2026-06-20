@@ -205,3 +205,237 @@ struct ClaudeStreamJSONAccumulator {
         return ""
     }
 }
+
+/// Parses Claude's stream-JSON for *activity* signals — thinking blocks and tool
+/// calls — into `provider.activity`-shaped dictionaries the webview already knows
+/// how to render (`appendProviderActivityTranscript` → `ToolActivityTurn`). This
+/// is the activity counterpart to ``ClaudeStreamJSONAccumulator`` (which extracts
+/// assistant text); keeping the two concerns separate mirrors Codex, which feeds
+/// the same UI through distinct output and activity sinks.
+///
+/// A tool call spans three places in the stream: a `content_block_start` of type
+/// `tool_use` (carries the id + name), streamed `input_json_delta`s (the
+/// arguments, keyed only by block index), and — later, in a separate top-level
+/// `user` message — a `tool_result` that finalizes it. The accumulator bridges
+/// those with a stable `activityId` (the tool-use id) so the row updates in place.
+struct ClaudeActivityAccumulator {
+    private struct ToolCall {
+        let id: String
+        let name: String
+        var inputJSON: String
+    }
+
+    // input_json_delta carries only the content-block index, so active tool calls
+    // are tracked by index until their block stops.
+    private var toolCallsByBlockIndex: [Int: ToolCall] = [:]
+    // Stable kind/action per tool id so the later tool_result finalizes the same row.
+    private var toolKindByID: [String: String] = [:]
+    private var toolActionByID: [String: String] = [:]
+    private var thinkingBlockIndex: Int?
+    private var thinkingActivityID: String?
+    private var thinkingCounter = 0
+
+    mutating func consumeLine(_ line: String) -> [[String: Any]] {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return []
+        }
+        switch object["type"] as? String {
+        case "stream_event":
+            guard let event = object["event"] as? [String: Any] else { return [] }
+            return consumeStreamEvent(event)
+        case "user":
+            return consumeToolResults(from: object)
+        default:
+            return []
+        }
+    }
+
+    private mutating func consumeStreamEvent(_ event: [String: Any]) -> [[String: Any]] {
+        switch event["type"] as? String {
+        case "content_block_start":
+            return consumeContentBlockStart(event)
+        case "content_block_delta":
+            consumeInputJSONDelta(event)
+            return []
+        case "content_block_stop":
+            return consumeContentBlockStop(event)
+        default:
+            return []
+        }
+    }
+
+    private mutating func consumeContentBlockStart(_ event: [String: Any]) -> [[String: Any]] {
+        guard let index = event["index"] as? Int,
+              let block = event["content_block"] as? [String: Any] else {
+            return []
+        }
+        switch block["type"] as? String {
+        case "thinking":
+            thinkingCounter += 1
+            let id = "thinking:\(thinkingCounter)"
+            thinkingBlockIndex = index
+            thinkingActivityID = id
+            return [Self.activity(id: id, kind: "other", status: "inProgress", action: Self.thinkingAction(inProgress: true))]
+        case "tool_use":
+            guard let id = block["id"] as? String,
+                  let name = block["name"] as? String else {
+                return []
+            }
+            toolCallsByBlockIndex[index] = ToolCall(id: id, name: name, inputJSON: "")
+            let kind = Self.toolKind(name: name)
+            let action = Self.toolAction(name: name, summary: nil)
+            toolKindByID[id] = kind
+            toolActionByID[id] = action
+            return [Self.activity(id: id, kind: kind, status: "inProgress", action: action)]
+        default:
+            return []
+        }
+    }
+
+    private mutating func consumeInputJSONDelta(_ event: [String: Any]) {
+        guard let index = event["index"] as? Int,
+              toolCallsByBlockIndex[index] != nil,
+              let delta = event["delta"] as? [String: Any],
+              delta["type"] as? String == "input_json_delta",
+              let partial = delta["partial_json"] as? String else {
+            return
+        }
+        toolCallsByBlockIndex[index]?.inputJSON += partial
+    }
+
+    private mutating func consumeContentBlockStop(_ event: [String: Any]) -> [[String: Any]] {
+        guard let index = event["index"] as? Int else { return [] }
+
+        if index == thinkingBlockIndex, let id = thinkingActivityID {
+            thinkingBlockIndex = nil
+            thinkingActivityID = nil
+            return [Self.activity(id: id, kind: "other", status: "completed", action: Self.thinkingAction(inProgress: false))]
+        }
+
+        guard let call = toolCallsByBlockIndex.removeValue(forKey: index) else {
+            return []
+        }
+        // The tool arguments are complete: refine the label with a summary. Still
+        // in progress until the matching tool_result lands.
+        let summary = Self.argumentSummary(name: call.name, inputJSON: call.inputJSON)
+        let action = Self.toolAction(name: call.name, summary: summary)
+        toolActionByID[call.id] = action
+        let kind = toolKindByID[call.id] ?? Self.toolKind(name: call.name)
+        return [Self.activity(id: call.id, kind: kind, status: "inProgress", action: action)]
+    }
+
+    private mutating func consumeToolResults(from object: [String: Any]) -> [[String: Any]] {
+        let message = (object["message"] as? [String: Any]) ?? object
+        guard let content = message["content"] as? [Any] else { return [] }
+        var emissions: [[String: Any]] = []
+        for case let part as [String: Any] in content where part["type"] as? String == "tool_result" {
+            guard let id = part["tool_use_id"] as? String else { continue }
+            let status = ((part["is_error"] as? Bool) ?? false) ? "failed" : "completed"
+            let kind = toolKindByID.removeValue(forKey: id) ?? "other"
+            let action = toolActionByID.removeValue(forKey: id) ?? Self.toolAction(name: "", summary: nil)
+            let preview = Self.resultPreview(part["content"])
+            emissions.append(Self.activity(id: id, kind: kind, status: status, action: action, outputDelta: preview))
+        }
+        return emissions
+    }
+
+    private static func activity(
+        id: String,
+        kind: String,
+        status: String,
+        action: String,
+        outputDelta: String? = nil
+    ) -> [String: Any] {
+        var dict: [String: Any] = [
+            "activityId": id,
+            "kind": kind,
+            "status": status,
+            "action": action
+        ]
+        if let outputDelta, !outputDelta.isEmpty {
+            dict["outputDelta"] = outputDelta
+        }
+        return dict
+    }
+
+    private static func thinkingAction(inProgress: Bool) -> String {
+        inProgress
+            ? String(localized: "agentSession.claude.activity.thinking", defaultValue: "Thinking…")
+            : String(localized: "agentSession.claude.activity.thought", defaultValue: "Thought")
+    }
+
+    private static func toolKind(name: String) -> String {
+        switch name {
+        case "Bash", "BashOutput", "KillShell":
+            return "command"
+        case "Edit", "Write", "MultiEdit", "NotebookEdit":
+            return "fileChange"
+        default:
+            return "other"
+        }
+    }
+
+    private static func toolAction(name: String, summary: String?) -> String {
+        let label = name.isEmpty
+            ? String(localized: "agentSession.claude.activity.tool", defaultValue: "Tool")
+            : name
+        guard let summary, !summary.isEmpty else { return label }
+        return "\(label) · \(summary)"
+    }
+
+    private static func argumentSummary(name: String, inputJSON: String) -> String? {
+        guard let data = inputJSON.data(using: .utf8),
+              let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        switch name {
+        case "Read", "Edit", "Write", "MultiEdit", "NotebookEdit":
+            if let path = (input["file_path"] as? String) ?? (input["notebook_path"] as? String) {
+                return (path as NSString).lastPathComponent
+            }
+        case "Bash":
+            if let command = input["command"] as? String {
+                return Self.truncated(command.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        case "Grep", "Glob":
+            if let pattern = input["pattern"] as? String {
+                return Self.truncated(pattern)
+            }
+        case "WebFetch":
+            if let url = input["url"] as? String {
+                return Self.truncated(url)
+            }
+        case "Task":
+            if let description = input["description"] as? String {
+                return Self.truncated(description)
+            }
+        default:
+            break
+        }
+        return nil
+    }
+
+    private static func resultPreview(_ content: Any?) -> String? {
+        let text: String
+        if let string = content as? String {
+            text = string
+        } else if let parts = content as? [Any] {
+            text = parts.compactMap { ($0 as? [String: Any])?["text"] as? String }.joined()
+        } else {
+            return nil
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(4000))
+    }
+
+    private static func truncated(_ text: String, limit: Int = 80) -> String {
+        let collapsed = text.replacingOccurrences(of: "\n", with: " ")
+        guard collapsed.count > limit else { return collapsed }
+        return String(collapsed.prefix(limit - 1)) + "…"
+    }
+}
+

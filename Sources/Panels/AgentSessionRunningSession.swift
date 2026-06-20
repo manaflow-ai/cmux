@@ -12,6 +12,7 @@ final class AgentSessionRunningSession {
     let openCodeAuthorizationHeader: String?
     var codexAppServerSession: CodexAppServerSession?
     private var claudeStreamJSONAccumulator = ClaudeStreamJSONAccumulator()
+    private var claudeActivityAccumulator = ClaudeActivityAccumulator()
     var openCodeBaseURL: URL?
     var openCodeSessionID: String?
     var isOpenCodeSessionCreateInFlight = false
@@ -63,6 +64,10 @@ final class AgentSessionRunningSession {
 
     func consumeClaudeStreamJSONLine(_ line: String) -> [String] {
         claudeStreamJSONAccumulator.consumeLine(line)
+    }
+
+    func consumeClaudeActivityLine(_ line: String) -> [[String: Any]] {
+        claudeActivityAccumulator.consumeLine(line)
     }
 
     func claudeStreamJSONLineCompletesTurn(_ line: String) -> Bool {

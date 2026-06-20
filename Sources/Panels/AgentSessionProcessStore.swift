@@ -332,6 +332,13 @@ final class AgentSessionProcessStore {
         if stream == "stdout",
            session.providerID == .claude {
             let completesTurn = session.claudeStreamJSONLineCompletesTurn(text)
+            for activity in session.consumeClaudeActivityLine(text) {
+                emitActivity(
+                    sessionId: session.sessionId,
+                    providerID: session.providerID,
+                    activity: activity
+                )
+            }
             for delta in session.consumeClaudeStreamJSONLine(text) {
                 emitOutput(
                     sessionId: session.sessionId,
