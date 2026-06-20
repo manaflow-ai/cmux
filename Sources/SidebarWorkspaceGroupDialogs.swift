@@ -123,6 +123,12 @@ func confirmRemoveExtensionWorktree(
         defaultValue: "Removing the worktree \u{201C}%@\u{201D} deletes its working directory on disk."
     )
     lines.append(String.localizedStringWithFormat(base, worktreeName))
+    if safety.inspectionFailed {
+        lines.append(String(
+            localized: "dialog.removeWorktree.warning.unknown",
+            defaultValue: "cmux couldn\u{2019}t check it for unsaved changes, so anything uncommitted may be lost."
+        ))
+    }
     if safety.hasUncommittedChanges {
         lines.append(String(
             localized: "dialog.removeWorktree.warning.uncommitted",

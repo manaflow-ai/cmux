@@ -144,6 +144,34 @@ struct ExtensionWorktreeManagementTests {
         #expect(CmuxExtensionWorktreePrototype.removalRequiresConfirmation(safety: unpushed, suppressionEnabled: true))
     }
 
+    @Test("an un-inspectable worktree always confirms and is never suppressible")
+    func inspectionFailureForcesConfirmation() {
+        let unknown = CmuxExtensionWorktreeRemovalSafety(
+            hasUncommittedChanges: false,
+            unpushedCommitCount: 0,
+            branchName: nil,
+            inspectionFailed: true
+        )
+        #expect(!unknown.isClean)
+        // Unknown state must never force-remove (git still refuses a dirty tree).
+        #expect(unknown.requiresForce == false)
+        // Even with "don't ask again" set, an unknown state still prompts.
+        #expect(CmuxExtensionWorktreePrototype.removalRequiresConfirmation(safety: unknown, suppressionEnabled: true))
+    }
+
+    // MARK: - Replacement workspace before closing the last tab
+
+    @Test("a replacement workspace is needed only when removal empties the window")
+    func replacementNeededWhenClosingEveryTab() {
+        // Closing the only/all worktree tabs would empty the window.
+        #expect(CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(totalWorkspaceCount: 1, closingCount: 1))
+        #expect(CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(totalWorkspaceCount: 2, closingCount: 2))
+        // Other tabs remain, so no replacement is required.
+        #expect(!CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(totalWorkspaceCount: 3, closingCount: 1))
+        // Nothing to close.
+        #expect(!CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(totalWorkspaceCount: 2, closingCount: 0))
+    }
+
     // MARK: - Which tabs close on removal
 
     @Test("only workspaces rooted in the removed worktree are selected to close")

@@ -81,13 +81,19 @@ struct CmuxExtensionWorktreeRemovalSafety: Sendable, Equatable {
     var hasUncommittedChanges: Bool
     var unpushedCommitCount: Int
     var branchName: String?
+    /// True when the safety probe itself failed (git error / not a worktree).
+    /// An unknown state is treated as *not* clean: removal always confirms and
+    /// the confirmation can't be suppressed, so a stale "don't ask again"
+    /// preference can never skip the prompt for an un-inspected worktree.
+    var inspectionFailed: Bool = false
 
     var hasUnpushedCommits: Bool { unpushedCommitCount > 0 }
 
-    /// Whether the worktree has no unsaved or unpushed work.
-    var isClean: Bool { !hasUncommittedChanges && !hasUnpushedCommits }
+    /// Whether the worktree is known to have no unsaved or unpushed work.
+    var isClean: Bool { !inspectionFailed && !hasUncommittedChanges && !hasUnpushedCommits }
 
     /// `git worktree remove` refuses a dirty working tree without `--force`.
+    /// An unknown state does *not* force: git is left to refuse a dirty tree.
     var requiresForce: Bool { hasUncommittedChanges }
 }
 
@@ -221,6 +227,15 @@ enum CmuxExtensionWorktreePrototype {
             let standardized = URL(fileURLWithPath: gitRoot, isDirectory: true).standardizedFileURL.path
             return standardized == target ? entry.id : nil
         }
+    }
+
+    /// Pure decision: whether closing `closingCount` workspaces would empty the
+    /// window. `TabManager.closeWorkspace` refuses to close the last workspace,
+    /// so when removal would close every tab the caller must spawn a live
+    /// replacement first — otherwise the final tab lingers over the deleted
+    /// worktree directory.
+    static func replacementWorkspaceNeeded(totalWorkspaceCount: Int, closingCount: Int) -> Bool {
+        closingCount > 0 && closingCount >= totalWorkspaceCount
     }
 
     /// Inspects a worktree for unsaved/unpushed work before removal.

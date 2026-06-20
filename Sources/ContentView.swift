@@ -11939,12 +11939,14 @@ struct VerticalTabsSidebar: View {
             do {
                 safety = try await CmuxExtensionWorktreePrototype.inspectRemovalSafety(worktreePath: worktreePath)
             } catch {
-                // If inspection fails, fall back to a non-forced confirm so the
-                // user still gets a prompt before anything is removed.
+                // If inspection fails the worktree's state is unknown: mark it
+                // so removal always confirms (never suppressible) and never
+                // force-removes — git still refuses a dirty tree without force.
                 safety = CmuxExtensionWorktreeRemovalSafety(
                     hasUncommittedChanges: false,
                     unpushedCommitCount: 0,
-                    branchName: nil
+                    branchName: nil,
+                    inspectionFailed: true
                 )
             }
 
@@ -11997,6 +11999,24 @@ struct VerticalTabsSidebar: View {
                 message: details?.nilIfEmpty ?? error.localizedDescription
             )
             return
+        }
+
+        // `closeWorkspace` refuses to close the last workspace in a window. If
+        // every remaining tab is rooted in the removed worktree, spawn a live
+        // replacement (rooted at the parent repo) first so no tab is left
+        // stranded over the now-deleted directory.
+        if CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(
+            totalWorkspaceCount: tabManager.tabs.count,
+            closingCount: workspacesToClose.count
+        ) {
+            let parentRepo = CmuxExtensionWorktreePrototype
+                .managedWorktreeIdentity(gitRootPath: worktreePath)?.parentRepoPath
+            tabManager.addWorkspace(
+                workingDirectory: parentRepo,
+                inheritWorkingDirectory: parentRepo == nil,
+                select: true,
+                eagerLoadTerminal: false
+            )
         }
 
         for workspaceId in workspacesToClose {
