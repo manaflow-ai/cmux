@@ -553,10 +553,7 @@ class TabManager: ObservableObject {
 #endif
 
 #if DEBUG
-    private var didSetupSplitCloseRightUITest = false
-    private var didSetupUITestFocusShortcuts = false
-    private var didSetupChildExitSplitUITest = false
-    private var didSetupChildExitKeyboardUITest = false
+    private var didSetupUITestSplitScaffolds = false
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
@@ -721,10 +718,7 @@ class TabManager: ObservableObject {
             }
         })
 #if DEBUG
-        setupUITestFocusShortcutsIfNeeded()
-        setupSplitCloseRightUITestIfNeeded()
-        setupChildExitSplitUITestIfNeeded()
-        setupChildExitKeyboardUITestIfNeeded()
+        setupUITestSplitScaffoldsIfNeeded()
 #endif
     }
 
@@ -4269,13 +4263,22 @@ class TabManager: ObservableObject {
         return (attached, hasSurface, firstResponder)
     }
 
-    private func setupUITestFocusShortcutsIfNeeded() {
-        guard !didSetupUITestFocusShortcuts else { return }
-        didSetupUITestFocusShortcuts = true
+    /// Build the typed scaffold plan from the process environment and drive any
+    /// enabled DEBUG split / child-exit UI-test harness exactly once.
+    ///
+    /// The env-gating and parameter parsing live in `CmuxTestSupport`
+    /// (``UITestSplitScaffoldGate``); this composition root only holds the
+    /// once-only guard and forwards to the package's dispatch, with `self`
+    /// supplying the live actions via ``UITestScaffoldRunning``.
+    private func setupUITestSplitScaffoldsIfNeeded() {
+        guard !didSetupUITestSplitScaffolds else { return }
+        didSetupUITestSplitScaffolds = true
 
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_FOCUS_SHORTCUTS"] == "1" else { return }
+        let plan = UITestSplitScaffoldGate().plan(from: ProcessInfo.processInfo.environment)
+        runEnabledScaffolds(for: plan)
+    }
 
+    func installUITestFocusShortcuts() {
         // UI tests can't record arrow keys via the shortcut recorder. Use letter-based shortcuts
         // so tests can reliably drive pane navigation without mouse clicks.
         KeyboardShortcutSettings.setShortcut(
@@ -4296,20 +4299,14 @@ class TabManager: ObservableObject {
         )
     }
 
-    private func setupSplitCloseRightUITestIfNeeded() {
-        guard !didSetupSplitCloseRightUITest else { return }
-        didSetupSplitCloseRightUITest = true
-
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] == "1" else { return }
-        guard let path = env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"], !path.isEmpty else { return }
-        let visualMode = env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL"] == "1"
-        let shotsDir = (env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SHOTS_DIR"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let visualIterations = Int((env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_ITERATIONS"] ?? "20").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 20
-        let burstFrames = Int((env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_BURST_FRAMES"] ?? "6").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 6
-        let closeDelayMs = Int((env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_CLOSE_DELAY_MS"] ?? "70").trimmingCharacters(in: .whitespacesAndNewlines)) ?? 70
-        let pattern = (env["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATTERN"] ?? "close_right")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    func runSplitCloseRightUITest(_ config: UITestSplitScaffoldPlan.SplitCloseRightConfig) {
+        let path = config.path
+        let visualMode = config.visualMode
+        let shotsDir = config.shotsDir
+        let visualIterations = config.visualIterations
+        let burstFrames = config.burstFrames
+        let closeDelayMs = config.closeDelayMs
+        let pattern = config.pattern
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard let self else { return }
@@ -4791,43 +4788,17 @@ class TabManager: ObservableObject {
 	    }
 
     private func writeSplitCloseRightTestData(_ updates: [String: String], at path: String) {
-        var payload = loadSplitCloseRightTestData(at: path)
-        for (key, value) in updates {
-            payload[key] = value
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        UITestKeyValueCaptureFile(path: path).merge(updates)
     }
 
-    private func loadSplitCloseRightTestData(at path: String) -> [String: String] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return [:]
-        }
-        return object
-    }
+    func runChildExitSplitUITest(_ config: UITestSplitScaffoldPlan.ChildExitSplitConfig) {
+        let path = config.path
+        let requestedIterations = config.requestedIterations
+        let iterations = config.iterations
 
-    private func setupChildExitSplitUITestIfNeeded() {
-        guard !didSetupChildExitSplitUITest else { return }
-        didSetupChildExitSplitUITest = true
-
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_CHILD_EXIT_SPLIT_SETUP"] == "1" else { return }
-        guard let path = env["CMUX_UI_TEST_CHILD_EXIT_SPLIT_PATH"], !path.isEmpty else { return }
-        let requestedIterations = Int(env["CMUX_UI_TEST_CHILD_EXIT_SPLIT_ITERATIONS"] ?? "1") ?? 1
-        let iterations = max(1, min(requestedIterations, 20))
-
+        let captureFile = UITestKeyValueCaptureFile(path: path)
         func write(_ updates: [String: String]) {
-            var payload: [String: String] = {
-                guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-                    return [:]
-                }
-                return obj
-            }()
-            for (k, v) in updates { payload[k] = v }
-            guard let out = try? JSONSerialization.data(withJSONObject: payload) else { return }
-            try? out.write(to: URL(fileURLWithPath: path), options: .atomic)
+            captureFile.merge(updates)
         }
 
         Task { @MainActor [weak self] in
@@ -4960,41 +4931,21 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func setupChildExitKeyboardUITestIfNeeded() {
-        guard !didSetupChildExitKeyboardUITest else { return }
-        didSetupChildExitKeyboardUITest = true
+    func runChildExitKeyboardUITest(_ config: UITestSplitScaffoldPlan.ChildExitKeyboardConfig) {
+        let path = config.path
+        let autoTrigger = config.autoTrigger
+        let strictKeyOnly = config.strictKeyOnly
+        let triggerMode = config.triggerMode
+        let useEarlyCtrlShiftTrigger = config.useEarlyCtrlShiftTrigger
+        let useEarlyCtrlDTrigger = config.useEarlyCtrlDTrigger
+        let useEarlyTrigger = config.useEarlyTrigger
+        let triggerUsesShift = config.triggerUsesShift
+        let layout = config.layout
+        let expectedPanelsAfter = config.expectedPanelsAfter
 
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] == "1" else { return }
-        guard let path = env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_PATH"], !path.isEmpty else { return }
-        let autoTrigger = env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_AUTO_TRIGGER"] == "1"
-        let strictKeyOnly = env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_STRICT"] == "1"
-        let triggerMode = (env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_TRIGGER_MODE"] ?? "shell_input")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let useEarlyCtrlShiftTrigger = triggerMode == "early_ctrl_shift_d"
-        let useEarlyCtrlDTrigger = triggerMode == "early_ctrl_d"
-        let useEarlyTrigger = useEarlyCtrlShiftTrigger || useEarlyCtrlDTrigger
-        let triggerUsesShift = triggerMode == "ctrl_shift_d" || useEarlyCtrlShiftTrigger
-        let layout = (env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_LAYOUT"] ?? "lr")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let expectedPanelsAfter = max(
-            1,
-            Int((env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_EXPECTED_PANELS_AFTER"] ?? "1")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            ) ?? 1
-        )
-
+        let captureFile = UITestKeyValueCaptureFile(path: path)
         func write(_ updates: [String: String]) {
-            var payload: [String: String] = {
-                guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-                    return [:]
-                }
-                return obj
-            }()
-            for (k, v) in updates { payload[k] = v }
-            guard let out = try? JSONSerialization.data(withJSONObject: payload) else { return }
-            try? out.write(to: URL(fileURLWithPath: path), options: .atomic)
+            captureFile.merge(updates)
         }
 
         Task { @MainActor [weak self] in
@@ -5324,6 +5275,14 @@ class TabManager: ObservableObject {
     }
 #endif
 }
+
+#if DEBUG
+/// The live-action side of the DEBUG split / child-exit UI-test scaffolds. The
+/// env-gating and parameter parsing live in `CmuxTestSupport`; the harness
+/// bodies stay here because they drive AppKit / Bonsplit / Ghostty surface state
+/// that cannot cross the package boundary.
+extension TabManager: UITestScaffoldRunning {}
+#endif
 
 extension TabManager {
     func sessionAutosaveFingerprint(
