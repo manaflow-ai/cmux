@@ -101,6 +101,31 @@ private func installFileDropOverlayWhenReady(
 /// writer of `directoryChangeGeneration` and the single place that
 /// deduplicates (the legacy pipeline's trailing `removeDuplicates()`). The
 /// adapter therefore keeps no `lastSnapshot` of its own.
+/// App-side ``CommandPaletteFocusGuard`` adapter for ``ContentView``.
+///
+/// ``CommandPaletteFocusRestoreController`` (in `CmuxCommandPalette`) owns the
+/// pending-target + bounded-timeout lifecycle, but the live focus reads/writes
+/// (key window, `TabManager` routing, focused-`Panel` responder restore) cannot
+/// live in the package. This long-lived `@State` adapter holds two closures
+/// `ContentView` refreshes each render so the controller can call back into the
+/// current view value's live state, mirroring the
+/// `SelectedWorkspaceDirectoryReadingAdapter` long-lived-adapter pattern. The
+/// associated `Target` is `ContentView`'s own `CommandPaletteRestoreFocusTarget`
+/// so no app type crosses the module boundary.
+@MainActor
+private final class CommandPaletteFocusRestoreHost: CommandPaletteFocusGuard {
+    typealias Target = ContentView.CommandPaletteRestoreFocusTarget
+
+    var isPaletteStillPresentedProvider: () -> Bool = { false }
+    var attemptHandler: (Target) -> CommandPaletteFocusRestoreOutcome = { _ in .targetUnavailable }
+
+    var isPaletteStillPresented: Bool { isPaletteStillPresentedProvider() }
+
+    func attemptRestore(to target: Target) -> CommandPaletteFocusRestoreOutcome {
+        attemptHandler(target)
+    }
+}
+
 @MainActor
 private final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceReading {
     let directorySnapshots: AsyncStream<SelectedWorkspaceDirectorySnapshot>
@@ -268,8 +293,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
     // cachedCommandPaletteScope / cachedCommandPaletteFingerprint now live on
     // `commandPaletteCoordinator` (cachedCorpusScope / cachedCorpusFingerprint).
     @State private var cachedDefaultTerminalIsDefault = DefaultTerminalUserAction.currentStatus().isDefault
-    @State private var commandPalettePendingDismissFocusTarget: CommandPaletteRestoreFocusTarget?
-    @State private var commandPaletteRestoreTimeoutWorkItem: DispatchWorkItem?
+    // Post-dismiss focus-restore lifecycle (pending dismiss target + bounded
+    // timeout) now lives on `commandPaletteFocusRestoreController`, replacing the
+    // former `DispatchWorkItem`+`asyncAfter` deadline with an injected-Clock Task.
+    @State private var commandPaletteFocusRestoreHost = CommandPaletteFocusRestoreHost()
+    @State private var commandPaletteFocusRestoreController =
+        CommandPaletteFocusRestoreController<CommandPaletteFocusRestoreHost>()
     @State private var commandPaletteSearchTask: Task<Void, Never>?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
     @State private var commandPaletteResolvedSearchRequestID: UInt64 = 0
@@ -298,7 +327,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
     @FocusState private var isCommandPaletteRenameFocused: Bool
     private let windowChrome = AppWindowChromeComposition()
 
-    private struct CommandPaletteRestoreFocusTarget {
+    struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
         let intent: PanelFocusIntent
@@ -6105,26 +6134,36 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         )
     }
 
-    private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
-        commandPalettePendingDismissFocusTarget = target
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        let timeoutWork = DispatchWorkItem {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem = nil
+    /// Refreshes the focus-restore host's closures with this view value's live
+    /// state so the long-lived `@State` controller calls back into the current
+    /// view's `tabManager`/`observedWindow`/focused panel.
+    private func wireCommandPaletteFocusRestoreHost() {
+        commandPaletteFocusRestoreController.attach(commandPaletteFocusRestoreHost)
+        commandPaletteFocusRestoreHost.isPaletteStillPresentedProvider = { isCommandPalettePresented }
+        commandPaletteFocusRestoreHost.attemptHandler = { target in
+            commandPaletteFocusRestoreAttempt(to: target)
         }
-        commandPaletteRestoreTimeoutWorkItem = timeoutWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: timeoutWork)
-        attemptCommandPaletteFocusRestoreIfNeeded()
+    }
+
+    private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
+        wireCommandPaletteFocusRestoreHost()
+        commandPaletteFocusRestoreController.request(target: target)
     }
 
     private func attemptCommandPaletteFocusRestoreIfNeeded() {
-        guard !isCommandPalettePresented else { return }
-        guard let target = commandPalettePendingDismissFocusTarget else { return }
+        wireCommandPaletteFocusRestoreHost()
+        commandPaletteFocusRestoreController.attemptRestoreIfNeeded()
+    }
+
+    /// Drives one live focus-restore attempt and reports the outcome the
+    /// controller's ``CommandPaletteFocusGuard`` consumes. Byte-faithful
+    /// continuation of the previous inline `attemptCommandPaletteFocusRestoreIfNeeded`
+    /// body; the palette-still-up and nil-target guards now live on the controller.
+    private func commandPaletteFocusRestoreAttempt(
+        to target: CommandPaletteRestoreFocusTarget
+    ) -> CommandPaletteFocusRestoreOutcome {
         guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
-            commandPalettePendingDismissFocusTarget = nil
-            commandPaletteRestoreTimeoutWorkItem?.cancel()
-            commandPaletteRestoreTimeoutWorkItem = nil
-            return
+            return .targetUnavailable
         }
 
         if let window = observedWindow, !window.isKeyWindow {
@@ -6140,12 +6179,10 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
         guard let context = focusedPanelContext,
               context.workspace.id == target.workspaceId,
               context.panelId == target.panelId else {
-            return
+            return .retryLater
         }
-        guard context.panel.restoreFocusIntent(target.intent) else { return }
-        commandPalettePendingDismissFocusTarget = nil
-        commandPaletteRestoreTimeoutWorkItem?.cancel()
-        commandPaletteRestoreTimeoutWorkItem = nil
+        guard context.panel.restoreFocusIntent(target.intent) else { return .retryLater }
+        return .restored
     }
 
 #if DEBUG
