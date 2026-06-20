@@ -13,6 +13,13 @@ private typealias StoredShortcut = cmux.StoredShortcut
 private typealias ShortcutStroke = cmux.ShortcutStroke
 #endif
 
+private final class ShortcutNoopFileSearchController: FileSearchControlling {
+    var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+
+    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {}
+    func cancel(clear: Bool) {}
+}
+
 @MainActor
 @Suite(.serialized) struct FileExplorerShortcutSettingsTests {
     @Test func openSelectionShortcutsAreSidebarFocusedAndSettingsBacked() throws {
@@ -264,6 +271,38 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
         }
     }
 
+    @Test func openSelectionSearchFieldMarkedTextBypassesDelegateReturn() throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: ShortcutNoopFileSearchController()
+        )
+        container.updatePresentation(.find)
+        let searchField = try #require(findSearchField(in: container))
+        let textView = NSTextView()
+        textView.setMarkedText(
+            "marked",
+            selectedRange: NSRange(location: 6, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        let handled = container.control(
+            searchField,
+            textView: textView,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+
+        #expect(!handled)
+        #expect(textView.hasMarkedText())
+    }
+
     @Test func openSelectionSetShortcutRejectsChords() {
         withIsolatedShortcutSettings {
             let chord = StoredShortcut(
@@ -318,5 +357,13 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
             isARepeat: false,
             keyCode: keyCode
         )
+    }
+
+    private func findSearchField(in root: NSView) -> FileExplorerSearchField? {
+        if let field = root as? FileExplorerSearchField { return field }
+        for subview in root.subviews {
+            if let field = findSearchField(in: subview) { return field }
+        }
+        return nil
     }
 }

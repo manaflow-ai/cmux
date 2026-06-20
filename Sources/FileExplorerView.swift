@@ -1514,7 +1514,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard control === searchField else { return false }
+        guard control === searchField, !textView.hasMarkedText() else { return false }
         if let event = NSApp.currentEvent, searchField.handleOpenSelectionShortcut(event) { return true }
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
