@@ -67,6 +67,32 @@ import Testing
         #expect(harness.flow.lastFailure == .serverError(0, "auth_failed"))
     }
 
+    @Test func signOutBeforeValidationErrorDoesNotLeaveFailure() async {
+        let harness = HostBrowserSignInFlowHarness(
+            user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil)
+        )
+        await harness.client.closeUserGate()
+
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(
+            harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0]))
+        )
+        while await harness.client.pendingUserRequests == 0 {
+            await Task.yield()
+        }
+
+        await harness.client.setCurrentUserError(AuthError.networkError)
+        await harness.flow.signOut()
+        await harness.client.openUserGate()
+
+        #expect(await attempt.value == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+        #expect(harness.flow.lastFailure == nil)
+    }
+
     @Test func abandonedBrowserAttemptTimesOut() async throws {
         let clock = ManualTestClock()
         let harness = HostBrowserSignInFlowHarness(browserAttemptTimeout: 1, clock: clock)
