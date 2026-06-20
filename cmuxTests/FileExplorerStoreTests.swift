@@ -615,6 +615,169 @@ struct FileExplorerStoreTests {
         store.expand(node: node)
         #expect(!(store.isExpanded(node)))
     }
+
+    // MARK: - SSH argument composition (proxied-host regression)
+
+    /// Regression for the remote file explorer failing with "SSH command failed"
+    /// on proxied hosts (e.g. Coder `*.coder` ProxyCommand). The workspace's
+    /// `ssh_options` arrive carrying `ControlMaster=auto`/`ControlPersist=600`; if
+    /// the explorer passes those through, each probe negotiates its own master
+    /// through the slow ProxyCommand and times out. The probe must instead force
+    /// `ControlMaster=no` (reuse the warm master via the inherited `ControlPath`),
+    /// drop `ControlMaster`/`ControlPersist`, and use the same `ConnectTimeout=6`
+    /// as every other cmux background-SSH path.
+    @Test
+    func testFileExplorerSSHArgumentsReuseMasterInsteadOfNegotiatingOwn() {
+        let connection = SSHFileExplorerConnection(
+            destination: "builder@nt-8-a100-80g.coder",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-501-%C",
+                "StrictHostKeyChecking=accept-new",
+            ]
+        )
+
+        let args = ProcessSSHFileExplorerTransport.sshArguments(
+            connection: connection,
+            command: "ls -1paF '/home/builder' 2>/dev/null"
+        )
+
+        func optionValues(_ args: [String]) -> [String] {
+            var values: [String] = []
+            var index = 0
+            while index < args.count {
+                if args[index] == "-o", index + 1 < args.count {
+                    values.append(args[index + 1])
+                    index += 2
+                } else {
+                    index += 1
+                }
+            }
+            return values
+        }
+        let options = optionValues(args)
+
+        // Reuses an existing master, never negotiates a new one.
+        #expect(options.contains("ControlMaster=no"))
+        #expect(!options.contains("ControlMaster=auto"))
+        #expect(!options.contains { $0.lowercased().hasPrefix("controlpersist") })
+        // ControlPath is kept so the warm master socket is reused.
+        #expect(options.contains("ControlPath=/tmp/cmux-ssh-501-%C"))
+        // Matches the timeout used by every other cmux background-SSH path.
+        #expect(options.contains("ConnectTimeout=6"))
+        #expect(!options.contains("ConnectTimeout=5"))
+        // StrictHostKeyChecking is not duplicated when already inherited.
+        #expect(options.filter { $0.lowercased().hasPrefix("stricthostkeychecking") }.count == 1)
+        // The destination and command are still the final two arguments.
+        #expect(args.dropLast().last == "builder@nt-8-a100-80g.coder")
+        #expect(args.last == "ls -1paF '/home/builder' 2>/dev/null")
+    }
+
+    /// The opaque "SSH command failed" message hid the actual failure during the
+    /// proxied-host investigation. The explorer must surface the meaningful stderr
+    /// line while skipping benign ProxyCommand/login banners.
+    /// The opaque "SSH command failed" message hid the actual failure during the
+    /// proxied-host investigation, but raw ssh stderr must never reach the UI (it
+    /// can leak ControlPath socket paths, ProxyCommand invocations, internal
+    /// hostnames). The explorer must classify stderr into a sanitized, localized
+    /// category — surfacing *what kind* of failure happened without the raw text,
+    /// and skipping benign ProxyCommand/login banners.
+    @Test
+    func testSSHErrorClassifiesIntoSanitizedCategoryWithoutLeakingRawStderr() {
+        let stderr = """
+        👋 Your workspace is outdated! Update it here: https://example.com/ws
+        Warning: Permanently added 'host' (ED25519) to the list of known hosts.
+        ControlPath /tmp/cmux-ssh-501-deadbeef
+        ssh: connect to host nt-8-a100-80g.coder port 22: Operation timed out
+        """
+        let description = FileExplorerError.sshCommandFailed(stderr).errorDescription
+        // Surfaces the timeout *category*, not the raw line.
+        #expect(description == String(localized: "fileExplorer.error.ssh.timedOut", defaultValue: "SSH connection timed out"))
+        // No SSH-internal tokens leak into the user-facing message.
+        #expect(description?.contains("nt-8-a100-80g") == false)
+        #expect(description?.contains("/tmp/cmux-ssh") == false)
+        #expect(description?.contains("ControlPath") == false)
+        #expect(description?.contains("workspace is outdated") == false)
+
+        // Classification covers the common ssh failure signatures.
+        #expect(
+            FileExplorerError.sshCommandFailed("Permission denied (publickey).").errorDescription
+                == String(localized: "fileExplorer.error.ssh.authFailed", defaultValue: "SSH authentication failed")
+        )
+        #expect(
+            FileExplorerError.sshCommandFailed("ssh: connect to host h port 22: Connection refused").errorDescription
+                == String(localized: "fileExplorer.error.ssh.connectionRefused", defaultValue: "SSH connection refused")
+        )
+        #expect(
+            FileExplorerError.sshCommandFailed("Host key verification failed.").errorDescription
+                == String(localized: "fileExplorer.error.ssh.hostKeyChanged", defaultValue: "SSH host key verification failed")
+        )
+        #expect(
+            FileExplorerError.sshCommandFailed("ssh: Could not resolve hostname h: nodename nor servname provided").errorDescription
+                == String(localized: "fileExplorer.error.ssh.hostUnresolved", defaultValue: "Couldn't resolve the SSH host")
+        )
+        #expect(
+            FileExplorerError.sshCommandFailed("remote HOME was empty").errorDescription
+                == String(localized: "fileExplorer.error.ssh.remoteHomeUnresolved", defaultValue: "Couldn't determine the remote home directory")
+        )
+
+        // An unrecognized failure falls back to the generic message (no raw text).
+        let unknown = FileExplorerError.sshCommandFailed("some unexpected ssh internal: /private/var/x").errorDescription
+        #expect(unknown == String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed"))
+        #expect(unknown?.contains("/private/var/x") == false)
+
+        // Blank stderr also falls back to the generic message.
+        let blank = FileExplorerError.sshCommandFailed("   \n  ").errorDescription
+        #expect(blank == String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed"))
+    }
+
+    /// Regression: a remote workspace's `currentDirectory` is a path on the
+    /// *local* machine, so rooting the remote file explorer at it made the SSH
+    /// probe list a path that cannot exist on the remote host — surfacing only as
+    /// a generic "SSH command failed". `remoteRootPathHint` must drop a hint that
+    /// resolves to an existing local directory (so the caller falls back to the
+    /// remote `$HOME`) while still passing through a genuinely remote path.
+    @Test
+    func testRemoteRootPathHintIgnoresLocalDirectories() {
+        // An existing *local* directory is ignored (caller resolves remote $HOME).
+        let localDir = NSTemporaryDirectory()
+        #expect(FileManager.default.fileExists(atPath: localDir))
+        #expect(FileExplorerStore.remoteRootPathHint(localDir) == nil)
+
+        // A path absent on the local machine is treated as a genuine remote path.
+        let remotePath = "/home/builder/cmux-test-\(UUID().uuidString)"
+        #expect(FileManager.default.fileExists(atPath: remotePath) == false)
+        #expect(FileExplorerStore.remoteRootPathHint(remotePath) == remotePath)
+
+        // Empty / whitespace-only hints resolve to the remote home as well.
+        #expect(FileExplorerStore.remoteRootPathHint(nil) == nil)
+        #expect(FileExplorerStore.remoteRootPathHint("") == nil)
+        #expect(FileExplorerStore.remoteRootPathHint("   ") == nil)
+    }
+
+    /// Regression: the listing ran `ls … 2>/dev/null`, so a path missing on the
+    /// remote swallowed `ls`'s "No such file or directory" and collapsed into the
+    /// opaque generic message. The classifier must surface a sanitized
+    /// "remote path not found" category without leaking the raw path.
+    @Test
+    func testSSHBadRemotePathClassifiesAsRemotePathNotFound() {
+        let stderr = """
+        👋 Your workspace is outdated! Update it here: https://example.com/ws
+        ls: cannot access '/Users/me/project': No such file or directory
+        """
+        let description = FileExplorerError.sshCommandFailed(stderr).errorDescription
+        #expect(
+            description == String(
+                localized: "fileExplorer.error.ssh.remotePathNotFound",
+                defaultValue: "Remote path not found"
+            )
+        )
+        // The raw path must never leak into the user-facing message.
+        #expect(description?.contains("/Users/me/project") == false)
+    }
 }
 
 @MainActor
