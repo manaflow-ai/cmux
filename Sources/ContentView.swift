@@ -31,7 +31,6 @@ import UniformTypeIdentifiers
 import WebKit
 
 var fileDropOverlayKey: UInt8 = 0
-private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
 let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
 // CommandPaletteOverlayContainerView, PassthroughWindowOverlayContainerView (now
@@ -42,119 +41,15 @@ let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier(
 // WindowCommandPaletteOverlayController, its per-window factory (now
 // WindowCommandPaletteOverlayController.installed(in:)), and commandPaletteOwningWebView
 // (now NSResponder.commandPaletteOwningWebView) live in CmuxCommandPaletteUI.
-
-@MainActor
-private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
-    private weak var window: NSWindow?
-    private let containerView = PassthroughOverlayContainerView(frame: .zero)
-    private let model = TmuxWorkspacePaneOverlayModel()
-    private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayView>
-    private let chromeComposition = AppWindowChromeComposition()
-    private var installConstraints: [NSLayoutConstraint] = []
-    private weak var installedReferenceView: NSView?
-    private var lastRenderState: TmuxWorkspacePaneOverlayRenderState?
-
-    init(window: NSWindow) {
-        self.window = window
-        self.hostingView = NSHostingView(
-            rootView: TmuxWorkspacePaneOverlayView(
-                unreadRects: [],
-                flashRect: nil,
-                flashStartedAt: nil,
-                flashReason: nil
-            )
-        )
-        super.init()
-        containerView.translatesAutoresizingMaskIntoConstraints = false
-        containerView.wantsLayer = true
-        containerView.layer?.backgroundColor = NSColor.clear.cgColor
-        containerView.isHidden = true
-        containerView.alphaValue = 0
-        containerView.identifier = tmuxWorkspacePaneOverlayContainerIdentifier
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-        containerView.addSubview(hostingView)
-        NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-        ])
-        _ = ensureInstalled()
-    }
-
-    @discardableResult
-    private func ensureInstalled() -> Bool {
-        guard let window,
-              let target = chromeComposition
-                .contentOverlayTargetResolver
-                .installationTarget(for: window) else { return false }
-
-        if containerView.superview !== target.container || installedReferenceView !== target.reference {
-            NSLayoutConstraint.deactivate(installConstraints)
-            installConstraints.removeAll()
-            containerView.removeFromSuperview()
-            target.container.addSubview(containerView, positioned: .above, relativeTo: target.reference)
-            installConstraints = [
-                containerView.topAnchor.constraint(equalTo: target.reference.topAnchor),
-                containerView.bottomAnchor.constraint(equalTo: target.reference.bottomAnchor),
-                containerView.leadingAnchor.constraint(equalTo: target.reference.leadingAnchor),
-                containerView.trailingAnchor.constraint(equalTo: target.reference.trailingAnchor),
-            ]
-            NSLayoutConstraint.activate(installConstraints)
-            installedReferenceView = target.reference
-        }
-
-        return true
-    }
-
-    func update(state: TmuxWorkspacePaneOverlayRenderState?) {
-        guard ensureInstalled() else { return }
-
-        if state == nil, lastRenderState == nil, containerView.isHidden {
-            return
-        }
-        if let state, state == lastRenderState {
-            return
-        }
-
-        if let state {
-            lastRenderState = state
-            model.apply(state)
-            hostingView.rootView = TmuxWorkspacePaneOverlayView(
-                unreadRects: model.unreadRects,
-                flashRect: model.flashRect,
-                flashStartedAt: model.flashStartedAt,
-                flashReason: model.flashReason
-            )
-            containerView.alphaValue = 1
-            containerView.isHidden = false
-        } else {
-            lastRenderState = nil
-            model.clear()
-            hostingView.rootView = TmuxWorkspacePaneOverlayView(
-                unreadRects: [],
-                flashRect: nil,
-                flashStartedAt: nil,
-                flashReason: nil
-            )
-            containerView.alphaValue = 0
-            containerView.isHidden = true
-        }
-    }
-}
-
-@MainActor
-private func tmuxWorkspacePaneWindowOverlayController(for window: NSWindow, createIfNeeded: Bool) -> WindowTmuxWorkspacePaneOverlayController? {
-    if let existing = objc_getAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey) as? WindowTmuxWorkspacePaneOverlayController {
-        return existing
-    }
-    guard createIfNeeded else { return nil }
-    let controller = WindowTmuxWorkspacePaneOverlayController(window: window)
-    objc_setAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    return controller
-}
+//
+// The window-level tmux pane overlay controller and its per-window factory now
+// live in CmuxWorkspaces (TmuxWorkspacePaneOverlayController +
+// TmuxWorkspacePaneOverlayRegistry), driven by the AppTmuxWorkspacePaneOverlayTarget
+// seam. ContentView holds one TmuxWorkspacePaneOverlayRegistry property and
+// forwards through it. The render-state producer
+// tmuxWorkspacePaneWindowOverlayState(for:) stays here: it reads live
+// TabManager/Workspace/sidebar god state and is the irreducible seam-bound DTO
+// source.
 
 // Lifted to `CmuxFoundation.WorkspaceMountPlan` / `MountedWorkspacePresentation`
 // (ContentView decomposition). These typealiases keep call sites short.
@@ -295,6 +190,9 @@ struct ContentView: View {
     @StateObject private var sessionIndexStore = SessionIndexStore()
     @State private var selectedWorkspaceDirectoryModel = SelectedWorkspaceDirectoryModel()
     @State private var selectedWorkspaceDirectoryReading = SelectedWorkspaceDirectoryReadingAdapter()
+    @State private var tmuxWorkspacePaneOverlayRegistry = TmuxWorkspacePaneOverlayRegistry(
+        target: AppTmuxWorkspacePaneOverlayTarget()
+    )
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var fileExplorerWidth: CGFloat = 220
@@ -2281,7 +2179,7 @@ struct ContentView: View {
 
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
             let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
-            tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
+            tmuxWorkspacePaneOverlayRegistry.controller(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
             let overlayController = WindowCommandPaletteOverlayController.installed(in: window)
             overlayController.update(isVisible: isCommandPalettePresented) { AnyView(commandPaletteOverlay) }
         }))
@@ -2512,7 +2410,7 @@ struct ContentView: View {
         let backdropResult = windowChrome.backdropController.apply(plan: backdropPlan, to: window)
         if backdropResult.didChangeGlassRoot {
             let tmuxOverlayState = tmuxWorkspacePaneWindowOverlayState(for: window)
-            tmuxWorkspacePaneWindowOverlayController(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
+            tmuxWorkspacePaneOverlayRegistry.controller(for: window, createIfNeeded: tmuxOverlayState != nil)?.update(state: tmuxOverlayState)
             WindowCommandPaletteOverlayController.installed(in: window)
                 .update(isVisible: isCommandPalettePresented) { commandPaletteOverlayView }
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)

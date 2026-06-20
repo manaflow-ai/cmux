@@ -79,6 +79,7 @@
 		D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */; };
 		A1C04E00A1C04E00A1C04E01 /* AppIconRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C04E00A1C04E00A1C04E04 /* AppIconRuntime.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
+		AAFD7A01000100010001000A /* AppTmuxWorkspacePaneOverlayTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAFD7A02000200020002000B /* AppTmuxWorkspacePaneOverlayTarget.swift */; };
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
@@ -1132,6 +1133,7 @@
 		D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconDockTilePlugin.swift; sourceTree = "<group>"; };
 		A1C04E00A1C04E00A1C04E04 /* AppIconRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconRuntime.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
+		AAFD7A02000200020002000B /* AppTmuxWorkspacePaneOverlayTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTmuxWorkspacePaneOverlayTarget.swift; sourceTree = "<group>"; };
 		A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowBackdropControllerDependencies.swift; sourceTree = "<group>"; };
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
 		A5001101 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -2517,6 +2519,7 @@
 				A1C04E00A1C04E00A1C04E04 /* AppIconRuntime.swift */,
 				A5001090 /* AppDelegate.swift */,
 				AAFD0002000200020002000B /* AppFileDropTarget.swift */,
+				AAFD7A02000200020002000B /* AppTmuxWorkspacePaneOverlayTarget.swift */,
 				3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */,
 				C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */,
 				C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */,
@@ -3578,6 +3581,7 @@
 				AAFD0001000100010001000A /* AppFileDropTarget.swift in Sources */,
 				A1C04E00A1C04E00A1C04E01 /* AppIconRuntime.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
+				AAFD7A01000100010001000A /* AppTmuxWorkspacePaneOverlayTarget.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
 				D9FEC58D5BACCF76459F1BBE /* AuthEnvironment.swift in Sources */,
