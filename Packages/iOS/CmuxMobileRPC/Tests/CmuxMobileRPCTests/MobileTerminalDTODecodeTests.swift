@@ -115,6 +115,61 @@ import Testing
         #expect(frame.surfaceID == "surface-2")
     }
 
+    @Test func renderGridEventNormalizesWrappedFullFrameToViewportDeltaEnvelope() throws {
+        let json = """
+        {
+          "render_grid": {
+            "format": "cmux.render-grid.v1",
+            "surface_id": "surface-2",
+            "state_seq": 3,
+            "columns": 4,
+            "rows": 2,
+            "full": true,
+            "row_spans": [
+              {
+                "row": 0,
+                "column": 0,
+                "style_id": 0,
+                "text": "abcd"
+              },
+              {
+                "row": 1,
+                "column": 0,
+                "style_id": 0,
+                "text": "efgh"
+              }
+            ]
+          }
+        }
+        """
+        let envelope = try #require(MobileTerminalRenderGridEvent.liveViewportEnvelope(from: Data(json.utf8)))
+
+        #expect(envelope.role == .viewportDelta)
+        #expect(envelope.frame.surfaceID == "surface-2")
+        #expect(envelope.frame.full == false)
+        #expect(envelope.ownsScrollback == false)
+        #expect(envelope.frame.rowSpans.map(\.row) == [0, 1])
+    }
+
+    @Test func renderGridEventNormalizesBareFrameToViewportDeltaEnvelope() throws {
+        let json = """
+        {
+          "format": "cmux.render-grid.v1",
+          "surface_id": "surface-3",
+          "state_seq": 5,
+          "columns": 4,
+          "rows": 1,
+          "full": false,
+          "row_spans": []
+        }
+        """
+        let envelope = try #require(MobileTerminalRenderGridEvent.liveViewportEnvelope(from: Data(json.utf8)))
+
+        #expect(envelope.role == .viewportDelta)
+        #expect(envelope.frame.surfaceID == "surface-3")
+        #expect(envelope.ownsScrollback == false)
+    }
+
     @Test func renderGridEventHasNilFrameWhenUnwrapped() throws {
         let json = """
         {

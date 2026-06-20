@@ -36,4 +36,41 @@ public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
     public static func decode(_ data: Data) throws -> MobileTerminalRenderGridEvent {
         try JSONDecoder().decode(Self.self, from: data)
     }
+
+    /// The live terminal event as a viewport-delta envelope.
+    ///
+    /// New hosts emit the typed envelope directly. Older hosts emitted a wrapped
+    /// or bare render-grid frame; normalize those frames here so the shell's
+    /// downstream output path still handles one protocol shape and never lets a
+    /// live event own scrollback metadata.
+    public static func liveViewportEnvelope(from data: Data) -> MobileTerminalRenderGridEnvelope? {
+        if let event = try? decode(data) {
+            if let envelope = event.envelope, envelope.role == .viewportDelta {
+                return envelope
+            }
+            if let frame = event.frame {
+                return viewportDeltaEnvelope(fromLegacyFrame: frame)
+            }
+        }
+        if let envelope = try? MobileTerminalRenderGridEnvelope.decode(data),
+           envelope.role == .viewportDelta {
+            return envelope
+        }
+        if let frame = try? MobileTerminalRenderGridFrame.decode(data) {
+            return viewportDeltaEnvelope(fromLegacyFrame: frame)
+        }
+        return nil
+    }
+
+    private static func viewportDeltaEnvelope(
+        fromLegacyFrame frame: MobileTerminalRenderGridFrame
+    ) -> MobileTerminalRenderGridEnvelope? {
+        if frame.full {
+            guard let delta = try? frame.filteredRows(Set(0..<frame.rows), full: false) else {
+                return nil
+            }
+            return try? MobileTerminalRenderGridEnvelope.viewportDelta(delta)
+        }
+        return try? MobileTerminalRenderGridEnvelope.viewportDelta(frame)
+    }
 }

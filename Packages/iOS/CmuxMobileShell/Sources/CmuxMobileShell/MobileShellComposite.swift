@@ -2208,6 +2208,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // compile-time.
             if MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
                 ticket.routes,
+                supportedKinds: runtime?.supportedRouteKinds ?? [],
                 isPhysicalDevice: Self.isPhysicalDevice
             ) {
                 throw MobileSyncPairingPayloadError.loopbackRouteRejected
@@ -3391,14 +3392,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for ticket: CmxAttachTicket,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
-        let orderedRoutes = ticket.routes.sorted(by: routeSortsBefore)
-        guard !supportedKinds.isEmpty else {
-            return orderedRoutes
-        }
-        let supportedKinds = Set(supportedKinds)
-        return orderedRoutes.filter { route in
-            supportedKinds.contains(route.kind)
-        }
+        MobileShellRouteAuthPolicy.supportedTicketRoutes(
+            ticket.routes,
+            supportedKinds: supportedKinds,
+            isPhysicalDevice: Self.isPhysicalDevice
+        )
     }
 
     private static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
@@ -5252,10 +5250,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let json = event.payloadJSON else {
             return
         }
-        let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
-        let envelope = renderGridDTO?.envelope ?? (try? MobileTerminalRenderGridEnvelope.decode(json))
+        let envelope = MobileTerminalRenderGridEvent.liveViewportEnvelope(from: json)
         guard let envelope,
-              envelope.role == .viewportDelta,
               hasTerminalOutputSink(surfaceID: envelope.frame.surfaceID) else {
             MobileDebugLog.anchormux("CMUX_REPLAY live render_grid_invalid_envelope")
             return
