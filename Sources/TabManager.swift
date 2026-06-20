@@ -2686,8 +2686,6 @@ class TabManager: ObservableObject {
     }
 
     func closeWorkspaceOnLastSurfacePreferenceEnabled() -> Bool {
-        // Stored under the legacy closeWorkspaceOnLastSurfaceShortcut key:
-        // true means closing the last surface closes the workspace.
         settings.value(for: settingsCatalog.app.keepWorkspaceOpenWhenClosingLastSurface)
     }
 
