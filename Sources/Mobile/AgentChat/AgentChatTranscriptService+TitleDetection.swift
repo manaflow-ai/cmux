@@ -36,14 +36,19 @@ extension AgentChatTranscriptService {
         }
     }
 
-    func clearTitleDetectionState(surfaceID: String) {
+    func clearTitleDetectionState(
+        surfaceID: String,
+        releaseTranscriptClaims: Bool = false
+    ) {
         pendingTitleChanges.removeValue(forKey: surfaceID)
         deliveredTitleKeys.removeValue(forKey: surfaceID)
         transcriptResolutionTasks[surfaceID]?.cancel()
         transcriptResolutionTasks[surfaceID] = nil
         transcriptResolutionKeys.removeValue(forKey: surfaceID)
         transcriptResolutionForcedRetryCounts.removeValue(forKey: surfaceID)
-        claimedDetectedTranscriptSessionIDsBySurfaceID.removeValue(forKey: surfaceID)
+        if releaseTranscriptClaims {
+            claimedDetectedTranscriptSessionIDsBySurfaceID.removeValue(forKey: surfaceID)
+        }
         detectionScanAt.removeValue(forKey: surfaceID)
     }
 

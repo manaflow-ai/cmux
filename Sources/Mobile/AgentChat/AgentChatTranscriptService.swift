@@ -351,7 +351,7 @@ final class AgentChatTranscriptService {
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
         if stateChanged, record.state == .ended {
             if let surfaceID = record.surfaceID {
-                clearTitleDetectionState(surfaceID: surfaceID)
+                clearTitleDetectionState(surfaceID: surfaceID, releaseTranscriptClaims: true)
             }
             if let tailer = tailers.removeValue(forKey: record.sessionID) {
                 // The transcript can no longer grow; release the file watcher
