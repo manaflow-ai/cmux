@@ -61,6 +61,12 @@
       "severity": "high"
     },
     {
+      "id": "cmux-swift-hot-event-fanout",
+      "rule": "Flag production Swift hot-path changes where a per-surface, per-pane, per-session, or per-row event widens into a workspace/app sweep, where a hot MainActor callback schedules unbounded filesystem/transcript/process/sort/filter/collection work without per-key coalescing, in-flight dedupe, cancellation, and bounded retries, or where SwiftUI lazy/list rows receive parent-computed volatile global state instead of immutable snapshots or row-local duplicate-filtered observation. Pass for explicit cold refresh/listing paths, tiny fixed-size collections, and benchmark-backed broad work.",
+      "scope": ["**/*.swift", "**/Package.swift"],
+      "severity": "high"
+    },
+    {
       "id": "cmux-swiftui-state-layout",
       "rule": "Flag SwiftUI changes that can cause stale state, broad invalidation, layout instability, or main-thread churn: new ObservableObject/@Published state where @Observable is correct, GeometryReader measurement that changes layout, lazy/list row subtrees holding store references, or state mutation during body rendering.",
       "scope": ["**/*.swift"],
