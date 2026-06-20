@@ -317,12 +317,12 @@ final class NotificationAuthorizationDeliveryTests {
             statusProviderCalls += 1
             pendingStatusCompletions.append(completion)
         }
-        store.configureLocalNotificationFeedbackHandlerForTesting { title, _, _, _ in
+        store.configureNotificationCommandRunnerForTesting { title, _, _ in
             feedbackTitles.append(title)
         }
         defer {
             store.resetNotificationAuthorizationStatusProviderForTesting()
-            store.resetLocalNotificationFeedbackHandlerForTesting()
+            store.resetNotificationCommandRunnerForTesting()
             store.setAuthorizationStateForTesting(originalAuthorizationState)
         }
 

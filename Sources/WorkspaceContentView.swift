@@ -3,7 +3,7 @@ import Foundation
 import AppKit
 import CmuxFoundation
 import Bonsplit
-import CmuxWorkspaceWindow
+import CmuxWorkspaces
 import CmuxTerminal
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {

@@ -12,6 +12,10 @@ void ghostty_surface_binding_action(void) {}
 void ghostty_surface_config_new(void) {}
 void ghostty_surface_free(void) {}
 void ghostty_surface_free_text(void) {}
+uint64_t ghostty_surface_foreground_pid(void *surface) {
+    (void)surface;
+    return 0;
+}
 void ghostty_surface_has_selection(void) {}
 void ghostty_surface_key(void) {}
 void ghostty_surface_mouse_button(void) {}
@@ -34,3 +38,7 @@ void ghostty_surface_set_size(void) {}
 void ghostty_surface_size(void) {}
 void ghostty_surface_text(void) {}
 void ghostty_surface_text_input(void) {}
+ghostty_string_s ghostty_surface_tty_name(void *surface) {
+    (void)surface;
+    return (ghostty_string_s){0};
+}

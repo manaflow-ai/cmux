@@ -1,5 +1,5 @@
 import CmuxAgentChat
-import CmuxFileWatch
+import CmuxFoundation
 import Foundation
 
 /// Tails one agent session's transcript JSONL: initial bounded backfill,
