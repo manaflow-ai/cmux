@@ -526,7 +526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 indicatorStyleDisplayName: { $0.displayName }
             ))
         },
-        debugWindowControlsContentProvider: { NSHostingView(rootView: DebugWindowControlsView()) },
+        debugWindowControlsContentProvider: { AppDelegate.debugWindowControlsContentView },
         menuBarExtraDebugRefresh: { AppDelegate.shared?.refreshMenuBarExtraForDebug() },
         backgroundDebugContentProvider: {
             NSHostingView(rootView: BackgroundDebugView(applyGlassTint: { tintColor in
@@ -625,6 +625,239 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight
         )
     }
+    #if DEBUG
+    /// Builds the content view for the package-owned "Debug Window Controls" panel
+    /// (`CmuxAppKitSupportUI`). The panel's window/lifecycle shell lives in the
+    /// package, but its content is irreducibly app-coupled: the "Open" buttons
+    /// present app-target debug windows, the browser DevTools pickers read the
+    /// app-target `BrowserDevToolsButtonDebugSettings` enum (one color resolves the
+    /// live app accent), the active-indicator labels resolve against the app bundle,
+    /// and the "Copy All Debug Config" payload interpolates app-target settings
+    /// enums. All of that is snapshotted/closed-over here and injected into the
+    /// package view; the package holds no reference to those app-target types.
+    static var debugWindowControlsContentView: NSView {
+        NSHostingView(rootView: DebugWindowControlsView(
+            openActions: debugWindowControlsOpenActions,
+            openAllAction: { AppDelegate.openAllDebugWindows() },
+            indicatorStyleDisplayName: { $0.displayName },
+            browserDevToolsIconKey: BrowserDevToolsButtonDebugSettings.iconNameKey,
+            browserDevToolsColorKey: BrowserDevToolsButtonDebugSettings.iconColorKey,
+            browserDevToolsDefaultIconRaw: BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue,
+            browserDevToolsDefaultColorRaw: BrowserDevToolsButtonDebugSettings.defaultColor.rawValue,
+            browserDevToolsIconOptions: BrowserDevToolsIconOption.allCases.map {
+                DebugBrowserDevToolsIconOption(rawValue: $0.rawValue, title: $0.title)
+            },
+            browserDevToolsColorOptions: BrowserDevToolsIconColorOption.allCases.map {
+                DebugBrowserDevToolsColorOption(rawValue: $0.rawValue, title: $0.title, color: $0.color)
+            },
+            resetBrowserDevToolsButton: { AppDelegate.resetBrowserDevToolsButton() },
+            copyBrowserDevToolsButtonConfig: { AppDelegate.copyBrowserDevToolsButtonConfig() },
+            copyAllDebugConfig: { AppDelegate.copyAllDebugConfig() }
+        ))
+    }
+
+    /// The ordered "Open" buttons for the Debug Window Controls panel, snapshotted
+    /// into package value rows. The titles are localized app-side and the closures
+    /// present app-target debug windows; the order matches the legacy in-view list.
+    private static var debugWindowControlsOpenActions: [DebugWindowControlAction] {
+        [
+            DebugWindowControlAction(id: 0, title: "Browser Import Hint Debug…") {
+                AppDelegate.shared?.debugWindowsCoordinator.showBrowserImportHintDebug()
+            },
+            DebugWindowControlAction(
+                id: 1,
+                title: String(
+                    localized: "debug.menu.browserProfilePopoverDebug",
+                    defaultValue: "Browser Profile Popover Debug…"
+                )
+            ) {
+                AppDelegate.shared?.debugWindowsCoordinator.showBrowserProfilePopoverDebug()
+            },
+            DebugWindowControlAction(
+                id: 2,
+                title: String(
+                    localized: "debug.menu.aboutTitlebarDebug",
+                    defaultValue: "About Titlebar Debug…"
+                )
+            ) {
+                AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
+            },
+            DebugWindowControlAction(
+                id: 3,
+                title: String(
+                    localized: "debug.menu.titlebarLayoutDebug",
+                    defaultValue: "Titlebar Layout Debug..."
+                )
+            ) {
+                TitlebarLayoutDebugWindowController.shared.show()
+            },
+            DebugWindowControlAction(id: 4, title: "Sidebar Debug…") {
+                AppDelegate.shared?.debugWindowsCoordinator.showSidebarDebug()
+            },
+            DebugWindowControlAction(id: 5, title: "Background Debug…") {
+                AppDelegate.shared?.debugWindowsCoordinator.showBackgroundDebug()
+            },
+            DebugWindowControlAction(
+                id: 6,
+                title: String(
+                    localized: "debug.menu.bonsplitTabBarDebug",
+                    defaultValue: "Bonsplit Tab Bar Debug…"
+                )
+            ) {
+                BonsplitTabBarDebugWindowController.shared.show()
+            },
+            DebugWindowControlAction(
+                id: 7,
+                title: String(
+                    localized: "debug.menu.startupAppearanceDebug",
+                    defaultValue: "Startup Appearance Debug…"
+                )
+            ) {
+                AppDelegate.shared?.debugWindowsCoordinator.showStartupAppearanceDebug()
+            },
+            DebugWindowControlAction(id: 8, title: "Menu Bar Extra Debug…") {
+                AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
+            },
+            DebugWindowControlAction(
+                id: 9,
+                title: String(
+                    localized: "debug.menu.pdfPreviewChromeDebug",
+                    defaultValue: "PDF Preview Chrome Debug…"
+                )
+            ) {
+                PDFPreviewChromeDebugWindowController.shared.show()
+            },
+            DebugWindowControlAction(
+                id: 10,
+                title: String(
+                    localized: "debug.menu.tabBarBackdropLab",
+                    defaultValue: "Tab Bar Backdrop Lab…"
+                )
+            ) {
+                AppDelegate.shared?.debugWindowsCoordinator.showTabBarBackdropLab()
+            },
+            DebugWindowControlAction(
+                id: 11,
+                title: String(
+                    localized: "debug.menu.feedTextEditorDebug",
+                    defaultValue: "Feed Text Editor Lab…"
+                )
+            ) {
+                FeedTextEditorDebugWindowController.shared.show()
+            },
+        ]
+    }
+
+    /// Opens every debug window, backing the panel's "Open All Debug Windows"
+    /// button. Byte-faithful to the legacy in-view action.
+    private static func openAllDebugWindows() {
+        AppDelegate.shared?.debugWindowsCoordinator.showDebugWindowControls()
+        AppDelegate.shared?.debugWindowsCoordinator.showBrowserImportHintDebug()
+        AppDelegate.shared?.debugWindowsCoordinator.showBrowserProfilePopoverDebug()
+        AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
+        TitlebarLayoutDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showSidebarDebug()
+        AppDelegate.shared?.debugWindowsCoordinator.showBackgroundDebug()
+        BonsplitTabBarDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showStartupAppearanceDebug()
+        AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
+        PDFPreviewChromeDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showTabBarBackdropLab()
+        FeedTextEditorDebugWindowController.shared.show()
+    }
+
+    /// Resets the browser DevTools button to its defaults. Byte-faithful to the
+    /// legacy in-view action (writes the two Defaults keys directly).
+    private static func resetBrowserDevToolsButton() {
+        UserDefaults.standard.set(
+            BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue,
+            forKey: BrowserDevToolsButtonDebugSettings.iconNameKey
+        )
+        UserDefaults.standard.set(
+            BrowserDevToolsButtonDebugSettings.defaultColor.rawValue,
+            forKey: BrowserDevToolsButtonDebugSettings.iconColorKey
+        )
+    }
+
+    /// Copies the browser DevTools button config payload to the pasteboard.
+    /// Byte-faithful to the legacy in-view action.
+    private static func copyBrowserDevToolsButtonConfig() {
+        let payload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: .standard)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
+
+    /// Copies the combined sidebar/titlebar/background/menu-bar/browser-devtools
+    /// snapshot via the package `DebugWindowConfigSnapshotService`. The service owns
+    /// the generic UserDefaults-coercion helpers and the pasteboard plumbing; the
+    /// combined payload text stays here because it interpolates app-target settings
+    /// enums and catalog-section keys, so it is supplied through the injected closure
+    /// (the service is captured to reuse its coercion helpers). Byte-faithful to the
+    /// legacy in-view action.
+    private static func copyAllDebugConfig() {
+        var service: DebugWindowConfigSnapshotService?
+        let built = DebugWindowConfigSnapshotService(defaults: .standard) {
+            guard let service else { return "" }
+            return AppDelegate.combinedDebugConfigPayload(using: service)
+        }
+        service = built
+        built.copyCombinedToPasteboard()
+    }
+
+    private static func combinedDebugConfigPayload(
+        using service: DebugWindowConfigSnapshotService
+    ) -> String {
+        let defaults = service.defaults
+        let sidebarPayload = """
+        sidebarPreset=\(service.stringValue(key: "sidebarPreset", fallback: SidebarPresetOption.nativeSidebar.rawValue))
+        sidebarMaterial=\(service.stringValue(key: "sidebarMaterial", fallback: SidebarMaterialOption.sidebar.rawValue))
+        sidebarBlendMode=\(service.stringValue(key: "sidebarBlendMode", fallback: SidebarBlendModeOption.withinWindow.rawValue))
+        sidebarState=\(service.stringValue(key: "sidebarState", fallback: SidebarStateOption.followWindow.rawValue))
+        sidebarBlurOpacity=\(String(format: "%.2f", service.doubleValue(key: "sidebarBlurOpacity", fallback: 1.0)))
+        sidebarTintHex=\(service.stringValue(key: "sidebarTintHex", fallback: "#000000"))
+        sidebarTintHexLight=\(service.stringValue(key: "sidebarTintHexLight", fallback: "(nil)"))
+        sidebarTintHexDark=\(service.stringValue(key: "sidebarTintHexDark", fallback: "(nil)"))
+        sidebarTintOpacity=\(String(format: "%.2f", service.doubleValue(key: "sidebarTintOpacity", fallback: 0.18)))
+        sidebarCornerRadius=\(String(format: "%.1f", service.doubleValue(key: "sidebarCornerRadius", fallback: 0.0)))
+        sidebarBranchVerticalLayout=\(service.boolValue(key: SidebarCatalogSection().branchVerticalLayout.userDefaultsKey, fallback: SidebarCatalogSection().branchVerticalLayout.defaultValue))
+        sidebarBranchDirectoryStacked=\(service.boolValue(key: SidebarCatalogSection().stackBranchDirectory.userDefaultsKey, fallback: SidebarCatalogSection().stackBranchDirectory.defaultValue))
+        sidebarPathLastSegmentOnly=\(service.boolValue(key: SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey, fallback: SidebarCatalogSection().pathLastSegmentOnly.defaultValue))
+        sidebarActiveTabIndicatorStyle=\(service.stringValue(key: WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey, fallback: WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue))
+        sidebarDevBuildBannerVisible=\(service.boolValue(key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
+        sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
+        """
+
+        let backgroundPayload = """
+        bgGlassEnabled=\(service.boolValue(key: "bgGlassEnabled", fallback: false))
+        bgGlassMaterial=\(service.stringValue(key: "bgGlassMaterial", fallback: "hudWindow"))
+        bgGlassTintHex=\(service.stringValue(key: "bgGlassTintHex", fallback: "#000000"))
+        bgGlassTintOpacity=\(String(format: "%.2f", service.doubleValue(key: "bgGlassTintOpacity", fallback: 0.03)))
+        """
+
+        let menuBarPayload = MenuBarIconDebugSettings.copyPayload(defaults: defaults)
+        let browserDevToolsPayload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
+        let titlebarLayoutPayload = TitlebarLayoutDebugSettingsSnapshot.copyPayload(defaults: defaults)
+
+        return """
+        # Sidebar Debug
+        \(sidebarPayload)
+
+        # Titlebar Layout Debug
+        \(titlebarLayoutPayload)
+
+        # Background Debug
+        \(backgroundPayload)
+
+        # Menu Bar Extra Debug
+        \(menuBarPayload)
+
+        # Browser DevTools Button
+        \(browserDevToolsPayload)
+        """
+    }
+    #endif
+
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
