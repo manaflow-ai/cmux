@@ -221,6 +221,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The group sections the UI renders. A materialized derivation of
     /// ``workspacesByMac`` (currently the foreground Mac's groups).
     public private(set) var workspaceGroups: [MobileWorkspaceGroupPreview] = []
+
+    /// The distinct per-Mac color index map (the SAME assignment the aggregated
+    /// workspace avatars use), so the Computers screen can color each Mac's row to
+    /// match its workspaces. Keyed by `macDeviceID`.
+    public var machineColorIndex: [String: Int] {
+        MobileWorkspaceAggregation.machineColorIndex(statesByMac: workspacesByMac)
+    }
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.

@@ -39,6 +39,7 @@ struct DeviceTreeView: View {
     private var computers: [MacComputerSnapshot] {
         let connectedID = store.connectedMacDeviceID
         let workspaces = store.workspaces
+        let colorIndex = store.machineColorIndex
         return store.pairedMacs.map { mac in
             let isConnected = mac.macDeviceID == connectedID
             let presence: DeviceTreePresence? = store.presenceMap.deviceSummary(deviceId: mac.macDeviceID)
@@ -47,6 +48,7 @@ struct DeviceTreeView: View {
                 deviceId: mac.macDeviceID,
                 title: mac.displayName ?? mac.macDeviceID,
                 platform: "mac",
+                colorIndex: colorIndex[mac.macDeviceID],
                 lastSeenAt: mac.lastSeenAt,
                 workspaceCount: workspaces.filter { $0.macDeviceID == mac.macDeviceID }.count,
                 isConnected: isConnected,

@@ -61,6 +61,13 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
+    /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
+    /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
+    /// share one avatar color and different Macs are guaranteed distinct. `nil`
+    /// outside the aggregated list (the avatar then falls back to a hash of the
+    /// id). Not part of the Mac's reported data, so it has a default and is set by
+    /// derivation, not the decoders.
+    public var machineColorIndex: Int? = nil
 
     /// Creates a workspace preview.
     /// - Parameters:

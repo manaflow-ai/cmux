@@ -12,6 +12,9 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     let deviceId: String
     let title: String
     let platform: String
+    /// The Mac's distinct color index (matches its workspaces' avatar color in the
+    /// list). `nil` falls back to a hash of the device id.
+    var colorIndex: Int?
     let lastSeenAt: Date
     /// How many aggregated workspaces this computer currently contributes.
     let workspaceCount: Int
@@ -37,7 +40,7 @@ struct MacComputerRow: View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(MachineAvatarColors.gradient(machineID: computer.deviceId, fallbackID: computer.deviceId))
+                    .fill(avatarGradient)
                     .frame(width: 40, height: 40)
                 Image(systemName: platformSymbol)
                     .font(.system(size: 16, weight: .semibold))
@@ -77,6 +80,13 @@ struct MacComputerRow: View {
                     ? L10n.string("mobile.deviceTree.online", defaultValue: "Online")
                     : L10n.string("mobile.deviceTree.offline", defaultValue: "Offline"))
         }
+    }
+
+    private var avatarGradient: LinearGradient {
+        if let colorIndex = computer.colorIndex {
+            return MachineAvatarColors.gradient(index: colorIndex)
+        }
+        return MachineAvatarColors.gradient(machineID: computer.deviceId, fallbackID: computer.deviceId)
     }
 
     private var isOnline: Bool {

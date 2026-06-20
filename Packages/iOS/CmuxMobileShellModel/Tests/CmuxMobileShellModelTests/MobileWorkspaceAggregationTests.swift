@@ -20,6 +20,30 @@ import Testing
         )
     }
 
+    @Test func distinctMacsGetDistinctColorIndicesAndSameMacShares() {
+        let states = [
+            "mac-a": state("mac-a", name: "Alpha", ["a1", "a2"]),
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+        ]
+        let idx = MobileWorkspaceAggregation.machineColorIndex(statesByMac: states)
+        // Different Macs must never collide on one color (the "both yellow" bug).
+        #expect(idx["mac-a"] != idx["mac-b"])
+        let derived = MobileWorkspaceAggregation.derivedWorkspaces(statesByMac: states, foregroundMacDeviceID: "mac-a")
+        // Same Mac's workspaces all carry that Mac's single color index.
+        #expect(derived.filter { $0.macDeviceID == "mac-a" }.allSatisfy { $0.machineColorIndex == idx["mac-a"] })
+        #expect(derived.first { $0.macDeviceID == "mac-b" }?.machineColorIndex == idx["mac-b"])
+    }
+
+    @Test func colorIndexIgnoresEmptyMacKeys() {
+        let states = [
+            "": state("", name: nil, ["x"]),
+            "mac-a": state("mac-a", name: "Alpha", ["a1"]),
+        ]
+        let idx = MobileWorkspaceAggregation.machineColorIndex(statesByMac: states)
+        #expect(idx[""] == nil)
+        #expect(idx["mac-a"] != nil)
+    }
+
     @Test func foregroundWorkspacesComeFirst() {
         let states = [
             "mac-b": state("mac-b", name: "Beta", ["b1", "b2"]),

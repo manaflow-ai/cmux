@@ -32,11 +32,16 @@ extension MobileWorkspacePreview {
     }
 
     var avatarGradient: LinearGradient {
-        // Color is keyed to the owning Mac (``MachineAvatarColors``) so every
-        // workspace on the same machine — and that Mac's row on the Computers
-        // screen — share one color; the symbol still encodes the per-workspace
-        // terminal count.
-        MachineAvatarColors.gradient(machineID: macDeviceID, fallbackID: id.rawValue)
+        // Color is keyed to the owning Mac so every workspace on the same machine —
+        // and that Mac's row on the Computers screen — share one color; the symbol
+        // still encodes the per-workspace terminal count. Prefer the distinct
+        // per-Mac color index assigned by the aggregation (guaranteed distinct
+        // across Macs); fall back to a hash of the id only outside the aggregated
+        // list, where no index is available.
+        if let machineColorIndex {
+            return MachineAvatarColors.gradient(index: machineColorIndex)
+        }
+        return MachineAvatarColors.gradient(machineID: macDeviceID, fallbackID: id.rawValue)
     }
 
     /// The row's trailing slot: the connection problem when there is one,

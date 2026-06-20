@@ -74,20 +74,40 @@ public enum MobileWorkspaceAggregation {
         }.map(\.macDeviceID)
     }
 
+    /// A DISTINCT, stable color index per Mac, assigned by sorted device id so two
+    /// different Macs never share a color (a hash of the id collides ~1/8 of the
+    /// time for just two Macs — exactly the "both yellow" case). The UI maps the
+    /// index modulo its palette size to a concrete color; up to the palette size
+    /// every Mac is distinct, beyond that they wrap. Keyed by `macDeviceID`.
+    public static func machineColorIndex(
+        statesByMac: [String: MacWorkspaceState]
+    ) -> [String: Int] {
+        var result: [String: Int] = [:]
+        for (offset, macID) in statesByMac.keys.filter({ !$0.isEmpty }).sorted().enumerated() {
+            result[macID] = offset
+        }
+        return result
+    }
+
     /// Derive the flat, ordered, de-duplicated workspace list across all Macs.
     /// Foreground Mac first, then the rest in `orderedMacIDs` order. De-dup by
     /// workspace id (the foreground Mac wins a collision, since its row is the
-    /// live interactive one). Pure and transport-agnostic.
+    /// live interactive one). Each workspace is stamped with its Mac's
+    /// ``machineColorIndex`` so same-Mac workspaces share one color and different
+    /// Macs are guaranteed distinct. Pure and transport-agnostic.
     public static func derivedWorkspaces(
         statesByMac: [String: MacWorkspaceState],
         foregroundMacDeviceID: String?
     ) -> [MobileWorkspacePreview] {
+        let colorIndex = machineColorIndex(statesByMac: statesByMac)
         var result: [MobileWorkspacePreview] = []
         var seen = Set<MobileWorkspacePreview.ID>()
         for macID in orderedMacIDs(statesByMac: statesByMac, foregroundMacDeviceID: foregroundMacDeviceID) {
             guard let state = statesByMac[macID] else { continue }
             for workspace in state.workspaces where seen.insert(workspace.id).inserted {
-                result.append(workspace)
+                var stamped = workspace
+                stamped.machineColorIndex = workspace.macDeviceID.flatMap { colorIndex[$0] }
+                result.append(stamped)
             }
         }
         return result

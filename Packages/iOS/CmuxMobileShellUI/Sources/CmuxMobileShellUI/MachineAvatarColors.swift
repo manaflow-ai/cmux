@@ -18,9 +18,18 @@ enum MachineAvatarColors {
         [Color.brown, Color.orange],
     ]
 
-    /// The gradient for a machine, keyed to `machineID` (falling back to
-    /// `fallbackID` when the machine is unknown — e.g. a local single-Mac session
-    /// before its device id resolves).
+    /// The gradient for a DISTINCT machine color index (from
+    /// ``MobileWorkspaceAggregation/machineColorIndex``), wrapping at the palette
+    /// size. This is the preferred path in the aggregated list: distinct Macs get
+    /// distinct colors instead of occasionally colliding on a shared hash slot.
+    static func gradient(index: Int) -> LinearGradient {
+        let slot = ((index % palettes.count) + palettes.count) % palettes.count
+        return LinearGradient(colors: palettes[slot], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    /// Fallback gradient keyed to a hash of `machineID` (or `fallbackID` when the
+    /// machine is unknown). Used only where no assigned color index is available
+    /// (a non-aggregated preview); the hash can collide, so prefer ``gradient(index:)``.
     static func gradient(machineID: String?, fallbackID: String) -> LinearGradient {
         let slot = MachineAvatarPalette.slot(
             machineID: machineID,
