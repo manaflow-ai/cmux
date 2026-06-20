@@ -90,6 +90,24 @@ import Testing
         await client.release()
     }
 
+    @Test func cancelledAuthPhaseDoesNotStartSecondStuckOperation() async {
+        let clock = ManualTestClock()
+        let client = ReleasableCancellationIgnoringMagicLinkAuthClient()
+        let coordinator = makeCoordinator(client: client, clock: clock)
+
+        let firstSend = Task { try await coordinator.sendCode(to: "a@b.com") }
+        await client.waitForStartCount(1)
+        firstSend.cancel()
+        await #expect(throws: AuthError.cancelled) { try await firstSend.value }
+        #expect(coordinator.isLoading == false)
+
+        let secondSend = Task { try await coordinator.sendCode(to: "a@b.com") }
+        await #expect(throws: AuthError.timedOut) { try await secondSend.value }
+        #expect(await client.startCount == 1)
+
+        await client.release()
+    }
+
     @Test func timedOutCredentialExchangeIsCancelledBeforeItCanWriteTokens() async throws {
         let clock = ManualTestClock()
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
@@ -104,13 +122,45 @@ import Testing
 
         await #expect(throws: AuthError.timedOut) { try await signIn.value }
         #expect(coordinator.isLoading == false)
+        #expect(coordinator.activeSignInExchanges.count == 1)
 
         let retry = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await clock.waitUntilSleepers()
+        clock.advance(by: Self.testTimeouts.network)
+        await #expect(throws: AuthError.timedOut) { try await retry.value }
+        #expect(await client.credentialStartCount == 1)
+        #expect(coordinator.activeSignInExchanges.count == 1)
+
+        await client.releaseParkedCredential()
+        await waitUntilSignInExchangeCleanupFinished(coordinator)
+        await waitUntilTokensCleared(client)
+
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
+        #expect(coordinator.isAuthenticated == false)
+    }
+
+    @Test func cancelledCredentialExchangeDoesNotStartSecondStuckExchange() async throws {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let coordinator = makeCoordinator(client: client, clock: clock)
+
+        await client.armCredentialGate()
+        let signIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.credentialDidPark()
+        signIn.cancel()
+        await #expect(throws: AuthError.cancelled) { try await signIn.value }
+        #expect(coordinator.isLoading == false)
+
+        let retry = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await clock.waitUntilSleepers()
+        clock.advance(by: Self.testTimeouts.network)
         await #expect(throws: AuthError.timedOut) { try await retry.value }
         #expect(await client.credentialStartCount == 1)
 
         await client.releaseParkedCredential()
-        try await Task.sleep(for: .milliseconds(10))
+        await waitUntilTokensCleared(client)
 
         #expect(await client.accessToken() == nil)
         #expect(await client.refreshToken() == nil)
@@ -141,6 +191,100 @@ import Testing
         #expect(await client.accessStartCount == 1)
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
+        await client.releaseHangingAccessTokenProbe()
+        await waitUntilValidationCleanupFinished(coordinator)
+    }
+
+    @Test func cancelledAccessTokenCallCancelsUnderlyingTokenPhase() async {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = CancellationAwareAccessTokenAuthClient(user: user)
+        let coordinator = makeCoordinator(client: client, clock: clock)
+
+        let accessToken = Task { try await coordinator.accessToken() }
+        await client.accessDidStart()
+        accessToken.cancel()
+
+        await #expect(throws: CancellationError.self) { try await accessToken.value }
+        await client.accessDidCancel()
+        await client.releaseAccessToken()
+        await waitUntilTokenTouchingCleanupFinished(coordinator)
+    }
+
+    @Test func timedOutAccessTokenCallDoesNotStartSecondStuckTokenPhase() async {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = HangingLaunchTokenProbeAuthClient(user: user)
+        let coordinator = makeCoordinator(client: client, clock: clock)
+
+        let first = Task { try await coordinator.accessToken() }
+        await client.accessTokenDidStart()
+        await clock.waitUntilSleepers()
+        clock.advance(by: Self.testTimeouts.network)
+        await #expect(throws: AuthError.timedOut) { try await first.value }
+
+        let second = Task { try await coordinator.accessToken() }
+        await #expect(throws: AuthError.timedOut) { try await second.value }
+        #expect(await client.accessStartCount == 1)
+
+        await client.releaseHangingAccessTokenProbe()
+        await waitUntilTokenTouchingCleanupFinished(coordinator)
+    }
+
+    @Test func timedOutAccessTokenPhaseRetriesAfterBoundedReset() async throws {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = HangingLaunchTokenProbeAuthClient(user: user)
+        let coordinator = makeCoordinator(client: client, clock: clock)
+        coordinator.tokenTouchingTimedOutResetNanoseconds = 0
+
+        let first = Task { try await coordinator.accessToken() }
+        await client.accessTokenDidStart()
+        await clock.waitUntilSleepers()
+        clock.advance(by: Self.testTimeouts.network)
+        await #expect(throws: AuthError.timedOut) { try await first.value }
+
+        let second = Task { try await coordinator.accessToken() }
+        await #expect(throws: AuthError.timedOut) { try await second.value }
+        #expect(await client.accessStartCount == 1)
+
+        await client.releaseHangingAccessTokenProbe()
+        await waitUntilTokenTouchingCleanupFinished(coordinator)
+
+        await #expect(throws: AuthError.networkError) {
+            try await coordinator.accessToken()
+        }
+        #expect(await client.accessStartCount == 2)
+    }
+
+    @Test func timedOutSessionValidationCannotRestoreTokensAfterSignOut() async throws {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = ParkedValidationTokenRefreshAuthClient(user: user)
+        let coordinator = makeCoordinator(
+            client: client,
+            clock: clock,
+            cachedUser: user,
+            hasCachedTokens: true
+        )
+
+        let validation = Task { await coordinator.revalidateSession() }
+        await client.validationDidPark()
+        await clock.waitUntilSleepers()
+        clock.advance(by: Self.testTimeouts.network)
+        await validation.value
+
+        await coordinator.signOut()
+        #expect(coordinator.isAuthenticated == false)
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
+
+        await client.releaseValidationWithStaleTokenWrite()
+        await waitUntilTokensCleared(client)
+
+        #expect(coordinator.isAuthenticated == false)
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
     }
 
     @Test func lateDeadlineCannotPoisonCompletedAuthPhase() async {
@@ -149,12 +293,57 @@ import Testing
         let id = UUID()
         #expect(await registry.canBegin(.sendCode))
         #expect(await registry.begin(.sendCode, id: id))
+        #expect(await registry.canBegin(.sendCode) == false)
         #expect(await race.winOperation())
         #expect(await race.winTimeout() == false)
         await registry.markTimedOut(.sendCode, id: id)
         #expect(await registry.canBegin(.sendCode) == false)
         await registry.end(.sendCode, id: id)
         #expect(await registry.canBegin(.sendCode))
+    }
+
+    @Test func timedOutAuthPhaseRegistryRetriesAfterBoundedReset() async {
+        let registry = AuthPhaseTimeoutRegistry(timedOutResetNanoseconds: 0)
+        let first = UUID()
+        #expect(await registry.begin(.sendCode, id: first))
+        await registry.markTimedOut(.sendCode, id: first)
+        #expect(await registry.canBegin(.sendCode))
+
+        let second = UUID()
+        #expect(await registry.begin(.sendCode, id: second))
+        await registry.end(.sendCode, id: second)
+        #expect(await registry.canBegin(.sendCode))
+    }
+
+    @Test func completedAuthPhaseClearsRegistryBeforeResumingCaller() async throws {
+        let registry = AuthPhaseTimeoutRegistry()
+        let clock = ManualTestClock()
+        let log = AuthDebugLog()
+
+        let first = try await withAuthPhaseTimeout(
+            .validateSession,
+            duration: .seconds(1),
+            clock: clock,
+            log: log,
+            registry: registry,
+            blocksRetriesWhileTimedOutOperationActive: true
+        ) {
+            "first"
+        }
+        #expect(first == "first")
+        #expect(await registry.canBegin(.validateSession))
+
+        let second = try await withAuthPhaseTimeout(
+            .validateSession,
+            duration: .seconds(1),
+            clock: clock,
+            log: log,
+            registry: registry,
+            blocksRetriesWhileTimedOutOperationActive: true
+        ) {
+            "second"
+        }
+        #expect(second == "second")
     }
 
     @Test func launchRestoreTokenProbeTimeoutKeepsCachedSessionInteractive() async throws {
@@ -189,6 +378,8 @@ import Testing
         #expect(coordinator.isRestoringSession == false)
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
+        await client.releaseHangingAccessTokenProbe()
+        await waitUntilValidationCleanupFinished(coordinator)
     }
 
     @Test func promptPhasesWinTheirDeadlinesWithoutAdvancingTime() async throws {
@@ -235,4 +426,50 @@ import Testing
         // (transient), unlike a definitive .unauthorized.
         #expect(AuthError.timedOut.cachedSessionValidationFailureAction == .preserveCachedSession)
     }
+
+    private func waitUntilTokensCleared(_ client: GateableValidationAuthClient) async {
+        for _ in 0..<100 {
+            if await client.accessToken() == nil, await client.refreshToken() == nil {
+                return
+            }
+            await Task.yield()
+        }
+    }
+
+    private func waitUntilTokensCleared(_ client: ParkedValidationTokenRefreshAuthClient) async {
+        for _ in 0..<100 {
+            if await client.accessToken() == nil, await client.refreshToken() == nil {
+                return
+            }
+            await Task.yield()
+        }
+    }
+
+    private func waitUntilValidationCleanupFinished(_ coordinator: AuthCoordinator) async {
+        for _ in 0..<100 {
+            if coordinator.activeSessionValidations.isEmpty {
+                return
+            }
+            await Task.yield()
+        }
+    }
+
+    private func waitUntilSignInExchangeCleanupFinished(_ coordinator: AuthCoordinator) async {
+        for _ in 0..<100 {
+            if coordinator.activeSignInExchanges.isEmpty {
+                return
+            }
+            await Task.yield()
+        }
+    }
+
+    private func waitUntilTokenTouchingCleanupFinished(_ coordinator: AuthCoordinator) async {
+        for _ in 0..<100 {
+            if coordinator.activeTokenTouchingPhases.isEmpty {
+                return
+            }
+            await Task.yield()
+        }
+    }
+
 }

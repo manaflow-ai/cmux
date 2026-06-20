@@ -11,6 +11,9 @@ public protocol MobileSyncRuntime: Sendable {
     var transportFactory: any CmxByteTransportFactory { get }
     /// Mints a Stack Auth access token for requests not covered by an attach ticket.
     var stackAccessTokenProvider: @Sendable () async throws -> String { get }
+    /// Returns a cached Stack Auth access token for best-effort status probes.
+    /// Must not refresh, cancel, or otherwise mutate auth state.
+    var stackAccessTokenForStatusProvider: @Sendable () async -> String? { get }
     /// Force-mints a fresh Stack Auth access token, bypassing any cached-token
     /// freshness check. The connection layer calls this exactly once after the
     /// host rejects a request on auth grounds, so the retry presents a genuinely
@@ -43,6 +46,11 @@ public protocol MobileSyncRuntime: Sendable {
 }
 
 public extension MobileSyncRuntime {
+    /// Returns a cached Stack access token for best-effort status probes.
+    var stackAccessTokenForStatusProvider: @Sendable () async -> String? {
+        { nil }
+    }
+
     /// Default user-facing pairing deadline. Individual RPCs can have their own
     /// request timeout, but the sheet must not spin through stacked route waits.
     var pairingAttemptTimeoutNanoseconds: UInt64 { 8_000_000_000 }

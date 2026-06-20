@@ -9,6 +9,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
     var supportedRouteKinds: [CmxAttachTransportKind]
     var transportFactory: any CmxByteTransportFactory
     var stackAccessTokenProvider: @Sendable () async throws -> String
+    var stackAccessTokenForStatusProvider: @Sendable () async -> String?
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String
     var rpcRequestTimeoutNanoseconds: UInt64
     var pairingRequestTimeoutNanoseconds: UInt64
@@ -19,6 +20,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
         transportFactory: any CmxByteTransportFactory,
         supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .iroh, .websocket, .debugLoopback],
         stackAccessToken: String? = "test-stack-token",
+        stackAccessTokenForStatus: String? = nil,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
@@ -31,6 +33,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
             guard let stackAccessToken else { throw MissingTestStackAccessToken() }
             return stackAccessToken
         }
+        self.stackAccessTokenForStatusProvider = { stackAccessTokenForStatus }
         self.stackAccessTokenForceRefresher = {
             guard let stackAccessToken else { throw MissingTestStackAccessToken() }
             return stackAccessToken

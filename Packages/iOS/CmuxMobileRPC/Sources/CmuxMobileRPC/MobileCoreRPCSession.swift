@@ -1,16 +1,13 @@
 internal import CMUXMobileCore
 import Foundation
 
-/// Owns a single persistent transport for a ``MobileCoreRPCClient``, multiplexes
-/// requests by id, and dispatches server-pushed events to registered listeners.
-///
-/// No polling: the reader task runs continuously, parking on `transport.receive()`
-/// until the kernel delivers bytes. Request deadlines are attached to pending
-/// continuations so a hung transport cannot keep the caller waiting forever.
 actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
     typealias PendingContinuation = CheckedContinuation<Result<Data, MobileShellConnectionError>, Never>
+    typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
+    static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
+    static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
 
     struct EventSubscription {
         let id: UUID
@@ -23,40 +20,43 @@ actor MobileCoreRPCSession {
     }
 
     private struct PendingWrite: Sendable {
+        let id: UUID
         let requestID: String
         let frame: Data
     }
 
     private let taskTimeout = RPCTaskTimeout()
+    private let connectAttemptKey: String?
+    let connectAttemptRegistry: MobileRPCConnectAttemptRegistry
+    let abandonedConnectCleanupTimeoutNanoseconds: UInt64
+    let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
     private let makeTransport: TransportFactory
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private var transport: (any CmxByteTransport)?
-    private var connectionTask: (
-        id: UUID,
-        task: Task<any CmxByteTransport, any Error>,
-        waiters: Int,
-        timedOut: Bool,
-        completed: Bool
-    )?
+    private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
     private var pending: [String: PendingContinuation] = [:]
     private var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
-    private var queuedRequestIDs: Set<String> = []
-    private var cancelledQueuedRequestIDs: Set<String> = []
+    private var queuedWriteIDs: [String: UUID] = [:]
+    private var cancelledQueuedWriteIDs: Set<UUID> = []
     private var listeners: [UUID: EventListener] = [:]
     private var isTearingDown: Bool = false
-    /// Pending writes drained by `writerTask`. Serializes `transport.send` so
-    /// two concurrent `send(payload:requestID:)` callers never trip
-    /// `CmxNetworkByteTransport.sendAlreadyInProgress`. AsyncStream backed so
-    /// the writer parks on `await` instead of polling.
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
 
     init(
+        connectAttemptKey: String? = nil,
+        connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
+        abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
+        lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         makeTransport: @escaping TransportFactory,
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil
     ) {
+        self.connectAttemptKey = connectAttemptKey
+        self.connectAttemptRegistry = connectAttemptRegistry
+        self.abandonedConnectCleanupTimeoutNanoseconds = abandonedConnectCleanupTimeoutNanoseconds
+        self.lateAbandonedConnectCloseTimeoutNanoseconds = lateAbandonedConnectCloseTimeoutNanoseconds
         self.makeTransport = makeTransport
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
     }
@@ -77,14 +77,11 @@ actor MobileCoreRPCSession {
 
         let result: Result<Data, MobileShellConnectionError> = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                // Register BEFORE handing the frame to the writer so a fast
-                // response can't race past us. Writer pulls frames serially
-                // from `writeQueue`, so concurrent senders never overlap a
-                // `transport.send()` call.
-                guard pending[requestID] == nil, !queuedRequestIDs.contains(requestID) else {
+                guard pending[requestID] == nil, queuedWriteIDs[requestID] == nil else {
                     continuation.resume(returning: .failure(.invalidResponse))
                     return
                 }
+                let queuedWriteID = UUID()
                 pending[requestID] = continuation
                 requestTimeoutTasks[requestID]?.cancel()
                 requestTimeoutTasks[requestID] = Task { [weak self, taskTimeout] in
@@ -102,8 +99,8 @@ actor MobileCoreRPCSession {
                     continuation.resume(returning: .failure(.connectionClosed))
                     return
                 }
-                queuedRequestIDs.insert(requestID)
-                _ = queue.yield(PendingWrite(requestID: requestID, frame: frame))
+                queuedWriteIDs[requestID] = queuedWriteID
+                _ = queue.yield(PendingWrite(id: queuedWriteID, requestID: requestID, frame: frame))
             }
         } onCancel: {
             Task {
@@ -139,6 +136,8 @@ actor MobileCoreRPCSession {
         listeners.removeValue(forKey: id)
     }
 
+    func connectWaiterCountForTesting() -> Int { connectionTask?.waiters.count ?? 0 }
+
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }
         isTearingDown = true
@@ -146,8 +145,8 @@ actor MobileCoreRPCSession {
         pending.removeAll()
         let timeoutSnapshot = requestTimeoutTasks
         requestTimeoutTasks.removeAll()
-        queuedRequestIDs.removeAll()
-        cancelledQueuedRequestIDs.removeAll()
+        queuedWriteIDs.removeAll()
+        cancelledQueuedWriteIDs.removeAll()
         for (_, task) in timeoutSnapshot {
             task.cancel()
         }
@@ -159,14 +158,12 @@ actor MobileCoreRPCSession {
         for (_, listener) in listenerSnapshot {
             listener.continuation.finish()
         }
-        // Stop the writer loop before closing the transport so we don't try to
-        // write into a half-closed socket and never trigger
-        // sendAlreadyInProgress on a torn-down state.
         writeQueue?.finish()
         writeQueue = nil
         writerTask?.cancel()
         writerTask = nil
-        connectionTask?.task.cancel()
+        let connecting = connectionTask
+        connecting?.task.cancel()
         connectionTask = nil
         installedConnectionID = nil
         if let transport {
@@ -175,6 +172,7 @@ actor MobileCoreRPCSession {
         transport = nil
         readerTask?.cancel()
         readerTask = nil
+        if let connecting { await abandonConnectionTask(connecting) }
         isTearingDown = false
     }
 
@@ -183,22 +181,35 @@ actor MobileCoreRPCSession {
     private func ensureConnected(timeoutNanoseconds: UInt64) async throws -> any CmxByteTransport {
         if let transport { return transport }
 
+        let waiterID = UUID()
         let connectionID: UUID
+        let connectLease: MobileRPCConnectAttemptLease?
         let task: Task<any CmxByteTransport, any Error>
         if let existing = connectionTask {
-            guard !existing.timedOut else {
-                throw MobileShellConnectionError.requestTimedOut
-            }
             connectionID = existing.id
+            connectLease = existing.lease
             task = existing.task
-            connectionTask?.waiters += 1
+            connectionTask?.waiters.insert(waiterID)
         } else {
-            let candidate = try makeTransport()
+            if let connectAttemptKey {
+                guard let lease = await connectAttemptRegistry.beginConnect(key: connectAttemptKey) else {
+                    throw MobileShellConnectionError.requestTimedOut
+                }
+                connectLease = lease
+            } else {
+                connectLease = .untracked
+            }
+            let candidate: any CmxByteTransport
+            do {
+                candidate = try makeTransport()
+            } catch {
+                await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
+                throw error
+            }
             connectionID = UUID()
-            task = Task {
+            task = Task.detached {
                 try await withTaskCancellationHandler {
                     try await candidate.connect()
-                    try Task.checkCancellation()
                     return candidate
                 } onCancel: {
                     Task {
@@ -206,7 +217,7 @@ actor MobileCoreRPCSession {
                     }
                 }
             }
-            connectionTask = (id: connectionID, task: task, waiters: 1, timedOut: false, completed: false)
+            connectionTask = (id: connectionID, lease: connectLease, task: task, waiters: [waiterID], completed: false)
             Task.detached { [weak self] in
                 _ = await task.result
                 await self?.markConnectingCompleted(id: connectionID)
@@ -214,129 +225,144 @@ actor MobileCoreRPCSession {
         }
 
         let candidate: any CmxByteTransport
+        let callerCancelled: Bool
         do {
-            if connectionTask?.timedOut == true {
-                throw MobileShellConnectionError.requestTimedOut
-            }
             let connected = try await taskTimeout.value(task, timeoutNanoseconds: timeoutNanoseconds)
             if let didReceiveConnectedCandidate {
                 await didReceiveConnectedCandidate(connected)
             }
-            if Task.isCancelled {
-                if cancelConnectedWaiter(id: connectionID) {
-                    await connected.close()
-                }
-                throw CancellationError()
-            }
+            await Task.yield()
+            callerCancelled = Task.isCancelled
             candidate = connected
         } catch {
             if Task.isCancelled {
-                // Cancellation before a candidate is returned removes only
-                // this caller's waiter slot. If the candidate was returned,
-                // the branch above already decided whether this caller was
-                // the last owner and closed it only then.
-                cancelConnectingWaiter(id: connectionID)
+                await cancelConnectingWaiter(id: connectionID, waiterID: waiterID)
                 throw CancellationError()
             }
             if case MobileShellConnectionError.requestTimedOut = error {
-                await timeoutConnectingWaiter(id: connectionID)
+                await timeoutConnectingWaiter(id: connectionID, waiterID: waiterID)
             } else if error is CancellationError {
-                // A shared connection task can surface cancellation after all
-                // waiters have timed out/cancelled. Do not clear a replacement
-                // connection task that may already be in flight.
+                if connectionTask?.id == connectionID {
+                    connectionTask = nil
+                    await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
+                }
             } else if connectionTask?.id == connectionID {
                 connectionTask = nil
+                await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
             }
             throw error
         }
 
         if let transport {
             if installedConnectionID != connectionID {
-                await candidate.close()
+                closeUninstalledConnectedCandidate(candidate, lease: connectLease)
+            }
+            if callerCancelled {
+                throw CancellationError()
             }
             return transport
         }
 
         guard connectionTask?.id == connectionID else {
-            await candidate.close()
+            closeUninstalledConnectedCandidate(candidate, lease: connectLease)
             throw MobileShellConnectionError.connectionClosed
+        }
+
+        if callerCancelled {
+            connectionTask?.waiters.remove(waiterID)
+        }
+
+        if callerCancelled, connectionTask?.waiters.isEmpty == true {
+            connectionTask = nil
+            closeUninstalledConnectedCandidate(candidate, lease: connectLease)
+            throw CancellationError()
         }
 
         connectionTask = nil
         installedConnectionID = connectionID
         transport = candidate
-        // Reader: dispatches inbound frames by id (response) or topic (event).
+        await connectAttemptRegistry.recordSuccessfulConnect(lease: connectLease)
         readerTask = Task { [weak self] in
             await self?.readLoop(transport: candidate)
         }
-        // Writer: drains queued frames one at a time so concurrent send()
-        // callers don't trigger CmxNetworkByteTransport.sendAlreadyInProgress.
-        // Failures tear the whole session down which fails every pending
-        // continuation.
         let (stream, continuation) = AsyncStream<PendingWrite>.makeStream(bufferingPolicy: .unbounded)
         writeQueue = continuation
         writerTask = Task { [weak self] in
             await self?.writeLoop(transport: candidate, frames: stream)
         }
+        if callerCancelled {
+            throw CancellationError()
+        }
         return candidate
     }
 
-    private func cancelConnectedWaiter(id connectionID: UUID) -> Bool {
-        guard transport == nil else {
-            return false
-        }
-        guard connectionTask?.id == connectionID else {
-            return true
-        }
-        connectionTask?.waiters -= 1
-        guard let waiters = connectionTask?.waiters, waiters <= 0 else {
-            return false
-        }
-        connectionTask = nil
-        return true
-    }
-
-    private func cancelConnectingWaiter(id connectionID: UUID) {
-        guard transport == nil, connectionTask?.id == connectionID else {
-            return
-        }
-        connectionTask?.waiters -= 1
-        guard let waiters = connectionTask?.waiters, waiters <= 0 else {
-            return
-        }
-        connectionTask?.task.cancel()
-        connectionTask = nil
-    }
-
-    private func timeoutConnectingWaiter(id connectionID: UUID) async {
+    private func cancelConnectingWaiter(id connectionID: UUID, waiterID: UUID) async {
         guard transport == nil, connectionTask?.id == connectionID, let task = connectionTask?.task else {
             return
         }
-        connectionTask?.waiters -= 1
-        guard let waiters = connectionTask?.waiters, waiters <= 0 else {
-            return
-        }
+        connectionTask?.waiters.remove(waiterID)
+        guard connectionTask?.waiters.isEmpty == true else { return }
+        let lease = connectionTask?.lease
         if connectionTask?.completed == true {
             connectionTask = nil
-            if let candidate = try? await task.value {
-                await candidate.close()
-            }
+            startAbandonedConnectionCleanup(
+                task: task,
+                lease: lease,
+                tracksRouteGate: true,
+                cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
+                lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
+            )
             return
         }
-        connectionTask = (id: connectionID, task: task, waiters: 0, timedOut: true, completed: false)
+        connectionTask = nil
         task.cancel()
+        await connectAttemptRegistry.markAbandoned(lease: lease)
+        startAbandonedConnectionCleanup(
+            task: task,
+            lease: lease,
+            tracksRouteGate: true,
+            cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
+            lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
+        )
+    }
+    private func timeoutConnectingWaiter(id connectionID: UUID, waiterID: UUID) async {
+        guard transport == nil, connectionTask?.id == connectionID, let task = connectionTask?.task else {
+            return
+        }
+        connectionTask?.waiters.remove(waiterID)
+        guard connectionTask?.waiters.isEmpty == true else { return }
+        let lease = connectionTask?.lease
+        if connectionTask?.completed == true {
+            connectionTask = nil
+            startAbandonedConnectionCleanup(
+                task: task,
+                lease: lease,
+                tracksRouteGate: true,
+                cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
+                lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
+            )
+            return
+        }
+        connectionTask = nil
+        task.cancel()
+        await connectAttemptRegistry.markAbandoned(lease: lease)
+        startAbandonedConnectionCleanup(
+            task: task,
+            lease: lease,
+            tracksRouteGate: true,
+            cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
+            lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
+        )
     }
 
     private func markConnectingCompleted(id connectionID: UUID) {
         guard connectionTask?.id == connectionID else { return }
-        if connectionTask?.timedOut == true {
-            connectionTask = nil
-        } else if let current = connectionTask {
+        if let current = connectionTask {
             connectionTask = (
                 id: current.id,
+                lease: current.lease,
                 task: current.task,
                 waiters: current.waiters,
-                timedOut: current.timedOut,
                 completed: true
             )
         }
@@ -345,7 +371,7 @@ actor MobileCoreRPCSession {
     private func writeLoop(transport: any CmxByteTransport, frames: AsyncStream<PendingWrite>) async {
         for await write in frames {
             if Task.isCancelled { return }
-            guard shouldSendQueuedWrite(requestID: write.requestID) else {
+            guard shouldSendQueuedWrite(write) else {
                 continue
             }
             do {
@@ -443,8 +469,8 @@ actor MobileCoreRPCSession {
     private func cancelPendingRequest(requestID: String) {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
-        if queuedRequestIDs.remove(requestID) != nil {
-            cancelledQueuedRequestIDs.insert(requestID)
+        if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
+            cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
         cont.resume(returning: .failure(.requestTimedOut))
     }
@@ -452,18 +478,21 @@ actor MobileCoreRPCSession {
     private func timeoutPendingRequest(requestID: String) {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
-        if queuedRequestIDs.remove(requestID) != nil {
-            cancelledQueuedRequestIDs.insert(requestID)
+        if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
+            cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
         cont.resume(returning: .failure(.requestTimedOut))
     }
 
-    private func shouldSendQueuedWrite(requestID: String) -> Bool {
-        let wasQueued = queuedRequestIDs.remove(requestID) != nil
-        if cancelledQueuedRequestIDs.remove(requestID) != nil {
+    private func shouldSendQueuedWrite(_ write: PendingWrite) -> Bool {
+        if cancelledQueuedWriteIDs.remove(write.id) != nil {
             return false
         }
-        return wasQueued && pending[requestID] != nil
+        guard queuedWriteIDs[write.requestID] == write.id else {
+            return false
+        }
+        queuedWriteIDs[write.requestID] = nil
+        return pending[write.requestID] != nil
     }
 
 }

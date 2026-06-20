@@ -15,6 +15,13 @@ actor CancellationIgnoringTokenProvider {
         return "released-token"
     }
 
+    func waitUntilStartCount(_ expected: Int) async {
+        for _ in 0..<200 {
+            if startCount >= expected { return }
+            await Task.yield()
+        }
+    }
+
     func release() {
         didRelease = true
         let waiters = releaseWaiters

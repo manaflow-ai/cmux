@@ -5,6 +5,8 @@ import Foundation
 actor HangingLaunchTokenProbeAuthClient: AuthClient {
     private let user: CMUXAuthUser
     private var startWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+    private var released = false
     private(set) var accessStartCount = 0
 
     init(user: CMUXAuthUser) {
@@ -20,6 +22,12 @@ actor HangingLaunchTokenProbeAuthClient: AuthClient {
         await withCheckedContinuation { startWaiters.append((count, $0)) }
     }
 
+    func releaseHangingAccessTokenProbe() {
+        released = true
+        for waiter in releaseWaiters { waiter.resume() }
+        releaseWaiters = []
+    }
+
     func accessToken() async -> String? {
         accessStartCount += 1
         startWaiters.removeAll { waiter in
@@ -27,8 +35,8 @@ actor HangingLaunchTokenProbeAuthClient: AuthClient {
             waiter.continuation.resume()
             return true
         }
-        while true {
-            try? await Task.sleep(for: .seconds(3600))
+        if !released {
+            await withCheckedContinuation { releaseWaiters.append($0) }
         }
         return nil
     }

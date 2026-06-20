@@ -7,7 +7,7 @@ import Testing
 /// Behavior tests for the hosted-browser sign-in flow: callback completion,
 /// the sign-out-vs-callback race guards, deadlines, and attempt cancellation.
 @MainActor
-@Suite struct HostBrowserSignInFlowTests {
+@Suite(.serialized) struct HostBrowserSignInFlowTests {
     private struct Harness {
         let flow: HostBrowserSignInFlow
         let coordinator: AuthCoordinator

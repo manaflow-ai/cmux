@@ -98,6 +98,13 @@ final class TerminalOutputCollector {
     #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
 }
 
+@Test func mobileRuntimeMapsTimedOutStackTokenToRequestTimeout() {
+    guard case .requestTimedOut = CMUXMobileRuntime.connectionError(forStackAuthError: AuthError.timedOut) else {
+        Issue.record("expected timed-out Stack token acquisition to stay retryable")
+        return
+    }
+}
+
 @MainActor
 @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
     let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)

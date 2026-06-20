@@ -14,9 +14,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
     private let session: MobileCoreRPCSession
-    private let stackTokenGate = RPCStackTokenGate()
-    private let optionalStackTokenGate = RPCStackTokenGate()
-    private let stackTokenForceRefreshGate = RPCStackTokenGate()
+    private let stackTokenGate: RPCStackTokenGate
+    private let stackTokenForceRefreshGate: RPCStackTokenGate
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -29,13 +28,27 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
-        allowsStackAuthFallback: Bool = false
+        allowsStackAuthFallback: Bool = false,
+        connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
+        stackTokenGate: RPCStackTokenGate? = nil,
+        stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
+        abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
+        lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
+        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000
     ) {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        self.stackTokenGate = stackTokenGate
+            ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
+        self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
+            ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.session = MobileCoreRPCSession(
+            connectAttemptKey: route.mobileRPCConnectAttemptKey,
+            connectAttemptRegistry: connectAttemptRegistry,
+            abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
+            lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
             makeTransport: { [route, runtime] in
                 try runtime.transportFactory.makeTransport(for: route)
             }
@@ -126,6 +139,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             }
         } catch let error as MobileShellConnectionError {
             throw error
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw MobileShellConnectionError.authorizationFailed(
                 L10n.string(
@@ -239,19 +254,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 )
             }
         }
-        // The status probe is deliberately unauthenticated (it must answer
-        // before the phone has anything to present), but the host reports its
-        // identity (`mac_device_id`, `mac_display_name`) only to a verified
-        // same-account caller, so attach the Stack token opportunistically
-        // when policy allows sending it on this route. Never fail the probe
-        // over a missing token: reachability and capabilities don't need one,
-        // and a QR-pairing connect (where the identity matters) is always
-        // signed in, so the token is present there.
         if !requestNeedsAuth,
            isHostStatusRequest(request),
            allowsStackAuthFallback,
            MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
-           let stackAccessToken = try? await optionalStackAccessToken(deadline: deadline) {
+           let stackAccessToken = await runtime.stackAccessTokenForStatusProvider() {
             auth["stack_access_token"] = stackAccessToken
         }
         if !auth.isEmpty {
@@ -262,12 +269,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     private func stackAccessToken(deadline: RPCRequestDeadline) async throws -> String {
         try await stackTokenGate.token(timeoutNanoseconds: try deadline.remainingNanoseconds()) { [runtime] in
-            try await runtime.stackAccessTokenProvider()
-        }
-    }
-
-    private func optionalStackAccessToken(deadline: RPCRequestDeadline) async throws -> String {
-        try await optionalStackTokenGate.token(timeoutNanoseconds: try deadline.remainingNanoseconds()) { [runtime] in
             try await runtime.stackAccessTokenProvider()
         }
     }
@@ -356,5 +357,11 @@ private extension MobileCoreRPCClient {
     func isHostStatusRequest(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return method == "mobile.host.status"
+    }
+}
+
+private extension CmxAttachRoute {
+    var mobileRPCConnectAttemptKey: String {
+        "\(kind.rawValue)|\(id)|\(endpoint.logDescription)"
     }
 }

@@ -33,6 +33,7 @@ actor GateableValidationAuthClient: AuthClient {
     private let credentialGate = Gate()
     private let clearGate = Gate()
     private(set) var credentialStartCount = 0
+    private(set) var magicLinkStartCount = 0
 
     init(user: CMUXAuthUser, teams: [CMUXAuthTeam] = []) {
         self.user = user
@@ -128,7 +129,14 @@ actor GateableValidationAuthClient: AuthClient {
     func refreshToken() async -> String? { refresh }
     func forceRefreshAccessToken() async -> String? { access }
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "nonce" }
-    func signInWithMagicLink(code: String) async throws {}
+    func signInWithMagicLink(code: String) async throws {
+        magicLinkStartCount += 1
+        await parkIfArmed(credentialGate)
+        try Task.checkCancellation()
+        exchangeCounter += 1
+        access = "access-\(exchangeCounter)"
+        refresh = "refresh-\(exchangeCounter)"
+    }
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
 
     func storedAccessToken() async -> String? { access }
