@@ -3065,6 +3065,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         surfaceLifecycle.attach(host: self)
         splitMoveReorder.attach(host: self)
         splitDetach.attach(host: self)
+        closedBrowserRestoreStaging.attach(host: self)
         sessionRestoreCoordinator.attach(host: self)
         unreadModel.attach(host: self)
         unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
@@ -3364,14 +3365,22 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     private var explicitUserCloseTabIds: Set<TabID> = []
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
-    private var suppressClosedPanelHistory = false
+    // `internal` (not `private`) so the `Workspace+ClosedBrowserRestoreStagingHosting`
+    // sibling extension can read it as the `stagingSuppressClosedPanelHistory`
+    // witness; every other access stays within this file.
+    var suppressClosedPanelHistory = false
     private var tabCloseButtonCloseTabIds: Set<TabID> = []
 
     /// Panel IDs that were in a pane when a pane-close operation was approved.
     /// Bonsplit pane-close does not emit per-tab didClose callbacks.
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
     private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
-    private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
+    /// Stages recently-closed browser restore snapshots for `Cmd+Shift+T`. Owns
+    /// the per-tab pending map and the snapshot-build decision (lifted to
+    /// `CmuxBrowser.ClosedBrowserRestoreStaging`); this workspace conforms to
+    /// ``ClosedBrowserRestoreStagingHosting`` and the coordinator reads the live
+    /// Bonsplit/panel state through it.
+    let closedBrowserRestoreStaging = ClosedBrowserRestoreStaging()
     /// Re-entrancy guard for the tab-selection apply loop; stored in the
     /// surface-registry sub-model.
     private var isApplyingTabSelection: Bool {
@@ -8067,41 +8076,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     private func stageClosedBrowserRestoreSnapshotIfNeeded(for tab: Bonsplit.Tab, inPane pane: PaneID) {
-        guard !suppressClosedPanelHistory else {
-            pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
-            return
-        }
-        guard let panelId = panelIdFromSurfaceId(tab.id),
-              let browserPanel = browserPanel(for: panelId),
-              let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
-            pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
-            return
-        }
-
-        let fallbackPlan = bonsplitController.treeSnapshot().browserCloseFallbackPlan(
-            forPaneId: pane.id.uuidString
-        )
-        let resolvedURL = browserPanel.currentURL
-            ?? browserPanel.preferredURLStringForOmnibar().flatMap(URL.init(string:))
-        guard !browserIsTemporaryHistoryURL(resolvedURL) else {
-            pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
-            return
-        }
-
-        pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
-            workspaceId: id,
-            url: resolvedURL,
-            profileID: browserPanel.profileID,
-            originalPaneId: pane.id,
-            originalTabIndex: tabIndex,
-            fallbackSplitOrientation: fallbackPlan?.orientation,
-            fallbackSplitInsertFirst: fallbackPlan?.insertFirst ?? false,
-            fallbackAnchorPaneId: fallbackPlan?.anchorPaneId
-        )
+        closedBrowserRestoreStaging.stageSnapshotIfNeeded(for: tab, inPane: pane)
     }
 
     private func clearStagedClosedBrowserRestoreSnapshot(for tabId: TabID) {
-        pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
+        closedBrowserRestoreStaging.clearSnapshot(forTabId: tabId)
     }
 
     @discardableResult
@@ -11178,7 +11157,7 @@ extension Workspace: BonsplitDelegate {
         tabCloseButtonCloseTabIds.remove(tabId)
         let selectTabId = splitLifecycle.consumePostCloseSelectTabId(forClosed: tabId)
         let shouldClearSplitZoom = splitLifecycle.consumeShouldClearSplitZoom(forClosed: tabId)
-        let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
+        let closedBrowserRestoreSnapshot = closedBrowserRestoreStaging.consumeSnapshot(forTabId: tabId)
         let isDetaching = splitLayout.consumeDetachingMark(tabId)
         if shouldClearSplitZoom {
             clearSplitZoom()
