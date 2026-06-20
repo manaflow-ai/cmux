@@ -25,6 +25,30 @@ public protocol WorkspaceTabRepresenting: AnyObject, Identifiable where ID == UU
     /// selected workspace; legacy `Workspace.title`).
     var title: String { get }
 
+    /// The workspace's focused panel id, or `nil` when it has no focus
+    /// (legacy `Workspace.focusedPanelId`). The surface-metadata coordinator
+    /// reads it to decide whether a coalesced title update targets the panel
+    /// whose title currently fronts the window/process title.
+    var focusedPanelId: UUID? { get }
+
+    /// The workspace's per-panel process-reported titles
+    /// (legacy `Workspace.panelTitles`). The coordinator reads the focused
+    /// panel's entry when re-applying the title on focus change.
+    var panelTitles: [UUID: String] { get }
+
+    /// Records a coalesced process-reported `title` for one of the workspace's
+    /// panels, returning whether any state changed (legacy
+    /// `Workspace.updatePanelTitle(panelId:title:)`). The coordinator forwards a
+    /// flushed batch entry through this seam; the workspace owns the panel-title
+    /// and (when unmasked) workspace-title mutation.
+    @discardableResult
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool
+
+    /// Promotes `title` to the workspace's process/window title when no custom
+    /// title masks it (legacy `Workspace.applyProcessTitle(_:)`). The coordinator
+    /// calls it for the focused panel so the window chrome tracks the live title.
+    func applyProcessTitle(_ title: String)
+
     /// Records the shell-activity state for one of the workspace's surfaces
     /// (legacy `Workspace.updatePanelShellActivityState(panelId:state:)`).
     ///

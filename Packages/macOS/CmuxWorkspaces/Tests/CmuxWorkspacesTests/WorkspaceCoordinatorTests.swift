@@ -27,6 +27,10 @@ private final class CoordinatorStubTab: WorkspaceTabRepresenting {
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {}
     func setCustomColor(_ hex: String?) { customColor = hex }
+    var focusedPanelId: UUID?
+    var panelTitles: [UUID: String] = [:]
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool { false }
+    func applyProcessTitle(_ title: String) {}
 }
 
 /// Window-side stand-in: creates stub workspaces on demand, records every

@@ -418,11 +418,11 @@ class TabManager: ObservableObject {
     /// (`TabManager+FocusedSurfaceHosting`) and forwards the legacy entry
     /// points below.
     let focusedSurface = FocusedSurfaceModel()
-    private struct PanelTitleUpdateKey: Hashable {
-        let tabId: UUID
-        let panelId: UUID
-    }
-    private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
+    /// The per-window panel-title coalescer the `SurfaceMetadataCoordinator`
+    /// schedules its flush on through `SurfaceMetadataTitleHosting`. The
+    /// coalescing batch + flush logic live in the coordinator (CmuxWorkspaces);
+    /// this app-target coalescer (shared by other window-chrome call sites)
+    /// stays here and is driven via the host seam.
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
 
     // Wave-3 sub-models (TabManager decomposition): TabManager is the
@@ -601,6 +601,7 @@ class TabManager: ObservableObject {
         notificationDismissal.attach(host: self)
         focusHistoryNavigation.attach(host: self)
         focusedSurface.attach(host: self)
+        surfaceMetadata.attach(titleHost: self)
         // Workspace-list/group/selection storage (CmuxWorkspaces). Attached
         // before the first addWorkspace so the property-observer hooks fire
         // from the very first insertion, matching the legacy @Published
@@ -3067,50 +3068,35 @@ class TabManager: ObservableObject {
 
 
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-#if DEBUG
-        cmuxDebugLog(
-            "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
-            "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
-        )
-#endif
-        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
-        pendingPanelTitleUpdates[key] = trimmed
-        panelTitleUpdateCoalescer.signal { [weak self] in
-            self?.flushPendingPanelTitleUpdates()
-        }
-    }
-
-    private func flushPendingPanelTitleUpdates() {
-        guard !pendingPanelTitleUpdates.isEmpty else { return }
-        let updates = pendingPanelTitleUpdates
-        pendingPanelTitleUpdates.removeAll(keepingCapacity: true)
-        for (key, title) in updates {
-            updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: title)
-        }
-    }
-
-    private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        _ = tab.updatePanelTitle(panelId: panelId, title: title)
-
-        if tab.focusedPanelId == panelId {
-            tab.applyProcessTitle(title)
-            if selectedTabId == tabId {
-                updateWindowTitle(for: tab)
-            }
-        }
+        surfaceMetadata.enqueuePanelTitleUpdate(tabId: tabId, panelId: panelId, title: title)
     }
 
     func focusedSurfaceTitleDidChange(tabId: UUID) {
-        guard let tab = tabs.first(where: { $0.id == tabId }),
-              let focusedPanelId = tab.focusedPanelId,
-              let title = tab.panelTitles[focusedPanelId] else { return }
-        tab.applyProcessTitle(title)
-        if selectedTabId == tabId {
-            updateWindowTitle(for: tab)
-        }
+        surfaceMetadata.focusedSurfaceTitleDidChange(tabId: tabId)
+    }
+
+    // MARK: SurfaceMetadataTitleHosting (panel-title coalescing app effects)
+    // Witnesses live here in the class body because they touch the `private`
+    // panel-title coalescer and the DEBUG id/title formatters; the conformance
+    // is bound by the extension below.
+
+    func surfaceMetadataScheduleTitleFlush(_ flush: @escaping () -> Void) {
+        panelTitleUpdateCoalescer.signal(flush)
+    }
+
+    func surfaceMetadataUpdateWindowTitleIfSelected(workspaceId: UUID) {
+        guard selectedTabId == workspaceId,
+              let tab = tabs.first(where: { $0.id == workspaceId }) else { return }
+        updateWindowTitle(for: tab)
+    }
+
+    func surfaceMetadataLogPanelTitleEnqueue(workspaceId: UUID, panelId: UUID, title: String) {
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(workspaceId)) " +
+            "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(title))\""
+        )
+#endif
     }
 
     func focusTab(
@@ -5799,7 +5785,7 @@ extension TabManager {
         // Resets both the remembered-focus map and the deferred-unfocus target
         // (legacy `lastFocusedPanelByTab.removeAll()` + `pendingWorkspaceUnfocusTarget = nil`).
         focusedSurface.reset()
-        pendingPanelTitleUpdates.removeAll()
+        surfaceMetadata.resetPendingPanelTitleUpdates()
         focusHistoryNavigation.reset()
         focusHistoryRevision &+= 1
         workspaceCycleCooldownTask?.cancel()
@@ -5955,6 +5941,7 @@ extension TabManager: WorkspacesHosting {}
 extension TabManager: WorkspaceGroupHosting {}
 extension TabManager: CloseConfirming {}
 extension TabManager: WorkspaceCloseHosting {}
+extension TabManager: SurfaceMetadataTitleHosting {}
 
 // Workspace satisfies the CmuxWorkspaces tab seam with its existing
 // id/groupId/isPinned storage.
