@@ -7261,6 +7261,69 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(secondPanel.isTextBoxActive, "Cmd+Shift+A should activate TextBox in the event window")
     }
 
+    func testSurfaceNumberShortcutsCycleInEventWindowWhenActiveManagerIsStale() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let firstWorkspace = firstManager.selectedWorkspace,
+              let secondWorkspace = secondManager.selectedWorkspace,
+              secondWorkspace.newTerminalSurfaceInFocusedPane(focus: true) != nil,
+              secondWorkspace.newTerminalSurfaceInFocusedPane(focus: true) != nil else {
+            XCTFail("Expected two window contexts and three surfaces in the event window")
+            return
+        }
+
+        let expectedSurfaceIds = Array(secondWorkspace.orderedPanelIds.prefix(3))
+        XCTAssertEqual(expectedSurfaceIds.count, 3, "Test needs three ordered surfaces")
+        XCTAssertNotEqual(firstWorkspace.id, secondWorkspace.id)
+
+        appDelegate.tabManager = firstManager
+        XCTAssertTrue(appDelegate.tabManager === firstManager)
+
+        let digitEvents: [(digit: Int, event: NSEvent)] = [
+            (1, makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18, windowNumber: secondWindow.windowNumber)),
+            (2, makeKeyDownEvent(key: "2", modifiers: [.control], keyCode: 19, windowNumber: secondWindow.windowNumber)),
+            (3, makeKeyDownEvent(key: "3", modifiers: [.control], keyCode: 20, windowNumber: secondWindow.windowNumber))
+        ].compactMap { digit, event in
+            guard let event else { return nil }
+            return (digit, event)
+        }
+        XCTAssertEqual(digitEvents.count, 3, "Failed to construct Ctrl+1/2/3 events")
+
+        withTemporaryShortcut(action: .selectSurfaceByNumber) {
+            for cycle in 0..<10 {
+                for (digit, event) in digitEvents {
+#if DEBUG
+                    XCTAssertTrue(
+                        appDelegate.debugHandleCustomShortcut(event: event),
+                        "Ctrl+\(digit) should be handled on cycle \(cycle)"
+                    )
+#else
+                    XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+                    XCTAssertEqual(
+                        secondWorkspace.focusedPanelId,
+                        expectedSurfaceIds[digit - 1],
+                        "Ctrl+\(digit) should focus surface \(digit) in the event window on cycle \(cycle)"
+                    )
+                }
+            }
+        }
+    }
+
     func testTextBoxFocusIntentRestoresAfterYieldToAnotherPanel() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
