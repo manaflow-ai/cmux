@@ -3,15 +3,13 @@ import CmuxMobileDiagnostics
 import GhosttyKit
 import UIKit
 
-nonisolated(unsafe) private var lastLocalScrollViewportLogTime: CFTimeInterval = 0
-
 extension GhosttySurfaceView {
     var isViewingLiveBottom: Bool {
         localScrollbackModel.isViewingLiveBottom
     }
 
     func updateLocalScrollbackBounds(total: UInt64, offset: UInt64, len: UInt64) {
-        let result = localScrollbackModel.updateBounds(total: total, len: len)
+        let result = localScrollbackModel.updateBounds(total: total, offset: offset, len: len)
         updateCursorOverlay()
 
         #if DEBUG
@@ -25,7 +23,7 @@ extension GhosttySurfaceView {
         if result.mirrorTruncated {
             MobileDebugLog.anchormux(
                 "local.scroll.truncated expectedTotal=\(result.expectedTotalRows) actualTotal=\(total) "
-                + "missing=\(result.expectedTotalRows - total) len=\(len)"
+                + "missing=\(result.mirrorRetention.missingRows) len=\(len)"
             )
         }
         #endif

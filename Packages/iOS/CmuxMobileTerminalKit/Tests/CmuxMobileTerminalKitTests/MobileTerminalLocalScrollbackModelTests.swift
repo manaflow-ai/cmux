@@ -46,6 +46,57 @@ import Testing
     #expect(model.isViewingLiveBottom)
 }
 
+@Test func scxWrappedReplayCanReachOldestRetainedPhysicalRow() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 5154)
+
+    let bounds = model.updateBounds(total: 5202, len: 48)
+    #expect(bounds.maxRowOffset == 5154)
+    #expect(bounds.rowOffset == 5154)
+    #expect(bounds.mirrorTruncated == false)
+
+    let scroll = model.applyGesture(rowDelta: 6000)
+    #expect(scroll.rowOffset == 0)
+    #expect(!model.isViewingLiveBottom)
+}
+
+@Test func scxWrappedReplayReportsOldTenMegabyteMirrorAsTruncated() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 5154)
+
+    let bounds = model.updateBounds(total: 1682, len: 48)
+    #expect(bounds.expectedTotalRows == 5202)
+    #expect(bounds.mirrorTruncated)
+    #expect(bounds.mirrorRetention == .truncated(missingRows: 3520))
+    #expect(bounds.maxRowOffset == 1634)
+    #expect(bounds.rowOffset == 1634)
+}
+
+@Test func oneRowMirrorAccountingSlackDoesNotMarkReplayTruncated() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 100)
+
+    let bounds = model.updateBounds(total: 151, len: 52)
+
+    #expect(bounds.expectedTotalRows == 152)
+    #expect(bounds.mirrorRetention == .complete)
+    #expect(bounds.maxRowOffset == 100)
+    #expect(bounds.rowOffset == 100)
+}
+
+@Test func replayWindowClampsNegativeMetadataRows() {
+    let replay = MobileTerminalLocalScrollbackModel.ReplayWindow(scrollbackRows: -200)
+
+    #expect(replay.scrollbackRows == 0)
+    #expect(replay.expectedTotalRows(visibleRows: 48) == 48)
+}
+
+@Test func mirrorObservationReportsScrollableRange() {
+    let observation = MobileTerminalLocalScrollbackModel.MirrorObservation(totalRows: 1682, visibleRows: 48, scrollbarOffset: 1634)
+
+    #expect(observation.maxScrollableOffset == 1634)
+}
+
 @Test func alternateScreenResetsLocalScrollbackState() {
     var model = MobileTerminalLocalScrollbackModel()
     _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 100)

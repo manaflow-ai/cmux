@@ -303,4 +303,16 @@ struct TerminalLetterboxGeometryTests {
         )
         #expect(visible == CGSize(width: 402, height: 480))
     }
+
+    @Test("visible render size keeps a stable viewport when spare rows exceed the backing box")
+    func visibleRenderSizeAlwaysLeavesViewport() {
+        let visible = TerminalLetterboxGeometry.visibleRenderSize(
+            backingSize: CGSize(width: 402, height: 8),
+            cellPixelSize: CGSize(width: 18, height: 30),
+            scale: 3,
+            spareRows: 2
+        )
+
+        #expect(visible == CGSize(width: 402, height: 1))
+    }
 }

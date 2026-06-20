@@ -237,6 +237,10 @@ public final class GhosttyRuntime {
         let scrollbackKey = "scrollback-limit"
         let hasScrollback = ghostty_config_get(config, &scrollbackLimit, scrollbackKey, UInt(scrollbackKey.lengthOfBytes(using: .utf8)))
         log.debug("applyiOSDefaults: scrollback-limit get=\(hasScrollback, privacy: .public) value=\(scrollbackLimit, privacy: .public)")
+        MobileDebugLog.anchormux(
+            "ghostty.config.scrollback-limit get=\(hasScrollback) "
+            + "value=\(scrollbackLimit) expected=\(MobileTerminalScrollbackBudget.localMirrorScrollbackLimitBytes)"
+        )
     }
 
     private static func ensureDefaultiOSConfig() {

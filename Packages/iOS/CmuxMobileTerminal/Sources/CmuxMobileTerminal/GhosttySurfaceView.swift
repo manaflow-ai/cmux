@@ -866,6 +866,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// property does not exist in release builds — every reader is inside a
     /// `#if DEBUG` block.
     public var diagnosticLog: DiagnosticLog?
+    var lastLocalScrollViewportLogTime: CFTimeInterval = 0
     #endif
 
     private lazy var inputProxy: TerminalInputTextView = {
@@ -3301,6 +3302,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
             + "natural=\(result.reportedSize.columns)x\(result.reportedSize.rows) "
+            + "backing=\(result.backingSize.columns)x\(result.backingSize.rows) "
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
             + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height)) "

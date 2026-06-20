@@ -3,7 +3,10 @@ import Testing
 @testable import CMUXMobileCore
 
 @Test func mobileScrollbackBudgetsKeepReplayAndMirrorCapacityCoupled() {
+    let scxWrapScrollPhysicalRows = 2_600 * 3
+
     #expect(MobileTerminalScrollbackBudget.fullReplayRows >= 10_000)
+    #expect(MobileTerminalScrollbackBudget.fullReplayRows >= scxWrapScrollPhysicalRows)
     #expect(MobileTerminalScrollbackBudget.localMirrorScrollbackLimitBytes ==
         MobileTerminalScrollbackBudget.fullReplayRows *
         MobileTerminalScrollbackBudget.localMirrorBytesPerReplayRow)
