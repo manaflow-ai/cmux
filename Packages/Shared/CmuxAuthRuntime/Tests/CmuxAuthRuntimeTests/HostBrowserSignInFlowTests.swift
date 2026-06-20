@@ -10,11 +10,11 @@ import Testing
 @Suite struct HostBrowserSignInFlowTests {
     @Test func browserCallbackSignsInAndSeedsTokens() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
-        harness.factory.sessions[0].deliver(hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0])))
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
 
         #expect(await attempt.value)
         #expect(harness.coordinator.isAuthenticated)
@@ -26,17 +26,17 @@ import Testing
 
     @Test func nonAuthBrowserCompletionWaitsForExternalCallback() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
         harness.factory.sessions[0].deliver(URL(string: "https://example.test/handler/sign-in?after_auth_return_to=1")!)
 
         await Task.yield()
         #expect(harness.flow.isSigningIn)
         #expect(harness.coordinator.isAuthenticated == false)
 
-        let callbackResult = await harness.flow.handleCallbackURL(hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0])))
+        let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
 
         #expect(callbackResult)
         #expect(await attempt.value)
@@ -48,10 +48,10 @@ import Testing
     }
 
     @Test func cancelledPopupResolvesFalse() async {
-        let harness = makeHostBrowserSignInFlowHarness()
+        let harness = HostBrowserSignInFlowHarness()
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
         harness.factory.sessions[0].cancel()
 
         #expect(await attempt.value == false)
@@ -59,10 +59,10 @@ import Testing
     }
 
     @Test func signOutCancelsActivePopup() async {
-        let harness = makeHostBrowserSignInFlowHarness()
+        let harness = HostBrowserSignInFlowHarness()
 
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
         await harness.flow.signOut()
 
         #expect(harness.factory.sessions[0].cancelled)
@@ -71,12 +71,12 @@ import Testing
     }
 
     @Test func newAttemptCancelsPreviousPopup() async {
-        let harness = makeHostBrowserSignInFlowHarness()
+        let harness = HostBrowserSignInFlowHarness()
 
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory, count: 2)
+        await harness.waitForSession(count: 2)
 
         #expect(harness.factory.sessions[0].cancelled)
         #expect(harness.factory.sessions[1].cancelled == false)
@@ -85,22 +85,22 @@ import Testing
 
     @Test func staleSessionCompletionCannotResumeNewAttempt() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
         let staleSession = harness.factory.sessions[0]
         staleSession.deliverCancelCompletion = false
 
         let secondAttempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory, count: 2)
-        staleSession.deliver(hostBrowserCallbackURL(state: hostBrowserCallbackState(staleSession)))
+        await harness.waitForSession(count: 2)
+        staleSession.deliver(harness.callbackURL(state: harness.callbackState(staleSession)))
 
         await Task.yield()
         #expect(harness.flow.isSigningIn)
         #expect(harness.coordinator.isAuthenticated == false)
 
-        harness.factory.sessions[1].deliver(hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[1])))
+        harness.factory.sessions[1].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[1])))
 
         #expect(await secondAttempt.value)
         #expect(harness.coordinator.isAuthenticated)
@@ -114,11 +114,11 @@ import Testing
         // staring at a dead window. Past the slow threshold the flow must flip
         // `signInIsSlow` so the account UI can offer the "open in your default
         // browser" fallback instead of an indefinite spinner.
-        let harness = makeHostBrowserSignInFlowHarness(slowSignInThreshold: 0.05)
+        let harness = HostBrowserSignInFlowHarness(slowSignInThreshold: 0.05)
         #expect(harness.flow.signInIsSlow == false)
 
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
 
         var becameSlow = false
         for _ in 0..<200 {
@@ -142,11 +142,11 @@ import Testing
     }
 
     @Test func activeAttemptSignInURLCarriesActiveAttemptState() async {
-        let harness = makeHostBrowserSignInFlowHarness()
+        let harness = HostBrowserSignInFlowHarness()
         #expect(harness.flow.activeAttemptSignInURL == nil)
 
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
 
         let fallbackURL = harness.flow.activeAttemptSignInURL
         #expect(fallbackURL != nil)
@@ -159,15 +159,15 @@ import Testing
                 .first(where: { $0.name == "cmux_auth_state" })?
                 .value
         }
-        #expect(fallbackState == hostBrowserCallbackState(harness.factory.sessions[0]))
+        #expect(fallbackState == harness.callbackState(harness.factory.sessions[0]))
     }
 
     @Test func issuedFallbackCallbackSurvivesPopupCancellation() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
         let fallbackURL = try #require(harness.flow.activeAttemptSignInURL)
         let fallbackState = try #require(URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)?
             .queryItems?
@@ -179,7 +179,7 @@ import Testing
             await Task.yield()
         }
 
-        let callbackResult = await harness.flow.handleCallbackURL(hostBrowserCallbackURL(state: fallbackState))
+        let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: fallbackState))
 
         #expect(callbackResult)
         #expect(harness.coordinator.isAuthenticated)
@@ -190,10 +190,10 @@ import Testing
 
     @Test func issuedFallbackCallbackStateSurvivesFailedRetryAndClearsFailureOnSuccess() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
         let fallbackURL = try #require(harness.flow.activeAttemptSignInURL)
         let fallbackState = try #require(URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)?
             .queryItems?
@@ -210,7 +210,7 @@ import Testing
         #expect(harness.flow.lastFailure == .invalidCallback)
         #expect(harness.coordinator.isAuthenticated == false)
 
-        let validRetry = await harness.flow.handleCallbackURL(hostBrowserCallbackURL(state: fallbackState))
+        let validRetry = await harness.flow.handleCallbackURL(harness.callbackURL(state: fallbackState))
 
         #expect(validRetry)
         #expect(harness.coordinator.isAuthenticated)
@@ -222,10 +222,10 @@ import Testing
 
     @Test func issuedFallbackCallbackAfterSignOutIsRejected() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
         let fallbackURL = try #require(harness.flow.activeAttemptSignInURL)
         let fallbackState = try #require(URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)?
             .queryItems?
@@ -238,7 +238,7 @@ import Testing
         }
         await harness.flow.signOut()
 
-        let callbackResult = await harness.flow.handleCallbackURL(hostBrowserCallbackURL(state: fallbackState))
+        let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: fallbackState))
 
         #expect(callbackResult == false)
         #expect(harness.coordinator.isAuthenticated == false)
@@ -248,12 +248,12 @@ import Testing
 
     @Test func signOutDuringCallbackValidationWins() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
         await harness.client.closeUserGate()
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
-        harness.factory.sessions[0].deliver(hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0])))
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
         // Wait until the completion path is blocked inside the user fetch.
         while await harness.client.pendingUserRequests == 0 {
             await Task.yield()
@@ -278,12 +278,12 @@ import Testing
         // (the callback path already cancelled the timeout before parking).
         let clock = ManualTestClock()
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user, browserAttemptTimeout: 1, clock: clock)
+        let harness = HostBrowserSignInFlowHarness(user: user, browserAttemptTimeout: 1, clock: clock)
         await harness.client.closeUserGate()
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
-        harness.factory.sessions[0].deliver(hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0])))
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
         while await harness.client.pendingUserRequests == 0 {
             await Task.yield()
         }
@@ -303,7 +303,7 @@ import Testing
 
     @Test func deadlineResolvesFalseWhilePopupStaysUp() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         let result = await harness.flow.signIn(timeout: 0.05)
         #expect(result == false)
@@ -311,7 +311,7 @@ import Testing
         #expect(harness.factory.sessions[0].cancelled == false)
 
         // The user can still finish in the popup after the caller's deadline.
-        harness.factory.sessions[0].deliver(hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0])))
+        harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
         while harness.coordinator.isAuthenticated == false {
             await Task.yield()
         }
@@ -320,11 +320,11 @@ import Testing
 
     @Test func lateCallbackAfterSignOutIsRejected() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory)
-        let staleCallback = hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0]))
+        await harness.waitForSession()
+        let staleCallback = harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0]))
         await harness.flow.signOut()
 
         let result = await harness.flow.handleCallbackURL(staleCallback)
@@ -338,11 +338,11 @@ import Testing
 
     @Test func mismatchedCallbackStateIsRejected() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
-        harness.factory.sessions[0].deliver(hostBrowserCallbackURL(state: "stale-state"))
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(harness.callbackURL(state: "stale-state"))
 
         #expect(await attempt.value == false)
         #expect(harness.coordinator.isAuthenticated == false)
@@ -351,18 +351,18 @@ import Testing
 
     @Test func staleExternalCallbackDoesNotCancelActiveAttempt() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
 
-        let staleResult = await harness.flow.handleCallbackURL(hostBrowserCallbackURL(state: "stale-state"))
+        let staleResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: "stale-state"))
 
         #expect(staleResult == false)
         #expect(harness.flow.isSigningIn)
         #expect(harness.coordinator.isAuthenticated == false)
 
-        harness.factory.sessions[0].deliver(hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0])))
+        harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
 
         #expect(await attempt.value)
         #expect(harness.coordinator.isAuthenticated)
@@ -372,9 +372,9 @@ import Testing
 
     @Test func fallbackExternalCallbackWithoutActiveAttemptSignsIn() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
-        let result = await harness.flow.handleCallbackURL(hostBrowserFallbackCallbackURL())
+        let result = await harness.flow.handleCallbackURL(harness.fallbackCallbackURL())
 
         #expect(result)
         #expect(harness.coordinator.isAuthenticated)
@@ -385,9 +385,9 @@ import Testing
 
     @Test func statefulExternalCallbackWithoutActiveAttemptIsRejected() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
 
-        let result = await harness.flow.handleCallbackURL(hostBrowserCallbackURL(state: "stale-state"))
+        let result = await harness.flow.handleCallbackURL(harness.callbackURL(state: "stale-state"))
 
         #expect(result == false)
         #expect(harness.coordinator.isAuthenticated == false)
@@ -406,12 +406,12 @@ import Testing
         // device is online. The coordinator owns the local clear AFTER the
         // capture; the flow must not clear the shared store underneath it.
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = makeHostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user)
         await harness.client.closeUserGate()
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
-        harness.factory.sessions[0].deliver(hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0])))
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
         while await harness.client.pendingUserRequests == 0 {
             await Task.yield()
         }

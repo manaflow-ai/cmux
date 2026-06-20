@@ -7,11 +7,11 @@ import Testing
 @MainActor
 @Suite struct HostBrowserSignInFlowFailureTests {
     @Test func invalidCallbackPayloadIsRejected() async {
-        let harness = makeHostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
+        let harness = HostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
-        harness.factory.sessions[0].deliver(URL(string: "cmux-dev://auth-callback?other=1&cmux_auth_state=\(hostBrowserCallbackState(harness.factory.sessions[0]))")!)
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(URL(string: "cmux-dev://auth-callback?other=1&cmux_auth_state=\(harness.callbackState(harness.factory.sessions[0]))")!)
 
         #expect(await attempt.value == false)
         #expect(harness.coordinator.isAuthenticated == false)
@@ -20,12 +20,12 @@ import Testing
     }
 
     @Test func externalCallbackStateMismatchRecordsInvalidCallbackFailure() async {
-        let harness = makeHostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
+        let harness = HostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
 
-        let result = await harness.flow.handleCallbackURL(hostBrowserCallbackURL(state: "other-state"))
+        let result = await harness.flow.handleCallbackURL(harness.callbackURL(state: "other-state"))
 
         #expect(result == false)
         #expect(harness.flow.isSigningIn)
@@ -37,11 +37,11 @@ import Testing
     }
 
     @Test func callbackTokensThatDoNotValidateRecordUnauthorizedFailure() async {
-        let harness = makeHostBrowserSignInFlowHarness(user: nil)
+        let harness = HostBrowserSignInFlowHarness(user: nil)
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
-        harness.factory.sessions[0].deliver(hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0])))
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
 
         #expect(await attempt.value == false)
         #expect(harness.coordinator.isAuthenticated == false)
@@ -51,15 +51,15 @@ import Testing
     }
 
     @Test func callbackValidationDisplayUnsafeErrorRecordsGenericServerFailure() async {
-        let harness = makeHostBrowserSignInFlowHarness(
+        let harness = HostBrowserSignInFlowHarness(
             user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil)
         )
         await harness.client.setCurrentUserError(StackAuthError(code: "RATE_LIMIT", message: "try later"))
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
         harness.factory.sessions[0].deliver(
-            hostBrowserCallbackURL(state: hostBrowserCallbackState(harness.factory.sessions[0]))
+            harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0]))
         )
 
         #expect(await attempt.value == false)
@@ -69,15 +69,15 @@ import Testing
 
     @Test func abandonedBrowserAttemptTimesOut() async throws {
         let clock = ManualTestClock()
-        let harness = makeHostBrowserSignInFlowHarness(browserAttemptTimeout: 1, clock: clock)
+        let harness = HostBrowserSignInFlowHarness(browserAttemptTimeout: 1, clock: clock)
 
         harness.flow.beginSignIn()
-        await waitForHostBrowserSession(harness.factory)
+        await harness.waitForSession()
         await clock.waitUntilSleepers(count: 2)
 
         clock.advance(by: .seconds(1))
 
-        await waitForHostBrowserCondition { harness.flow.isSigningIn == false }
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
         #expect(harness.factory.sessions[0].cancelled)
         #expect(harness.flow.isSigningIn == false)
         #expect(harness.coordinator.isAuthenticated == false)
