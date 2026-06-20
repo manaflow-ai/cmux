@@ -32,4 +32,18 @@ public protocol ControlBrowserQueryReading: Sendable {
     /// - Returns: The find resolution (panel failure, selector-ref miss, JS
     ///   error, not-found, or a matched element).
     func resolveFind(_ request: ControlBrowserFindRequest) -> ControlBrowserFindResolution
+
+    /// Resolves one parsed `browser.get.*` / `browser.is.*` query request against
+    /// the live browser surface, returning the already-shaped wire result.
+    ///
+    /// Runs synchronously on the calling socket-worker thread (the JavaScript
+    /// evaluation blocks there, matching the legacy `v2BrowserGet*` / `v2BrowserIs*`
+    /// bodies). These read-only getters build their entire wire payload app-side
+    /// (the selector-action retry loop, the `get.count` `querySelectorAll` read),
+    /// so the resolution is the finished ``ControlCallResult``, byte-faithful to the
+    /// legacy body's return.
+    ///
+    /// - Parameter request: The parsed, validated query request.
+    /// - Returns: The already-shaped command result.
+    func resolveQuery(_ request: ControlBrowserQueryActionRequest) -> ControlCallResult
 }

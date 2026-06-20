@@ -7,15 +7,26 @@ import Testing
 /// surface. Returns a fixed resolution and records the request it was handed.
 private final class FakeBrowserQueryReading: ControlBrowserQueryReading, @unchecked Sendable {
     var resolution: ControlBrowserFindResolution
+    var queryResult: ControlCallResult
     private(set) var lastRequest: ControlBrowserFindRequest?
+    private(set) var lastQueryRequest: ControlBrowserQueryActionRequest?
 
-    init(resolution: ControlBrowserFindResolution) {
+    init(
+        resolution: ControlBrowserFindResolution,
+        queryResult: ControlCallResult = .ok(.object(["value": .string("stub")]))
+    ) {
         self.resolution = resolution
+        self.queryResult = queryResult
     }
 
     func resolveFind(_ request: ControlBrowserFindRequest) -> ControlBrowserFindResolution {
         lastRequest = request
         return resolution
+    }
+
+    func resolveQuery(_ request: ControlBrowserQueryActionRequest) -> ControlCallResult {
+        lastQueryRequest = request
+        return queryResult
     }
 }
 
@@ -46,12 +57,13 @@ private func foundElement(
 }
 
 @Suite struct ControlBrowserQueryWorkerTests {
-    @Test func returnsNilForNonFindMethod() {
+    @Test func returnsNilForNonQueryMethod() {
         let worker = ControlBrowserQueryWorker(
             reading: FakeBrowserQueryReading(resolution: .notFound(data: nil))
         )
-        #expect(worker.handle(request("browser.get.text")) == nil)
+        #expect(worker.handle(request("browser.click")) == nil)
         #expect(worker.handle(request("browser.find")) == nil)
+        #expect(worker.handle(request("browser.get")) == nil)
     }
 
     // MARK: - find.role (with-script family)
@@ -288,5 +300,86 @@ private func foundElement(
             message: "Element not found",
             data: .object(["selector": .string(".item"), "index": .int(99)])
         ))
+    }
+
+    // MARK: - get.* / is.* getters (pre-shaped via resolveQuery)
+
+    @Test func getTextForwardsParamsAndCarriesResultVerbatim() {
+        let reading = FakeBrowserQueryReading(
+            resolution: .notFound(data: nil),
+            queryResult: .ok(.object(["value": .string("hello")]))
+        )
+        let worker = ControlBrowserQueryWorker(reading: reading)
+        let result = worker.handle(request("browser.get.text", ["selector": .string("#a")]))
+        guard case .getText(let params)? = reading.lastQueryRequest else {
+            Issue.record("expected .getText request")
+            return
+        }
+        #expect(params["selector"] == .string("#a"))
+        #expect(result == .ok(.object(["value": .string("hello")])))
+    }
+
+    @Test func getAttrRequiresAttrOrName() {
+        let worker = ControlBrowserQueryWorker(
+            reading: FakeBrowserQueryReading(resolution: .notFound(data: nil))
+        )
+        let result = worker.handle(request("browser.get.attr", ["selector": .string("#a")]))
+        #expect(result == .err(code: "invalid_params", message: "Missing attr/name", data: nil))
+    }
+
+    @Test func getAttrAcceptsNameFallbackAndForwardsTrimmedAttr() {
+        let reading = FakeBrowserQueryReading(
+            resolution: .notFound(data: nil),
+            queryResult: .ok(.object(["value": .string("v")]))
+        )
+        let worker = ControlBrowserQueryWorker(reading: reading)
+        _ = worker.handle(request("browser.get.attr", [
+            "selector": .string("#a"),
+            "name": .string("  href  "),
+        ]))
+        guard case .getAttr(_, let attr)? = reading.lastQueryRequest else {
+            Issue.record("expected .getAttr request")
+            return
+        }
+        #expect(attr == "href")
+    }
+
+    @Test func getAttrWhitespaceOnlyIsTreatedAsMissing() {
+        let worker = ControlBrowserQueryWorker(
+            reading: FakeBrowserQueryReading(resolution: .notFound(data: nil))
+        )
+        let result = worker.handle(request("browser.get.attr", [
+            "selector": .string("#a"),
+            "attr": .string("   "),
+        ]))
+        #expect(result == .err(code: "invalid_params", message: "Missing attr/name", data: nil))
+    }
+
+    @Test func everyGetterRoutesToResolveQuery() {
+        let methods: [(String, (ControlBrowserQueryActionRequest) -> Bool)] = [
+            ("browser.get.text", { if case .getText = $0 { return true }; return false }),
+            ("browser.get.html", { if case .getHTML = $0 { return true }; return false }),
+            ("browser.get.value", { if case .getValue = $0 { return true }; return false }),
+            ("browser.get.count", { if case .getCount = $0 { return true }; return false }),
+            ("browser.get.box", { if case .getBox = $0 { return true }; return false }),
+            ("browser.get.styles", { if case .getStyles = $0 { return true }; return false }),
+            ("browser.is.visible", { if case .isVisible = $0 { return true }; return false }),
+            ("browser.is.enabled", { if case .isEnabled = $0 { return true }; return false }),
+            ("browser.is.checked", { if case .isChecked = $0 { return true }; return false }),
+        ]
+        for (method, matches) in methods {
+            let reading = FakeBrowserQueryReading(
+                resolution: .notFound(data: nil),
+                queryResult: .ok(.object(["m": .string(method)]))
+            )
+            let worker = ControlBrowserQueryWorker(reading: reading)
+            let result = worker.handle(request(method, ["selector": .string("#a")]))
+            #expect(result == .ok(.object(["m": .string(method)])))
+            guard let last = reading.lastQueryRequest else {
+                Issue.record("\(method) did not route to resolveQuery")
+                continue
+            }
+            #expect(matches(last), "\(method) routed to the wrong query case")
+        }
     }
 }

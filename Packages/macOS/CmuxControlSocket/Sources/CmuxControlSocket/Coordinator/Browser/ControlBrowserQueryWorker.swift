@@ -1,19 +1,30 @@
 internal import Foundation
 
-/// The worker-lane RPC handler for the v2 `browser.find.*` semantic-element
-/// locators, lifted byte-faithfully from the former `TerminalController`
-/// `v2BrowserFindRole` / `v2BrowserFindText` / `v2BrowserFindLabel` /
-/// `v2BrowserFindPlaceholder` / `v2BrowserFindAlt` / `v2BrowserFindTitle` /
-/// `v2BrowserFindTestId` / `v2BrowserFindFirst` / `v2BrowserFindLast` /
-/// `v2BrowserFindNth` bodies and their `v2BrowserJSCommandOnSocketWorker`
+/// The worker-lane RPC handler for the v2 read-only browser query commands: the
+/// `browser.find.*` semantic-element locators and the `browser.get.*` /
+/// `browser.is.*` getters, lifted byte-faithfully from the former
+/// `TerminalController` `v2BrowserFindRole` / … / `v2BrowserFindNth` and
+/// `v2BrowserGetText` / `v2BrowserGetHTML` / `v2BrowserGetValue` /
+/// `v2BrowserGetAttr` / `v2BrowserGetCount` / `v2BrowserGetBox` /
+/// `v2BrowserGetStyles` / `v2BrowserIsVisible` / `v2BrowserIsEnabled` /
+/// `v2BrowserIsChecked` bodies and their `v2BrowserJSCommandOnSocketWorker`
 /// dispatch.
+///
+/// `browser.get.title` is NOT owned here: it reads the browser panel's `pageTitle`
+/// synchronously on the main actor (no page JavaScript), so it stays on the
+/// main-actor dispatch lane, not this `Sendable` worker-lane handler.
 ///
 /// Owns the command dispatch, the param parsing (the byte-faithful twins of
 /// `v2String` / `v2Bool` / `v2Int` / `v2BrowserSelector`), the missing-param
-/// `invalid_params` branches, and the reply payload shaping (the typed
+/// `invalid_params` branches (the find-family selectors/leaves, and `attr`/`name`
+/// for `browser.get.attr`), and the `find.*` reply payload shaping (the typed
 /// ``JSONValue`` twin of the legacy `[String: Any]` dictionaries; the resulting
 /// Foundation object, and therefore the encoded wire bytes, is identical). The
-/// app-coupled work (panel resolution, finder-script construction, JavaScript
+/// `get.*` / `is.*` getters build their entire payload app-side (the shared
+/// selector-action retry loop, the `get.count` `querySelectorAll` read), so the
+/// worker carries their already-shaped result
+/// through ``ControlBrowserQueryReading/resolveQuery(_:)`` verbatim. The app-coupled
+/// work (panel resolution, finder/getter-script construction, JavaScript
 /// evaluation, result decoding, element-ref allocation) is reached strictly
 /// through the ``ControlBrowserQueryReading`` seam. It does no socket I/O and
 /// never imports the app target.
@@ -37,10 +48,11 @@ public struct ControlBrowserQueryWorker: Sendable {
         self.reading = reading
     }
 
-    /// Runs one decoded request if it is a `browser.find.*` worker-lane command,
-    /// returning the typed result; returns `nil` for any other method so the
-    /// caller can fall through (the remaining JS-evaluating `browser.*` methods
-    /// are still served by the legacy app-side dispatcher).
+    /// Runs one decoded request if it is a `browser.find.*` / `browser.get.*` /
+    /// `browser.is.*` worker-lane query command, returning the result; returns
+    /// `nil` for any other method so the caller can fall through (the remaining
+    /// JS-evaluating `browser.*` methods are still served by the legacy app-side
+    /// dispatcher).
     ///
     /// - Parameter request: The decoded request envelope.
     /// - Returns: The command result, or `nil` if not an owned method.
@@ -66,6 +78,32 @@ public struct ControlBrowserQueryWorker: Sendable {
             return findLast(request.params)
         case "browser.find.nth":
             return findNth(request.params)
+        case "browser.get.text":
+            return reading.resolveQuery(.getText(params: request.params))
+        case "browser.get.html":
+            return reading.resolveQuery(.getHTML(params: request.params))
+        case "browser.get.value":
+            return reading.resolveQuery(.getValue(params: request.params))
+        case "browser.get.attr":
+            // The only missing-param branch in the getter family: the legacy
+            // `v2BrowserGetAttr` body required a trimmed-non-empty `attr` or `name`
+            // leaf BEFORE resolving the panel, returning this exact error.
+            guard let attr = string(request.params, "attr") ?? string(request.params, "name") else {
+                return .err(code: "invalid_params", message: "Missing attr/name", data: nil)
+            }
+            return reading.resolveQuery(.getAttr(params: request.params, attr: attr))
+        case "browser.get.count":
+            return reading.resolveQuery(.getCount(params: request.params))
+        case "browser.get.box":
+            return reading.resolveQuery(.getBox(params: request.params))
+        case "browser.get.styles":
+            return reading.resolveQuery(.getStyles(params: request.params))
+        case "browser.is.visible":
+            return reading.resolveQuery(.isVisible(params: request.params))
+        case "browser.is.enabled":
+            return reading.resolveQuery(.isEnabled(params: request.params))
+        case "browser.is.checked":
+            return reading.resolveQuery(.isChecked(params: request.params))
         default:
             return nil
         }
