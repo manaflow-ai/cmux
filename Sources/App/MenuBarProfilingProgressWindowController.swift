@@ -68,7 +68,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         pid: Int32 = ProcessInfo.processInfo.processIdentifier,
         scriptURL: URL? = MenuBarProfilingLauncher.bundledScriptURL()
     ) {
-        if process != nil {
+        if process != nil || submitProcess != nil {
             showWindow()
             return
         }
