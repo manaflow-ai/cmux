@@ -368,13 +368,14 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(secondReplacement.surface.initialCommand)
     }
 
-    func testChildExitOnLastPersistentRemotePanelKeepsExitedSurfaceVisibleAndClearsPTYState() throws {
+    func testChildExitOnLastPersistentRemotePanelReconnectRespawnsRemoteAttach() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
+        let startupCommand = SSHPTYAttachStartupCommandBuilder.command()
 
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -387,7 +388,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 relayID: String(repeating: "a", count: 16),
                 relayToken: String(repeating: "b", count: 64),
                 localSocketPath: "/tmp/cmux-debug-test.sock",
-                terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+                terminalStartupCommand: startupCommand,
                 preserveAfterTerminalExit: true,
                 persistentDaemonSlot: "ssh-child-exit-test"
             ),
@@ -408,12 +409,19 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[remotePanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
         XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
         XCTAssertNil(
             workspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
         )
+
+        XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
+        let reattachedPanel = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
+        XCTAssertEqual(reattachedPanel.surface.initialCommand, startupCommand)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
     }
 
     func testPaneCloseOnLastRemotePanelKeepsWorkspaceDisconnected() throws {

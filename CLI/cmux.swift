@@ -8820,6 +8820,7 @@ struct CMUXCLI {
                 "ssh-attach",
                 "--id",
                 shellQuote(vmIDForSplitAttach),
+                "--default-freestyle-sshd",
             ].joined(separator: " ")
             reusableTerminalStartupCommand = buildReusableSSHStartupCommand(
                 sshCommand: splitAttachCommand,
@@ -10201,19 +10202,39 @@ struct CMUXCLI {
 
     private func runVMSSHAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
-        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+        let usesDefaultFreestyleSSHD = hasFlag(remaining, name: "--default-freestyle-sshd")
+        let filteredRemaining = remaining.filter { $0 != "--default-freestyle-sshd" }
+        if let unknown = filteredRemaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "vm ssh-attach: unknown flag '\(unknown)'. Use `cmux vm ssh-attach --id <vm-id>`.")
         }
-        guard remaining.isEmpty else {
+        guard filteredRemaining.isEmpty else {
             throw CLIError(message: "Usage: cmux vm ssh-attach --id <vm-id>")
         }
-        guard let vmID = vmIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard var vmID = vmIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
               !vmID.isEmpty else {
             throw CLIError(message: "Usage: cmux vm ssh-attach --id <vm-id>")
         }
 
+        bootstrapFreestyleZshEnvironmentIfPossible(vmID: vmID, username: "cmux", client: client)
+
         let attachInfoStartedAt = Date()
-        let response = try client.sendV2(method: "vm.ssh_info", params: ["id": vmID], responseTimeout: Self.vmAttachResponseTimeoutSeconds)
+        let response: [String: Any]
+        do {
+            response = try client.sendV2(
+                method: "vm.ssh_info",
+                params: ["id": vmID],
+                responseTimeout: Self.vmAttachResponseTimeoutSeconds
+            )
+        } catch {
+            guard usesDefaultFreestyleSSHD, Self.isVMNotFoundError(error) else { throw error }
+            vmID = try recreateDefaultFreestyleSSHDVM(client: client)
+            bootstrapFreestyleZshEnvironmentIfPossible(vmID: vmID, username: "cmux", client: client)
+            response = try client.sendV2(
+                method: "vm.ssh_info",
+                params: ["id": vmID],
+                responseTimeout: Self.vmAttachResponseTimeoutSeconds
+            )
+        }
         logVMTiming("ssh_info", vmID: vmID, transport: "ssh", startedAt: attachInfoStartedAt)
         let options = try vmSSHOptions(
             fromAttachInfo: response,
@@ -10222,7 +10243,10 @@ struct CMUXCLI {
             client: client,
             remoteRelayPort: 0
         )
-        let sshArguments = buildSSHCommandArguments(options)
+        let sshArguments = buildSSHCommandArguments(
+            options,
+            remoteBootstrapScript: Self.freestyleInteractiveShellScript()
+        )
         guard let launchPath = sshArguments.first else {
             throw CLIError(message: "vm ssh-attach could not construct an ssh command. Retry `cmux vm ssh <id>` from a normal cmux shell.")
         }
@@ -10237,6 +10261,160 @@ struct CMUXCLI {
             launchPath: launchPath,
             arguments: Array(sshArguments.dropFirst())
         )
+    }
+
+    private static func isVMNotFoundError(_ error: Error) -> Bool {
+        let message = String(describing: error).lowercased()
+        return message.contains("vm_not_found") || message.contains("was not found")
+    }
+
+    private func recreateDefaultFreestyleSSHDVM(client: SocketClient) throws -> String {
+        let response = try client.sendV2(
+            method: "vm.create",
+            params: [
+                "provider": "freestyle",
+                "idempotency_key": Self.persistentFreestyleCloudIdempotencyKey,
+            ],
+            responseTimeout: Self.vmCreateResponseTimeoutSeconds
+        )
+        guard let id = (response["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !id.isEmpty else {
+            throw CLIError(message: "vm ssh-attach could not recreate the default Freestyle VM")
+        }
+        return id
+    }
+
+    private func bootstrapFreestyleZshEnvironmentIfPossible(
+        vmID: String,
+        username: String,
+        client: SocketClient
+    ) {
+        let command = "/bin/sh -lc \(shellQuote(freestyleZshBootstrapScript(username: username)))"
+        do {
+            _ = try client.sendV2(
+                method: "vm.exec",
+                params: ["id": vmID, "command": command],
+                responseTimeout: 180
+            )
+        } catch {
+            cliDebugLog(
+                "cli.vm.zsh_bootstrap.warning vm=\(String(vmID.prefix(8))) error=\(String(describing: error))"
+            )
+        }
+    }
+
+    private static func freestyleInteractiveShellScript() -> String {
+        """
+        if ! command -v zsh >/dev/null 2>&1; then
+          if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              sudo -n apt-get update >/dev/null 2>&1 || true
+              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions >/dev/null 2>&1 || true
+            fi
+          fi
+        fi
+        if command -v zsh >/dev/null 2>&1; then
+          touch "$HOME/.hushlogin" 2>/dev/null || true
+          if [ ! -e "$HOME/.zshrc" ] || grep -q "cmux-managed zsh defaults" "$HOME/.zshrc" 2>/dev/null; then
+            cat > "$HOME/.zshrc" <<'CMUX_USER_ZSHRC'
+        # cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.
+        if [ -r /etc/cmux/zshrc ]; then
+          source /etc/cmux/zshrc
+        else
+          export SHELL="$(command -v zsh)"
+          autoload -Uz colors 2>/dev/null && colors
+          setopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true
+          HISTFILE="${HISTFILE:-$HOME/.zsh_history}"
+          HISTSIZE="${HISTSIZE:-50000}"
+          SAVEHIST="${SAVEHIST:-50000}"
+          bindkey -e 2>/dev/null || true
+          if [ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+            source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+            ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}"
+          fi
+          : ${CMUX_PROMPT_CHAR:=$'\\u03bb'}
+          PROMPT='%F{magenta}%n%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '
+        fi
+        [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
+        CMUX_USER_ZSHRC
+          fi
+          if [ ! -e "$HOME/.zshrc.local" ]; then
+            cat > "$HOME/.zshrc.local" <<'CMUX_LOCAL_ZSHRC'
+        # Personal zsh overrides for this Freestyle VM.
+        # Examples:
+        #   CMUX_PROMPT_CHAR='>'
+        #   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '
+        CMUX_LOCAL_ZSHRC
+          fi
+          exec zsh -l
+        fi
+        exec "${SHELL:-/bin/sh}" -l
+        """
+    }
+
+    private func freestyleZshBootstrapScript(username: String) -> String {
+        let quotedUsername = shellQuote(username)
+        return """
+        set -u
+        cmux_user=\(quotedUsername)
+        cmux_home="$(getent passwd "$cmux_user" 2>/dev/null | awk -F: '{print $6}')"
+        if [ -z "$cmux_home" ]; then
+          cmux_home="/home/$cmux_user"
+        fi
+
+        if [ ! -f /etc/cmux/zsh-bootstrap-v1 ]; then
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update >/dev/null 2>&1 || true
+            DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions >/dev/null 2>&1 || true
+          fi
+        fi
+
+        mkdir -p /etc/cmux "$cmux_home/.config/cmux"
+        cat > /etc/cmux/zshrc <<'CMUX_ZSHRC'
+        # cmux default zsh profile. Put personal overrides in ~/.zshrc.local.
+        export SHELL="$(command -v zsh)"
+        autoload -Uz colors 2>/dev/null && colors
+        setopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true
+        HISTFILE="${HISTFILE:-$HOME/.zsh_history}"
+        HISTSIZE="${HISTSIZE:-50000}"
+        SAVEHIST="${SAVEHIST:-50000}"
+        bindkey -e 2>/dev/null || true
+
+        if [ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+          source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+          ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}"
+        fi
+
+        : ${CMUX_PROMPT_CHAR:=$'\\u03bb'}
+        PROMPT='%F{magenta}%n%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '
+        CMUX_ZSHRC
+
+        if [ ! -e "$cmux_home/.zshrc" ] || grep -q "cmux-managed zsh defaults" "$cmux_home/.zshrc" 2>/dev/null; then
+          cat > "$cmux_home/.zshrc" <<'CMUX_USER_ZSHRC'
+        # cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.
+        [ -r /etc/cmux/zshrc ] && source /etc/cmux/zshrc
+        [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
+        CMUX_USER_ZSHRC
+        fi
+
+        if [ ! -e "$cmux_home/.zshrc.local" ]; then
+          cat > "$cmux_home/.zshrc.local" <<'CMUX_LOCAL_ZSHRC'
+        # Personal zsh overrides for this Freestyle VM.
+        # Examples:
+        #   CMUX_PROMPT_CHAR='>'
+        #   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '
+        CMUX_LOCAL_ZSHRC
+        fi
+
+        if command -v zsh >/dev/null 2>&1; then
+          chsh -s "$(command -v zsh)" "$cmux_user" >/dev/null 2>&1 || true
+          touch /etc/cmux/zsh-bootstrap-v1 2>/dev/null || true
+        fi
+        touch "$cmux_home/.hushlogin" 2>/dev/null || true
+        chown "$cmux_user:$cmux_user" "$cmux_home/.zshrc" "$cmux_home/.zshrc.local" 2>/dev/null || true
+        chown "$cmux_user:$cmux_user" "$cmux_home/.hushlogin" 2>/dev/null || true
+        chown -R "$cmux_user:$cmux_user" "$cmux_home/.config/cmux" 2>/dev/null || true
+        """
     }
 
     private func parseVMPtyWebSocketEndpoint(_ response: [String: Any]) throws -> VMPtyWebSocketEndpoint {

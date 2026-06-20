@@ -33,14 +33,21 @@ extension SessionRemoteWorkspaceSnapshot {
         let fallbackSSHOptions = preserveSSHOptions
             ? Self.normalizedSSHOptions(preservedOptions)
             : preservedOptions
+        let defaultFreestyleVMID = Self.defaultFreestyleVMID(
+            destination: normalizedDestination,
+            skipDaemonBootstrap: skipDaemonBootstrap == true
+        )
+        let effectivePersistentDaemonSlot = normalizedPersistentDaemonSlot
+            ?? (defaultFreestyleVMID == nil ? nil : Self.defaultFreestylePersistentDaemonSlot)
         let preservePTYSession =
             allowPersistentPTYRestore &&
             preserveAfterTerminalExit == true &&
             skipDaemonBootstrap != true &&
-            normalizedPersistentDaemonSlot != nil &&
+            effectivePersistentDaemonSlot != nil &&
             normalizedLocalSocketPath != nil &&
             normalizedRelayPort != nil &&
             SSHPTYAttachStartupCommandBuilder.sshOptionsSupportReusableForegroundAuth(optionsWithRestoreControlDefaults)
+        let restoreDefaultFreestyleSSHD = defaultFreestyleVMID != nil
         let restoredSSHOptions = preservePTYSession ? optionsWithRestoreControlDefaults : fallbackSSHOptions
         let foregroundAuthToken = preservePTYSession ? UUID().uuidString.lowercased() : nil
         let foregroundAuth = foregroundAuthToken.map {
@@ -72,27 +79,33 @@ extension SessionRemoteWorkspaceSnapshot {
             relayID: restoredRelayID,
             relayToken: restoredRelayToken,
             localSocketPath: preservePTYSession ? normalizedLocalSocketPath : nil,
-            terminalStartupCommand: preservePTYSession
-                ? SSHPTYAttachStartupCommandBuilder.command(
-                    foregroundAuth: foregroundAuth,
-                    remoteCommand: restoredRemoteShellCommand,
-                    // Restored panels get explicit require-existing attach commands with their
-                    // persisted session IDs; this workspace default is for new panes.
-                    requireExisting: false
-                )
-                : sshReconnectCommand(
+            terminalStartupCommand: {
+                if preservePTYSession {
+                    return SSHPTYAttachStartupCommandBuilder.command(
+                        foregroundAuth: foregroundAuth,
+                        remoteCommand: restoredRemoteShellCommand,
+                        // Restored panels get explicit require-existing attach commands with their
+                        // persisted session IDs; this workspace default is for new panes.
+                        requireExisting: false
+                    )
+                }
+                if let defaultFreestyleVMID {
+                    return Self.defaultFreestyleSSHAttachCommand(vmID: defaultFreestyleVMID)
+                }
+                return sshReconnectCommand(
                     destination: normalizedDestination,
                     port: normalizedPort,
                     sshOptions: restoredSSHOptions
-                ),
+                )
+            }(),
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(
                 sshOptions: restoredSSHOptions,
                 explicitAgentSocketPath: overrideAgentSocketPath
             ),
             daemonWebSocketEndpoint: nil,
-            preserveAfterTerminalExit: preservePTYSession,
-            persistentDaemonSlot: preservePTYSession ? normalizedPersistentDaemonSlot : nil,
+            preserveAfterTerminalExit: preservePTYSession || restoreDefaultFreestyleSSHD,
+            persistentDaemonSlot: (preservePTYSession || restoreDefaultFreestyleSSHD) ? effectivePersistentDaemonSlot : nil,
             skipDaemonBootstrap: skipDaemonBootstrap == true
         )
     }
@@ -142,6 +155,47 @@ extension SessionRemoteWorkspaceSnapshot {
 
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
         WorkspaceRemoteConfiguration.hasSSHOptionKey(options, key: key)
+    }
+
+    private static let defaultFreestylePersistentDaemonSlot = "cmux-default-freestyle-sshd-v1"
+
+    private static func defaultFreestyleVMID(
+        destination normalizedDestination: String,
+        skipDaemonBootstrap: Bool
+    ) -> String? {
+        guard skipDaemonBootstrap,
+              normalizedDestination.hasSuffix("+cmux@vm-ssh.freestyle.sh") else {
+            return nil
+        }
+        let vmID = String(normalizedDestination.prefix { $0 != "+" })
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard vmID.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil,
+              vmID != ".",
+              vmID != ".." else {
+            return nil
+        }
+        return vmID
+    }
+
+    private static func defaultFreestyleSSHAttachCommand(vmID: String) -> String {
+        let lines = [
+            "cmux_freestyle_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
+            "if [ -z \"$cmux_freestyle_cli\" ] || [ ! -x \"$cmux_freestyle_cli\" ]; then cmux_freestyle_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            "if [ -z \"$cmux_freestyle_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for Freestyle SSH attach.' >&2; exit 127; fi",
+            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
+            "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
+            "export CMUX_SSH_RECONNECT_LIMIT CMUX_SSH_RECONNECT_DELAY_SECONDS",
+            "cmux_freestyle_retry=0",
+            "while :; do",
+            "  \"$cmux_freestyle_cli\" vm ssh-attach --id \(shellQuote(vmID)) --default-freestyle-sshd",
+            "  cmux_freestyle_status=$?",
+            "  case \"$cmux_freestyle_status\" in 254|255) ;; *) exit \"$cmux_freestyle_status\" ;; esac",
+            "  if [ \"$cmux_freestyle_retry\" -ge \"$CMUX_SSH_RECONNECT_LIMIT\" ]; then exit \"$cmux_freestyle_status\"; fi",
+            "  cmux_freestyle_retry=$((cmux_freestyle_retry + 1))",
+            "  sleep \"$CMUX_SSH_RECONNECT_DELAY_SECONDS\"",
+            "done",
+        ]
+        return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }
 
     private static func shellQuote(_ value: String) -> String {

@@ -63,6 +63,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let initialCommand = params["initial_command"] as? String ?? ""
                 let decodedInitialCommand = self.decodedReusableShellStartupCommand(initialCommand)
                 XCTAssertTrue(decodedInitialCommand.contains("vm ssh-attach"), decodedInitialCommand)
+                XCTAssertTrue(decodedInitialCommand.contains("--default-freestyle-sshd"), decodedInitialCommand)
                 XCTAssertFalse(decodedInitialCommand.contains(":lease-token@"), decodedInitialCommand)
                 return self.v2Response(
                     id: id,
@@ -94,6 +95,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let decodedStartupCommand = self.decodedReusableShellStartupCommand(terminalStartupCommand)
                 XCTAssertFalse(terminalStartupCommand.isEmpty, "\(params)")
                 XCTAssertTrue(decodedStartupCommand.contains("vm ssh-attach"), decodedStartupCommand)
+                XCTAssertTrue(decodedStartupCommand.contains("--default-freestyle-sshd"), decodedStartupCommand)
                 XCTAssertTrue(
                     decodedStartupCommand.contains("env CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}"),
                     decodedStartupCommand
@@ -239,6 +241,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let decodedStartupCommand = self.decodedReusableShellStartupCommand(terminalStartupCommand)
                 XCTAssertFalse(terminalStartupCommand.isEmpty, "\(params)")
                 XCTAssertTrue(decodedStartupCommand.contains("vm ssh-attach"), decodedStartupCommand)
+                XCTAssertTrue(decodedStartupCommand.contains("--default-freestyle-sshd"), decodedStartupCommand)
                 XCTAssertTrue(
                     decodedStartupCommand.contains("env CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}"),
                     decodedStartupCommand
@@ -329,6 +332,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertTrue(text.hasSuffix("\n"))
                 let decodedText = self.decodedReusableShellStartupCommand(text)
                 XCTAssertTrue(decodedText.contains("vm ssh-attach"), decodedText)
+                XCTAssertTrue(decodedText.contains("--default-freestyle-sshd"), decodedText)
                 XCTAssertFalse(decodedText.contains(":lease-token@"), decodedText)
                 return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceID])
             default:
