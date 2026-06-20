@@ -2253,6 +2253,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
     /// subscribers; same contract as `panelsPublisher`.
     let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
+    /// Legacy Combine bridge for observers that project closeability from shell
+    /// activity; emits when `panelShellActivityStates` changes.
+    let panelShellActivityStatesPublisher = CurrentValueSubject<[UUID: PanelShellActivityState], Never>([:])
 
     /// Mapping from bonsplit TabID to our Panel instances
     var panels: [UUID: any Panel] {
@@ -2484,7 +2487,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// surface-registry sub-model.
     var panelShellActivityStates: [UUID: PanelShellActivityState] {
         get { surfaceRegistry.panelShellActivityStates }
-        set { surfaceRegistry.panelShellActivityStates = newValue }
+        set {
+            let oldValue = surfaceRegistry.panelShellActivityStates
+            surfaceRegistry.panelShellActivityStates = newValue
+            if oldValue != newValue {
+                panelShellActivityStatesPublisher.send(newValue)
+            }
+        }
     }
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.

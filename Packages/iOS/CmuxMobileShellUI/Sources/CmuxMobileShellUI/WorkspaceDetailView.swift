@@ -895,6 +895,9 @@ struct WorkspaceDetailView: View {
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        #if canImport(UIKit)
+        exitChatModeForTerminalNavigation()
+        #endif
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
@@ -917,6 +920,9 @@ struct WorkspaceDetailView: View {
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
+        #if canImport(UIKit)
+        exitChatModeForTerminalNavigation()
+        #endif
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)
@@ -932,6 +938,16 @@ struct WorkspaceDetailView: View {
         selectTerminalFromPicker(terminalID)
         isTabOverviewPresented = false
     }
+
+    #if canImport(UIKit)
+    private func exitChatModeForTerminalNavigation() {
+        guard isChatMode || pinnedChatSessionID != nil else { return }
+        withAnimation(.snappy(duration: 0.28)) {
+            isChatMode = false
+        }
+        pinnedChatSessionID = nil
+    }
+    #endif
 
     private func closeTerminalFromOverview(_ terminalID: MobileTerminalPreview.ID) {
         closeTerminal?(terminalID)

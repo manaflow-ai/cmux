@@ -206,6 +206,9 @@ final class MobileWorkspaceListObserver {
                 // set; bonsplit selection state is not `@Published`, so this counter
                 // is the only signal the observer gets for a reorder.
                 workspace.paneLayoutVersionPublisher.map { _ in () }.eraseToAnyPublisher(),
+                // Terminal `can_close` also depends on whether a terminal has
+                // active shell work that would require confirmation.
+                workspace.panelShellActivityStatesPublisher.map { _ in () }.eraseToAnyPublisher(),
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
