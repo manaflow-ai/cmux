@@ -358,6 +358,113 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Fast repro for the iOS Ghostty stale/defunct renderer report.
+    /// `CMUX_ZOOM_STRESS` drives the root-cause path directly: output bytes keep
+    /// streaming, every resize emits a heavy prompt redraw, and the harness
+    /// hammers Ghostty zoom on a display cadence. The failure we want is exactly
+    /// "terminal state advances, but the Metal frame goes blank/stale".
+    @MainActor
+    func testTerminalRenderingSurvivesDiagonalResizeStress() throws {
+        let start = Date()
+        let app = launchZoomStressApp()
+        defer { app.terminate() }
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        let lineProbe = app.otherElements["MobileZoomStressLineProbe"]
+        XCTAssertTrue(lineProbe.waitForExistence(timeout: 8))
+        let firstLine = waitForStressLine(in: lineProbe, timeout: 8)
+        XCTAssertNotNil(firstLine, "Zoom stress surface did not stream terminal output. probe=\(String(describing: lineProbe.value))")
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        if hideKeyboardButton.waitForExistence(timeout: 1), hideKeyboardButton.isHittable {
+            hideKeyboardButton.tap()
+        }
+
+        let baselineStrongPixels = try strongTerminalTextPixelCount(in: app)
+        XCTAssertGreaterThanOrEqual(
+            baselineStrongPixels,
+            20,
+            "Zoom stress surface started blank. strongTextPixels=\(baselineStrongPixels) elapsed=\(elapsedSeconds(since: start))s"
+        )
+
+        var lastLine = firstLine ?? 0
+        var minimumStrongPixels = baselineStrongPixels
+        for _ in 0..<10 {
+            Thread.sleep(forTimeInterval: 0.35)
+            let currentLine = stressLineNumber(in: lineProbe) ?? lastLine
+            let strongPixels = try strongTerminalTextPixelCount(in: app)
+            lastLine = max(lastLine, currentLine)
+            minimumStrongPixels = min(minimumStrongPixels, strongPixels)
+            if currentLine > (firstLine ?? 0) + 10, strongPixels <= 10 {
+                XCTFail(
+                    "Terminal render went blank/stale while output advanced. strongTextPixels=\(strongPixels) baseline=\(baselineStrongPixels) firstLine=\(String(describing: firstLine)) maxLine=\(currentLine) elapsed=\(elapsedSeconds(since: start))s",
+                    file: #filePath,
+                    line: #line
+                )
+                return
+            }
+        }
+
+        XCTAssertGreaterThan(
+            lastLine,
+            (firstLine ?? 0) + 10,
+            "Zoom stress did not advance enough output. firstLine=\(String(describing: firstLine)) maxLine=\(lastLine) elapsed=\(elapsedSeconds(since: start))s"
+        )
+        XCTAssertGreaterThan(
+            minimumStrongPixels,
+            10,
+            "Terminal render became too sparse during zoom stress. minStrongTextPixels=\(minimumStrongPixels) baseline=\(baselineStrongPixels) firstLine=\(String(describing: firstLine)) maxLine=\(lastLine) elapsed=\(elapsedSeconds(since: start))s"
+        )
+    }
+
+    @MainActor
+    private func launchZoomStressApp() -> XCUIApplication {
+        launchApp(mockData: false, environment: [
+            "CMUX_ZOOM_STRESS": "1",
+        ])
+    }
+
+    @MainActor
+    private func waitForStressLine(in lineProbe: XCUIElement, timeout: TimeInterval) -> Int? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let line = stressLineNumber(in: lineProbe) {
+                return line
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        return stressLineNumber(in: lineProbe)
+    }
+
+    private func stressLineNumber(in lineProbe: XCUIElement) -> Int? {
+        guard let value = lineProbe.value as? String,
+              let range = value.range(of: "line=") else { return nil }
+        let suffix = value[range.upperBound...]
+        let digits = suffix.prefix { $0.isNumber }
+        return Int(digits)
+    }
+
+    @MainActor
+    private func strongTerminalTextPixelCount(in app: XCUIApplication) throws -> Int {
+        guard let cg = app.screenshot().image.cgImage else {
+            throw XCTSkip("Could not capture app screenshot")
+        }
+        let pixels = BitmapPixels(cg)
+        var strong = 0
+        for y in stride(from: 0.06, through: 0.66, by: 0.015) {
+            for x in stride(from: 0.02, through: 0.98, by: 0.02) {
+                if pixels.color(xUnit: x, yUnit: y).isTerminalForeground {
+                    strong += 1
+                }
+            }
+        }
+        return strong
+    }
+
+    private func elapsedSeconds(since start: Date) -> String {
+        String(format: "%.2f", Date().timeIntervalSince(start))
+    }
+
     @MainActor
     private func assertCleanColorBands(
         of surface: XCUIElement,
@@ -433,6 +540,9 @@ final class cmuxUITests: XCTestCase {
         var isStrong: Bool {
             let mx = max(r, g, b), mn = min(r, g, b)
             return mx >= 110 && (mx - mn) >= 50
+        }
+        var isTerminalForeground: Bool {
+            isStrong || (r >= 150 && g >= 150 && b >= 150)
         }
         func isClose(to o: RGB, tolerance: Int) -> Bool {
             abs(r - o.r) <= tolerance && abs(g - o.g) <= tolerance && abs(b - o.b) <= tolerance

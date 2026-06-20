@@ -36,10 +36,23 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
             label.textColor = .white
             return label
         }
+        let container = UIView()
+        container.backgroundColor = .black
         let view = GhosttySurfaceView(runtime: runtime, delegate: context.coordinator, fontSize: 12)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            view.topAnchor.constraint(equalTo: container.topAnchor),
+            view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        let probe = LineProbeView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        probe.coordinator = context.coordinator
+        container.addSubview(probe)
         context.coordinator.surfaceView = view
         context.coordinator.start()
-        return view
+        return container
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {}
@@ -48,13 +61,33 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
         coordinator.stop()
     }
 
+    final class LineProbeView: UIView {
+        weak var coordinator: Coordinator?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            isAccessibilityElement = true
+            accessibilityIdentifier = "MobileZoomStressLineProbe"
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var accessibilityValue: String? {
+            get { "line=\(coordinator?.lineCounter ?? 0)" }
+            set {}
+        }
+    }
+
     @MainActor
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         weak var surfaceView: GhosttySurfaceView?
         private var zoomTimer: Timer?
         private var byteTimer: Timer?
         private var grow = true
-        private var lineCounter = 0
+        fileprivate var lineCounter = 0
 
         func start() {
             // (1) Stream bytes like the Mac does, concurrently with zoom.
