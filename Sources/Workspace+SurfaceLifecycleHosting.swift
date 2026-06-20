@@ -35,4 +35,24 @@ extension Workspace: SurfaceLifecycleHosting {
     func applySplitDividerPosition(_ position: CGFloat, forSplit splitId: UUID) -> Bool {
         bonsplitController.setDividerPosition(position, forSplit: splitId, fromExternal: true)
     }
+
+    func surfaceLifecycleProfileDefinitionExists(id: UUID) -> Bool {
+        BrowserProfileStore.shared.profileDefinition(id: id) != nil
+    }
+
+    var surfaceLifecycleEffectiveLastUsedProfileID: UUID {
+        BrowserProfileStore.shared.effectiveLastUsedProfileID
+    }
+
+    var surfaceLifecyclePreferredBrowserProfileID: UUID? {
+        preferredBrowserProfileID
+    }
+
+    func surfaceLifecycleSetPreferredBrowserProfileID(_ profileID: UUID?) {
+        preferredBrowserProfileID = profileID
+    }
+
+    func surfaceLifecycleSourcePanelProfileID(panelId: UUID) -> UUID? {
+        browserPanel(for: panelId)?.profileID
+    }
 }

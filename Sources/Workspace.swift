@@ -2044,7 +2044,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     @Published private(set) var extensionSidebarProjectRootPath: String?
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
     @Published private(set) var surfaceTabBarDirectory: String?
-    private(set) var preferredBrowserProfileID: UUID?
+    // `internal(set)` (was `private(set)`): the sole writer is the
+    // `SurfaceLifecycleHosting` conformance in `Workspace+SurfaceLifecycleHosting.swift`,
+    // which drives `SurfaceLifecycleCoordinator.setPreferredBrowserProfileID`. Still
+    // module-internal, so external callers must go through `setPreferredBrowserProfileID`.
+    internal(set) var preferredBrowserProfileID: UUID?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -3600,32 +3604,17 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func setPreferredBrowserProfileID(_ profileID: UUID?) {
-        guard let profileID else {
-            preferredBrowserProfileID = nil
-            return
-        }
-        guard BrowserProfileStore.shared.profileDefinition(id: profileID) != nil else { return }
-        preferredBrowserProfileID = profileID
+        surfaceLifecycle.setPreferredBrowserProfileID(profileID)
     }
 
     private func resolvedNewBrowserProfileID(
         preferredProfileID: UUID? = nil,
         sourcePanelId: UUID? = nil
     ) -> UUID {
-        if let preferredProfileID,
-           BrowserProfileStore.shared.profileDefinition(id: preferredProfileID) != nil {
-            return preferredProfileID
-        }
-        if let sourcePanelId,
-           let sourceBrowserPanel = browserPanel(for: sourcePanelId),
-           BrowserProfileStore.shared.profileDefinition(id: sourceBrowserPanel.profileID) != nil {
-            return sourceBrowserPanel.profileID
-        }
-        if let preferredBrowserProfileID,
-           BrowserProfileStore.shared.profileDefinition(id: preferredBrowserProfileID) != nil {
-            return preferredBrowserProfileID
-        }
-        return BrowserProfileStore.shared.effectiveLastUsedProfileID
+        surfaceLifecycle.resolvedNewBrowserProfileID(
+            preferredProfileID: preferredProfileID,
+            sourcePanelId: sourcePanelId
+        ) ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
     }
 
     private func installMarkdownPanelSubscription(_ markdownPanel: MarkdownPanel) {

@@ -53,4 +53,34 @@ public protocol SurfaceLifecycleHosting: AnyObject {
     /// `bonsplitController.setDividerPosition(_:forSplit:fromExternal: true)`).
     @discardableResult
     func applySplitDividerPosition(_ position: CGFloat, forSplit splitId: UUID) -> Bool
+
+    /// Whether a browser profile with the given id is currently defined, mirroring
+    /// the legacy `BrowserProfileStore.shared.profileDefinition(id:) != nil` guard
+    /// that gated every profile-id resolution. The profile store is an app-target
+    /// singleton, so the existence check stays behind the seam.
+    func surfaceLifecycleProfileDefinitionExists(id: UUID) -> Bool
+
+    /// The profile id a fresh browser surface should fall back to when no
+    /// preferred or source profile applies (legacy
+    /// `BrowserProfileStore.shared.effectiveLastUsedProfileID`).
+    var surfaceLifecycleEffectiveLastUsedProfileID: UUID { get }
+
+    /// The workspace's currently preferred browser profile id, the third tier of
+    /// `Workspace.resolvedNewBrowserProfileID` and the value
+    /// `Workspace.setPreferredBrowserProfileID` writes (the workspace owns the
+    /// stored `preferredBrowserProfileID`, which is `private(set)`).
+    var surfaceLifecyclePreferredBrowserProfileID: UUID? { get }
+
+    /// Writes the workspace's preferred browser profile id (legacy
+    /// `Workspace.preferredBrowserProfileID = …`). The property is `private(set)`
+    /// on the workspace, so the one mutation goes through the seam; it carries no
+    /// Combine subscriber, so no observer-parity bridge is needed.
+    func surfaceLifecycleSetPreferredBrowserProfileID(_ profileID: UUID?)
+
+    /// The profile id of the browser panel owning `panelId`, or `nil` when that
+    /// panel is not a browser panel (legacy
+    /// `browserPanel(for: sourcePanelId)?.profileID`). The app-target
+    /// `BrowserPanel` type never crosses into the package; only its `UUID`
+    /// profile id does.
+    func surfaceLifecycleSourcePanelProfileID(panelId: UUID) -> UUID?
 }
