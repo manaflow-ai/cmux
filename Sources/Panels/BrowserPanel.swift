@@ -1287,25 +1287,20 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
     }
     guard cmuxIsInternalWebviewHistoryMarker(url.fragment),
           url.scheme?.lowercased() == "http",
-          let host = url.host else {
+          let host = url.host,
+          RemoteLoopbackProxyAlias.isLoopbackHost(host) ||
+          RemoteLoopbackProxyAlias.localhostFamilyHost(forAliasHost: host, aliasHost: RemoteLoopbackProxyAlias.aliasHost) != nil else {
         return false
     }
-    return RemoteLoopbackProxyAlias.isLoopbackHost(host) ||
-        RemoteLoopbackProxyAlias.localhostFamilyHost(
-            forAliasHost: host,
-            aliasHost: RemoteLoopbackProxyAlias.aliasHost
-        ) != nil
+    let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+    let parts = rawPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    guard parts.count >= 2, CmuxDiffViewerURLSchemeHandler.isValidToken(parts[0]) else { return false }
+    return CmuxDiffViewerURLSchemeHandler.isValidRequestPath("/" + parts.dropFirst().joined(separator: "/"))
 }
 
 func cmuxIsInternalWebviewHistoryMarker(_ fragment: String?) -> Bool {
-    guard var fragment = fragment?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !fragment.isEmpty else {
-        return false
-    }
-    while fragment.hasPrefix("/") {
-        fragment.removeFirst()
-    }
-    return fragment == "cmux-diff-viewer" || fragment == "cmux-open-chat"
+    let normalized = String((fragment ?? "").trimmingCharacters(in: .whitespacesAndNewlines).drop(while: { $0 == "/" }))
+    return normalized == "cmux-diff-viewer" || normalized == "cmux-open-chat"
 }
 
 @MainActor

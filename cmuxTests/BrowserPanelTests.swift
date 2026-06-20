@@ -647,6 +647,7 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
     }
 
     func testDiffViewerURLIsNotPersistedForSessionRestore() throws {
+        let token = UUID().uuidString.lowercased()
         let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
         let schemePanel = BrowserPanel(
             workspaceId: UUID(),
@@ -659,7 +660,7 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(schemePanel.shouldPersistSessionSnapshot())
         XCTAssertFalse(schemePanel.shouldRenderWebViewForSessionSnapshot())
 
-        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/\(token)/diff.html#cmux-diff-viewer"))
         let loopbackPanel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: loopbackURL,
@@ -670,7 +671,7 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(loopbackPanel.shouldPersistSessionSnapshot())
         XCTAssertFalse(loopbackPanel.shouldRenderWebViewForSessionSnapshot())
 
-        let openChatURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/chat.html#cmux-open-chat"))
+        let openChatURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/\(token)/chat.html#cmux-open-chat"))
         let openChatPanel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: openChatURL,
@@ -681,7 +682,7 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(openChatPanel.shouldPersistSessionSnapshot())
         XCTAssertFalse(openChatPanel.shouldRenderWebViewForSessionSnapshot())
 
-        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
+        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/\(token)/diff.html#cmux-diff-viewer"))
         let aliasPanel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: aliasURL,
@@ -689,14 +690,12 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         )
         XCTAssertNil(aliasPanel.preferredURLStringForSessionSnapshot())
         XCTAssertFalse(aliasPanel.shouldPersistSessionSnapshot())
-
-        let normalLocalhostURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/app"))
+        let normalLocalhostURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/app#cmux-open-chat"))
         let normalLocalhostPanel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: normalLocalhostURL,
             renderInitialNavigation: false
         )
-        XCTAssertEqual(normalLocalhostPanel.preferredURLStringForSessionSnapshot(), normalLocalhostURL.absoluteString)
         XCTAssertTrue(normalLocalhostPanel.shouldPersistSessionSnapshot())
     }
 
@@ -709,11 +708,12 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
             try? FileManager.default.removeItem(at: fileURL)
         }
 
+        let token = UUID().uuidString.lowercased()
         let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
-        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
-        let openChatURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/chat.html#cmux-open-chat"))
-        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
-        let normalURL = try XCTUnwrap(URL(string: "https://example.com/page"))
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/\(token)/diff.html#cmux-diff-viewer"))
+        let openChatURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/\(token)/chat.html#cmux-open-chat"))
+        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/\(token)/diff.html#cmux-diff-viewer"))
+        let normalURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/app#cmux-open-chat"))
 
         store.recordVisit(url: schemeURL, title: "Diff")
         store.recordVisit(url: loopbackURL, title: "Diff")
