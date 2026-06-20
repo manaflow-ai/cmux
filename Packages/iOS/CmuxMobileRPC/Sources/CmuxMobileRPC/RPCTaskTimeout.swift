@@ -1,5 +1,15 @@
 import Foundation
 
+private actor RPCTaskTimeoutRace {
+    private var hasWinner = false
+
+    func win() -> Bool {
+        guard !hasWinner else { return false }
+        hasWinner = true
+        return true
+    }
+}
+
 struct RPCTaskTimeout: Sendable {
     func value<T: Sendable>(
         _ task: Task<T, any Error>,
