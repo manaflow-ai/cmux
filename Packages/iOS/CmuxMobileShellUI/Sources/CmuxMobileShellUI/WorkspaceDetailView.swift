@@ -95,7 +95,7 @@ struct WorkspaceDetailView: View {
     /// the live terminal.
     private var sessionForSelectedTerminal: ChatSessionDescriptor? {
         guard let terminalID = selectedTerminal?.id.rawValue else { return nil }
-        return chatSessions.first { $0.terminalID == terminalID }
+        return ChatSessionDescriptor.openable(chatSessions.filter { $0.terminalID == terminalID }).first
     }
 
     /// The session chat mode opens: the visible tab's session, or the pinned

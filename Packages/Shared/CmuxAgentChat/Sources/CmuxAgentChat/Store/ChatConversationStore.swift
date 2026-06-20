@@ -453,7 +453,6 @@ public final class ChatConversationStore {
             lastErrorDescription = error.localizedDescription
         }
     }
-
     private func apply(_ event: ChatSessionEvent) {
         switch event {
         case .appended(let newMessages):
@@ -487,6 +486,7 @@ public final class ChatConversationStore {
             self.descriptor = descriptor
             agentState = descriptor.state
             if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
+        case .removed: agentState = .ended
         case .terminalBlocks(let blocks):
             // Upsert by id: a new id appends to the order; an existing id
             // replaces in place (output grew / command finished). Whole-block
