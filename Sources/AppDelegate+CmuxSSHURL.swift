@@ -1,4 +1,5 @@
 import AppKit
+import CmuxRemoteWorkspace
 import CmuxSettings
 import CmuxWindowing
 import Bonsplit

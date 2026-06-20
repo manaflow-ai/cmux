@@ -1,3 +1,4 @@
+import CmuxRemoteWorkspace
 import XCTest
 import Foundation
 
