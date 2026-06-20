@@ -332,6 +332,12 @@ export class TeamPresence extends DurableObject {
     await this.rememberTeamId(teamId);
     const deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now());
     for (const delta of deltas) this.broadcastSyncToUser(userId, delta);
+    // A delete creates a tombstone the alarm GCs, but an idle team (no presence
+    // instances or subscribers) may never schedule an alarm otherwise, so a
+    // create/delete churn would grow DO storage without bound. Schedule the
+    // next tombstone-GC deadline for this user's collection now.
+    const gcTime = await nextTombstoneGcTime(this.syncStorage(), pairedMacsCollection(userId));
+    if (gcTime !== null) await this.ensureAlarmAt(gcTime);
     return { ok: true, changed: deltas.length };
   }
 

@@ -893,6 +893,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // previous user's Macs/workspaces cannot be re-seeded into the next
         // account after the reset below.
         teardownSecondaryMacSubscriptions()
+        // Cancel any in-flight paired-Mac restore so a backup fetch suspended
+        // across this sign-out cannot resume — possibly authorized with the next
+        // account's live token — and write rows for the previous account. The
+        // local store is intentionally retained (scoped per user) for a
+        // same-account re-sign-in restore. Fire-and-forget: signOut is sync.
+        if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
+            Task { await refresher.cancelInFlightRestores() }
+        }
         rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
         // Local preview / disconnected placeholder: seed the foreground (anonymous)
@@ -2776,10 +2784,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.scheduleSecondaryRefresh(macID: macID, client: client, displayName: displayName)
                 }
             }
-            // Stream ended (disconnect / error): tear the entry down so a later
-            // refresh can re-establish it. The fallback keeps the list usable.
+            // Stream ended (disconnect / error): tear the subscription down so a
+            // later refresh can re-establish it, and DOWNGRADE this Mac's workspace
+            // state to offline so the aggregate stops showing its rows as live. The
+            // rows stay visible (marked unavailable) rather than vanishing, and the
+            // pull-to-refresh / foreground re-aggregate path re-establishes the Mac.
             guard let self, self.secondaryMacSubscriptions[macID]?.client === client else { return }
             self.secondaryMacSubscriptions[macID] = nil
+            if var state = self.workspacesByMac[macID] {
+                state.status = .unavailable
+                self.workspacesByMac[macID] = state
+            }
             await client.disconnect()
         }
     }

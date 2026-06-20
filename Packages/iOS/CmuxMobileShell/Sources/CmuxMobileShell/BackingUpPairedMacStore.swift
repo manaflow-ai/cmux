@@ -13,6 +13,13 @@ public protocol PairedMacBackupRefreshing: Sendable {
     /// Force a backup re-fetch + LWW merge for the signed-in scope, bypassing the
     /// once-per-launch restore memo. Best-effort; never throws.
     func refreshFromBackup(stackUserID: String?) async
+
+    /// Cancel every in-flight restore/refresh so a fetch suspended across a
+    /// sign-out / account switch cannot resume and write the previous account's
+    /// Macs (with the live token possibly now scoped to a different user). Does
+    /// NOT wipe the local store — sign-out retains the per-user rows for a
+    /// same-account re-sign-in restore. Best-effort; never throws.
+    func cancelInFlightRestores() async
 }
 
 /// A ``MobilePairedMacStoring`` decorator that keeps the per-user Durable Object
@@ -138,15 +145,24 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // restore memo (and any in-flight restore) so a same-launch re-sign-in
         // restores again rather than reading the just-emptied store.
         try await inner.removeAll()
-        resetGeneration &+= 1
         restoredScopes.removeAll()
         // Cancel in-flight restores so a backup fetch suspended across this wipe
         // cannot resume and re-upsert the previous account's Macs into the just-
         // emptied local store (sign-out privacy boundary). `PairedMacRestore.run`
         // checks `Task.isCancelled` after its fetch and skips the writes.
+        await cancelInFlightRestores()
+        lastSignedInAccount = nil
+    }
+
+    public func cancelInFlightRestores() async {
+        // Bump the reset generation so any restore already past its cancellation
+        // checks (suspended at `await task.value`) still bails before memoizing,
+        // and cancel the tasks so `PairedMacRestore.run`'s `Task.isCancelled`
+        // checks fire. Does not touch `inner` — sign-out keeps the per-user rows.
+        resetGeneration &+= 1
+        restoredScopes.removeAll()
         for (_, task) in inFlight { task.cancel() }
         inFlight.removeAll()
-        lastSignedInAccount = nil
     }
 
     /// Force a backup re-fetch + LWW merge for the signed-in scope, ignoring the
