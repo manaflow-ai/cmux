@@ -1,6 +1,25 @@
 import Foundation
 internal import os
 
+private let authPhaseTimeoutCleanupRegistry = AuthPhaseTimeoutCleanupRegistry()
+
+private actor AuthPhaseTimeoutCleanupRegistry {
+    private var timedOutOperationIDs: [String: UUID] = [:]
+
+    func hasTimedOutOperation(for phase: AuthPhase) -> Bool {
+        timedOutOperationIDs[phase.rawValue] != nil
+    }
+
+    func trackTimedOutOperation(for phase: AuthPhase, id: UUID) {
+        timedOutOperationIDs[phase.rawValue] = id
+    }
+
+    func clearTimedOutOperation(for phase: AuthPhase, id: UUID) {
+        guard timedOutOperationIDs[phase.rawValue] == id else { return }
+        timedOutOperationIDs[phase.rawValue] = nil
+    }
+}
+
 private final class AuthPhaseTimeoutState<T: Sendable>: @unchecked Sendable {
     private enum Completion: Sendable {
         case success(T)
@@ -40,19 +59,22 @@ private final class AuthPhaseTimeoutState<T: Sendable>: @unchecked Sendable {
         }
     }
 
-    func resume(returning value: T) {
+    @discardableResult
+    func resume(returning value: T) -> Bool {
         finish(.success(value))
     }
 
-    func resume(throwing error: any Error) {
+    @discardableResult
+    func resume(throwing error: any Error) -> Bool {
         finish(.failure(error))
     }
 
-    func cancel() {
+    @discardableResult
+    func cancel() -> Bool {
         finish(.failure(CancellationError()))
     }
 
-    private func finish(_ completion: Completion) {
+    private func finish(_ completion: Completion) -> Bool {
         let installed = state.withLock { state -> (
             continuation: CheckedContinuation<T, any Error>?,
             cancelHandler: (@Sendable () -> Void)?
@@ -66,11 +88,12 @@ private final class AuthPhaseTimeoutState<T: Sendable>: @unchecked Sendable {
             return (continuation, cancelHandler)
         }
 
-        guard let installed else { return }
+        guard let installed else { return false }
         installed.cancelHandler?()
         if let continuation = installed.continuation {
             resume(continuation, with: completion)
         }
+        return true
     }
 
     private func resume(_ continuation: CheckedContinuation<T, any Error>, with completion: Completion) {
@@ -108,6 +131,10 @@ func withAuthPhaseTimeout<T: Sendable>(
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
     try Task.checkCancellation()
+    if await authPhaseTimeoutCleanupRegistry.hasTimedOutOperation(for: phase) {
+        log.log("auth.phase=\(phase.rawValue) previous timed-out operation still cleaning up")
+        throw AuthError.timedOut
+    }
     let state = AuthPhaseTimeoutState<T>()
     return try await withTaskCancellationHandler {
         try await withCheckedThrowingContinuation { continuation in
@@ -126,7 +153,26 @@ func withAuthPhaseTimeout<T: Sendable>(
                     return
                 }
                 log.log("auth.phase=\(phase.rawValue) timed out after \(duration)")
-                state.resume(throwing: AuthError.timedOut)
+                let cleanupID = UUID()
+                await authPhaseTimeoutCleanupRegistry.trackTimedOutOperation(
+                    for: phase,
+                    id: cleanupID
+                )
+                if state.resume(throwing: AuthError.timedOut) {
+                    Task {
+                        operationTask.cancel()
+                        await operationTask.value
+                        await authPhaseTimeoutCleanupRegistry.clearTimedOutOperation(
+                            for: phase,
+                            id: cleanupID
+                        )
+                    }
+                } else {
+                    await authPhaseTimeoutCleanupRegistry.clearTimedOutOperation(
+                        for: phase,
+                        id: cleanupID
+                    )
+                }
             }
             state.setCancelHandler {
                 operationTask.cancel()

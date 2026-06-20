@@ -3424,7 +3424,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return requestTimeout
         }
 
-        let elapsedSeconds = max(0, Date().timeIntervalSince(attemptStartedAt))
+        let elapsedSeconds = max(0, runtime.now().timeIntervalSince(attemptStartedAt))
         let elapsedNanoseconds = UInt64((elapsedSeconds * 1_000_000_000).rounded(.up))
         guard elapsedNanoseconds < attemptTimeout else {
             return 0
