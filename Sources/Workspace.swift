@@ -1986,7 +1986,7 @@ final class SharedLiveAgentIndex: ObservableObject {
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
-final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, SurfaceMetadataHosting {
+final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, SurfaceMetadataHosting, WorkspaceTitleHosting {
     /// The browser-panel creation policy now lives in `CmuxBrowser` as a
     /// top-level `Sendable` value. This nested typealias keeps the existing
     /// unqualified `BrowserPanelCreationPolicy` and `Workspace.BrowserPanelCreationPolicy`
@@ -2090,6 +2090,12 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// reorder bump. `Workspace` is its tree-reading host via
     /// `WorkspaceSurfaceTreeReading`; the legacy accessors below forward here.
     let surfaceList = WorkspaceSurfaceListModel()
+
+    /// The per-workspace title sub-model (CmuxWorkspaces): owns the custom-title
+    /// / custom-description state-transition logic, reaching the workspace's
+    /// `@Published` title vocabulary through ``WorkspaceTitleHosting`` (which
+    /// `Workspace` conforms). The methods below forward here byte-identically.
+    let titleModel = WorkspaceTitleModel()
 
     /// The surface-lifecycle coordinator (CmuxWorkspaces): owns the pane/index
     /// target resolvers over the live split tree (`paneId(forPanelId:)`,
@@ -3010,6 +3016,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         unreadModel.attach(host: self)
         unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
         surfaceDirectoryMetadata.attach(host: self)
+        titleModel.attach(host: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
@@ -4213,47 +4220,84 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 #endif
     }
 
-    // MARK: - Title Management
+    // MARK: - WorkspaceTitleHosting (live seam for WorkspaceTitleModel)
 
-    /// Who set a custom title. Auto-naming (AI-generated titles) must never
-    /// overwrite a user-set title; this enum carries that distinction for
-    /// workspace and panel custom titles, and round-trips through session
-    /// persistence.
-    enum CustomTitleSource: String, Codable, Sendable {
-        case user
-        case auto
+    var workspaceTitleText: String {
+        get { title }
+        set { title = newValue }
     }
 
-    var hasCustomTitle: Bool {
-        let trimmed = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return !trimmed.isEmpty
+    var workspaceTitleCustomTitle: String? {
+        get { customTitle }
+        set { customTitle = newValue }
     }
 
-    /// The provenance of the current custom title, normalizing legacy state:
-    /// `nil` when no custom title is set; `.user` when a title exists but
-    /// provenance was never recorded (pre-provenance snapshots, carried moves).
-    var effectiveCustomTitleSource: CustomTitleSource? {
-        hasCustomTitle ? (customTitleSource ?? .user) : nil
+    var workspaceTitleCustomTitleSource: CustomTitleSource? {
+        get { customTitleSource }
+        set { customTitleSource = newValue }
     }
 
-    var hasCustomDescription: Bool {
-        Self.normalizedCustomDescription(customDescription) != nil
+    var workspaceTitleCustomDescription: String? {
+        get { customDescription }
+        set { customDescription = newValue }
     }
 
-    func applyProcessTitle(_ title: String) {
-        if processTitle != title {
-            processTitle = title
-        }
-        guard customTitle == nil else { return }
-        guard self.title != title else { return }
+    var workspaceTitleProcessTitle: String {
+        get { processTitle }
+        set { processTitle = newValue }
+    }
+
+    func workspaceTitleLogApplyProcess(from previousTitle: String, to title: String) {
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
-            "from=\"\(debugWorkspaceDescriptionPreview(self.title, limit: 80))\" " +
+            "from=\"\(debugWorkspaceDescriptionPreview(previousTitle, limit: 80))\" " +
             "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
         )
 #endif
-        self.title = title
+    }
+
+    func workspaceTitleLogCustomDescriptionUpdate(input description: String?, normalized normalizedDescription: String?) {
+#if DEBUG
+        let inputNewlines = description?.reduce(into: 0) { count, character in
+            if character == "\n" { count += 1 }
+        } ?? 0
+        let normalizedNewlines = normalizedDescription?.reduce(into: 0) { count, character in
+            if character == "\n" { count += 1 }
+        } ?? 0
+        cmuxDebugLog(
+            "workspace.customDescription.update workspace=\(id.uuidString.prefix(8)) " +
+            "inputLen=\((description as NSString?)?.length ?? 0) " +
+            "inputNewlines=\(inputNewlines) " +
+            "normalizedLen=\((normalizedDescription as NSString?)?.length ?? 0) " +
+            "normalizedNewlines=\(normalizedNewlines) " +
+            "input=\"\(debugWorkspaceDescriptionPreview(description))\" " +
+            "normalized=\"\(debugWorkspaceDescriptionPreview(normalizedDescription))\""
+        )
+#endif
+    }
+
+    // MARK: - Title Management
+
+    /// `Workspace.CustomTitleSource`, lifted to ``CmuxWorkspaces/CustomTitleSource``
+    /// and kept reachable at the nested spelling so every call site and `Codable`
+    /// snapshot field stays byte-identical.
+    typealias CustomTitleSource = CmuxWorkspaces.CustomTitleSource
+
+    var hasCustomTitle: Bool {
+        titleModel.hasCustomTitle
+    }
+
+    var effectiveCustomTitleSource: CustomTitleSource? {
+        titleModel.effectiveCustomTitleSource
+    }
+
+    var hasCustomDescription: Bool {
+        titleModel.hasCustomDescription
+    }
+
+    func applyProcessTitle(_ title: String) {
+        titleModel.applyProcessTitle(title)
     }
 
     func setCustomColor(_ hex: String?) {
@@ -4273,58 +4317,13 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         )
     }
 
-    private static func normalizedCustomDescription(_ description: String?) -> String? {
-        let normalizedLineEndings = description?
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let trimmed = normalizedLineEndings?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else { return nil }
-        return normalizedLineEndings
-    }
-
-    /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
-    ///
-    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
-    /// never clears. Returns whether the write landed.
     @discardableResult
     func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
-        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if source == .auto {
-            guard !trimmed.isEmpty else { return false }
-            if hasCustomTitle, (customTitleSource ?? .user) == .user { return false }
-        }
-        if trimmed.isEmpty {
-            customTitle = nil
-            customTitleSource = nil
-            self.title = processTitle
-        } else {
-            customTitle = trimmed
-            customTitleSource = source
-            self.title = trimmed
-        }
-        return true
+        titleModel.setCustomTitle(title, source: source)
     }
 
     func setCustomDescription(_ description: String?) {
-        let normalizedDescription = Self.normalizedCustomDescription(description)
-#if DEBUG
-        let inputNewlines = description?.reduce(into: 0) { count, character in
-            if character == "\n" { count += 1 }
-        } ?? 0
-        let normalizedNewlines = normalizedDescription?.reduce(into: 0) { count, character in
-            if character == "\n" { count += 1 }
-        } ?? 0
-        cmuxDebugLog(
-            "workspace.customDescription.update workspace=\(id.uuidString.prefix(8)) " +
-            "inputLen=\((description as NSString?)?.length ?? 0) " +
-            "inputNewlines=\(inputNewlines) " +
-            "normalizedLen=\((normalizedDescription as NSString?)?.length ?? 0) " +
-            "normalizedNewlines=\(normalizedNewlines) " +
-            "input=\"\(debugWorkspaceDescriptionPreview(description))\" " +
-            "normalized=\"\(debugWorkspaceDescriptionPreview(normalizedDescription))\""
-        )
-#endif
-        customDescription = normalizedDescription
+        titleModel.setCustomDescription(description)
     }
 
     // MARK: - Directory Updates
