@@ -2080,17 +2080,22 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func notificationIsCurrent(_ notification: TerminalNotification) -> Bool {
-        notifications.first { existing in
+    private func currentStoredNotification(matching notification: TerminalNotification) -> TerminalNotification? {
+        guard let current = notifications.first(where: { existing in
             existing.matches(tabId: notification.tabId, surfaceId: notification.surfaceId)
-        }?.id == notification.id
+        }) else {
+            return nil
+        }
+        return current.id == notification.id ? current : nil
     }
 
     func notificationPassesCurrentDeliveryGate(
         _ notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) -> Bool {
-        !effects.record || notificationIsCurrent(notification)
+        guard effects.record else { return true }
+        guard let current = currentStoredNotification(matching: notification) else { return false }
+        return !current.isRead
     }
 
     private func promptToEnableNotifications() {

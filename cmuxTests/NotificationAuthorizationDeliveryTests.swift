@@ -73,7 +73,7 @@ final class NotificationAuthorizationDeliveryTests {
             subtitle: "",
             body: "",
             createdAt: Date(),
-            isRead: true
+            isRead: false
         )
         let recordedEffects = TerminalNotificationPolicyEffects()
         var recordlessEffects = TerminalNotificationPolicyEffects()
@@ -87,6 +87,9 @@ final class NotificationAuthorizationDeliveryTests {
 
         store.replaceNotificationsForTesting([notification])
         #expect(store.notificationPassesCurrentDeliveryGateForTesting(notification, effects: recordedEffects))
+
+        store.markRead(id: notification.id)
+        #expect(!store.notificationPassesCurrentDeliveryGateForTesting(notification, effects: recordedEffects))
     }
 
     @Test func staleDeniedAuthorizationSuppressesPhoneForwardingBeforeDeliveryMirror() async throws {
