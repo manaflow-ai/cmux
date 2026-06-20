@@ -2628,12 +2628,12 @@ class GhosttyApp {
 
     func applyWindowBlurIfNeeded(_ window: NSWindow) {
         guard let app = self.app else { return }
-        // ghostty_set_window_background_blur reads background-blur and
-        // background-opacity from the app config internally and calls
-        // CGSSetWindowBackgroundBlurRadius, a compositor-level setter that is
-        // idempotent.  It is a no-op when opacity >= 1.0 or blur is disabled,
-        // so we can call it unconditionally whenever the window is transparent.
-        ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
+        // Compositor blur application moved to CmuxTerminalCore
+        // (GhosttyWindowBlurInterop, owning the ghostty FFI call); the runtime
+        // no-ops when opacity >= 1.0 or blur is off, so it is safe to call
+        // unconditionally for any transparent window.
+        GhosttyWindowBlurInterop.applyWindowBackgroundBlur(
+            app: app, windowPointer: Unmanaged.passUnretained(window).toOpaque())
     }
 
     private func activeMainWindow() -> NSWindow? {

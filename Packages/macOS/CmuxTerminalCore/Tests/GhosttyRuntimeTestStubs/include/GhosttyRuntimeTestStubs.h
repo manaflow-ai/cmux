@@ -20,4 +20,10 @@ void *ghostty_surface_quicklook_font(void *surface);
 // `bool ghostty_config_get(ghostty_config_t, void*, const char*, uintptr_t)`.
 bool ghostty_config_get(void *config, void *out, const char *key, uintptr_t len);
 
+// Test-only stand-in for the GhosttyKit symbol referenced by
+// GhosttyWindowBlurInterop.applyWindowBackgroundBlur; no test calls it.
+// Matches GhosttyKit's `void ghostty_set_window_background_blur(ghostty_app_t,
+// void*)`.
+void ghostty_set_window_background_blur(void *app, void *window);
+
 #endif
