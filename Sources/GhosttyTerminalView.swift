@@ -595,9 +595,15 @@ class GhosttyApp {
     /// Whether background logging is enabled. Forwards to `backgroundDebugLog`
     /// so the many direct `backgroundLogEnabled` gate call sites stay unchanged.
     var backgroundLogEnabled: Bool { backgroundDebugLog.isEnabled }
-    /// Terminal bell side effects (was the `ringBell` body + `bellAudioSound`
-    /// slot). Folded into the engine as `TerminalBellService`.
-    let terminalBell = TerminalBellService()
+    /// The embedded-Ghostty engine capability drained off this god type into
+    /// `CmuxTerminal` as `GhosttyAppService`. Owns the terminal bell side
+    /// effects and the read-only `ghostty_config_t` accessors
+    /// (`focus-follows-mouse`, `scrollbar`, `macos-applescript`); the bell and
+    /// config-accessor methods below forward to it. Transitional: the stateful
+    /// config/appearance orchestration and the `app`/`config` handles drain into
+    /// this service in later slices, after which it is constructed at the
+    /// composition root and `GhosttyApp` retires.
+    let ghosttyAppService = GhosttyAppService()
     private var appObservers: [NSObjectProtocol] = []
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
@@ -1623,38 +1629,22 @@ class GhosttyApp {
     }
 
     func focusFollowsMouseEnabled() -> Bool {
-        GhosttyConfig.focusFollowsMouseEnabled(in: config)
+        ghosttyAppService.focusFollowsMouseEnabled(config: config)
     }
 
     func scrollbarVisibility() -> GhosttyConfig.ScrollbarVisibility {
-        GhosttyConfig.scrollbarVisibility(in: config)
+        ghosttyAppService.scrollbarVisibility(config: config)
     }
 
     func appleScriptAutomationEnabled() -> Bool {
-        GhosttyConfig.appleScriptAutomationEnabled(in: config)
-    }
-
-    private func bellFeatures() -> CUnsignedInt {
-        GhosttyConfig.bellFeatures(in: config)
-    }
-
-    private func bellAudioPath() -> String? {
-        GhosttyConfig.bellAudioPath(in: config)
-    }
-
-    private func bellAudioVolume() -> Float {
-        GhosttyConfig.bellAudioVolume(in: config)
+        ghosttyAppService.appleScriptAutomationEnabled(config: config)
     }
 
     private func ringBell() {
         // The `bell-features` flags, audio path, and volume are decoded from the
-        // live `ghostty_config_t` handle here; the AppKit side effects live in
-        // `TerminalBellService`.
-        terminalBell.ring(
-            features: bellFeatures(),
-            audioPath: bellAudioPath(),
-            audioVolume: bellAudioVolume()
-        )
+        // live `ghostty_config_t` handle inside the engine service; the AppKit
+        // side effects live in its `TerminalBellService`.
+        ghosttyAppService.ringBell(config: config)
     }
 
     private func applyDefaultBackground(
