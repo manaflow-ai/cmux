@@ -206,6 +206,23 @@ enum FileExplorerStyle: Int, CaseIterable {
     }
 }
 
+#if DEBUG
+extension FileExplorerStyle {
+    /// One-line description shown under each style's label in the File Explorer
+    /// Style debug panel. Snapshotted into `FileExplorerStyleDebugOption` and
+    /// injected into the package-owned `FileExplorerStyleDebugView`.
+    var fileExplorerStyleDebugDescription: String {
+        switch self {
+        case .liquidGlass: return "Modern macOS, vibrancy, rounded selections"
+        case .highDensity: return "VS Code, compact rows, edge-to-edge"
+        case .terminalStealth: return "Monospace, border selection, desaturated"
+        case .proStudio: return "Logic Pro, chunky rows, pill selection"
+        case .finder: return "Finder sidebar, filled icons, hover tint"
+        }
+    }
+}
+#endif
+
 // MARK: - Models
 
 struct FileExplorerEntry: Sendable {
