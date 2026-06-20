@@ -207,8 +207,8 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
             let event = try #require(makeKeyDownEvent(shortcut: commandR, windowNumber: window.windowNumber))
             defer { appDelegate.clearShortcutEventFocusContextCache(for: event) }
 
-            #expect(appDelegate.shortcutWhenClauseAllows(action: .fileExplorerOpenSelection, event: event))
-            #expect(!appDelegate.shortcutWhenClauseAllows(action: .renameTab, event: event))
+            #expect(!appDelegate.shortcutWhenClauseAllows(action: .fileExplorerOpenSelection, event: event))
+            #expect(appDelegate.shortcutWhenClauseAllows(action: .renameTab, event: event))
             #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.pane))
         }
     }

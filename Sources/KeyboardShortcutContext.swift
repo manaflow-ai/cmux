@@ -180,9 +180,7 @@ extension AppDelegate {
         // Only treat a markdown panel as focused when no browser panel owns the
         // event, so a focused browser never routes markdown shortcuts.
         let markdownPanel = browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil
-        let fileExplorerFocused = shortcutFileExplorerResponderFocused(in: shortcutWindow)
-        let rightSidebarFocused = fileExplorerFocused ||
-            (shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false)
+        let rightSidebarFocused = shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
         let focusState = ShortcutFocusState(
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
@@ -247,15 +245,6 @@ extension AppDelegate {
         }
 
         return tabManager?.focusedMarkdownPanel
-    }
-
-    private func shortcutFileExplorerResponderFocused(in window: NSWindow?) -> Bool {
-        guard let window,
-              let responder = window.firstResponder,
-              let focusView = shortcutFileExplorerFocusView(for: responder) else {
-            return false
-        }
-        return focusView.window === window || focusView.window?.windowNumber == window.windowNumber
     }
 
     @discardableResult
