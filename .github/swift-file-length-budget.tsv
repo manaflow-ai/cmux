@@ -2,8 +2,8 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34346	CLI/cmux.swift
-17605	Sources/AppDelegate.swift
-16036	Sources/ContentView.swift
+17710	Sources/AppDelegate.swift
+16053	Sources/ContentView.swift
 13992	Sources/TerminalController.swift
 12725	Sources/Workspace.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -15,8 +15,8 @@
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6220	cmuxTests/GhosttyConfigTests.swift
+6196	CLI/cmux_open.swift
 6166	Sources/TabManager.swift
-6151	CLI/cmux_open.swift
 6072	Sources/TextBoxInput.swift
 5922	cmuxTests/TerminalAndGhosttyTests.swift
 5566	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
@@ -57,6 +57,7 @@
 1687	cmuxTests/MarkdownPanelTests.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
+1581	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
@@ -73,7 +74,6 @@
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1277	cmuxTests/RestorableAgentSessionIndexTests.swift
 1258	Sources/Feed/FeedCoordinator.swift
-1252	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1228	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1166	Sources/VaultAgentProcessScanner.swift
@@ -188,9 +188,9 @@
 560	cmuxTests/CLISSHPTYResizeInputTests.swift
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 556	Sources/RightSidebarPanelView.swift
-555	Sources/Panels/BrowserAutomation.swift
 554	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 551	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
+549	Sources/Panels/BrowserAutomation.swift
 540	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
@@ -222,5 +222,6 @@
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
 504	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
+503	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/CMUXMobileRootView.swift
 503	Sources/Settings/ConfigSource.swift
 502	Sources/CmuxEventPublishing.swift

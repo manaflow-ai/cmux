@@ -6916,7 +6916,19 @@ struct ContentView: View {
                 commandId: "palette.openDiffViewer",
                 title: constant(String(localized: "command.openDiffViewer.title", defaultValue: "Open Diff Viewer")),
                 subtitle: workspaceSubtitle,
-                keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview"],
+                keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview", "agent", "codex", "claude"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openDirectoryDiffViewer",
+                title: constant(String(localized: "command.openDirectoryDiffViewer.title", defaultValue: "Open Directory Diff Viewer")),
+                subtitle: workspaceSubtitle,
+                keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview", "directory", "cwd", "folder"],
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
@@ -7879,6 +7891,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.openDiffViewer") {
             if AppDelegate.shared?.openDiffViewerForFocusedWorkspace(for: tabManager) != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.openDirectoryDiffViewer") {
+            if AppDelegate.shared?.openDirectoryDiffViewerForFocusedWorkspace(for: tabManager) != true {
                 NSSound.beep()
             }
         }
