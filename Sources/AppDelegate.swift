@@ -2348,22 +2348,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Reads live `NSScreen` / `NSWindow` state into ``SessionDisplayGeometry``
+    /// values, lifted to ``CmuxWindowing/DisplayGeometryReader``. A pure value,
+    /// so a shared constant rather than per-call instantiation.
+    private nonisolated static let displayGeometryReader = DisplayGeometryReader()
+
     private func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
-        let available = NSScreen.screens.map { screen in
-            SessionDisplayGeometry(
-                displayID: screen.cmuxDisplayID,
-                frame: screen.frame,
-                visibleFrame: screen.visibleFrame
-            )
-        }
-        let fallback = (NSScreen.main ?? NSScreen.screens.first).map { screen in
-            SessionDisplayGeometry(
-                displayID: screen.cmuxDisplayID,
-                frame: screen.frame,
-                visibleFrame: screen.visibleFrame
-            )
-        }
-        return (available, fallback)
+        Self.displayGeometryReader.currentDisplayGeometries()
     }
 
     private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
@@ -2605,15 +2596,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func displaySnapshot(for window: NSWindow?) -> SessionDisplaySnapshot? {
-        guard let window else { return nil }
-        let screen = window.screen
-            ?? NSScreen.screens.first(where: { $0.frame.intersects(window.frame) })
-        guard let screen else { return nil }
-
+        guard let geometry = Self.displayGeometryReader.screenGeometry(for: window) else {
+            return nil
+        }
         return SessionDisplaySnapshot(
-            displayID: screen.cmuxDisplayID,
-            frame: SessionRectSnapshot(screen.frame),
-            visibleFrame: SessionRectSnapshot(screen.visibleFrame)
+            displayID: geometry.displayID,
+            frame: SessionRectSnapshot(geometry.frame),
+            visibleFrame: SessionRectSnapshot(geometry.visibleFrame)
         )
     }
 
