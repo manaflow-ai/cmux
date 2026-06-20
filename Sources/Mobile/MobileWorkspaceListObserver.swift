@@ -244,7 +244,7 @@ final class MobileWorkspaceListObserver {
 
     private static func closePolicyChangeSignals(defaults: UserDefaults) -> AsyncStream<Void> {
         let store = CloseTabWarningStore(defaults: defaults)
-        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
