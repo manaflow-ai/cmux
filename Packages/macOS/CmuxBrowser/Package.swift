@@ -15,12 +15,15 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../../vendor/bonsplit"),
+        // CMUXDebugLog backs the ReactGrab/ toggle DEBUG logging (#if DEBUG only).
+        .package(path: "../CMUXDebugLog"),
     ],
     targets: [
         .target(
             name: "CmuxBrowser",
             dependencies: [
                 .product(name: "Bonsplit", package: "bonsplit"),
+                .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
