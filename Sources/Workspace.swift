@@ -3470,13 +3470,13 @@ final class Workspace: Identifiable, ObservableObject {
         defer { suppressClosedPanelHistory = previous }
         body()
     }
-
     func markTabCloseButtonClose(surfaceId: TabID) {
-        markTabStripMiddleClickClose(surfaceId: surfaceId)
+        explicitUserCloseTabIds.insert(surfaceId)
+        tabStripCloseTabIds.insert(surfaceId)
         tabCloseButtonCloseTabIds.insert(surfaceId)
     }
     func markTabStripMiddleClickClose(surfaceId: TabID) {
-        explicitUserCloseTabIds.insert(surfaceId)
+        markExplicitClose(surfaceId: surfaceId)
         tabStripCloseTabIds.insert(surfaceId)
     }
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
