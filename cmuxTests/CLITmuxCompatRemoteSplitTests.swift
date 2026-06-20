@@ -73,6 +73,87 @@ import Testing
         #expect(!result.stderr.contains("already applied"), Comment(rawValue: result.stderr))
     }
 
+    /// Regression for #6447: Claude Code 2.1.183 launches agent-team teammates by
+    /// creating a placeholder pane (`split-window -- cat`) and then running the real
+    /// teammate command via `respawn-pane -k -- "cd <dir> && env … <claude> …"`. cmux
+    /// forwards that command to the surface as the pane's process command. On macOS,
+    /// Ghostty execs the surface command via `exec -l <command>` (ghostty
+    /// src/termio/Exec.zig), which only works for a single executable — a bare shell
+    /// expression like `cd … && … claude` makes it try to exec the `cd` builtin as a
+    /// binary, the pane exits immediately, and the teammate never gets a visible pane
+    /// (it falls back to in-process). The fix runs the command through a login shell so
+    /// Ghostty execs the shell, not the expression. `tmux_start_command` must stay the
+    /// raw command so `#{pane_start_command}` / OMX-HUD detection keep reporting it.
+    @Test func respawnPaneRunsShellCommandThroughLoginShell() throws {
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITmuxCompatRemoteSplitBundleToken.self)
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tmux-compat-respawn-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let socketPath = Self.makeSocketPath("tmuxresp")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let teammateCommand = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "surfaces": [["id": surfaceId, "ref": "surface:1", "index": 0, "focused": true]],
+                ])
+            case "surface.respawn":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let command = params["command"] as? String ?? ""
+                let startCommand = params["tmux_start_command"] as? String ?? ""
+                state.expect(
+                    command.hasPrefix("/bin/zsh -lc "),
+                    "surface.respawn command must run through a login shell so Ghostty `exec -l` execs the shell, got: \(command)"
+                )
+                state.expect(
+                    command.contains(teammateCommand),
+                    "shell-invoked command must carry the original teammate command verbatim, got: \(command)"
+                )
+                state.expect(
+                    startCommand == teammateCommand,
+                    "tmux_start_command must stay the raw command for display/OMX detection, got: \(startCommand)"
+                )
+                return Self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": method])
+            }
+        }
+
+        let result = Self.runProcess(
+            executablePath: cliPath,
+            arguments: ["__tmux-compat", "respawn-pane", "-k", "--", teammateCommand],
+            environment: [
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "HOME": tmpDir.path,
+                "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 30
+        )
+        #expect(handled.wait(timeout: .now() + 30) == .success)
+        #expect(state.errorSnapshot() == [])
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+    }
+
     private final class CLITmuxCompatRemoteSplitBundleToken {}
 
     private final class ServerState: @unchecked Sendable {
