@@ -16,6 +16,9 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxSwiftRender"),
+        // CmuxSettings supplies the right-sidebar width-override decode used by
+        // SidebarResizerGeometryPolicy.
+        .package(path: "../CmuxSettings"),
         // CmuxExtensionKit backs the ExtensionHost/ sidebar-extension host view
         // and browser presenter.
         .package(path: "../CmuxExtensionKit"),
@@ -26,6 +29,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxExtensionKit", package: "CmuxExtensionKit"),
             ],
             swiftSettings: [
@@ -40,6 +44,7 @@ let package = Package(
                 "CmuxSidebar",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

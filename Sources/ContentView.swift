@@ -437,7 +437,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
-        CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        Self.resizerGeometryPolicy.minimumSidebarWidth(setting: CGFloat(sidebarMinimumWidthSetting))
     }
 
     /// Returns the current drag width, start width capture, width update, and drag end cleanup for a resizer handle.
@@ -454,7 +454,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
                 captureStart: { sidebarResizerController.sidebarDragStartWidth = sidebarWidth },
                 updateWidth: { translation in
                     let startWidth = sidebarResizerController.sidebarDragStartWidth ?? sidebarWidth
-                    let nextWidth = Self.clampedSidebarWidth(
+                    let nextWidth = Self.resizerGeometryPolicy.normalizedSidebarWidth(
                         startWidth + translation,
                         maximumWidth: maxSidebarWidth(availableWidth: availableWidth),
                         minimumWidth: minimumSidebarWidth
@@ -471,7 +471,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
                 captureStart: { sidebarResizerController.fileExplorerDragStartWidth = fileExplorerWidth },
                 updateWidth: { translation in
                     let startWidth = sidebarResizerController.fileExplorerDragStartWidth ?? fileExplorerWidth
-                    let nextWidth = Self.clampedRightSidebarWidth(
+                    let nextWidth = Self.resizerGeometryPolicy.normalizedRightSidebarWidth(
                         startWidth - translation,
                         availableWidth: availableWidth,
                         configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
@@ -495,17 +495,18 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return Self.widthPolicy.maximumLeftSidebarWidth(
-                availableWidth: resolvedAvailableWidth,
+            return Self.resizerGeometryPolicy.maxSidebarWidth(
+                resolvedAvailableWidth: resolvedAvailableWidth,
+                fallbackScreenWidth: nil,
                 minimumWidth: minimumSidebarWidth
             )
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
             ?? NSScreen.main?.frame.width
-            ?? 1920
-        return Self.widthPolicy.maximumLeftSidebarWidth(
-            availableWidth: fallbackScreenWidth,
+        return Self.resizerGeometryPolicy.maxSidebarWidth(
+            resolvedAvailableWidth: nil,
+            fallbackScreenWidth: fallbackScreenWidth,
             minimumWidth: minimumSidebarWidth
         )
     }
@@ -525,6 +526,17 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
     /// composition of its bounds from the app's hit-width constants, shared with
     /// the portal hit-test paths so the geometry lives in exactly one place.
     static let bandPolicy = SidebarResizeInteraction.bandPolicy
+
+    /// The pure resizer geometry policy for both sidebar dividers, composed from
+    /// the app's fixed layout constants. The math lives in `CmuxSidebar`; this is
+    /// the production composition of its bounds. The view resolves live window /
+    /// screen widths and persisted settings and forwards them into this policy.
+    static let resizerGeometryPolicy = SidebarResizerGeometryPolicy(
+        widthPolicy: Self.widthPolicy,
+        defaultMinimumSidebarWidth: CGFloat(SessionPersistencePolicy.defaultMinimumSidebarWidth),
+        minimumSidebarWidthRange: CGFloat(SessionPersistencePolicy.sidebarMinimumWidthRange.lowerBound)
+            ... CGFloat(SessionPersistencePolicy.sidebarMinimumWidthRange.upperBound)
+    )
 
     static func clampedSidebarWidth(
         _ candidate: CGFloat,
@@ -551,7 +563,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
-        let nextWidth = Self.clampedSidebarWidth(
+        let nextWidth = Self.resizerGeometryPolicy.normalizedSidebarWidth(
             sidebarWidth,
             maximumWidth: maxSidebarWidth(availableWidth: availableWidth),
             minimumWidth: minimumSidebarWidth
@@ -563,7 +575,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
     }
 
     private func normalizedSidebarWidth(_ candidate: CGFloat) -> CGFloat {
-        Self.clampedSidebarWidth(
+        Self.resizerGeometryPolicy.normalizedSidebarWidth(
             candidate,
             maximumWidth: maxSidebarWidth(),
             minimumWidth: minimumSidebarWidth
@@ -571,39 +583,25 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
     }
 
     private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
-        if let availableWidth {
-            return availableWidth
-        }
-        if let width = observedWindow?.contentView?.bounds.width {
-            return width
-        }
-        if let width = observedWindow?.contentLayoutRect.width {
-            return width
-        }
-        if let width = NSApp.keyWindow?.contentView?.bounds.width {
-            return width
-        }
-        if let width = NSApp.keyWindow?.contentLayoutRect.width {
-            return width
-        }
-        if let width = NSApp.keyWindow?.screen?.frame.width {
-            return width
-        }
-        if let width = NSScreen.main?.frame.width {
-            return width
-        }
-        return 1920
+        Self.resizerGeometryPolicy.resolvedRightSidebarAvailableWidth(
+            resolvedWidths: [
+                availableWidth,
+                observedWindow?.contentView?.bounds.width,
+                observedWindow?.contentLayoutRect.width,
+                NSApp.keyWindow?.contentView?.bounds.width,
+                NSApp.keyWindow?.contentLayoutRect.width,
+                NSApp.keyWindow?.screen?.frame.width,
+                NSScreen.main?.frame.width,
+            ]
+        )
     }
 
     private var rightSidebarConfiguredMaximumWidth: CGFloat? {
-        guard let width = RightSidebarWidthSettings().configuredMaximumWidth(from: rightSidebarMaxWidthSetting) else {
-            return nil
-        }
-        return CGFloat(width)
+        Self.resizerGeometryPolicy.rightSidebarConfiguredMaximumWidth(setting: rightSidebarMaxWidthSetting)
     }
 
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
-        Self.clampedRightSidebarWidth(
+        Self.resizerGeometryPolicy.normalizedRightSidebarWidth(
             candidate,
             availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
             configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
