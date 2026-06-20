@@ -570,6 +570,8 @@
 		9637C6D3170F4BE1A7EF6243 /* OmnibarSubmitDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */; };
 		0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0F00550000000000000002 /* OmpSupportTests.swift */; };
 		D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = D1BEF00001A1B2C3D4E5F719 /* open */; };
+		7F4C2A90E1094D8DBA0C6476 /* OpenChatBrowserPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F4C2A91E1094D8DBA0C6476 /* OpenChatBrowserPanelTests.swift */; };
+		7F4C2A92E1094D8DBA0C6476 /* OpenChatShortcutSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F4C2A93E1094D8DBA0C6476 /* OpenChatShortcutSettingsTests.swift */; };
 		FEED0000000000000000F007 /* opencode-plugin.js in Resources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F006 /* opencode-plugin.js */; };
 		A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000017 /* OpenCodeEventStreamParser.swift */; };
 		A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */; };
@@ -1590,6 +1592,8 @@
 		48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarSubmitDecisionTests.swift; sourceTree = "<group>"; };
 		0A0F00550000000000000002 /* OmpSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmpSupportTests.swift; sourceTree = "<group>"; };
 		D1BEF00001A1B2C3D4E5F719 /* open */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/open; sourceTree = SOURCE_ROOT; };
+		7F4C2A91E1094D8DBA0C6476 /* OpenChatBrowserPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenChatBrowserPanelTests.swift; sourceTree = "<group>"; };
+		7F4C2A93E1094D8DBA0C6476 /* OpenChatShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenChatShortcutSettingsTests.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F006 /* opencode-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-plugin.js"; sourceTree = "<group>"; };
 		A9F100000000000000000017 /* OpenCodeEventStreamParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeEventStreamParser.swift; sourceTree = "<group>"; };
 		A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeEventTextAccumulator.swift; sourceTree = "<group>"; };
@@ -2933,6 +2937,7 @@
 				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
 				6419B0026419B0026419B002 /* AppDelegateShortcutRoutingRepairProbe.swift */,
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
+				7F4C2A93E1094D8DBA0C6476 /* OpenChatShortcutSettingsTests.swift */,
 				C3467AB10000000000000002 /* ShortcutWhenClauseTests.swift */,
 				C0DE7B300000000000000002 /* TextBoxMentionCompletionTests.swift */,
 				C1713005C1713005C1713005 /* CommandPaletteShortcutCustomizationTests.swift */,
@@ -2975,6 +2980,7 @@
 				D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */,
 				D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */,
 				58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
+				7F4C2A91E1094D8DBA0C6476 /* OpenChatBrowserPanelTests.swift */,
 				C0DE62600000000000000002 /* BrowserWindowPortalRegistryNotificationTests.swift */,
 				19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */,
 				48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */,
@@ -4405,6 +4411,8 @@
 				4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,
 				9637C6D3170F4BE1A7EF6243 /* OmnibarSubmitDecisionTests.swift in Sources */,
 				0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */,
+				7F4C2A90E1094D8DBA0C6476 /* OpenChatBrowserPanelTests.swift in Sources */,
+				7F4C2A92E1094D8DBA0C6476 /* OpenChatShortcutSettingsTests.swift in Sources */,
 				A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,
 				C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */,
 				6313FACE0000000000000000 /* PaneMemoryGuardrailTests.swift in Sources */,

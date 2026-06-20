@@ -2165,20 +2165,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testOpenChatShortcutDefaultsToCmdCtrlShiftCAndIsUserEditable() {
-        let cmdCtrlShiftC = StoredShortcut(key: "c", command: true, shift: true, option: false, control: true)
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .openChat), cmdCtrlShiftC)
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.openChat.normalizedRecordedShortcutResult(cmdCtrlShiftC),
-            .accepted(cmdCtrlShiftC),
-            "Default Open Chat shortcut must not conflict with any other action"
-        )
-        XCTAssertTrue(
-            KeyboardShortcutSettings.settingsVisibleActions.contains(.openChat),
-            "Open Chat must be visible/editable in Settings → Keyboard Shortcuts"
-        )
-    }
-
     func testCmdCtrlWPromptsBeforeClosingWindow() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
