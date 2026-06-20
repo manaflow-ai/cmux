@@ -1,6 +1,6 @@
 import CMUXAgentLaunch
 import Foundation
-import XCTest
+@preconcurrency import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
