@@ -178,7 +178,7 @@ import Testing
     /// `tmux_start_command` stays the raw command so `#{pane_start_command}` / OMX-HUD
     /// detection keep reporting it.
     @Test func respawnPaneRunsShellExpressionsThroughLoginShell() throws {
-        let shellPrefix = "${SHELL:-/bin/zsh} -lc "
+        let shellPrefix = "${SHELL:-/bin/zsh} -c "
 
         // Claude Code teammate command: spaced `cd … && … claude` shell expression.
         let teammate = "cd /tmp/work && env CLAUDECODE=1 /opt/claude --agent-id alice@team --agent-name alice"

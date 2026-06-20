@@ -76,7 +76,7 @@ extension CMUXCLI {
     /// the pane exits before the real command runs; that is why Claude Code
     /// 2.1.183 teammates never opened a split pane (issue #6447).
     ///
-    /// Every command is run through `${SHELL:-/bin/zsh} -lc '<command>'` (the
+    /// Every command is run through `${SHELL:-/bin/zsh} -c '<command>'` (the
     /// user's shell, resolved when Ghostty execs the wrapper), matching real
     /// tmux's `$SHELL -c` semantics, so Ghostty execs the shell rather than a
     /// builtin/expression/assignment-prefix. The whole command is single-quoted,
@@ -85,10 +85,15 @@ extension CMUXCLI {
     /// (tmux shell-commands can hide operators with no surrounding whitespace).
     /// Commands that are already a shell invocation (e.g. OMO's `/bin/sh -c "…"`)
     /// are simply run through one more shell, which execs straight into them.
+    ///
+    /// Only `-c` is passed (not `-lc`): every POSIX-ish and csh-family shell
+    /// accepts `-c`, whereas `-l`/`-lc` is rejected by `/bin/csh` and `/bin/tcsh`.
+    /// On macOS Ghostty already execs the wrapper with a login-style argv0
+    /// (`exec -l`), so the shell is still a login shell.
     func tmuxShellInvokedStartCommand(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return command }
-        return "${SHELL:-/bin/zsh} -lc \(tmuxShellQuote(trimmed))"
+        return "${SHELL:-/bin/zsh} -c \(tmuxShellQuote(trimmed))"
     }
 
     func tmuxShellWords(_ commandText: String) -> [String] {

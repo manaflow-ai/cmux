@@ -39,7 +39,7 @@ def login_shell_wrapped(command: str) -> str:
     shell rather than the raw expression (issue #6447). Quoting mirrors
     tmuxShellQuote (single-quote, with embedded single quotes escaped)."""
     quoted = "'" + command.replace("'", "'\"'\"'") + "'"
-    return "${SHELL:-/bin/zsh} -lc " + quoted
+    return "${SHELL:-/bin/zsh} -c " + quoted
 
 
 class FakeCmuxState:
