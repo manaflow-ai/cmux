@@ -119,4 +119,45 @@ import Testing
         let resolver = AgentChatTranscriptResolver(homeDirectory: home)
         #expect(resolver.newestClaudeTranscript(workingDirectory: bareCwd)?.sessionID == "priv-sess")
     }
+
+    @Test("preferred cwd untitled transcript beats lower-priority exact-title alias")
+    func preferredCwdUntitledBeatsLowerRankExactTitle() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory
+            .appendingPathComponent("agentchat-resolver-rank-\(UUID().uuidString)", isDirectory: true)
+        let cwd = "/agentchat-resolver-rank-\(UUID().uuidString)"
+        let preferredDir = home
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd),
+                isDirectory: true
+            )
+        let lowerRankDir = home
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir("/private" + cwd),
+                isDirectory: true
+            )
+        try fm.createDirectory(at: preferredDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: lowerRankDir, withIntermediateDirectories: true)
+
+        let freshUntitled = preferredDir.appendingPathComponent("fresh-untitled.jsonl")
+        try Data("{}\n".utf8).write(to: freshUntitled)
+        try fm.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_000_001)],
+            ofItemAtPath: freshUntitled.path
+        )
+        let staleExact = lowerRankDir.appendingPathComponent("stale-exact.jsonl")
+        try Data("{\"type\":\"ai-title\",\"aiTitle\":\"Target\"}\n".utf8).write(to: staleExact)
+        try fm.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_000_000)],
+            ofItemAtPath: staleExact.path
+        )
+
+        let resolver = AgentChatTranscriptResolver(homeDirectory: home)
+        let result = resolver.newestClaudeTranscript(workingDirectory: cwd, titleHint: "Target")
+        #expect(result?.sessionID == "fresh-untitled")
+    }
 }

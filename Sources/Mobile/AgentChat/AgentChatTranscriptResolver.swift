@@ -106,18 +106,10 @@ struct AgentChatTranscriptResolver: Sendable {
 
         let newest: URL?
         if let normalizedTitleHint {
-            let exactTitleCandidates = transcriptCandidates
-                .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint }
-            let untitledCandidates = transcriptCandidates.filter { $0.title == nil }
-            let preferredExact = Self.preferredClaudeTranscript(exactTitleCandidates)
-            let preferredUntitled = Self.preferredClaudeTranscript(untitledCandidates)
-            if let preferredExact,
-               let preferredUntitled,
-               preferredUntitled.rank == preferredExact.rank,
-               preferredUntitled.date > preferredExact.date {
-                return nil
-            }
-            newest = (preferredExact ?? preferredUntitled)?.url
+            newest = Self.preferredClaudeTranscript(
+                transcriptCandidates,
+                normalizedTitleHint: normalizedTitleHint
+            )?.url
         } else {
             // A generic "Claude Code" title cannot identify one of several
             // same-cwd sessions. Avoid stealing a transcript that already
@@ -165,6 +157,31 @@ struct AgentChatTranscriptResolver: Sendable {
             if $0.rank != $1.rank { return $0.rank < $1.rank }
             return $0.date > $1.date
         }
+    }
+
+    private static func preferredClaudeTranscript(
+        _ candidates: [(url: URL, date: Date, title: String?, rank: Int)],
+        normalizedTitleHint: String
+    ) -> (url: URL, date: Date, title: String?, rank: Int)? {
+        let ranks = Set(candidates.map(\.rank)).sorted()
+        for rank in ranks {
+            let rankedCandidates = candidates.filter { $0.rank == rank }
+            let preferredExact = Self.preferredClaudeTranscript(
+                rankedCandidates.filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint }
+            )
+            let preferredUntitled = Self.preferredClaudeTranscript(
+                rankedCandidates.filter { $0.title == nil }
+            )
+            if let preferredExact,
+               let preferredUntitled,
+               preferredUntitled.date > preferredExact.date {
+                return nil
+            }
+            if let preferred = preferredExact ?? preferredUntitled {
+                return preferred
+            }
+        }
+        return nil
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
