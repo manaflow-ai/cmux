@@ -500,6 +500,9 @@ final class KanbanWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDe
         if let provisioned = provisionedWorktreePath, !provisioned.isEmpty {
             return LiveSessionWorktree(worktreePath: provisioned, branchName: provisionedBranchName)
         }
+        if let root = workspaceDirectory, !root.isEmpty {
+            return LiveSessionWorktree(worktreePath: root, branchName: nil)
+        }
         return nil
     }
 
