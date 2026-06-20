@@ -573,7 +573,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             localized: "debug.startupAppearance.window.title",
             defaultValue: "Startup Appearance Debug"
         ),
-        startupAppearanceDebugContentProvider: { NSHostingView(rootView: StartupAppearanceDebugView()) }
+        startupAppearanceDebugContentProvider: {
+            NSHostingView(rootView: StartupAppearanceDebugView(
+                reloading: StartupAppearanceDebugReloader(),
+                strings: AppDelegate.startupAppearanceDebugStrings
+            ))
+        }
     )
     #else
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
@@ -633,6 +638,91 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
     #if DEBUG
+    /// Localized labels for the package-owned "Startup Appearance Debug" panel,
+    /// resolved app-side against the app bundle and injected, for the same
+    /// bundle-localization reason as ``aboutPanelStrings``: `String(localized:)`
+    /// inside `CmuxAppKitSupportUI` binds to the package bundle (no
+    /// `debug.startupAppearance.*` keys) and would drop every non-English
+    /// translation. The profile display strings reuse the app-side
+    /// `GhosttyStartupAppearancePreviewProfile` presentation extension; the mode
+    /// strings cover the package-local `StartupAppearancePreviewMode`.
+    static var startupAppearanceDebugStrings: StartupAppearanceDebugStrings {
+        StartupAppearanceDebugStrings(
+            headerTitle: String(
+                localized: "debug.startupAppearance.window.title",
+                defaultValue: "Startup Appearance Debug"
+            ),
+            previewHeading: String(
+                localized: "debug.startupAppearance.preview.heading",
+                defaultValue: "Preview"
+            ),
+            startupConfigLabel: String(
+                localized: "debug.startupAppearance.startupConfig.label",
+                defaultValue: "Startup config"
+            ),
+            appearanceLabel: String(
+                localized: "debug.startupAppearance.appearance.label",
+                defaultValue: "Appearance"
+            ),
+            applyPreviewButton: String(
+                localized: "debug.startupAppearance.applyPreview.button",
+                defaultValue: "Apply Preview"
+            ),
+            restoreRealStartupButton: String(
+                localized: "debug.startupAppearance.restoreRealStartup.button",
+                defaultValue: "Restore Real Startup"
+            ),
+            selectedConfigHeading: String(
+                localized: "debug.startupAppearance.selectedConfig.heading",
+                defaultValue: "Selected Config"
+            ),
+            copySelectedConfigButton: String(
+                localized: "debug.startupAppearance.copySelectedConfig.button",
+                defaultValue: "Copy Selected Config"
+            ),
+            realConfigFallback: String(
+                localized: "debug.startupAppearance.realConfigFallback",
+                defaultValue: "Loads real user config files."
+            ),
+            appliedHeading: String(
+                localized: "debug.startupAppearance.applied.heading",
+                defaultValue: "Applied"
+            ),
+            appliedConfigLabel: String(
+                localized: "debug.startupAppearance.applied.configLabel",
+                defaultValue: "Config:"
+            ),
+            appliedAppearanceLabel: String(
+                localized: "debug.startupAppearance.applied.appearanceLabel",
+                defaultValue: "Appearance:"
+            ),
+            appliedHelp: String(
+                localized: "debug.startupAppearance.applied.help",
+                defaultValue: "Reloads the running app through Ghostty config update, matching startup theme resolution without editing config files."
+            ),
+            profileDisplayName: { $0.displayName },
+            profileDetail: { $0.detail },
+            modeDisplayName: { mode in
+                switch mode {
+                case .stored:
+                    return String(
+                        localized: "debug.startupAppearance.mode.stored",
+                        defaultValue: "Stored App Setting"
+                    )
+                case .light:
+                    return String(
+                        localized: "debug.startupAppearance.mode.light",
+                        defaultValue: "Force Light"
+                    )
+                case .dark:
+                    return String(
+                        localized: "debug.startupAppearance.mode.dark",
+                        defaultValue: "Force Dark"
+                    )
+                }
+            }
+        )
+    }
     /// Builds the content view for the package-owned "Debug Window Controls" panel
     /// (`CmuxAppKitSupportUI`). The panel's window/lifecycle shell lives in the
     /// package, but its content is irreducibly app-coupled: the "Open" buttons
