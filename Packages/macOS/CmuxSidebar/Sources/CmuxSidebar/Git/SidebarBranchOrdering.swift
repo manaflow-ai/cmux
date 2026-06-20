@@ -38,7 +38,18 @@ public struct SidebarBranchOrdering: Sendable {
         }
     }
 
-    private func normalizedDirectory(_ text: String?) -> String? {
+    /// Normalizes a sidebar directory string: trims surrounding whitespace and
+    /// newlines, returning `nil` when the input is `nil` or empties to nothing
+    /// (legacy `Workspace.normalizedSidebarDirectory(_:)`).
+    ///
+    /// This is the single owner of the sidebar directory-normalization rule:
+    /// the app-target `Workspace` shim resolves each panel's directory from live
+    /// state, then passes the raw string through this method so the canonical
+    /// keys it later compares against (``canonicalDirectoryKey(_:homeDirectoryForTildeExpansion:)``)
+    /// are derived from identically normalized input.
+    /// - Parameter text: The raw directory string, or `nil`.
+    /// - Returns: The trimmed directory, or `nil` if empty/absent.
+    public func normalizedDirectory(_ text: String?) -> String? {
         guard let text else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
