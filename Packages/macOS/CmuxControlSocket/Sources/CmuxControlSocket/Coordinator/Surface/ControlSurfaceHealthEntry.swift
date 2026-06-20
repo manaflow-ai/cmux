@@ -15,6 +15,9 @@ public struct ControlSurfaceHealthEntry: Sendable, Equatable {
     /// (`isViewInWindow`) and browser (`webView.window != nil`) panels, `nil`
     /// (JSON `null`) for any other panel type.
     public let inWindow: Bool?
+    /// Whether the surface is visually active in the UI, not merely mounted in
+    /// an `NSWindow`.
+    public let visibleInUI: Bool?
 
     /// Creates a surface-health entry.
     ///
@@ -26,10 +29,12 @@ public struct ControlSurfaceHealthEntry: Sendable, Equatable {
     public init(
         surfaceID: UUID,
         typeRawValue: String,
-        inWindow: Bool?
+        inWindow: Bool?,
+        visibleInUI: Bool? = nil
     ) {
         self.surfaceID = surfaceID
         self.typeRawValue = typeRawValue
         self.inWindow = inWindow
+        self.visibleInUI = visibleInUI
     }
 }

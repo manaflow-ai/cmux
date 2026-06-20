@@ -1,11 +1,6 @@
 internal import Foundation
 
 extension ControlCommandCoordinator {
-    struct HelperVisibleIdentify {
-        let focused: [String: JSONValue]
-        let caller: [String: JSONValue]
-    }
-
     func helperVisibleIdentifyPayload(params: [String: JSONValue]) -> HelperVisibleIdentify {
         let payload = systemContext?.controlSystemIdentify(params: params) ?? .object([:])
         guard case .object(let object) = payload else {
@@ -24,12 +19,6 @@ extension ControlCommandCoordinator {
             caller = [:]
         }
         return HelperVisibleIdentify(focused: focused, caller: caller)
-    }
-
-    enum HelperVisiblePlacement {
-        case reuse(ControlPaneSummary, ControlSurfaceHealthEntry)
-        case blockedInvisible(ControlPaneSummary)
-        case create
     }
 
     func helperVisiblePlacement(
@@ -55,7 +44,7 @@ extension ControlCommandCoordinator {
             (entry.surfaceID, entry)
         })
         let visibleEntriesByID = Dictionary(uniqueKeysWithValues: health.surfaces.compactMap { entry in
-            entry.inWindow == true ? (entry.surfaceID, entry) : nil
+            entry.visibleInUI == true ? (entry.surfaceID, entry) : nil
         })
         for pane in orderedCandidates {
             if let entry = helperVisiblePreferredVisibleSurface(
@@ -79,6 +68,18 @@ extension ControlCommandCoordinator {
         return .create
     }
 
+    func helperVisibleTargetSurfaceIsVisible(
+        in snapshot: ControlPaneListSnapshot,
+        focused: [String: JSONValue],
+        health: ControlSurfaceHealthSnapshot
+    ) -> Bool {
+        guard health.windowVisible == true else { return false }
+        let focusedSurfaceID = uuidAny(focused["surface_id"])
+            ?? snapshot.panes.first(where: \.isFocused)?.selectedSurfaceID
+        guard let focusedSurfaceID else { return false }
+        return health.surfaces.first { $0.surfaceID == focusedSurfaceID }?.visibleInUI == true
+    }
+
     private func helperVisiblePreferredVisibleSurface(
         in pane: ControlPaneSummary,
         visibleEntriesByID: [UUID: ControlSurfaceHealthEntry],
@@ -88,13 +89,6 @@ extension ControlCommandCoordinator {
            let entry = visibleEntriesByID[selectedSurfaceID],
            normalizedToken(entry.typeRawValue) == requestedType {
             return entry
-        }
-
-        for surfaceID in pane.surfaceIDs {
-            if let entry = visibleEntriesByID[surfaceID],
-               normalizedToken(entry.typeRawValue) == requestedType {
-                return entry
-            }
         }
         return nil
     }

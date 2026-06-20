@@ -55,6 +55,16 @@ extension ControlCommandCoordinator {
         if let health = visibility.snapshot {
             payload["surface_health"] = helperVisibleHealthPayload(health)
         }
+        if Task.isCancelled {
+            return helperVisibleUnsupportedError(
+                code: "cancelled",
+                message: "helper.visible was cancelled before sending the requested command",
+                identify: identify,
+                focusedWorkspaceID: focusedWorkspaceID,
+                focusedWindowID: focusedWindowID,
+                extra: payload
+            )
+        }
         guard visibility.isVisible else {
             return helperVisibleVisibilityError(
                 message: "helper.visible created or reused a helper surface, but surface.health did not report in_window=true",
@@ -161,7 +171,7 @@ extension ControlCommandCoordinator {
             return (false, nil, nil, 1, windowEventObserved)
         }
         let entry = snapshot.surfaces.first { $0.surfaceID == surfaceID }
-        return (entry?.inWindow == true, entry, snapshot, 1, windowEventObserved)
+        return (snapshot.windowVisible == true && entry?.visibleInUI == true, entry, snapshot, 1, windowEventObserved)
     }
 
     func helperVisibleHealthPayload(_ snapshot: ControlSurfaceHealthSnapshot) -> JSONValue {
@@ -170,12 +180,14 @@ extension ControlCommandCoordinator {
             "workspace_ref": ref(.workspace, snapshot.workspaceID),
             "window_id": orNull(snapshot.windowID?.uuidString),
             "window_ref": ref(.window, snapshot.windowID),
+            "window_visible": snapshot.windowVisible.map { .bool($0) } ?? .null,
             "surfaces": .array(snapshot.surfaces.map { entry in
                 .object([
                     "id": .string(entry.surfaceID.uuidString),
                     "ref": ref(.surface, entry.surfaceID),
                     "type": .string(entry.typeRawValue),
                     "in_window": entry.inWindow.map { .bool($0) } ?? .null,
+                    "visible_in_ui": entry.visibleInUI.map { .bool($0) } ?? .null,
                 ])
             }),
         ])
@@ -200,6 +212,28 @@ extension ControlCommandCoordinator {
             data[key] = value
         }
         return .err(code: "not_visible", message: message, data: .object(data))
+    }
+
+    func helperVisibleUnsupportedError(
+        code: String,
+        message: String,
+        identify: HelperVisibleIdentify,
+        focusedWorkspaceID: UUID,
+        focusedWindowID: UUID?,
+        extra: [String: JSONValue]
+    ) -> ControlCallResult {
+        let callerWorkspaceID = uuidAny(identify.caller["workspace_id"])
+        let diverged = callerWorkspaceID.map { $0 != focusedWorkspaceID } ?? false
+        var data = helperVisibleFailureData(
+            identify: identify,
+            focusedWorkspaceID: focusedWorkspaceID,
+            focusedWindowID: focusedWindowID,
+            callerFocusedDiverged: diverged
+        )
+        for (key, value) in extra {
+            data[key] = value
+        }
+        return .err(code: code, message: message, data: .object(data))
     }
 
     private func helperVisibleCommandFailureError(

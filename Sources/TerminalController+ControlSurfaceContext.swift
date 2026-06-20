@@ -150,20 +150,32 @@ extension TerminalController: ControlSurfaceContext {
         }
         let items: [ControlSurfaceHealthEntry] = orderedPanels(in: ws).map { panel in
             var inWindow: Bool?
+            var visibleInUI: Bool?
             if let tp = panel as? TerminalPanel {
                 inWindow = tp.surface.isViewInWindow
+                visibleInUI = inWindow == true
+                    && tp.hostedView.debugPortalVisibleInUI
+                    && !tp.hostedView.isHiddenOrHasHiddenAncestor
+                    && tp.hostedView.bounds.width > 1
+                    && tp.hostedView.bounds.height > 1
             } else if let bp = panel as? BrowserPanel {
                 inWindow = bp.webView.window != nil
+                visibleInUI = inWindow == true && bp.debugWebViewVisibleInUI
             }
             return ControlSurfaceHealthEntry(
                 surfaceID: panel.id,
                 typeRawValue: panel.panelType.rawValue,
-                inWindow: inWindow
+                inWindow: inWindow,
+                visibleInUI: visibleInUI
             )
+        }
+        let windowVisible = tabManager.window.map { window in
+            window.isVisible && !window.isMiniaturized
         }
         return ControlSurfaceHealthSnapshot(
             workspaceID: ws.id,
             windowID: v2ResolveWindowId(tabManager: tabManager),
+            windowVisible: windowVisible,
             surfaces: items
         )
     }
@@ -172,41 +184,30 @@ extension TerminalController: ControlSurfaceContext {
         routing: ControlRoutingSelectors,
         surfaceID: UUID
     ) async -> Bool {
-        if controlSurfaceHealth(routing: routing)?
-            .surfaces
-            .first(where: { $0.surfaceID == surfaceID })?
-            .inWindow == true {
+        if controlSurfaceIsVisibleInTargetUI(routing: routing, surfaceID: surfaceID) {
             return true
         }
 
-        let (surfaceIDs, surfaceIDContinuation) = AsyncStream<UUID>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
+        return await SurfaceHostedWindowWait(
+            surfaceID: surfaceID,
+            isVisible: { [weak self] in
+                self?.controlSurfaceIsVisibleInTargetUI(routing: routing, surfaceID: surfaceID) == true
+            }
+        ).wait(
+            timeout: .milliseconds(1_500)
         )
-        let observer = NotificationCenter.default.addObserver(
-            forName: .surfaceHostedViewDidMoveToWindow,
-            object: nil,
-            queue: nil
-        ) { notification in
-            guard let hostedSurfaceID = notification.userInfo?["surfaceId"] as? UUID else {
-                return
-            }
-            surfaceIDContinuation.yield(hostedSurfaceID)
-        }
-        defer {
-            surfaceIDContinuation.finish()
-            NotificationCenter.default.removeObserver(observer)
-        }
+    }
 
-        for await hostedSurfaceID in surfaceIDs {
-            if Task.isCancelled {
-                return false
-            }
-            guard hostedSurfaceID == surfaceID else {
-                continue
-            }
-            return true
+    private func controlSurfaceIsVisibleInTargetUI(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> Bool {
+        guard let health = controlSurfaceHealth(routing: routing),
+              health.windowVisible == true,
+              let entry = health.surfaces.first(where: { $0.surfaceID == surfaceID }) else {
+            return false
         }
-        return false
+        return entry.visibleInUI == true
     }
 
     // MARK: - focus
@@ -237,5 +238,65 @@ extension TerminalController: ControlSurfaceContext {
             workspaceID: ws.id,
             surfaceID: surfaceID
         )
+    }
+}
+
+@MainActor
+private final class SurfaceHostedWindowWait {
+    private let surfaceID: UUID
+    private let isVisible: @MainActor () -> Bool
+    private var observer: NSObjectProtocol?
+    private var timeoutTask: Task<Void, Never>?
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var completed = false
+
+    init(
+        surfaceID: UUID,
+        isVisible: @escaping @MainActor () -> Bool
+    ) {
+        self.surfaceID = surfaceID
+        self.isVisible = isVisible
+    }
+
+    func wait(timeout: Duration) async -> Bool {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            observer = NotificationCenter.default.addObserver(
+                forName: .surfaceHostedViewDidMoveToWindow,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let hostedSurfaceID = notification.userInfo?["surfaceId"] as? UUID else {
+                    return
+                }
+                Task { @MainActor [weak self] in
+                    guard let self, hostedSurfaceID == self.surfaceID else { return }
+                    guard self.isVisible() else { return }
+                    self.complete(observed: true)
+                }
+            }
+            timeoutTask = Task { [weak self] in
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                } catch {
+                    return
+                }
+                await self?.complete(observed: false)
+            }
+        }
+    }
+
+    private func complete(observed: Bool) {
+        guard !completed else { return }
+        completed = true
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observer = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        let continuation = continuation
+        self.continuation = nil
+        continuation?.resume(returning: observed)
     }
 }

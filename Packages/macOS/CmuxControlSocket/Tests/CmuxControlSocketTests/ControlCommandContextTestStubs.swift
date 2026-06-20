@@ -28,6 +28,7 @@ extension ControlPaneContext {
         routing: ControlRoutingSelectors,
         paneID: UUID?
     ) -> ControlPaneSurfacesSnapshot? { nil }
+    func controlPaneBrowserCreationDisabled() -> Bool { false }
     func controlPaneCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlPaneCreateInputs

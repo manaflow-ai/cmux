@@ -95,6 +95,7 @@ extension TerminalController: ControlPaneContext {
             workspaceID: ws.id,
             windowID: windowId,
             panes: panes,
+            isRemoteTmuxMirror: ws.isRemoteTmuxMirror,
             containerWidth: snapshot.containerFrame.width,
             containerHeight: snapshot.containerFrame.height
         )
@@ -167,6 +168,10 @@ extension TerminalController: ControlPaneContext {
             windowID: windowId,
             surfaces: surfaces
         )
+    }
+
+    func controlPaneBrowserCreationDisabled() -> Bool {
+        BrowserAvailabilitySettings.isDisabled()
     }
 
     // MARK: - create

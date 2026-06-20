@@ -54,6 +54,10 @@ public protocol ControlPaneContext: AnyObject {
         paneID: UUID?
     ) -> ControlPaneSurfacesSnapshot?
 
+    /// Whether browser pane creation is disabled and would fall back to
+    /// opening URLs externally instead of creating a local surface.
+    func controlPaneBrowserCreationDisabled() -> Bool
+
     /// Creates a split pane for `pane.create`.
     ///
     /// - Parameters:

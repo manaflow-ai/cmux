@@ -11,6 +11,8 @@ public struct ControlSurfaceHealthSnapshot: Sendable, Equatable {
     public let workspaceID: UUID
     /// The enclosing window's identifier, if it resolved.
     public let windowID: UUID?
+    /// Whether the enclosing window is currently visible to the user.
+    public let windowVisible: Bool?
     /// The ordered health rows.
     public let surfaces: [ControlSurfaceHealthEntry]
 
@@ -23,10 +25,12 @@ public struct ControlSurfaceHealthSnapshot: Sendable, Equatable {
     public init(
         workspaceID: UUID,
         windowID: UUID?,
+        windowVisible: Bool? = nil,
         surfaces: [ControlSurfaceHealthEntry]
     ) {
         self.workspaceID = workspaceID
         self.windowID = windowID
+        self.windowVisible = windowVisible
         self.surfaces = surfaces
     }
 }

@@ -22,12 +22,23 @@ final class FakeHelperControlCommandContext: ControlCommandContext {
     var includeLeftPane = false
     var includeExtraHelperSurface = false
     var helperSelectedSurfaceID: UUID?
+    var windowVisible = true
+    var focusedSurfaceVisible = true
+    var focusedSurfaceVisibleInUI: Bool?
     var existingHelperSurfaceVisible = true
+    var existingHelperSurfaceVisibleInUI: Bool?
     var leftSurfaceTypeRaw = "terminal"
+    var leftSurfaceVisibleInUI = true
     var helperSurfaceTypeRaw = "terminal"
     var extraHelperSurfaceTypeRaw = "terminal"
+    var extraHelperSurfaceVisibleInUI = false
     var createdSurfaceVisible = true
     var createdSurfaceVisibleAfterWindowEvent: Bool?
+    var createdSurfaceVisibleInUI: Bool?
+    var createdSurfaceWindowEventObserved = true
+    var isRemoteTmuxMirror = false
+    var browserCreationDisabled = false
+    var onSurfaceWindowWait: (() -> Void)?
     var surfaceSendTextFails = false
     private(set) var identifyParams: [String: JSONValue] = [:]
     private(set) var paneListRoutings: [ControlRoutingSelectors] = []
@@ -108,6 +119,7 @@ final class FakeHelperControlCommandContext: ControlCommandContext {
             workspaceID: focusedWorkspaceID,
             windowID: windowID,
             panes: panes,
+            isRemoteTmuxMirror: isRemoteTmuxMirror,
             containerWidth: 1_000,
             containerHeight: 500
         )
@@ -119,14 +131,16 @@ final class FakeHelperControlCommandContext: ControlCommandContext {
             ControlSurfaceHealthEntry(
                 surfaceID: focusedSurfaceID,
                 typeRawValue: "terminal",
-                inWindow: true
+                inWindow: focusedSurfaceVisible,
+                visibleInUI: focusedSurfaceVisibleInUI ?? focusedSurfaceVisible
             ),
         ]
         if includeLeftPane {
             surfaces.append(ControlSurfaceHealthEntry(
                 surfaceID: leftSurfaceID,
                 typeRawValue: leftSurfaceTypeRaw,
-                inWindow: true
+                inWindow: true,
+                visibleInUI: leftSurfaceVisibleInUI
             ))
         }
         if includeExistingHelperPane {
@@ -134,13 +148,15 @@ final class FakeHelperControlCommandContext: ControlCommandContext {
                 surfaces.append(ControlSurfaceHealthEntry(
                     surfaceID: extraHelperSurfaceID,
                     typeRawValue: extraHelperSurfaceTypeRaw,
-                    inWindow: true
+                    inWindow: true,
+                    visibleInUI: extraHelperSurfaceVisibleInUI
                 ))
             }
             surfaces.append(ControlSurfaceHealthEntry(
                 surfaceID: helperSurfaceID,
                 typeRawValue: helperSurfaceTypeRaw,
-                inWindow: existingHelperSurfaceVisible
+                inWindow: existingHelperSurfaceVisible,
+                visibleInUI: existingHelperSurfaceVisibleInUI ?? existingHelperSurfaceVisible
             ))
         }
         if !paneCreateCalls.isEmpty || !surfaceCreateCalls.isEmpty {
@@ -148,12 +164,14 @@ final class FakeHelperControlCommandContext: ControlCommandContext {
             surfaces.append(ControlSurfaceHealthEntry(
                 surfaceID: createdSurfaceID,
                 typeRawValue: "terminal",
-                inWindow: isCreatedSurfaceVisible
+                inWindow: isCreatedSurfaceVisible,
+                visibleInUI: createdSurfaceVisibleInUI ?? isCreatedSurfaceVisible
             ))
         }
         return ControlSurfaceHealthSnapshot(
             workspaceID: focusedWorkspaceID,
             windowID: windowID,
+            windowVisible: windowVisible,
             surfaces: surfaces
         )
     }
@@ -163,10 +181,18 @@ final class FakeHelperControlCommandContext: ControlCommandContext {
         surfaceID: UUID
     ) async -> Bool {
         surfaceWindowWaits.append((routing, surfaceID))
+        onSurfaceWindowWait?()
+        guard createdSurfaceWindowEventObserved else {
+            return false
+        }
         if let visibleAfterWindowEvent = createdSurfaceVisibleAfterWindowEvent {
             createdSurfaceVisible = visibleAfterWindowEvent
         }
         return true
+    }
+
+    func controlPaneBrowserCreationDisabled() -> Bool {
+        browserCreationDisabled
     }
 
     func controlPaneCreate(

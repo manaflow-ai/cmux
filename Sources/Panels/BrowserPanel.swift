@@ -4233,6 +4233,15 @@ final class BrowserPanel: Panel, ObservableObject {
         return hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView ?? shouldRenderWebView
     }
 
+    var debugWebViewVisibleInUI: Bool {
+        isWebViewVisibleInUI &&
+            shouldRenderWebView &&
+            webView.window != nil &&
+            !webView.isHiddenOrHasHiddenAncestor &&
+            webView.bounds.width > 1 &&
+            webView.bounds.height > 1
+    }
+
     func shouldPersistSessionSnapshot() -> Bool {
         // Diff viewer surfaces are otherwise treated as temporary. Persist them
         // only when they can actually be restored via the custom scheme (a

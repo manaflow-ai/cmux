@@ -14,6 +14,9 @@ public struct ControlPaneListSnapshot: Sendable, Equatable {
     public let windowID: UUID?
     /// The panes, in `allPaneIds` order.
     public let panes: [ControlPaneSummary]
+    /// Whether terminal pane creation is routed through a remote tmux mirror
+    /// instead of synchronously producing a local surface.
+    public let isRemoteTmuxMirror: Bool
     /// The container's width, in pixels.
     public let containerWidth: Double
     /// The container's height, in pixels.
@@ -31,12 +34,14 @@ public struct ControlPaneListSnapshot: Sendable, Equatable {
         workspaceID: UUID,
         windowID: UUID?,
         panes: [ControlPaneSummary],
+        isRemoteTmuxMirror: Bool = false,
         containerWidth: Double,
         containerHeight: Double
     ) {
         self.workspaceID = workspaceID
         self.windowID = windowID
         self.panes = panes
+        self.isRemoteTmuxMirror = isRemoteTmuxMirror
         self.containerWidth = containerWidth
         self.containerHeight = containerHeight
     }
