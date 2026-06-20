@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import CmuxSyncStore
 import Foundation
@@ -160,6 +161,41 @@ import Testing
         )
         await composite.loadRegistryDevices()
         #expect(composite.deviceTreeDevices.isEmpty)
+    }
+
+    /// An authoritative-empty sync store must not resurrect the OLD local paired
+    /// Macs via `deviceTreeDevices`' legacy XOR fallback when local-first is on.
+    @Test func localFirstAuthoritativeEmptyDoesNotResurrectPairedMacs() async throws {
+        let (store, dir) = try emptySyncStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await store.applySnapshot(
+            teamID: "team-1", collection: devicesSyncCollection, snapshotRev: 3, epoch: 1,
+            records: [], sortKeyFor: { DeviceSyncFacade.sortKey(for: $0) }, now: Date()
+        )
+        let macDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: macDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: macDir) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: macDir.appendingPathComponent("paired-macs.sqlite3"))
+        try await pairedStore.upsert(
+            macDeviceID: "mac-old", displayName: "Old", routes: [],
+            markActive: true, stackUserID: Self.owner)
+
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            syncStore: store,
+            deviceListLocalFirst: true,
+            syncTeamIDProvider: { "team-1" },
+            makeSyncTransport: makeTransportFactory(),
+            identityProvider: FakeIdentity(userID: Self.owner),
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+        )
+        await composite.loadPairedMacs()
+        await composite.loadRegistryDevices()
+        #expect(!composite.pairedMacs.isEmpty)         // the local Mac IS loaded
+        #expect(composite.deviceTreeDevices.isEmpty)   // but NOT shown in the tree
     }
 
     /// Finding #2: a late frame for the OLD team (a team switch mid-stream) must

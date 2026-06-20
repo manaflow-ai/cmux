@@ -1596,6 +1596,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// device sorts first, then most-recently-seen.
     public var deviceTreeDevices: [RegistryDevice] {
         if !registryDevices.isEmpty { return registryDevices }
+        // In local-first mode the sync store is authoritative: the local paired
+        // Macs are seeded into it as provisional rows, so an empty
+        // `registryDevices` (after the store has loaded) means the team genuinely
+        // has no devices. Do NOT synthesize from `pairedMacs` — that XOR fallback
+        // is only for the registry-only path; here it would resurrect stale local
+        // Macs the DO no longer knows about. (`loadRegistryDevices` still falls
+        // back to `/api/devices` before the first sync, so this only bites once
+        // the store is authoritatively empty.)
+        if deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil {
+            return []
+        }
         let connectedID = connectedMacDeviceID
         return pairedMacs
             .map { mac in
