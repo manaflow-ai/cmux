@@ -1523,8 +1523,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     registryDevices = devices
                     return
                 }
+                // Empty read. If the DO has already synced this team (cursor
+                // advanced past 0), that empty is AUTHORITATIVE — the team really
+                // has no devices — so show it rather than resurrecting stale
+                // registry rows the DO may have removed. Only fall back to the
+                // registry before the first sync (cursor 0 = cache not warm yet).
+                if let syncStore,
+                   let cursor = try? await syncStore.cursor(teamID: teamID, collection: devicesSyncCollection),
+                   cursor > 0 {
+                    registryDevices = []
+                    return
+                }
             }
-            // Empty store or unresolved team: fall through to the registry fallback.
+            // Not-yet-synced store or unresolved team: fall through to the registry.
         }
         guard isSignedIn, let deviceRegistry else {
             registryDevices = []
@@ -1654,21 +1665,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if isSignedIn, deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil {
             startSyncSubscription()
         } else {
-            // On actual sign-out (not a flag-off while still signed in), wipe the
-            // account-derived sync cache for the teams this session touched, so
-            // the next user on this shared device never sees the previous user's
-            // devices — especially the local-only provisional rows, which the
-            // facade does not owner-filter and snapshot reconciliation preserves.
-            let teamsToClear: Set<String> = isSignedIn
-                ? []
-                : seededSyncTeams.union(syncSubscriptionTeamID.map { [$0] } ?? [])
+            // Account isolation is enforced at READ time (the facade owner-scopes
+            // provisional rows; authoritative rows are team-scoped), the same way
+            // MobilePairedMacStore persists across sign-out and filters by
+            // stackUserID. So we just tear the subscription down here; clearing on
+            // sign-out would race the next account's sign-in/seed.
             syncTask?.cancel()
             syncTask = nil
             syncSubscriptionTeamID = nil
             seededSyncTeams = []
-            if !isSignedIn, let syncStore, !teamsToClear.isEmpty {
-                Task { for team in teamsToClear { try? await syncStore.clear(teamID: team) } }
-            }
         }
     }
 
@@ -1726,15 +1731,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             do {
                 _ = try await PairedMacMigration(pairedStore: pairedMacStore, syncStore: syncStore)
                     .runIfNeeded(accountID: accountID, teamID: teamID)
-                // The migration await suspended. `runIfNeeded` is not
-                // cancellation-aware, so the account-derived provisional rows it
-                // just committed belong to `accountID`. If the user signed out or
-                // switched accounts while it ran, those rows must not persist or
-                // render for the new session: clear the team and abandon. (A clean
-                // sign-out also clears via the teardown path below; this covers
-                // the in-flight race.)
+                // The migration await suspended. If the user signed out or
+                // switched accounts while it ran, don't render or track this seed
+                // for the new session. The committed rows are `accountID`'s and
+                // stay on disk, but the facade owner-scopes them at read time, so
+                // the new account never sees them (no clear → no sign-in race).
                 guard isSignedIn, identityProvider?.currentUserID == accountID else {
-                    try? await syncStore.clear(teamID: teamID)
                     return nil
                 }
                 seededSyncTeams.insert(teamID)
@@ -1775,7 +1777,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requestingUserID = identityProvider?.currentUserID
         let loaded: [RegistryDevice]
         do {
-            loaded = try await DeviceSyncFacade(store: syncStore).registryDevices(teamID: teamID)
+            // Owner-scope the account-private provisional seed so this account
+            // never renders another account's local-only devices (no clearing,
+            // so no race with the next sign-in).
+            loaded = try await DeviceSyncFacade(store: syncStore)
+                .registryDevices(teamID: teamID, provisionalOwnerUserID: requestingUserID)
         } catch {
             mobileShellLog.debug(
                 "device sync facade read failed: \(String(describing: error), privacy: .public)"

@@ -130,6 +130,29 @@ import Testing
         #expect(composite.deviceTreeDevices.map(\.deviceId) == ["mac-registry"])
     }
 
+    /// Once the DO has synced (cursor > 0), an empty team is AUTHORITATIVELY
+    /// empty and must not resurrect stale registry rows the DO removed.
+    @Test func authoritativeEmptyDoesNotFallBackToRegistry() async throws {
+        let (store, dir) = try emptySyncStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // An empty snapshot advances the cursor: synced, and genuinely no devices.
+        try await store.applySnapshot(
+            teamID: "team-1", collection: devicesSyncCollection, snapshotRev: 5, epoch: 1,
+            records: [], sortKeyFor: { DeviceSyncFacade.sortKey(for: $0) }, now: Date()
+        )
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            deviceRegistry: FakeDeviceRegistry(outcome: .ok([registryDevice("mac-stale")])),
+            syncStore: store,
+            deviceListLocalFirst: true,
+            syncTeamIDProvider: { "team-1" },
+            makeSyncTransport: makeTransportFactory(),
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+        )
+        await composite.loadRegistryDevices()
+        #expect(composite.deviceTreeDevices.isEmpty)
+    }
+
     /// Finding #2: a late frame for the OLD team (a team switch mid-stream) must
     /// not overwrite the current team's list.
     @Test func staleTeamFrameDoesNotOverwriteCurrentTeam() async throws {

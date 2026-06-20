@@ -111,4 +111,34 @@ import Testing
         #expect(devices.map(\.deviceId) == ["mac-remote"])
         #expect(devices.first?.displayName == "Office Mac")
     }
+
+    /// Account isolation on a shared device: a provisional (rev==0) row is one
+    /// account's local seed and is visible only to that account; authoritative
+    /// (rev>=1) DO rows are team-shared and visible to everyone on the team.
+    @Test func provisionalRowsAreOwnerScopedAuthoritativeShared() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func provisional(_ id: String, owner: String) throws -> Data {
+            try JSONEncoder().encode(SyncedDeviceRecord(
+                deviceId: id, platform: "mac", displayName: id, ownerUserId: owner,
+                lastSeenAtAtRev: T0_MS, instances: []
+            ))
+        }
+        try await store.seedProvisional(teamID: TEAM, collection: COLL, recordID: "mac-A",
+            payloadJSON: try provisional("mac-A", owner: "user-A"), sortKey: T0_MS, now: Date())
+        try await store.seedProvisional(teamID: TEAM, collection: COLL, recordID: "mac-B",
+            payloadJSON: try provisional("mac-B", owner: "user-B"), sortKey: T0_MS, now: Date())
+        // A team-shared authoritative device from the DO.
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 1, epoch: 1,
+            records: [try deviceRecord(id: "mac-shared", rev: 1)], sortKeyFor: sortKey, now: Date())
+
+        let facade = DeviceSyncFacade(store: store)
+        let asA = try await facade.registryDevices(teamID: TEAM, provisionalOwnerUserID: "user-A")
+        #expect(Set(asA.map(\.deviceId)) == ["mac-A", "mac-shared"])
+        let asB = try await facade.registryDevices(teamID: TEAM, provisionalOwnerUserID: "user-B")
+        #expect(Set(asB.map(\.deviceId)) == ["mac-B", "mac-shared"])
+        // No owner filter (the macOS/legacy callers) still sees everything.
+        let all = try await facade.registryDevices(teamID: TEAM)
+        #expect(Set(all.map(\.deviceId)) == ["mac-A", "mac-B", "mac-shared"])
+    }
 }
