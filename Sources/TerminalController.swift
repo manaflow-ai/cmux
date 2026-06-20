@@ -3758,69 +3758,6 @@ class TerminalController {
 
 
 
-    @MainActor
-
-
-
-
-    private func v2AgentSessionOptions(params: [String: Any]) -> (
-        providerID: AgentSessionProviderID,
-        rendererKind: AgentSessionRendererKind,
-        error: V2CallResult?
-    ) {
-        let providerRaw = v2String(params, "provider_id") ?? v2String(params, "provider")
-        let rendererRaw = v2String(params, "renderer_kind") ?? v2String(params, "renderer")
-
-        let providerID: AgentSessionProviderID
-        if let providerRaw {
-            switch v2NormalizedToken(providerRaw) {
-            case "codex":
-                providerID = .codex
-            case "claude", "claudecode":
-                providerID = .claude
-            case "opencode":
-                providerID = .opencode
-            default:
-                return (
-                    .codex,
-                    .react,
-                    .err(
-                        code: "invalid_params",
-                        message: "Invalid provider (codex|claude|opencode)",
-                        data: ["provider": providerRaw]
-                    )
-                )
-            }
-        } else {
-            providerID = .codex
-        }
-
-        let rendererKind: AgentSessionRendererKind
-        if let rendererRaw {
-            switch v2NormalizedToken(rendererRaw) {
-            case "react":
-                rendererKind = .react
-            case "solid":
-                rendererKind = .solid
-            default:
-                return (
-                    providerID,
-                    .react,
-                    .err(
-                        code: "invalid_params",
-                        message: "Invalid renderer (react|solid)",
-                        data: ["renderer": rendererRaw]
-                    )
-                )
-            }
-        } else {
-            rendererKind = .react
-        }
-
-        return (providerID, rendererKind, nil)
-    }
-
-
 
 
 
@@ -4242,22 +4179,12 @@ class TerminalController {
 
 
 
-    struct TerminalTextRawSnapshot {
-        var viewport: String?
-        var screen: String?
-        var history: String?
-        var active: String?
-    }
-
-    struct TerminalTextPayload: Equatable {
-        let text: String
-        let base64: String
-    }
-
-    struct TerminalTextPayloadError: Error, Equatable {
-        let message: String
-    }
-
+    // `TerminalTextRawSnapshot`, `TerminalTextPayload`, and
+    // `TerminalTextPayloadError`, plus the pure payload assembly
+    // (`TerminalTextPayload.make`) and `String.terminalTextTail`, now live in
+    // `CmuxTerminal`. The Ghostty-pointer readers below stay app-side because
+    // they call `ghostty_surface_read_text` directly (engine-coupled residue,
+    // revisit when CmuxTerminalEngine lands).
     func readTerminalTextRawSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool
@@ -4328,7 +4255,7 @@ class TerminalController {
         ) else {
             return "ERROR: Terminal surface not found"
         }
-        switch Self.terminalTextPayload(
+        switch TerminalTextPayload.make(
             from: snapshot,
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
@@ -4338,68 +4265,6 @@ class TerminalController {
         case .failure(let error):
             return "ERROR: \(error.message)"
         }
-    }
-
-    nonisolated static func terminalTextPayload(
-        from snapshot: TerminalTextRawSnapshot,
-        includeScrollback: Bool,
-        lineLimit: Int?
-    ) -> Result<TerminalTextPayload, TerminalTextPayloadError> {
-        let output: String
-        if includeScrollback {
-            var candidates: [String] = []
-            if let screen = snapshot.screen {
-                candidates.append(lineLimit.map { Self.tailTerminalLines(screen, maxLines: $0) } ?? screen)
-            }
-            if snapshot.history != nil || snapshot.active != nil {
-                var merged = lineLimit.map {
-                    Self.tailTerminalLines(snapshot.history ?? "", maxLines: $0)
-                } ?? (snapshot.history ?? "")
-                if let active = snapshot.active {
-                    if !merged.isEmpty, !merged.hasSuffix("\n"), !active.isEmpty {
-                        merged.append("\n")
-                    }
-                    merged.append(lineLimit.map { Self.tailTerminalLines(active, maxLines: $0) } ?? active)
-                }
-                candidates.append(lineLimit.map { Self.tailTerminalLines(merged, maxLines: $0) } ?? merged)
-            }
-
-            guard let best = candidates.max(by: { lhs, rhs in
-                let left = terminalTextCandidateScore(lhs)
-                let right = terminalTextCandidateScore(rhs)
-                if left.lines != right.lines {
-                    return left.lines < right.lines
-                }
-                return left.bytes < right.bytes
-            }) else {
-                return .failure(TerminalTextPayloadError(message: "Failed to read terminal text"))
-            }
-            output = best
-        } else {
-            guard var viewport = snapshot.viewport else {
-                return .failure(TerminalTextPayloadError(message: "Failed to read terminal text"))
-            }
-            if let lineLimit {
-                viewport = Self.tailTerminalLines(viewport, maxLines: lineLimit)
-            }
-            output = viewport
-        }
-
-        let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
-        return .success(TerminalTextPayload(text: output, base64: base64))
-    }
-
-    nonisolated private static func terminalTextCandidateScore(_ text: String) -> (lines: Int, bytes: Int) {
-        if text.isEmpty { return (0, 0) }
-        var newlineCount = 0
-        var byteCount = 0
-        for byte in text.utf8 {
-            byteCount += 1
-            if byte == 0x0A {
-                newlineCount += 1
-            }
-        }
-        return (newlineCount + 1, byteCount)
     }
 
     private func readTerminalTextFromVTExportForSnapshot(
@@ -4439,7 +4304,7 @@ class TerminalController {
             ? Self.normalizedMobileVTExportText(rawOutput)
             : rawOutput
         if let lineLimit {
-            output = Self.tailTerminalLines(output, maxLines: lineLimit)
+            output = output.terminalTextTail(maxLines: lineLimit)
         }
         return output
     }
@@ -7795,23 +7660,6 @@ class TerminalController {
     // teardown); the coordinator records into / reads it via
     // ControlBrowserContext.
 
-
-    nonisolated static func tailTerminalLines(_ text: String, maxLines: Int) -> String {
-        guard maxLines > 0 else { return "" }
-        var newlineCount = 0
-        var index = text.endIndex
-        while index > text.startIndex {
-            let previous = text.index(before: index)
-            if text[previous] == "\n" {
-                newlineCount += 1
-                if newlineCount == maxLines {
-                    return String(text[index...])
-                }
-            }
-            index = previous
-        }
-        return text
-    }
 
 #if DEBUG
     // Shared by `simulateShortcut` (a v1-shared body that stays here) and the

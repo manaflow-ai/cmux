@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxTerminal
 import Foundation
 
 /// The surface-domain input / read / resume / reporting witnesses, plus the
@@ -322,7 +323,7 @@ extension TerminalController {
         ) else {
             return .internalError(message: "Failed to read terminal text")
         }
-        switch Self.terminalTextPayload(
+        switch TerminalTextPayload.make(
             from: rawSnapshot,
             includeScrollback: includeScrollback,
             lineLimit: lineLimit

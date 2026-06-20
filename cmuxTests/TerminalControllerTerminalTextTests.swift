@@ -1,6 +1,7 @@
 import XCTest
 import Darwin
 import Foundation
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,15 +12,15 @@ import Foundation
 @MainActor
 final class TerminalControllerTerminalTextTests: XCTestCase {
     func testTailTerminalLinesPreservesSplitSuffixSemanticsWithoutFullSplit() {
-        XCTAssertEqual(TerminalController.tailTerminalLines("a\nb\nc", maxLines: 2), "b\nc")
-        XCTAssertEqual(TerminalController.tailTerminalLines("a\nb\n", maxLines: 2), "b\n")
-        XCTAssertEqual(TerminalController.tailTerminalLines("a", maxLines: 2), "a")
-        XCTAssertEqual(TerminalController.tailTerminalLines("a\nb", maxLines: 0), "")
+        XCTAssertEqual("a\nb\nc".terminalTextTail(maxLines: 2), "b\nc")
+        XCTAssertEqual("a\nb\n".terminalTextTail(maxLines: 2), "b\n")
+        XCTAssertEqual("a".terminalTextTail(maxLines: 2), "a")
+        XCTAssertEqual("a\nb".terminalTextTail(maxLines: 0), "")
     }
 
     func testTerminalTextPayloadTailsScrollbackBeforeEncoding() throws {
-        let result = TerminalController.terminalTextPayload(
-            from: TerminalController.TerminalTextRawSnapshot(
+        let result = TerminalTextPayload.make(
+            from: TerminalTextRawSnapshot(
                 viewport: nil,
                 screen: "old\nscreen",
                 history: "one\ntwo\nthree",
