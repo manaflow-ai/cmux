@@ -8,6 +8,58 @@ import UserNotifications
 @testable import cmux
 #endif
 
+private extension TerminalNotificationStore {
+    func notificationPassesCurrentDeliveryGateForTesting(
+        _ notification: TerminalNotification,
+        effects: TerminalNotificationPolicyEffects
+    ) -> Bool {
+        notificationPassesCurrentDeliveryGate(notification, effects: effects)
+    }
+
+    func configureNotificationAuthorizationStatusProviderForTesting(
+        _ provider: @escaping NotificationAuthorizationStatusProvider
+    ) {
+        notificationAuthorizationStatusProvider = provider
+    }
+
+    func resetNotificationAuthorizationStatusProviderForTesting() {
+        notificationAuthorizationStatusProvider = Self.defaultNotificationAuthorizationStatusProvider
+        fallbackAuthorizationRefreshInFlight = false
+        pendingFallbackAuthorizationRefreshCompletions.removeAll()
+    }
+
+    func configurePhoneForwardHandlerForTesting(
+        _ handler: @escaping PhoneForwardHandler
+    ) {
+        phoneForwardHandler = handler
+    }
+
+    func resetPhoneForwardHandlerForTesting() {
+        phoneForwardHandler = Self.defaultPhoneForwardHandler
+    }
+
+    func configureNotificationDismissHandlerForTesting(
+        _ handler: @escaping NotificationDismissHandler
+    ) {
+        notificationDismissHandler = handler
+    }
+
+    func resetNotificationDismissHandlerForTesting() {
+        notificationDismissHandler = Self.defaultNotificationDismissHandler
+    }
+
+    func setAuthorizationStateForTesting(_ state: NotificationAuthorizationState) {
+        authorizationState = state
+    }
+
+    func scheduleUserNotificationForTesting(
+        _ notification: TerminalNotification,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        scheduleUserNotification(notification, effects: effects)
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 final class NotificationAuthorizationDeliveryTests {

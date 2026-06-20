@@ -223,9 +223,9 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
 
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
-    private typealias NotificationAuthorizationStatusProvider = (@escaping (UNAuthorizationStatus) -> Void) -> Void
-    private typealias PhoneForwardHandler = (TerminalNotification, Int) -> Bool
-    private typealias NotificationDismissHandler = (_ ids: [String], _ badgeCount: Int) -> Void
+    typealias NotificationAuthorizationStatusProvider = (@escaping (UNAuthorizationStatus) -> Void) -> Void
+    typealias PhoneForwardHandler = (TerminalNotification, Int) -> Bool
+    typealias NotificationDismissHandler = (_ ids: [String], _ badgeCount: Int) -> Void
 
     private struct TabSurfaceKey: Hashable {
         let tabId: UUID
@@ -241,15 +241,15 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     static let shared = TerminalNotificationStore()
-    private static let defaultNotificationAuthorizationStatusProvider: NotificationAuthorizationStatusProvider = { completion in
+    static let defaultNotificationAuthorizationStatusProvider: NotificationAuthorizationStatusProvider = { completion in
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             completion(settings.authorizationStatus)
         }
     }
-    private static let defaultPhoneForwardHandler: PhoneForwardHandler = { notification, badgeCount in
+    static let defaultPhoneForwardHandler: PhoneForwardHandler = { notification, badgeCount in
         PhonePushClient.shared.forward(notification, badgeCount: badgeCount)
     }
-    private static let defaultNotificationDismissHandler: NotificationDismissHandler = { ids, unreadCount in
+    static let defaultNotificationDismissHandler: NotificationDismissHandler = { ids, unreadCount in
         MobileHostService.emitEvent(
             topic: TerminalNotificationStore.dismissedEventTopic,
             payload: ["ids": ids, "unread_count": unreadCount]
@@ -474,7 +474,7 @@ final class TerminalNotificationStore: ObservableObject {
             refreshUnreadPresentation()
         }
     }
-    private(set) var authorizationState: NotificationAuthorizationState = .unknown {
+    var authorizationState: NotificationAuthorizationState = .unknown {
         didSet {
             guard authorizationState != oldValue else { return }
             authorizationStateBroadcaster.publish(authorizationState)
@@ -482,8 +482,8 @@ final class TerminalNotificationStore: ObservableObject {
     }
     private let authorizationStateBroadcaster = TerminalNotificationAuthorizationStateBroadcaster()
     private static let maxPendingFallbackAuthorizationRefreshCompletions = 128
-    private var fallbackAuthorizationRefreshInFlight = false
-    private var pendingFallbackAuthorizationRefreshCompletions: [@MainActor (NotificationAuthorizationState) -> Void] = []
+    var fallbackAuthorizationRefreshInFlight = false
+    var pendingFallbackAuthorizationRefreshCompletions: [@MainActor (NotificationAuthorizationState) -> Void] = []
     private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
@@ -509,9 +509,9 @@ final class TerminalNotificationStore: ObservableObject {
     private var notificationSettingsURLOpener: (URL) -> Void = { url in
         NSWorkspace.shared.open(url)
     }
-    private var notificationAuthorizationStatusProvider = TerminalNotificationStore.defaultNotificationAuthorizationStatusProvider
-    private var phoneForwardHandler = TerminalNotificationStore.defaultPhoneForwardHandler
-    private var notificationDismissHandler = TerminalNotificationStore.defaultNotificationDismissHandler
+    var notificationAuthorizationStatusProvider = TerminalNotificationStore.defaultNotificationAuthorizationStatusProvider
+    var phoneForwardHandler = TerminalNotificationStore.defaultPhoneForwardHandler
+    var notificationDismissHandler = TerminalNotificationStore.defaultNotificationDismissHandler
     private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
@@ -1770,7 +1770,7 @@ final class TerminalNotificationStore: ObservableObject {
         return notification.title.isEmpty ? appName : notification.title
     }
 
-    private func scheduleUserNotification(
+    func scheduleUserNotification(
         _ notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
@@ -2086,21 +2086,12 @@ final class TerminalNotificationStore: ObservableObject {
         }?.id == notification.id
     }
 
-    private func notificationPassesCurrentDeliveryGate(
+    func notificationPassesCurrentDeliveryGate(
         _ notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) -> Bool {
         !effects.record || notificationIsCurrent(notification)
     }
-
-#if DEBUG
-    func notificationPassesCurrentDeliveryGateForTesting(
-        _ notification: TerminalNotification,
-        effects: TerminalNotificationPolicyEffects
-    ) -> Bool {
-        notificationPassesCurrentDeliveryGate(notification, effects: effects)
-    }
-#endif
 
     private func promptToEnableNotifications() {
         guard !hasPromptedForSettings else { return }
@@ -2234,38 +2225,6 @@ final class TerminalNotificationStore: ObservableObject {
         hasPromptedForSettings = false
     }
 
-    func configureNotificationAuthorizationStatusProviderForTesting(
-        _ provider: @escaping (@escaping (UNAuthorizationStatus) -> Void) -> Void
-    ) {
-        notificationAuthorizationStatusProvider = provider
-    }
-
-    func resetNotificationAuthorizationStatusProviderForTesting() {
-        notificationAuthorizationStatusProvider = Self.defaultNotificationAuthorizationStatusProvider
-        fallbackAuthorizationRefreshInFlight = false
-        pendingFallbackAuthorizationRefreshCompletions.removeAll()
-    }
-
-    func configurePhoneForwardHandlerForTesting(
-        _ handler: @escaping (TerminalNotification, Int) -> Bool
-    ) {
-        phoneForwardHandler = handler
-    }
-
-    func resetPhoneForwardHandlerForTesting() {
-        phoneForwardHandler = Self.defaultPhoneForwardHandler
-    }
-
-    func configureNotificationDismissHandlerForTesting(
-        _ handler: @escaping (_ ids: [String], _ badgeCount: Int) -> Void
-    ) {
-        notificationDismissHandler = handler
-    }
-
-    func resetNotificationDismissHandlerForTesting() {
-        notificationDismissHandler = Self.defaultNotificationDismissHandler
-    }
-
     func configureNotificationDeliveryHandlerForTesting(
         _ handler: @escaping (TerminalNotificationStore, TerminalNotification) -> Void
     ) {
@@ -2310,12 +2269,6 @@ final class TerminalNotificationStore: ObservableObject {
         suppressedNotificationFeedbackHandler = { store, notification, effects in
             store.playSuppressedNotificationFeedback(for: notification, effects: effects)
         }
-    }
-
-    func setAuthorizationStateForTesting(_ state: NotificationAuthorizationState) { authorizationState = state }
-
-    func scheduleUserNotificationForTesting(_ notification: TerminalNotification, effects: TerminalNotificationPolicyEffects) {
-        scheduleUserNotification(notification, effects: effects)
     }
 
     func promptToEnableNotificationsForTesting() {
