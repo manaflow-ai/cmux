@@ -8,7 +8,23 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite struct RemoteTmuxCapabilitiesTests {
+@Suite(.serialized) struct RemoteTmuxCapabilitiesTests {
+    @Test func remoteTmuxDefaultsEnabledWhenUnset() {
+        let key = SettingCatalog().betaFeatures.remoteTmux.userDefaultsKey
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: key)
+        defaults.removeObject(forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        #expect(RemoteTmuxController.isEnabled)
+    }
+
     @Test func systemCapabilitiesAdvertisesRemoteTmuxMethods() throws {
         let request = #"{"jsonrpc":"2.0","id":1,"method":"system.capabilities","params":{}}"#
         let responseText = TerminalController.shared.handleSocketLine(request)
