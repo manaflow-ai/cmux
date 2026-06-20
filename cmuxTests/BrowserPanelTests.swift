@@ -182,11 +182,12 @@ struct BrowserHiddenWebViewDiscardMediaPlaybackTests {
 @MainActor
 final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
     private var previousEnabled: Any?
-
+    private var previousHiddenDelay: Any?
     override func setUp() {
         super.setUp()
         let defaults = UserDefaults.standard
         previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        previousHiddenDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
         defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
     }
 
@@ -197,9 +198,13 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
         }
+        if let previousHiddenDelay {
+            defaults.set(previousHiddenDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        } else {
+            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        }
         super.tearDown()
     }
-
     func testActiveMediaCaptureBlocksHiddenWebViewDiscardScheduling() {
         let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isCapturingMedia: true)
         let manager = BrowserHiddenWebViewDiscardManager()
@@ -213,15 +218,11 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
 
     func testVisualAutomationCaptureBlocksHiddenWebViewDiscardScheduling() {
         let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isVisualAutomationCaptureActive: true)
-
         let manager = BrowserHiddenWebViewDiscardManager()
         let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
         manager.delegate = delegate
-
         XCTAssertEqual(manager.blockers(for: snapshot), ["visual_automation"])
-
         manager.scheduleIfNeeded(reason: "test.visualAutomation")
-
         XCTAssertFalse(manager.hasScheduledDiscard)
         XCTAssertEqual(delegate.discardRequestCount, 0)
     }
@@ -236,16 +237,15 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         let manager = BrowserHiddenWebViewDiscardManager()
         let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
         manager.delegate = delegate
-
         XCTAssertEqual(manager.blockers(for: snapshot), ["provisional_navigation"])
-
         manager.scheduleIfNeeded(reason: "test.provisional")
-
         XCTAssertFalse(manager.hasScheduledDiscard)
         XCTAssertEqual(delegate.discardRequestCount, 0)
-
         // Regression coverage for https://github.com/manaflow-ai/cmux/issues/4701.
         delegate.snapshot = makeHiddenWebViewDiscardBlockerSnapshot()
+        manager.noteWebContentProcessRecovery()
+        XCTAssertEqual(manager.blockers(for: delegate.snapshot), ["webcontent_recovery"])
+        UserDefaults.standard.set(0, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
         manager.noteWebContentProcessRecovery()
         XCTAssertEqual(manager.blockers(for: delegate.snapshot), ["webcontent_recovery"])
         manager.scheduleIfNeeded(reason: "test.webContentRecovery")

@@ -49,6 +49,8 @@ final class BrowserHiddenWebViewDiscardManager {
     private var policyState = BrowserHiddenWebViewDiscardPolicy.resolved()
     private var scheduleGeneration: UInt64 = 0
     private var webContentProcessRecoveryBlockUntil: Date?
+    private static let webContentProcessRecoveryMinimumDelay =
+        BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
 
     /// Sleep/wake state used to keep a hidden-webview discard from running in
     /// the fragile window right after system wake
@@ -140,8 +142,12 @@ final class BrowserHiddenWebViewDiscardManager {
     }
 
     func noteWebContentProcessRecovery(now: Date = Date()) {
+        let recoveryDelay = max(
+            BrowserHiddenWebViewDiscardPolicy.hiddenDelay,
+            Self.webContentProcessRecoveryMinimumDelay
+        )
         webContentProcessRecoveryBlockUntil = now.addingTimeInterval(
-            BrowserHiddenWebViewDiscardPolicy.hiddenDelay
+            recoveryDelay
         )
         cancel()
     }
