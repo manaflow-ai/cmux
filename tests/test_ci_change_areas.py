@@ -394,6 +394,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "react-apps-check",
         "web-db-migrations",
         "tests",
+        "tests-required-status",
         "tests-build-and-lag",
         "release-ghostty-cli-helper",
         "release-build",
@@ -403,6 +404,17 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
     assert "if: ${{ always() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
+
+
+def test_required_tests_status_waits_for_app_host_matrix() -> None:
+    block = workflow_job_block("tests-required-status")
+
+    assert "name: tests" in block
+    assert "      - changes" in block
+    assert "      - tests" in block
+    assert "if: ${{ always() }}" in block
+    assert 'macos == "true" and tests["result"] != "success"' in block
+    assert 'tests["result"] not in {"success", "skipped"}' in block
 
 
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:
