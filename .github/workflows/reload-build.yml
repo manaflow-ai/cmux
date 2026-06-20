@@ -214,6 +214,7 @@ jobs:
           preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
           selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
           selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
+          created = False
           if selected is None:
               runtimes_data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "available", "-j"]))
               runtimes = [
@@ -251,12 +252,14 @@ jobs:
                   runtime["identifier"],
               ], text=True).strip()
               selected = {"udid": udid, "name": f"cmux Video {device_type['name']}"}
+              created = True
               print(
                   f"Created {selected['name']} ({udid}) with {runtime['identifier']}",
                   file=sys.stderr,
               )
           print(f"SIMULATOR_ID={shlex.quote(selected['udid'])}")
           print(f"SIMULATOR_NAME={shlex.quote(selected['name'])}")
+          print(f"SIMULATOR_CREATED={'1' if created else '0'}")
           PY
           # shellcheck disable=SC1090
           . "$SIMULATOR_ENV"
@@ -291,13 +294,17 @@ jobs:
           xcodebuild "${XCODEBUILD_BASE[@]}" "${ONLY_TESTING[@]}" build-for-testing
 
           recorder_pid=""
-          stop_recording() {
+          cleanup_video_run() {
             if [ -n "$recorder_pid" ] && kill -0 "$recorder_pid" >/dev/null 2>&1; then
               kill -INT "$recorder_pid" >/dev/null 2>&1 || true
               wait "$recorder_pid" >/dev/null 2>&1 || true
             fi
+            xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+            if [ "${SIMULATOR_CREATED:-0}" = "1" ]; then
+              xcrun simctl delete "$SIMULATOR_ID" >/dev/null 2>&1 || true
+            fi
           }
-          trap stop_recording EXIT
+          trap cleanup_video_run EXIT
 
           xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 --force "$VIDEO_PATH" 2> "$RECORD_LOG" &
           recorder_pid="$!"
@@ -324,7 +331,7 @@ jobs:
           fi
 
           xcrun simctl io "$SIMULATOR_ID" screenshot --type=png "$SCREENSHOT_PATH" || true
-          stop_recording
+          cleanup_video_run
           trap - EXIT
 
           [ -s "$VIDEO_PATH" ] || { echo "video not produced: $VIDEO_PATH" >&2; exit 1; }
