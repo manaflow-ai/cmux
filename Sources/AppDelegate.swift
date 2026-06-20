@@ -516,7 +516,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     #if DEBUG
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
         decorator: self,
-        debugWindowControlsContentProvider: { NSHostingView(rootView: DebugWindowControlsView()) }
+        debugWindowControlsContentProvider: { NSHostingView(rootView: DebugWindowControlsView()) },
+        menuBarExtraDebugContentProvider: { NSHostingView(rootView: MenuBarExtraDebugView()) },
+        backgroundDebugContentProvider: { NSHostingView(rootView: BackgroundDebugView()) }
     )
     #else
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
