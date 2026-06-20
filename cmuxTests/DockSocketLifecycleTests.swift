@@ -50,6 +50,16 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
+    private func withDockDisabled(_ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let key = RightSidebarBetaFeatureSettings.dockEnabledKey
+        let previous = defaults.object(forKey: key)
+        defaults.set(false, forKey: key)
+        defer { restoreUserDefault(previous, forKey: key) }
+        try body()
+    }
+
+    @MainActor
     private func withBrowserDisabled(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previous = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey) as? Bool
@@ -178,6 +188,28 @@ struct DockSocketLifecycleTests {
                 #expect(fileExplorerState.isVisible)
                 #expect(fileExplorerState.mode == .dock)
                 #expect(workspace.dockSplit.focusedPanelId == dockSurfaceId)
+            }
+        }
+    }
+
+    @Test("Dock placement is rejected when Dock mode is disabled")
+    @MainActor
+    func dockPlacementRejectedWhenDockModeDisabled() throws {
+        try withDockDisabled {
+            try withSocketAppContext { _, workspace, _ in
+                for method in ["surface.create", "pane.create"] {
+                    var params = ["placement": "dock", "type": "terminal", "focus": true]
+                    if method == "pane.create" {
+                        params["direction"] = "right"
+                    }
+                    let envelope = try v2Envelope(method: method, params: params)
+
+                    #expect(envelope["ok"] as? Bool == false)
+                    let error = try #require(envelope["error"] as? [String: Any])
+                    #expect(error["code"] as? String == "invalid_params")
+                    #expect(error["message"] as? String == "Dock placement is disabled")
+                    #expect(workspace.dockSplit.bonsplitController.allTabIds.isEmpty)
+                }
             }
         }
     }

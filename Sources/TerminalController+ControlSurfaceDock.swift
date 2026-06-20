@@ -14,6 +14,14 @@ extension TerminalController {
         ) ?? false
     }
 
+    func dockUnsupportedSurfaceTypeMessage() -> String {
+        String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports only terminal and browser surfaces")
+    }
+
+    func dockUnavailableMessage() -> String {
+        String(localized: "dock.error.unavailable", defaultValue: "Dock placement is disabled")
+    }
+
     /// Creates a surface (tab) in the workspace's right-sidebar Dock. The Dock
     /// hosts terminal and browser surfaces only; agent-session is unsupported.
     func dockSurfaceCreate(
@@ -23,7 +31,12 @@ extension TerminalController {
         url: URL?,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
-        guard panelType == .terminal || panelType == .browser else { return .dockUnsupportedType(typeRawValue: panelType.rawValue, message: String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports only terminal and browser surfaces")) }
+        guard panelType == .terminal || panelType == .browser else {
+            return .dockUnsupportedType(typeRawValue: panelType.rawValue, message: dockUnsupportedSurfaceTypeMessage())
+        }
+        guard RightSidebarMode.dock.isAvailable() else {
+            return .dockUnavailable(message: dockUnavailableMessage())
+        }
         let dock = ws.dockSplit
         guard let paneId = dock.resolvePane(requestedPaneID: inputs.requestedPaneID) else {
             return .paneNotFound

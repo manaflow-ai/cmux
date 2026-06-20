@@ -20,11 +20,11 @@ extension TerminalController {
         guard panelType == .terminal || panelType == .browser else {
             return .dockUnsupportedType(
                 typeRawValue: panelType.rawValue,
-                message: String(
-                    localized: "dock.error.unsupportedSurfaceType",
-                    defaultValue: "Dock placement supports only terminal and browser surfaces"
-                )
+                message: dockUnsupportedSurfaceTypeMessage()
             )
+        }
+        guard RightSidebarMode.dock.isAvailable() else {
+            return .dockUnavailable(message: dockUnavailableMessage())
         }
         let dock = ws.dockSplit
         // An explicit source surface must live in the Dock tree; do not silently

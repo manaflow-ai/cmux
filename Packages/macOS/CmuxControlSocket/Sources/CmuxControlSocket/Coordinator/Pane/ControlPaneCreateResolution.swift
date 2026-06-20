@@ -30,6 +30,9 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// Dock placement only supports terminal and browser panes. Carries the raw
     /// type and the localized message produced by the app seam.
     case dockUnsupportedType(typeRawValue: String, message: String)
+    /// Dock placement was requested while the Dock sidebar mode is unavailable.
+    /// Carries the localized message produced by the app seam.
+    case dockUnavailable(message: String)
     /// A browser split was requested while the cmux browser is disabled and an
     /// invalid URL was supplied (legacy `invalid_params` / "Invalid URL",
     /// `data: {"url": rawURL}`). Carries the raw URL string.
