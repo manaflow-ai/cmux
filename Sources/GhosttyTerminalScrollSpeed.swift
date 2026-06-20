@@ -12,8 +12,8 @@ final class TerminalScrollSpeedAccumulator {
             y *= multiplier
             return
         }
-        x = scaledNonPreciseHorizontalScrollDelta(rawDelta: x, multiplier: multiplier, pending: &pendingNonPreciseX)
-        y = scaledNonPreciseVerticalScrollDelta(rawDelta: y, multiplier: multiplier, pending: &pendingNonPreciseY)
+        x = Self.scaledNonPreciseHorizontalScrollDelta(rawDelta: x, multiplier: multiplier, pending: &pendingNonPreciseX)
+        y = Self.scaledNonPreciseVerticalScrollDelta(rawDelta: y, multiplier: multiplier, pending: &pendingNonPreciseY)
     }
 
     private static func scaledNonPreciseHorizontalScrollDelta(
