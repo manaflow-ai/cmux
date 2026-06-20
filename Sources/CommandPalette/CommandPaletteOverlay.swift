@@ -1,73 +1,13 @@
-import Observation
+import CmuxCommandPalette
 import SwiftUI
 
-enum CommandPaletteRenderTrailingLabelStyle: Equatable {
-    case shortcut
-    case kind
-}
-
-struct CommandPaletteRenderTrailingLabel: Equatable {
-    let text: String
-    let style: CommandPaletteRenderTrailingLabelStyle
-}
-
-struct CommandPaletteRenderResultRow: Identifiable, Equatable {
-    let id: String
-    let title: String
-    let matchedIndices: Set<Int>
-    let trailingLabel: CommandPaletteRenderTrailingLabel?
-}
-
-struct CommandPaletteCommandListRenderState: Equatable {
-    var resultsVersion: UInt64 = 0
-    var emptyStateText: String = ""
-    var listIdentity: String = "switcher"
-    var rows: [CommandPaletteRenderResultRow] = []
-    var selectedIndex: Int = 0
-    var shouldShowEmptyState = false
-    var scrollTargetID: String?
-    var scrollTargetAnchor: UnitPoint?
-
-    static let empty = CommandPaletteCommandListRenderState()
-}
-
-@MainActor
-@Observable
-final class CommandPaletteOverlayRenderModel {
-    private(set) var commandList = CommandPaletteCommandListRenderState.empty
-    @ObservationIgnored private var scheduledCommandListSequence: UInt64 = 0
-    @ObservationIgnored private var appliedCommandListSequence: UInt64 = 0
-    @ObservationIgnored private var appliedCommandListResultsVersion: UInt64 = 0
-
-    deinit {}
-
-    func scheduleCommandListUpdate(_ state: CommandPaletteCommandListRenderState) {
-        scheduledCommandListSequence &+= 1
-        let sequence = scheduledCommandListSequence
-
-        Task { @MainActor in
-            await Task.yield()
-            guard sequence >= appliedCommandListSequence else { return }
-            guard state.resultsVersion >= appliedCommandListResultsVersion else { return }
-            appliedCommandListSequence = sequence
-            appliedCommandListResultsVersion = max(appliedCommandListResultsVersion, state.resultsVersion)
-            updateCommandList(state)
-        }
-    }
-
-    private func updateCommandList(_ state: CommandPaletteCommandListRenderState) {
-        guard commandList != state else { return }
-        commandList = state
-    }
-}
-
 struct CommandPaletteCommandListRenderView: View {
-    let renderModel: CommandPaletteOverlayRenderModel
+    let coordinator: CommandPaletteCoordinator
     let onRunResult: (String) -> Void
 
     var body: some View {
         CommandPaletteCommandListRowsView(
-            state: renderModel.commandList,
+            state: coordinator.commandList,
             onRunResult: onRunResult
         )
     }
