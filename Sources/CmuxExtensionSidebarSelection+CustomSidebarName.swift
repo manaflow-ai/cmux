@@ -2,12 +2,30 @@ import Foundation
 
 extension CmuxExtensionSidebarSelection {
     #if DEBUG
-    static var customSidebarsDirectoryOverrideForTesting: URL?
+    private static let customSidebarsDirectoryOverrideLock = NSRecursiveLock()
+    private static var customSidebarsDirectoryOverrideStorage: URL?
+
+    private(set) static var customSidebarsDirectoryOverrideForTesting: URL? {
+        get {
+            customSidebarsDirectoryOverrideLock.lock()
+            defer { customSidebarsDirectoryOverrideLock.unlock() }
+            return customSidebarsDirectoryOverrideStorage
+        }
+        set {
+            customSidebarsDirectoryOverrideLock.lock()
+            defer { customSidebarsDirectoryOverrideLock.unlock() }
+            customSidebarsDirectoryOverrideStorage = newValue
+        }
+    }
 
     static func withCustomSidebarsDirectoryForTesting<T>(_ directory: URL, _ body: () throws -> T) rethrows -> T {
-        let previous = customSidebarsDirectoryOverrideForTesting
-        customSidebarsDirectoryOverrideForTesting = directory
-        defer { customSidebarsDirectoryOverrideForTesting = previous }
+        customSidebarsDirectoryOverrideLock.lock()
+        let previous = customSidebarsDirectoryOverrideStorage
+        customSidebarsDirectoryOverrideStorage = directory
+        defer {
+            customSidebarsDirectoryOverrideStorage = previous
+            customSidebarsDirectoryOverrideLock.unlock()
+        }
         return try body()
     }
     #endif
