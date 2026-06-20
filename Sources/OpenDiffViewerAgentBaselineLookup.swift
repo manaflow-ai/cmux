@@ -1,6 +1,20 @@
 import Foundation
 
 extension AppDelegate {
+    func openDiffViewerAgentContextShouldFocus(workspaceId: UUID, surfaceId: UUID, sessionId: String) -> Bool? {
+        for context in mainWindowContexts.values {
+            guard let workspace = context.tabManager.workspaces.first(where: {
+                      $0.id == workspaceId && $0.panels.keys.contains(surfaceId)
+                  }),
+                  let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspaceId, panelId: surfaceId),
+                  Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) == sessionId else {
+                continue
+            }
+            return context.tabManager.selectedWorkspace?.id == workspaceId && workspace.focusedPanelId == surfaceId
+        }
+        return nil
+    }
+
     nonisolated static func latestAgentTurnDiffRepoRoot(
         storeURL: URL,
         workspaceId: UUID,

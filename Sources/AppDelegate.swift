@@ -6109,7 +6109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 await MainActor.run {
                     guard let appDelegate = AppDelegate.shared else { return }
                     appDelegate.openDiffViewerAgentContextTasks.removeValue(forKey: taskKey)
-                    guard appDelegate.openDiffViewerAgentContextStillMatches(
+                    guard let shouldFocus = appDelegate.openDiffViewerAgentContextShouldFocus(
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         sessionId: sessionId
@@ -6123,7 +6123,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         useLastTurnSource: useLastTurnSource,
-                        sessionId: sessionId
+                        sessionId: sessionId,
+                        focus: shouldFocus
                     ) == true else {
                         NSSound.beep()
                         return
@@ -6158,19 +6159,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func openDiffViewerAgentContextStillMatches(workspaceId: UUID, surfaceId: UUID, sessionId: String) -> Bool {
-        mainWindowContexts.values.contains { context in
-            guard context.tabManager.workspaces.contains(where: {
-                      $0.id == workspaceId && $0.panels.keys.contains(surfaceId)
-                  }),
-                  let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspaceId, panelId: surfaceId),
-                  Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) == sessionId else {
-                return false
-            }
-            return true
-        }
-    }
-
     @discardableResult
     private func launchDiffViewerProcess(
         cliURL: URL,
@@ -6179,7 +6167,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspaceId: UUID,
         surfaceId: UUID?,
         useLastTurnSource: Bool,
-        sessionId: String?
+        sessionId: String?,
+        focus: Bool = true
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
@@ -6189,7 +6178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             useLastTurnSource ? "--last-turn" : "--unstaged",
             "--cwd", cwd,
             "--workspace", workspaceId.uuidString,
-            "--focus", "true",
+            "--focus", focus ? "true" : "false",
         ]
         if let surfaceId {
             arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
