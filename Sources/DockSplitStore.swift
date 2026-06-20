@@ -43,6 +43,10 @@ final class DockSplitStore: BonsplitDelegate {
     /// config lookup walks upward, so multiple workspace directories can share
     /// one authoritative `.cmux/dock.json`.
     private var lastLoadedConfigIdentity: DockConfigIdentity?
+    @ObservationIgnored var hasAppliedConfigurationSeed = false
+    @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
+    @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
+    @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
 
     init(
         workspaceId: UUID,
@@ -55,6 +59,10 @@ final class DockSplitStore: BonsplitDelegate {
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
+        self.bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
+            guard source == .closeButton else { return }
+            self?.tabCloseButtonCloseDockTabIds.insert(tabId)
+        }
         // Drop the controller's default welcome tab so the root pane starts
         // empty and renders the in-app create affordance until config seeds it.
         for tabId in bonsplitController.allTabIds {
@@ -509,22 +517,9 @@ final class DockSplitStore: BonsplitDelegate {
 
     // MARK: - BonsplitDelegate
 
-    func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
-        reconcilePanels()
-    }
-
-    func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
-        reconcilePanels()
-    }
-
-    func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
-        let surfaceKind: DockSurfaceKind = (kind == "browser") ? .browser : .terminal
-        _ = newSurface(kind: surfaceKind, inPane: pane, focus: true)
-    }
-
     /// Closes and removes any panels whose Bonsplit tab is no longer present in
     /// the tree (tab close, pane close, or merge).
-    private func reconcilePanels() {
+    func reconcilePanels() {
         let live = Set(bonsplitController.allTabIds)
         let staleTabIds = surfaceIdToPanelId.keys.filter { !live.contains($0) }
         for tabId in staleTabIds {
@@ -554,6 +549,7 @@ final class DockSplitStore: BonsplitDelegate {
     func reload() {
         removeAllPanels()
         hasLoadedConfiguration = true
+        hasAppliedConfigurationSeed = false
         startConfigurationLoad(replacingPanels: true)
     }
 
@@ -643,8 +639,10 @@ final class DockSplitStore: BonsplitDelegate {
                 return
             }
             sourceLabel = Self.sourceLabel(for: resolution)
-            if replacingPanels || panels.isEmpty {
+            let shouldSeed = replacingPanels || panels.isEmpty || !hasAppliedConfigurationSeed
+            if shouldSeed {
                 seed(definitions: resolution.controls, baseDirectory: resolution.baseDirectory)
+                hasAppliedConfigurationSeed = true
             }
         case .failed(let identity, let message):
             lastLoadedConfigIdentity = identity

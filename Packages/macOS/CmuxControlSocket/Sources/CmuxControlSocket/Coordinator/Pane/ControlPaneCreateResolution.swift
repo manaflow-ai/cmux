@@ -27,6 +27,9 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// (legacy `invalid_params` / "agent-session is only supported by
     /// surface.create", `data: {"type": rawValue}`). Carries the raw type value.
     case agentSessionRejected(typeRawValue: String)
+    /// Dock placement only supports terminal and browser panes. Carries the raw
+    /// type and the localized message produced by the app seam.
+    case dockUnsupportedType(typeRawValue: String, message: String)
     /// A browser split was requested while the cmux browser is disabled and an
     /// invalid URL was supplied (legacy `invalid_params` / "Invalid URL",
     /// `data: {"url": rawURL}`). Carries the raw URL string.

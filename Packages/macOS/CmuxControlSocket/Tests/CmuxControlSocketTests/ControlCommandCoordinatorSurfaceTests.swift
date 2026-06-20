@@ -118,4 +118,31 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(message == "Dock placement supports only terminal and browser surfaces")
         #expect(data == .object(["type": .string("agentSession")]))
     }
+
+    @Test func paneCreateDockUnsupportedTypeReturnsInvalidParams() throws {
+        let context = FakeSurfaceControlCommandContext()
+        context.paneCreateResolution = .dockUnsupportedType(
+            typeRawValue: "markdown",
+            message: "Dock placement supports only terminal and browser surfaces"
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "pane.create",
+            params: [
+                "direction": .string("right"),
+                "type": .string("markdown"),
+                "placement": .string("dock"),
+            ]
+        ))
+
+        guard case .err(let code, let message, let data) = result else {
+            Issue.record("expected invalid_params error")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(message == "Dock placement supports only terminal and browser surfaces")
+        #expect(data == .object(["type": .string("markdown")]))
+    }
 }

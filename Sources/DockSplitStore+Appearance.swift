@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxSettings
 import CmuxTerminal
 
 extension DockSplitStore {
@@ -11,7 +12,7 @@ extension DockSplitStore {
         let config = GhosttyConfig.load()
         return BonsplitConfiguration(
             allowSplits: true,
-            allowCloseTabs: true,
+            allowCloseTabs: !CloseTabWarningStore(defaults: .standard).hidesTabCloseButton,
             allowCloseLastPane: false,
             allowTabReordering: true,
             allowCrossPaneTabMove: true,

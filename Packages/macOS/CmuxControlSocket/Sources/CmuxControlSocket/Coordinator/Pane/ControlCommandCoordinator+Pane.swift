@@ -215,11 +215,9 @@ extension ControlCommandCoordinator {
                 data: .object(["placement": .string(rawValue)])
             )
         case .agentSessionRejected(let typeRawValue):
-            return .err(
-                code: "invalid_params",
-                message: "agent-session is only supported by surface.create",
-                data: .object(["type": .string(typeRawValue)])
-            )
+            return .err(code: "invalid_params", message: "agent-session is only supported by surface.create", data: .object(["type": .string(typeRawValue)]))
+        case .dockUnsupportedType(let typeRawValue, let message):
+            return .err(code: "invalid_params", message: message, data: .object(["type": .string(typeRawValue)]))
         case .browserDisabledInvalidURL(let rawURL):
             return .err(code: "invalid_params", message: "Invalid URL", data: .object(["url": .string(rawURL)]))
         case .browserDisabledNoURL:
