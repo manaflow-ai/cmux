@@ -726,6 +726,7 @@
 		D10000000000000000A00016 /* SettingsSidebarBetaBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00017 /* SettingsSidebarBetaBehaviorUITests.swift */; };
 		D10000000000000000A00014 /* SettingsTerminalBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00015 /* SettingsTerminalBehaviorUITests.swift */; };
 		D10000000000000000A00010 /* SettingsUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00011 /* SettingsUITestSupport.swift */; };
+		D36090030000000000000001 /* SettingsWindowOpenOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090030000000000000002 /* SettingsWindowOpenOutcome.swift */; };
 		D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000002 /* SettingsWindowPresenter.swift */; };
 		D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000004 /* SettingsWindowPresenterTests.swift */; };
 		D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */; };
@@ -1711,6 +1712,7 @@
 		D10000000000000000A00017 /* SettingsSidebarBetaBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSidebarBetaBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00015 /* SettingsTerminalBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTerminalBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00011 /* SettingsUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsUITestSupport.swift; sourceTree = "<group>"; };
+		D36090030000000000000002 /* SettingsWindowOpenOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsWindowOpenOutcome.swift; sourceTree = "<group>"; };
 		D36090010000000000000002 /* SettingsWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsWindowPresenter.swift; sourceTree = "<group>"; };
 		D36090010000000000000004 /* SettingsWindowPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowPresenterTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWorkspaceColorsBehaviorUITests.swift; sourceTree = "<group>"; };
@@ -2250,6 +2252,7 @@
 				A50019A1 /* SettingsNavigation.swift */,
 				A50019B1 /* SettingsSearchAliases.swift */,
 				D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */,
+				D36090030000000000000002 /* SettingsWindowOpenOutcome.swift */,
 				D36090010000000000000002 /* SettingsWindowPresenter.swift */,
 				D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */,
 				C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */,
@@ -3894,6 +3897,7 @@
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
 				A50019B0 /* SettingsSearchAliases.swift in Sources */,
+				D36090030000000000000001 /* SettingsWindowOpenOutcome.swift in Sources */,
 				D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */,
 				76027A12C93B4538BF22C71E /* ShortcutBareStartRouting.swift in Sources */,
 				125BAEF2FE3B454547B964D1 /* ShortcutHintPill.swift in Sources */,

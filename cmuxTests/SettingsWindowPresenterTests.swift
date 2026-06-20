@@ -122,6 +122,7 @@ struct SettingsWindowPresenterTests {
 
             #expect(didOpen)
             #expect(settingsWindow.makeKeyAndOrderFrontCallCount == 1)
+            #expect(settingsWindow.identifier == nil)
         }
     }
 
@@ -334,6 +335,292 @@ struct SettingsWindowPresenterTests {
         closeSettingsWindows()
         defer { closeSettingsWindows() }
         try await body()
+    }
+
+    // MARK: - Multi-monitor recovery (issue #5770)
+
+    // Screen fixtures: full frame includes the menu bar strip (top 25pt) that
+    // visibleFrame excludes, mirroring real NSScreen geometry.
+    private static let primaryScreen: (frame: NSRect, visibleFrame: NSRect) = (
+        frame: NSRect(x: 0, y: 0, width: 1800, height: 1025),
+        visibleFrame: NSRect(x: 0, y: 0, width: 1800, height: 1000)
+    )
+    private static let secondaryScreen: (frame: NSRect, visibleFrame: NSRect) = (
+        frame: NSRect(x: 1800, y: 0, width: 1600, height: 925),
+        visibleFrame: NSRect(x: 1800, y: 0, width: 1600, height: 900)
+    )
+
+    // A frame saved on a now-disconnected display sits off every active screen.
+    // Selection must recover onto the screen under the cursor instead of leaving
+    // Settings offscreen (the "nothing shows up" multi-monitor symptom).
+    @Test func targetVisibleFrameRecoversOffscreenFrameOntoCursorScreen() {
+        // Saved on a third display to the far left that is no longer connected.
+        let orphanFrame = NSRect(x: -2400, y: 400, width: 980, height: 680)
+
+        let target = SettingsWindowPresenter.targetVisibleFrame(
+            windowFrame: orphanFrame,
+            screens: [Self.primaryScreen, Self.secondaryScreen],
+            mouseLocation: NSPoint(x: 2000, y: 450), // cursor is on the secondary screen
+            fallbackVisibleFrame: Self.primaryScreen.visibleFrame
+        )
+
+        #expect(target == Self.secondaryScreen.visibleFrame)
+    }
+
+    // Opening Settings from the menu bar leaves the cursor in the strip that
+    // visibleFrame excludes. Cursor recovery must hit-test the full screen
+    // frame so that display is still selected, not the main-screen fallback.
+    @Test func targetVisibleFrameRecoversCursorInMenuBarStripOntoThatScreen() {
+        let orphanFrame = NSRect(x: -2400, y: 400, width: 980, height: 680)
+        // Inside the secondary screen's full frame, above its visibleFrame.
+        let menuBarCursor = NSPoint(x: 2600, y: 912)
+        #expect(!Self.secondaryScreen.visibleFrame.contains(menuBarCursor))
+        #expect(Self.secondaryScreen.frame.contains(menuBarCursor))
+
+        let target = SettingsWindowPresenter.targetVisibleFrame(
+            windowFrame: orphanFrame,
+            screens: [Self.primaryScreen, Self.secondaryScreen],
+            mouseLocation: menuBarCursor,
+            fallbackVisibleFrame: Self.primaryScreen.visibleFrame
+        )
+
+        #expect(target == Self.secondaryScreen.visibleFrame)
+    }
+
+    // When the cursor is also off every active screen, fall back to main/first.
+    @Test func targetVisibleFrameFallsBackWhenOffscreenAndCursorElsewhere() {
+        let orphanFrame = NSRect(x: -2400, y: 400, width: 980, height: 680)
+
+        let target = SettingsWindowPresenter.targetVisibleFrame(
+            windowFrame: orphanFrame,
+            screens: [Self.primaryScreen],
+            mouseLocation: NSPoint(x: -3000, y: 9000), // cursor off all screens too
+            fallbackVisibleFrame: Self.primaryScreen.visibleFrame
+        )
+
+        #expect(target == Self.primaryScreen.visibleFrame)
+    }
+
+    // A window mostly on a screen stays on that screen even if another exists.
+    @Test func targetVisibleFramePrefersScreenWithMostOverlap() {
+        let mostlyOnSecondary = NSRect(x: 1900, y: 100, width: 980, height: 680)
+
+        let target = SettingsWindowPresenter.targetVisibleFrame(
+            windowFrame: mostlyOnSecondary,
+            screens: [Self.primaryScreen, Self.secondaryScreen],
+            mouseLocation: NSPoint(x: 10, y: 10), // cursor on primary, but window is on secondary
+            fallbackVisibleFrame: Self.primaryScreen.visibleFrame
+        )
+
+        #expect(target == Self.secondaryScreen.visibleFrame)
+    }
+
+    @Test func clampedFrameMovesOffscreenOriginInsideTargetScreen() {
+        let visible = NSRect(x: 0, y: 0, width: 1800, height: 1000)
+        let inset: CGFloat = 18
+        // Origin far to the left/below the target screen.
+        let offscreen = NSRect(x: -5000, y: -5000, width: 980, height: 680)
+
+        let clamped = SettingsWindowPresenter.clampedFrame(
+            offscreen,
+            minimumSize: SettingsWindowPresenter.minimumSize,
+            into: visible,
+            inset: inset
+        )
+
+        #expect(clamped.size == offscreen.size)
+        #expect(clamped.minX >= visible.minX + inset)
+        #expect(clamped.minY >= visible.minY + inset)
+        #expect(clamped.maxX <= visible.maxX - inset)
+        #expect(clamped.maxY <= visible.maxY - inset)
+    }
+
+    @Test func clampedFrameShrinksOversizedFrameToVisibleArea() {
+        let visible = NSRect(x: 100, y: 100, width: 1200, height: 800)
+        let inset: CGFloat = 18
+        let oversized = NSRect(x: 0, y: 0, width: 4000, height: 4000)
+
+        let clamped = SettingsWindowPresenter.clampedFrame(
+            oversized,
+            minimumSize: SettingsWindowPresenter.minimumSize,
+            into: visible,
+            inset: inset
+        )
+
+        #expect(clamped.width <= visible.width - 2 * inset)
+        #expect(clamped.height <= visible.height - 2 * inset)
+        #expect(clamped.width >= SettingsWindowPresenter.minimumSize.width)
+        #expect(clamped.height >= SettingsWindowPresenter.minimumSize.height)
+    }
+
+    // MARK: - Silent no-op recovery (issue #5770 / #4053)
+
+    // The "click Settings and nothing happens" symptom: the open request is
+    // dispatched but no window ever materializes. The presenter must notice
+    // the silently-dropped request and re-request the window, bounded at
+    // exactly one retry by maxOpenAttempts.
+    @Test func showReRequestsWindowWhenOpenRequestSilentlyProducesNoWindow() async throws {
+        try await withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter()
+            var openRequests = 0
+            presenter.configure(openWindow: { openRequests += 1 })
+
+            presenter.show()
+            #expect(openRequests == 1)
+
+            let outcome = presenter.resolveOpenVerification(
+                attempt: 1,
+                opener: { openRequests += 1 }
+            )
+
+            #expect(outcome == .retry)
+            #expect(openRequests == 2)
+        }
+    }
+
+    // show() before configure(openWindow:) defers the open request; the
+    // deferred request must get the same lost-request verification as a
+    // direct one instead of being fired blind.
+    @Test func deferredOpenRequestAlsoVerifiesAndRetries() async throws {
+        try await withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter()
+            var openRequests = 0
+
+            presenter.show()
+            #expect(openRequests == 0)
+
+            presenter.configure(openWindow: { openRequests += 1 })
+            #expect(openRequests == 1)
+
+            let outcome = presenter.resolveOpenVerification(
+                attempt: 1,
+                opener: { openRequests += 1 }
+            )
+
+            #expect(outcome == .retry)
+            #expect(openRequests == 2)
+        }
+    }
+
+    // An override opener (e.g. BrowserPanelView.openBrowserImportSettings still
+    // calls SwiftUI openWindow(id:)) hits the same mid-teardown no-op, so it
+    // must get the same lost-request verification and single retry.
+    @Test func overrideOpenRequestAlsoVerifiesAndRetries() async throws {
+        try await withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter()
+            var openRequests = 0
+
+            presenter.show(openWindowOverride: { openRequests += 1 })
+            #expect(openRequests == 1)
+
+            let outcome = presenter.resolveOpenVerification(
+                attempt: 1,
+                opener: { openRequests += 1 }
+            )
+
+            #expect(outcome == .retry)
+            #expect(openRequests == 2)
+        }
+    }
+
+    @Test func retryKeepsOpeningRequestsCoalescedUntilWindowMaterializes() async throws {
+        try await withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter()
+            var openRequests = 0
+
+            presenter.show(openWindowOverride: { openRequests += 1 })
+            #expect(openRequests == 1)
+
+            let outcome = presenter.resolveOpenVerification(
+                attempt: 1,
+                opener: { openRequests += 1 }
+            )
+            #expect(outcome == .retry)
+            #expect(openRequests == 2)
+
+            presenter.show(openWindowOverride: { openRequests += 1 })
+            #expect(openRequests == 2)
+        }
+    }
+
+    @Test func scheduledVerificationCanAdvanceWithoutRealWaiting() async throws {
+        try await withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter(openVerificationDelay: .zero)
+            var openRequests = 0
+
+            presenter.show(openWindowOverride: { openRequests += 1 })
+            #expect(openRequests == 1)
+
+            for _ in 0..<20 {
+                if openRequests == 2 { break }
+                await Task.yield()
+            }
+
+            #expect(openRequests == 2)
+        }
+    }
+
+    @Test func giveUpClearsOpeningFlagSoNextShowCanRequestAgain() async throws {
+        try await withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter()
+            var openRequests = 0
+
+            presenter.show(openWindowOverride: { openRequests += 1 })
+            #expect(openRequests == 1)
+
+            let outcome = presenter.resolveOpenVerification(
+                attempt: SettingsWindowPresenter.maxOpenAttempts,
+                opener: { openRequests += 1 }
+            )
+            #expect(outcome == .giveUp)
+
+            presenter.show(openWindowOverride: { openRequests += 1 })
+            #expect(openRequests == 2)
+        }
+    }
+
+    @Test func materializedVerificationUsesIdentifierScannedWindowAndClearsOpeningFlag() async throws {
+        try await withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter()
+            var openRequests = 0
+
+            presenter.show(openWindowOverride: { openRequests += 1 })
+            #expect(openRequests == 1)
+
+            let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
+            defer {
+                settingsWindow.orderOut(nil)
+                settingsWindow.close()
+            }
+
+            let outcome = presenter.resolveOpenVerification(
+                attempt: 1,
+                opener: { openRequests += 1 }
+            )
+            #expect(outcome == .materialized)
+
+            presenter.show(openWindowOverride: { openRequests += 1 })
+
+            #expect(openRequests == 1)
+            #expect(settingsWindow.makeKeyAndOrderFrontCallCount == 1)
+        }
+    }
+
+    @Test func openOutcomeRetriesWhenWindowDoesNotMaterializeOnFirstAttempt() {
+        #expect(SettingsWindowPresenter.openOutcome(windowExists: false, attempt: 1) == .retry)
+    }
+
+    @Test func openOutcomeGivesUpAfterMaxAttempts() {
+        #expect(
+            SettingsWindowPresenter.openOutcome(
+                windowExists: false,
+                attempt: SettingsWindowPresenter.maxOpenAttempts
+            ) == .giveUp
+        )
+    }
+
+    @Test func openOutcomeIsMaterializedWhenWindowExists() {
+        #expect(SettingsWindowPresenter.openOutcome(windowExists: true, attempt: 1) == .materialized)
     }
 
     private func makeWindow(

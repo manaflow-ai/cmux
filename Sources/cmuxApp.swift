@@ -857,7 +857,7 @@ struct cmuxApp: App {
             windowAndViewCommands
         }
 
-        WindowGroup(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
+        Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
             SettingsWindowRoot(runtime: settingsRuntime)
                 .settingsRuntime(settingsRuntime)
                 .background(WindowAccessor(dedupeByWindow: false) { window in
