@@ -210,6 +210,28 @@ import Testing
         #expect(lines == ["swift test", "Build succeeded", ""])
     }
 
+    @Test func overviewPreviewLinesCapLargeCombiningScalarRows() throws {
+        let frame = try MobileTerminalRenderGridFrame(
+            surfaceID: "terminal-build",
+            stateSeq: 1,
+            columns: 80,
+            rows: 1,
+            full: true,
+            rowSpans: [
+                MobileTerminalRenderGridFrame.RowSpan(
+                    row: 0,
+                    column: 0,
+                    text: String(repeating: "e\u{0301}", count: 400)
+                ),
+            ]
+        )
+
+        let line = try #require(MobileShellComposite.terminalOverviewPreviewLines(from: frame).first)
+
+        #expect(line.unicodeScalars.count <= 160)
+        #expect(line.utf8.count <= 1024)
+    }
+
     @Test func overviewPreviewCachePrunesDroppedTerminals() throws {
         let store = MobileShellComposite.preview()
         store.signIn()

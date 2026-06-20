@@ -202,12 +202,24 @@ extension MobileShellComposite {
     }
 
     nonisolated private static func terminalOverviewPreviewLine(from row: String) -> String {
-        let trimmedRight = row.reversed().drop(while: { $0 == " " || $0 == "\t" }).reversed()
-        let line = String(trimmedRight)
-        guard line.count > 160 else {
-            return line
+        let maxScalars = 160
+        let maxUTF8Bytes = 1024
+        let space = Unicode.Scalar(" ")!
+        let tab = Unicode.Scalar("\t")!
+        var line = String()
+        line.unicodeScalars.reserveCapacity(maxScalars)
+        var byteCount = 0
+        for scalar in row.unicodeScalars {
+            guard line.unicodeScalars.count < maxScalars else { break }
+            let scalarByteCount = String(scalar).utf8.count
+            guard byteCount + scalarByteCount <= maxUTF8Bytes else { break }
+            line.unicodeScalars.append(scalar)
+            byteCount += scalarByteCount
         }
-        let cutoff = line.index(line.startIndex, offsetBy: 160)
-        return String(line[..<cutoff])
+        while let last = line.unicodeScalars.last,
+              last == space || last == tab {
+            line.unicodeScalars.removeLast()
+        }
+        return line
     }
 }
