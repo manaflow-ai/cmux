@@ -881,6 +881,27 @@ struct CommandPaletteSearchEngineTests {
         )
     }
 
+    @Test func searchPrefersEmojiPrefixedFullTitleWordsOverPartialTitlePrefix() {
+        let entries = [
+            FixtureEntry(
+                id: "workspace.fullTitleMatch",
+                rank: 20,
+                title: "🧪 Command Palette",
+                searchableTexts: ["🧪 Command Palette", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.partialTitlePrefix",
+                rank: 0,
+                title: "Command Palette Archive",
+                searchableTexts: ["Command Palette Archive", "Workspace", "workspace", "switch", "go"]
+            ),
+        ]
+
+        let results = optimizedResults(entries: entries, query: "command palette")
+
+        #expect(results.first?.id == "workspace.fullTitleMatch")
+    }
+
     @Test func previewCandidateCommandIDsAreBounded() {
         let resultIDs = (0..<500).map { "command.\($0)" }
 
