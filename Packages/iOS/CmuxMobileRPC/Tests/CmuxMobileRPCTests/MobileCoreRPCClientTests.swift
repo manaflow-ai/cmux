@@ -111,6 +111,7 @@ import Testing
             Issue.record("Expected queued RPC cancellation to throw")
         } catch {
         }
+        #expect(!(await transport.closed()))
 
         await transport.releaseFirstSend()
         for _ in 0..<100 {

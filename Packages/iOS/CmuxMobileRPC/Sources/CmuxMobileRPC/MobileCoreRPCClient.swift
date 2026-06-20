@@ -43,19 +43,22 @@ private final class RPCRequestTimeoutState<T: Sendable>: @unchecked Sendable {
         }
     }
 
-    func resume(returning value: T) {
+    @discardableResult
+    func resume(returning value: T) -> Bool {
         finish(.success(value))
     }
 
-    func resume(throwing error: any Error) {
+    @discardableResult
+    func resume(throwing error: any Error) -> Bool {
         finish(.failure(error))
     }
 
-    func cancel() {
+    @discardableResult
+    func cancel() -> Bool {
         finish(.failure(CancellationError()))
     }
 
-    private func finish(_ completion: Completion) {
+    private func finish(_ completion: Completion) -> Bool {
         let installed = state.withLock { state -> (
             continuation: CheckedContinuation<T, any Error>?,
             cancelHandler: (@Sendable () -> Void)?
@@ -69,11 +72,12 @@ private final class RPCRequestTimeoutState<T: Sendable>: @unchecked Sendable {
             return (continuation, cancelHandler)
         }
 
-        guard let installed else { return }
+        guard let installed else { return false }
         installed.cancelHandler?()
         if let continuation = installed.continuation {
             resume(continuation, with: completion)
         }
+        return true
     }
 
     private func resume(_ continuation: CheckedContinuation<T, any Error>, with completion: Completion) {
@@ -423,8 +427,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                     } catch {
                         return
                     }
-                    await cancelOperation()
-                    state.resume(throwing: MobileShellConnectionError.requestTimedOut)
+                    if state.resume(throwing: MobileShellConnectionError.requestTimedOut) {
+                        Task {
+                            await cancelOperation()
+                        }
+                    }
                 }
                 state.setCancelHandler {
                     operationTask.cancel()
@@ -433,9 +440,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             }
         } onCancel: {
             state.cancel()
-            Task {
-                await cancelOperation()
-            }
         }
     }
 }

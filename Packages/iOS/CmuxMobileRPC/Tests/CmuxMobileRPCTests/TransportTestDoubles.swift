@@ -140,6 +140,10 @@ actor QueuedCancellationProbeTransport: CmxByteTransport {
         releaseFirstSend()
     }
 
+    func closed() -> Bool {
+        isClosed
+    }
+
     func releaseFirstSend() {
         firstSendRelease?.resume()
         firstSendRelease = nil
