@@ -91,7 +91,16 @@ private final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceR
     let directorySnapshots: AsyncStream<SelectedWorkspaceDirectorySnapshot>
     private let continuation: AsyncStream<SelectedWorkspaceDirectorySnapshot>.Continuation
     private weak var tabManager: TabManager?
-    private var cancellable: AnyCancellable?
+    /// `@Observable` watch on the `WorkspacesModel` selection, replacing the
+    /// retired `selectedTabIdPublisher` Combine bridge that drove this pipeline.
+    /// The inner per-workspace `$currentDirectory`/`$remote*` `combineLatest`
+    /// (all `Workspace` `@Published`, out of this slice's scope) stays Combine
+    /// and is re-pointed on each selected-workspace-id change, hand-rolling the
+    /// former `switchToLatest`.
+    private var selectionObservation: WorkspacesObservation?
+    private var trackedSelectedWorkspaceId: UUID??
+    private var innerCancellable: AnyCancellable?
+    private var lastSnapshot: SelectedWorkspaceDirectorySnapshot?
 
     init() {
         (directorySnapshots, continuation) = AsyncStream.makeStream(
@@ -99,50 +108,74 @@ private final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceR
     }
 
     func wire(tabManager: TabManager) {
-        guard self.tabManager !== tabManager || cancellable == nil else { return }
+        guard self.tabManager !== tabManager || selectionObservation == nil else { return }
         self.tabManager = tabManager
-        let continuation = continuation
-        cancellable = tabManager.selectedTabIdPublisher
-            .map { [weak tabManager] tabId -> Workspace? in
-                guard let tabId, let tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.id == tabId })
+        trackedSelectedWorkspaceId = nil
+        selectionObservation = tabManager.workspaces.observeSelectedTabId { [weak self] in
+            self?.repointSelectedWorkspace()
+        }
+        // `selectedTabIdPublisher` replayed its current value on subscribe;
+        // observation does not, so resolve the initial selection now.
+        repointSelectedWorkspace()
+    }
+
+    /// Hand-rolls the former `selectedTabIdPublisher`→workspace→`combineLatest`
+    /// `switchToLatest` chain. Resolves the selected workspace (nil when none is
+    /// selected, like the former non-compacting `map`), and when the selected id
+    /// changes (the former `removeDuplicates(by: id)`, nil included) re-points the
+    /// inner subscription. A nil selection yields `.none`; a non-nil selection
+    /// subscribes to the workspace's directory/remote `combineLatest`. The final
+    /// snapshot `.removeDuplicates()` is reproduced via `lastSnapshot`.
+    private func repointSelectedWorkspace() {
+        guard let tabManager else { return }
+        let selectedId = tabManager.selectedTabId
+        let workspace = selectedId.flatMap { id in tabManager.tabs.first(where: { $0.id == id }) }
+        let workspaceId = workspace?.id
+        // `removeDuplicates(by: { $0?.id == $1?.id })`: only re-point when the
+        // resolved workspace identity changes (nil↔non-nil or a different id).
+        if let tracked = trackedSelectedWorkspaceId, tracked == workspaceId { return }
+        trackedSelectedWorkspaceId = .some(workspaceId)
+        innerCancellable?.cancel()
+        guard let workspace else {
+            // `Just(.none)` branch.
+            yieldIfChanged(.none)
+            return
+        }
+        innerCancellable = workspace.$currentDirectory
+            .combineLatest(
+                workspace.$remoteConfiguration,
+                workspace.$remoteConnectionState,
+                workspace.$remoteConnectionDetail
+            )
+            .combineLatest(workspace.$remoteDaemonStatus)
+            .map { values, remoteDaemonStatus in
+                let (
+                    currentDirectory,
+                    remoteConfiguration,
+                    remoteConnectionState,
+                    remoteConnectionDetail
+                ) = values
+                return SelectedWorkspaceDirectorySnapshot(
+                    workspaceId: workspace.id,
+                    currentDirectory: currentDirectory,
+                    remoteConfiguration: remoteConfiguration,
+                    remoteConnectionState: remoteConnectionState,
+                    remoteConnectionDetail: remoteConnectionDetail,
+                    remoteDaemonStatus: remoteDaemonStatus
+                )
             }
-            .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<SelectedWorkspaceDirectorySnapshot, Never> in
-                guard let workspace else {
-                    return Just(.none).eraseToAnyPublisher()
-                }
-                return workspace.$currentDirectory
-                    .combineLatest(
-                        workspace.$remoteConfiguration,
-                        workspace.$remoteConnectionState,
-                        workspace.$remoteConnectionDetail
-                    )
-                    .combineLatest(workspace.$remoteDaemonStatus)
-                    .map { values, remoteDaemonStatus in
-                        let (
-                            currentDirectory,
-                            remoteConfiguration,
-                            remoteConnectionState,
-                            remoteConnectionDetail
-                        ) = values
-                        return SelectedWorkspaceDirectorySnapshot(
-                            workspaceId: workspace.id,
-                            currentDirectory: currentDirectory,
-                            remoteConfiguration: remoteConfiguration,
-                            remoteConnectionState: remoteConnectionState,
-                            remoteConnectionDetail: remoteConnectionDetail,
-                            remoteDaemonStatus: remoteDaemonStatus
-                        )
-                    }
-                    .eraseToAnyPublisher()
+            .sink { [weak self] snapshot in
+                self?.yieldIfChanged(snapshot)
             }
-            .switchToLatest()
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { snapshot in
-                continuation.yield(snapshot)
-            }
+    }
+
+    /// Reproduces the pipeline's trailing `.removeDuplicates()` over the merged
+    /// stream (deduping consecutive snapshots across the `switchToLatest`
+    /// boundary, so `lastSnapshot` is intentionally not reset on re-point).
+    private func yieldIfChanged(_ snapshot: SelectedWorkspaceDirectorySnapshot) {
+        if let lastSnapshot, lastSnapshot == snapshot { return }
+        lastSnapshot = snapshot
+        continuation.yield(snapshot)
     }
 
     deinit {
@@ -1848,7 +1881,16 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding {
             }
         })
 
-        view = AnyView(view.onReceive(tabManager.tabsPublisher) { tabs in
+        // Observe the `@Observable` workspace-id order instead of the retired
+        // `tabsPublisher` Combine bridge. `.onReceive` replayed the current value
+        // on appear, so `initial: true` reproduces that; the bridge fired during
+        // the `tabs` willSet (new list, old storage), but this fires after the
+        // change commits, so `tabManager.tabs` already reads the new list — the
+        // value the closure used to receive as its parameter. The reconcile that
+        // toggles portals (`setWorkspacePortalRenderingEnabled`) now also reads
+        // the committed `tabs`, identical to the willSet-time `tabsPublisher.value`.
+        view = AnyView(view.onChange(of: tabManager.tabs.map(\.id), initial: true) {
+            let tabs = tabManager.tabs
             let existingIds = Set(tabs.map { $0.id })
             workspaceHandoffCoordinator.pruneRemovedWorkspaces(existingWorkspaceIds: existingIds)
             tabManager.pruneBackgroundWorkspaceLoads(existingIds: existingIds)

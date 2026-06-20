@@ -19,15 +19,14 @@ import Foundation
 /// snapshot and formatter helpers.
 extension TabManager: WorkspaceHandoffHosting {
     func setWorkspacePortalRenderingEnabled(workspaceId: UUID, enabled: Bool, reason: String) {
-        // Resolve from `tabsPublisher.value` rather than `tabs`: `tabsPublisher`
-        // is sent during the tabs `willSet`, so when the reconcile runs from the
-        // tabs-publisher `.onReceive` path the new workspace list is already the
-        // publisher's value while `tabs` storage still holds the old list. The
-        // legacy `reconcileMountedWorkspaceIds(tabs:)` iterated that same new
-        // list (the closure's `tabs` param) when toggling portals, so a
-        // just-added workspace's portal is set, not skipped. Outside the willSet
-        // window `tabsPublisher.value == tabs`, so every other path is identical.
-        guard let workspace = tabsPublisher.value.first(where: { $0.id == workspaceId }) else { return }
+        // Resolve from `tabs` directly. The reconcile that drives this now runs
+        // from the `@Observable` `workspaces.tabs` observation, which fires after
+        // the `tabs` mutation commits, so `tabs` already holds the new workspace
+        // list — the value the retired `tabsPublisher` carried during the willSet
+        // window. (The former code read `tabsPublisher.value` precisely because
+        // the bridge emitted the new list during `willSet` while `tabs` storage
+        // still held the old one; post-change observation removes that skew.)
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return }
         workspace.setPortalRenderingEnabled(enabled, reason: reason)
     }
 

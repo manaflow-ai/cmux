@@ -61,7 +61,7 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
     private let placement: WorkspaceGroupNewPlacement
     private let referenceWorkspaceId: UUID?
     private var knownIds: Set<UUID>
-    private var subscription: AnyCancellable?
+    private var observation: WorkspacesObservation?
 
     @discardableResult
     static func install(
@@ -81,11 +81,18 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
             knownIds: knownIds
         )
         pending[key] = watcher
-        watcher.subscription = tabManager.tabsPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak watcher] tabs in
-                watcher?.checkForNewWorkspace(in: tabs)
-            }
+        // Observe the `@Observable` workspace list instead of the retired
+        // `tabsPublisher` Combine bridge. The watch fires on a MainActor hop
+        // after each `tabs` mutation, reading the committed list — the same
+        // post-change snapshot the old `.receive(on:).sink` saw. Observation
+        // does not replay on subscribe, so scan the current list once now to
+        // catch a workspace that already exists at install time (the bridge's
+        // replay delivered this).
+        watcher.observation = tabManager.workspaces.observeTabs { [weak watcher, weak tabManager] in
+            guard let watcher, let tabManager else { return }
+            watcher.checkForNewWorkspace(in: tabManager.tabs)
+        }
+        watcher.checkForNewWorkspace(in: tabManager.tabs)
         return watcher.id
     }
 
@@ -148,8 +155,8 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
     }
 
     private func dispose() {
-        subscription?.cancel()
-        subscription = nil
+        observation?.cancel()
+        observation = nil
         // Remove by the key recorded at install time. The weak `tabManager`
         // may already be nil here (window closed mid-watch), and walking it
         // would silently leak the entry in the static `pending` dictionary

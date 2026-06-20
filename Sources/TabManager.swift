@@ -212,8 +212,9 @@ class TabManager: ObservableObject {
     // composition point: it owns the model, forwards the legacy accessors
     // below, and implements WorkspacesHosting (bottom of this file) to run
     // the legacy @Published property-observer side effects at identical
-    // timing (objectWillChange + bridge publishers in willSet, selection
-    // side effects in didSet).
+    // timing (objectWillChange in willSet for SwiftUI observers, selection
+    // side effects in didSet). External observers track this `@Observable`
+    // model directly; the former CurrentValueSubject bridges were retired.
     let workspaces = WorkspacesModel<Workspace>()
 
     /// Window-title + per-surface shell-activity reads/mutations over the
@@ -234,22 +235,6 @@ class TabManager: ObservableObject {
         set { workspaces.workspaceGroups = newValue }
     }
 
-    /// Legacy Combine bridge for the remaining `tabManager.$tabs`
-    /// subscribers. Driven exclusively from `workspaceTabsWillChange(to:)`,
-    /// so it emits the new value during willSet and replays the current
-    /// value on subscribe — the exact `Published.Publisher` semantics those
-    /// call sites were written against. Single seam; delete when the
-    /// subscribers move to @Observable observation.
-    let tabsPublisher = CurrentValueSubject<[Workspace], Never>([])
-    /// Legacy Combine bridge for the remaining `tabManager.$selectedTabId`
-    /// subscribers; same contract as `tabsPublisher`.
-    let selectedTabIdPublisher = CurrentValueSubject<UUID?, Never>(nil)
-    /// Legacy Combine bridge for the remaining `tabManager.$workspaceGroups`
-    /// subscribers (e.g. MobileWorkspaceListObserver); same contract as
-    /// `tabsPublisher`. Emits during willSet and replays the current value
-    /// on subscribe — the `Published.Publisher` semantics those call sites
-    /// were written against.
-    let workspaceGroupsPublisher = CurrentValueSubject<[WorkspaceGroup], Never>([])
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false
@@ -284,24 +269,26 @@ class TabManager: ObservableObject {
 
     // MARK: - WorkspacesHosting hooks (legacy @Published property observers)
 
-    /// Legacy `@Published tabs` willSet: objectWillChange plus the Combine
-    /// bridge fire before storage changes, matching @Published timing.
+    /// Legacy `@Published tabs` willSet: keeps `objectWillChange` firing before
+    /// storage changes so the `ObservableObject` `TabManager`'s SwiftUI
+    /// observers update at the same timing. The Combine bridge that also fired
+    /// here was retired; external subscribers now observe `workspaces.tabs`
+    /// (`@Observable`) directly.
     func workspaceTabsWillChange(to newValue: [Workspace]) {
         objectWillChange.send()
-        tabsPublisher.send(newValue)
     }
 
-    /// Legacy `@Published workspaceGroups` willSet.
+    /// Legacy `@Published workspaceGroups` willSet (`objectWillChange` only;
+    /// the Combine bridge was retired, see `workspaceTabsWillChange(to:)`).
     func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
         objectWillChange.send()
-        workspaceGroupsPublisher.send(newValue)
     }
 
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
     /// reads the old value here, exactly like the original property observer.
+    /// `objectWillChange` still fires here; the Combine bridge was retired.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
         objectWillChange.send()
-        selectedTabIdPublisher.send(newValue)
 #if DEBUG
             guard newValue != selectedTabId else {
                 debugPendingWorkspaceSwitchTrigger = nil
@@ -561,6 +548,10 @@ class TabManager: ObservableObject {
 #if DEBUG
     private var didSetupUITestSplitScaffolds = false
     private var uiTestCancellables = Set<AnyCancellable>()
+    /// `@Observable` workspace-list watches for the DEBUG UI-test close
+    /// scaffold, replacing the retired `tabsPublisher` Combine bridge. Held
+    /// alongside `uiTestCancellables` and torn down with it.
+    private var uiTestWorkspacesObservations: [WorkspacesObservation] = []
 #endif
 
     // Process-wide cap on concurrent sidebar git snapshot probes, shared by
@@ -5118,6 +5109,8 @@ class TabManager: ObservableObject {
                 timeoutWork?.cancel()
                 write(updates.merging(["done": "1"], uniquingKeysWith: { _, new in new }))
                 self.uiTestCancellables.removeAll()
+                self.uiTestWorkspacesObservations.forEach { $0.cancel() }
+                self.uiTestWorkspacesObservations.removeAll()
             }
 
             tab.panelsPublisher
@@ -5149,21 +5142,28 @@ class TabManager: ObservableObject {
                 }
                 .store(in: &uiTestCancellables)
 
-            tabsPublisher
-                .map { $0.contains(where: { $0.id == tab.id }) }
-                .removeDuplicates()
-                .sink { alive in
-                    Task { @MainActor in
-                        if !alive {
-                            finish([
-                                "workspaceCountAfter": "0",
-                                "panelCountAfter": "0",
-                                "closedWorkspace": "1",
-                            ])
-                        }
+            // Observe the `@Observable` workspace list instead of the retired
+            // `tabsPublisher` bridge. The former chain mapped to "tab still
+            // alive" and `.removeDuplicates()`, so it only acted on the
+            // alive→gone transition; `lastAlive` reproduces that dedup. The
+            // bridge's replay delivered the initial `alive=true` (a no-op), so
+            // no explicit initial check is needed.
+            var lastAlive = self.tabs.contains(where: { $0.id == tab.id })
+            uiTestWorkspacesObservations.append(
+                workspaces.observeTabs { [weak self, weak tab] in
+                    guard let self, let tab else { return }
+                    let alive = self.tabs.contains(where: { $0.id == tab.id })
+                    guard alive != lastAlive else { return }
+                    lastAlive = alive
+                    if !alive {
+                        finish([
+                            "workspaceCountAfter": "0",
+                            "panelCountAfter": "0",
+                            "closedWorkspace": "1",
+                        ])
                     }
                 }
-                .store(in: &uiTestCancellables)
+            )
 
             let work = DispatchWorkItem {
                 finish([
