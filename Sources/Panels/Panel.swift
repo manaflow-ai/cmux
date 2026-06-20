@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AppKit
 import CmuxCore
+import CmuxWorkspaces
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -42,6 +43,37 @@ public enum PanelType: String, Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
+    }
+}
+
+extension PanelType {
+    /// The workspace ``SurfaceKind`` a panel of this type registers as on its
+    /// bonsplit tab and in session snapshots.
+    ///
+    /// Faithful lift of the private `Workspace.surfaceKind(for:)` switch onto the
+    /// owning type. The mapping is deliberately NOT identity over `rawValue`:
+    /// `PanelType.filePreview.rawValue` is `"filepreview"` while the persisted
+    /// surface kind is `SurfaceKind.filePreview` (`"filePreview"`), so the
+    /// explicit case mapping is preserved rather than collapsed.
+    public var surfaceKind: SurfaceKind {
+        switch self {
+        case .terminal:
+            return .terminal
+        case .browser:
+            return .browser
+        case .markdown:
+            return .markdown
+        case .filePreview:
+            return .filePreview
+        case .rightSidebarTool:
+            return .rightSidebarTool
+        case .agentSession:
+            return .agentSession
+        case .project:
+            return .project
+        case .extensionBrowser:
+            return .extensionBrowser
+        }
     }
 }
 

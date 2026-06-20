@@ -3818,27 +3818,6 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         surfaceDirectoryMetadata.resolvedWorkingDirectory()
     }
 
-    private func surfaceKind(for panel: any Panel) -> String {
-        switch panel.panelType {
-        case .terminal:
-            return SurfaceKind.terminal.rawValue
-        case .browser:
-            return SurfaceKind.browser.rawValue
-        case .markdown:
-            return SurfaceKind.markdown.rawValue
-        case .filePreview:
-            return SurfaceKind.filePreview.rawValue
-        case .rightSidebarTool:
-            return SurfaceKind.rightSidebarTool.rawValue
-        case .agentSession:
-            return SurfaceKind.agentSession.rawValue
-        case .project:
-            return SurfaceKind.project.rawValue
-        case .extensionBrowser:
-            return SurfaceKind.extensionBrowser.rawValue
-        }
-    }
-
     private func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
         surfaceRegistry.resolvedPanelTitle(panelId: panelId, fallback: fallback)
     }
@@ -4057,7 +4036,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 
     func surfaceRegistryPanelKind(panelId: UUID) -> String? {
         guard let panel = panels[panelId] else { return nil }
-        return surfaceKind(for: panel)
+        return panel.panelType.surfaceKind.rawValue
     }
 
     func surfaceRegistrySurfaceId(forPanelId panelId: UUID) -> TabID? {
@@ -11178,7 +11157,7 @@ extension Workspace: BonsplitDelegate {
                 title: resolvedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),
                 icon: panel.displayIcon,
                 iconImageData: browserPanel?.faviconPNGData,
-                kind: surfaceKind(for: panel),
+                kind: panel.panelType.surfaceKind.rawValue,
                 isLoading: browserPanel?.isLoading ?? false,
                 isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
