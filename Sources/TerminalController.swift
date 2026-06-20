@@ -282,6 +282,17 @@ class TerminalController {
     /// stored `nonisolated`.
     nonisolated(unsafe) var controlBrowserNavigationWorker: ControlBrowserNavigationWorker?
 
+    /// The worker-lane handler for the feed/feedback commands (`feed.push`,
+    /// `feed.permission.reply`, `feed.question.reply`, `feed.exit_plan.reply`,
+    /// `feedback.submit`). Lives in CmuxControlSocket's ``ControlFeedWorker``,
+    /// reaching the live feed plumbing (`CmuxEventBus`, `FeedCoordinator`,
+    /// `FeedSocketEncoding`, the `WorkstreamEvent` decode, the iMessage-mode side
+    /// effects, the feedback composer) strictly through the
+    /// ``ControlFeedWorkerReading`` seam conformed over this controller. Built in
+    /// `init` once `self` is available (the seam conformer holds `self` weakly).
+    /// Read from the nonisolated socket-worker lane, so stored `nonisolated`.
+    nonisolated(unsafe) var controlFeedWorker: ControlFeedWorker?
+
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
         let selector: String
@@ -383,6 +394,9 @@ class TerminalController {
         )
         controlBrowserNavigationWorker = ControlBrowserNavigationWorker(
             reading: TerminalControllerBrowserNavigationReading(owner: self)
+        )
+        controlFeedWorker = ControlFeedWorker(
+            reading: TerminalControllerFeedWorkerReading(owner: self)
         )
 #if DEBUG
         controlSidebarSimulateDragWorker = ControlSidebarSimulateDragWorker(
@@ -1058,16 +1072,19 @@ class TerminalController {
             // semaphores. The decoded typed request is reused so the worker reads
             // typed `JSONValue` params (no Foundation round-trip).
             return runAuthWorker(request.control)
-        case "feedback.submit":
-            return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
-        case "feed.push":
-            return v2Result(id: request.id, v2FeedPush(params: request.params))
-        case "feed.permission.reply":
-            return v2Result(id: request.id, v2FeedPermissionReply(params: request.params))
-        case "feed.question.reply":
-            return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
-        case "feed.exit_plan.reply":
-            return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "feedback.submit", "feed.push", "feed.permission.reply",
+             "feed.question.reply", "feed.exit_plan.reply":
+            // The feed/feedback worker-lane command bodies live in
+            // CmuxControlSocket's ``ControlFeedWorker``, reaching the live feed
+            // plumbing (`CmuxEventBus`, `FeedCoordinator`, `FeedSocketEncoding`,
+            // the `WorkstreamEvent` decode, the iMessage-mode side effects, the
+            // feedback composer) strictly through the ``ControlFeedWorkerReading``
+            // seam (conformed by `TerminalControllerFeedWorkerReading` over this
+            // controller). The worker is synchronous and blocks the worker thread
+            // exactly as the legacy `nonisolated` `v2FeedPush` / `v2FeedbackSubmit`
+            // bodies did (`FeedCoordinator.ingestBlocking`, the feedback
+            // semaphore), so no worker-thread→async bridge is needed.
+            return runFeedWorker(request.control)
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.find.role", "browser.find.text", "browser.find.label",
@@ -4460,122 +4477,14 @@ class TerminalController {
     }
 
 
-    private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
-        let request: FeedbackSubmissionRequest
-        do {
-            request = try FeedbackSubmissionRequest(params: params)
-        } catch let error as FeedbackSubmissionRequest.ParseError {
-            return .err(code: "invalid_params", message: error.message, data: ["field": error.field])
-        } catch {
-            return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
-        }
-        let email = request.email
-        let body = request.body
-        let imagePaths = request.imagePaths
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: V2CallResult = .err(code: "internal_error", message: "Feedback submission failed", data: nil)
-
-        Task {
-            let resolved: V2CallResult
-            do {
-                let attachmentCount = try await FeedbackComposerBridge().submit(
-                    email: email,
-                    message: body,
-                    imagePaths: imagePaths
-                )
-                resolved = .ok([
-                    "submitted": true,
-                    "attachment_count": attachmentCount,
-                ])
-            } catch let error as FeedbackComposerBridgeError {
-                let code: String
-                switch error {
-                case .invalidEmail, .emptyMessage, .messageTooLong, .tooManyImages, .invalidImagePath:
-                    code = "invalid_params"
-                case .submissionFailed:
-                    code = "request_failed"
-                }
-                resolved = .err(code: code, message: error.localizedDescription, data: nil)
-            } catch {
-                resolved = .err(code: "internal_error", message: error.localizedDescription, data: nil)
-            }
-
-            result = resolved
-            semaphore.signal()
-        }
-
-        if semaphore.wait(timeout: .now() + 35) == .timedOut {
-            return .err(code: "timeout", message: "Feedback submission timed out", data: nil)
-        }
-
-        return result
-    }
-
-    // MARK: - V2 Feed (workstream) handlers
-
-    private nonisolated func v2FeedPush(params: [String: Any]) -> V2CallResult {
-        let waitTimeout: TimeInterval
-        switch FeedPushWaitTimeout.parse(rawValue: params["wait_timeout_seconds"]) {
-        case .success(let timeout):
-            waitTimeout = timeout.seconds
-        case .failure(.nonNumeric):
-            return .err(
-                code: "invalid_params",
-                message: "feed.push wait_timeout_seconds must be numeric",
-                data: nil
-            )
-        case .failure(.outOfRange):
-            return .err(
-                code: "invalid_params",
-                message: "feed.push wait_timeout_seconds must be between 0 and 120",
-                data: nil
-            )
-        }
-        let eventDict: [String: Any]
-        if let nested = params["event"] as? [String: Any] {
-            eventDict = nested
-        } else if params["session_id"] != nil,
-                  params["hook_event_name"] != nil,
-                  params["_source"] != nil {
-            eventDict = params
-        } else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.push requires an `event` object",
-                data: nil
-            )
-        }
-
-        let event: WorkstreamEvent
-        do {
-            let data = try JSONSerialization.data(withJSONObject: eventDict)
-            event = try JSONDecoder().decode(WorkstreamEvent.self, from: data)
-        } catch {
-            return .err(
-                code: "invalid_params",
-                message: "feed.push event failed to decode: \(error)",
-                data: nil
-            )
-        }
-
-        CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
-        v2ApplyIMessageModeSideEffects(for: event)
-        Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
-
-        let result = FeedCoordinator.shared.ingestBlocking(
-            event: event,
-            waitTimeout: waitTimeout
-        )
-        CmuxEventBus.shared.publishWorkstreamEvent(
-            event,
-            phase: "completed",
-            result: FeedSocketEncoding.payload(for: result)
-        )
-        return .ok(FeedSocketEncoding.payload(for: result))
-    }
-
-    private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
+    /// Applies the iMessage-mode side effects for a `feed.push` event. Kept on
+    /// the controller (not lifted into ``ControlFeedWorker``) because it reaches
+    /// the live `AppDelegate` / `TabManager` per-workspace state; the package
+    /// worker drives it through
+    /// ``ControlFeedWorkerReading/pushEvent(eventPayload:waitTimeoutSeconds:)``,
+    /// which calls this from `controlFeedPushEvent`. `internal` (not `private`) so
+    /// the conformance extension file can reach it.
+    nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
         guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop || event.hookEventName == .subagentStop,
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawWorkspaceId.isEmpty
@@ -4608,77 +4517,6 @@ class TerminalController {
         default:
             break
         }
-    }
-
-    private nonisolated func v2FeedPermissionReply(params: [String: Any]) -> V2CallResult {
-        guard let requestId = params["request_id"] as? String else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.permission.reply requires request_id",
-                data: nil
-            )
-        }
-        guard let modeRaw = params["mode"] as? String,
-              let mode = WorkstreamPermissionMode(rawValue: modeRaw)
-        else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.permission.reply requires mode ∈ once|always|all|bypass|deny",
-                data: nil
-            )
-        }
-        FeedCoordinator.shared.deliverReply(
-            requestId: requestId,
-            decision: .permission(mode)
-        )
-        return .ok(["delivered": true])
-    }
-
-    private nonisolated func v2FeedQuestionReply(params: [String: Any]) -> V2CallResult {
-        guard let requestId = params["request_id"] as? String else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.question.reply requires request_id",
-                data: nil
-            )
-        }
-        guard let selections = params["selections"] as? [String] else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.question.reply requires selections: [string]",
-                data: nil
-            )
-        }
-        FeedCoordinator.shared.deliverReply(
-            requestId: requestId,
-            decision: .question(selections: selections)
-        )
-        return .ok(["delivered": true])
-    }
-
-    private nonisolated func v2FeedExitPlanReply(params: [String: Any]) -> V2CallResult {
-        guard let requestId = params["request_id"] as? String else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.exit_plan.reply requires request_id",
-                data: nil
-            )
-        }
-        guard let modeRaw = params["mode"] as? String,
-              let mode = WorkstreamExitPlanMode(rawValue: modeRaw)
-        else {
-            return .err(
-                code: "invalid_params",
-                message: "feed.exit_plan.reply requires mode ∈ ultraplan|bypassPermissions|autoAccept|manual|deny",
-                data: nil
-            )
-        }
-        let feedback = params["feedback"] as? String
-        FeedCoordinator.shared.deliverReply(
-            requestId: requestId,
-            decision: .exitPlan(mode, feedback: feedback)
-        )
-        return .ok(["delivered": true])
     }
 
     // MARK: - V2 Browser Methods
