@@ -17009,19 +17009,12 @@ private extension NSWindow {
             }
 
             if AppDelegate.shared?.shouldRouteFocusedTerminalGhosttyOwnedShortcut(event, in: self) == true {
-                if ghosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
+                if ghosttyView.performGhosttyBindingKeyEquivalentBeforeAppShortcut(with: event) {
 #if DEBUG
                     cmuxDebugLog("  → terminal Ghostty-owned shortcut routed to Ghostty")
 #endif
                     return true
                 }
-                if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal Ghostty-owned shortcut") {
-#if DEBUG
-                    cmuxDebugLog("  → terminal Ghostty-owned shortcut keyDown fallback")
-#endif
-                    return true
-                }
-                return false
             }
         }
 

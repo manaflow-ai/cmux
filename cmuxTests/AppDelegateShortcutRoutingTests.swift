@@ -72,15 +72,22 @@ private final class MenuActionProbe: NSObject {
 }
 private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
     var afterMenuMissCallCount = 0
+    var ghosttyBindingBeforeAppShortcutCallCount = 0
     var keyDownCallCount = 0
     var lastKeyDownCharactersIgnoringModifiers: String?
     var pasteCallCount = 0
     var pasteAsPlainTextCallCount = 0
     var performAfterMenuMissResult = true
+    var performGhosttyBindingBeforeAppShortcutResult = true
 
     override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
         afterMenuMissCallCount += 1
         return performAfterMenuMissResult
+    }
+
+    override func performGhosttyBindingKeyEquivalentBeforeAppShortcut(with event: NSEvent) -> Bool {
+        ghosttyBindingBeforeAppShortcutCallCount += 1
+        return performGhosttyBindingBeforeAppShortcutResult
     }
 
     override func keyDown(with event: NSEvent) {
@@ -6637,8 +6644,75 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             probeWindow.performKeyEquivalent(with: event),
             "Terminal Cmd+Shift+G should route to Ghostty before the app Find Previous menu"
         )
-        XCTAssertEqual(probeView.afterMenuMissCallCount, 1, "Ghostty binding resolution should run before the menu")
+        XCTAssertEqual(
+            probeView.ghosttyBindingBeforeAppShortcutCallCount,
+            1,
+            "Ghostty binding resolution should run before the menu"
+        )
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 0, "Pre-menu routing must not use the unbound command fallback")
         XCTAssertEqual(menuProbe.callCount, 0, "The app menu must not steal Ghostty's Cmd+Shift+G binding")
+    }
+
+    func testWindowPerformKeyEquivalentLetsUnboundGhosttyCandidateReachMenu() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let menuProbe = MenuActionProbe()
+        probeView.performGhosttyBindingBeforeAppShortcutResult = false
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+            probeWindow.close()
+        }
+
+        let findMenu = NSMenu(title: "Test")
+        let findPreviousItem = NSMenuItem(
+            title: "Find Previous",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "g"
+        )
+        findPreviousItem.keyEquivalentModifierMask = [.command, .shift]
+        findPreviousItem.target = menuProbe
+        findMenu.addItem(findPreviousItem)
+        NSApp.mainMenu = findMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "G",
+            modifiers: [.command, .shift],
+            keyCode: 5,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+G event")
+            return
+        }
+
+        XCTAssertTrue(
+            probeWindow.performKeyEquivalent(with: event),
+            "Unbound terminal-owned candidates should fall through to the normal menu path"
+        )
+        XCTAssertEqual(
+            probeView.ghosttyBindingBeforeAppShortcutCallCount,
+            1,
+            "The pre-route candidate should still ask Ghostty whether a binding exists"
+        )
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 0, "Pre-menu misses must not use the after-menu command fallback")
+        XCTAssertEqual(menuProbe.callCount, 1, "An unbound Ghostty candidate should reach the app menu")
+        XCTAssertEqual(probeView.keyDownCallCount, 0, "An unbound Ghostty candidate must not be forced into keyDown")
     }
 
     func testAppOwnedShortcutsStayAppOwnedWhenTerminalFocused() {

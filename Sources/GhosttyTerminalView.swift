@@ -5076,7 +5076,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         performKeyEquivalent(with: event, shouldRetryMainMenu: false)
     }
 
-    private func performKeyEquivalent(with event: NSEvent, shouldRetryMainMenu: Bool) -> Bool {
+    func performGhosttyBindingKeyEquivalentBeforeAppShortcut(with event: NSEvent) -> Bool {
+        performKeyEquivalent(
+            with: event,
+            shouldRetryMainMenu: false,
+            shouldForwardUnboundCommandEvent: false
+        )
+    }
+
+    private func performKeyEquivalent(
+        with event: NSEvent,
+        shouldRetryMainMenu: Bool,
+        shouldForwardUnboundCommandEvent: Bool = true
+    ) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {
@@ -5193,7 +5205,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return false
             }
 
-            if !shouldRetryMainMenu { lastPerformKeyEvent = nil; keyDown(with: event); return true }
+            if !shouldRetryMainMenu {
+                lastPerformKeyEvent = nil
+                guard shouldForwardUnboundCommandEvent else { return false }
+                keyDown(with: event)
+                return true
+            }
             if let lastPerformKeyEvent {
                 self.lastPerformKeyEvent = nil
                 if lastPerformKeyEvent == event.timestamp {
