@@ -1,4 +1,5 @@
 import XCTest
+import Carbon
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -52,6 +53,42 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
         XCTAssertEqual(
             KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(bareShortcut),
             .rejected(.systemWideHotkeyRequiresModifier)
+        )
+    }
+
+    func testShowHideAllWindowsAcceptsCommandGravePhysicalSystemWideHotkey() {
+        let shortcut = StoredShortcut(
+            key: "`",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 50
+        )
+
+        XCTAssertEqual(
+            shortcut.carbonHotKeyRegistration,
+            CarbonHotKeyRegistration(keyCode: 50, modifiers: UInt32(cmdKey))
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcutResult(shortcut),
+            .accepted(shortcut)
+        )
+    }
+
+    func testGlobalSearchStillRejectsCommandGraveWindowCyclingHotkey() {
+        let shortcut = StoredShortcut(
+            key: "`",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 50
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.globalSearch.normalizedRecordedShortcutResult(shortcut),
+            .rejected(.reservedBySystem)
         )
     }
 
