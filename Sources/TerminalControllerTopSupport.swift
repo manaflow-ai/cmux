@@ -2,19 +2,9 @@ import Foundation
 import Darwin
 
 extension TerminalController {
-    func v2TopTagIdentifier(workspaceId: UUID, key: String) -> String {
-        "\(workspaceId.uuidString):tag:\(v2TopEscapedTagKey(key))"
-    }
-
-    func v2TopTagRef(workspaceId: UUID, key: String) -> String {
-        "workspace:\(workspaceId.uuidString):tag:\(v2TopEscapedTagKey(key))"
-    }
-
-    func v2TopEscapedTagKey(_ key: String) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        return key.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
-    }
+    // `v2TopTagIdentifier` / `v2TopTagRef` / `v2TopEscapedTagKey` moved into
+    // ControlCommandCoordinator+SystemTop.swift (the tag id/ref minting is part
+    // of the package's `system.top` payload shaping now).
 
     nonisolated func v2TopBrowserPIDOccurrences(in windows: [[String: Any]]) -> [Int: Int] {
         var counts: [Int: Int] = [:]

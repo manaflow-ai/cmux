@@ -21,6 +21,11 @@ extension ControlSystemContext {
             windows: []
         )
     }
+    func controlSystemTopWorkspaceNode(
+        workspaceID: UUID,
+        index: Int,
+        selected: Bool
+    ) -> ControlSystemTopWorkspaceNode? { nil }
     func controlAuthPasswordRequired() -> Bool { false }
     func controlSystemSocketPath() -> String { "" }
     func controlSystemAccessModeRawValue() -> String { "" }
