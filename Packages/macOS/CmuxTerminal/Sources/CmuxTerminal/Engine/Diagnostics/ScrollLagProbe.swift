@@ -18,43 +18,77 @@ internal import Foundation
 /// main-queue tick). The legacy `GhosttyApp` was a non-isolated, non-`Sendable`
 /// class whose scroll-lag state was touched only from the main thread by
 /// convention; this lift preserves that exact isolation as a plain non-isolated,
-/// non-`Sendable` class. This is a faithful lift; the `DispatchWorkItem`
-/// scroll-end timer is preserved here and modernized to an injected-`Clock`
-/// cancellable task in a separate commit.
+/// non-`Sendable` class.
+///
+/// Scroll-end debounce: the legacy mouse-wheel path used a `DispatchWorkItem`
+/// scheduled via `DispatchQueue.main.asyncAfter(deadline: .now() + 0.15)` and
+/// cancelled on the next scroll. This type instead schedules a cancellable
+/// `Task` that sleeps on an injected `Clock` and then re-enters the main actor
+/// to end the session. Cancellation is by guard, not by check: the post-sleep
+/// closure re-reads `isScrollingFlag` and a per-arm `generation`, so a stale
+/// fire is an idempotent no-op even if the cancel races. The only observable
+/// difference from the legacy timer is the scroll-end debounce timing (a
+/// monotonic `ContinuousClock` interval rather than `asyncAfter`'s wall-clock
+/// deadline); the injected clock makes that interval test-controllable.
 public final class ScrollLagProbe {
     private let thresholdMs: Double = 40
     private let minimumSamples = 8
     private let minimumAverageMs: Double = 12
     private let reportCooldownSeconds: TimeInterval = 300
+    private let scrollEndDebounce: Duration = .milliseconds(150)
 
     private(set) var isScrollingFlag = false
     private var sampleCount = 0
     private var totalMs: Double = 0
     private var maxMs: Double = 0
     private var lastReportUptime: TimeInterval?
-    private var scrollEndTimer: DispatchWorkItem?
+    private var scrollEndTask: Task<Void, Never>?
+    /// Bumped each time the debounce is (re)armed; the delayed closure ends the
+    /// session only when its captured value still matches, absorbing stale fires.
+    private var scrollEndGeneration = 0
 
+    private let clock: any Clock<Duration>
     private let reportSink: (ScrollLagReport) -> Void
 
     /// Creates a scroll-lag probe.
     ///
-    /// - Parameter reportSink: invoked on the main thread once per scroll
-    ///   session whose accumulated lag clears the reporting thresholds. The app
-    ///   performs the telemetry opt-in check and Sentry capture inside this
-    ///   closure.
-    public init(reportSink: @escaping (ScrollLagReport) -> Void) {
+    /// - Parameters:
+    ///   - clock: the clock the mouse-wheel scroll-end debounce sleeps on
+    ///     (`ContinuousClock` in production; tests inject a controllable clock).
+    ///   - reportSink: invoked on the main thread once per scroll session whose
+    ///     accumulated lag clears the reporting thresholds. The app performs the
+    ///     telemetry opt-in check and Sentry capture inside this closure.
+    public init(
+        clock: any Clock<Duration> = ContinuousClock(),
+        reportSink: @escaping (ScrollLagReport) -> Void
+    ) {
+        self.clock = clock
         self.reportSink = reportSink
     }
 
     /// Whether a scroll session is currently in flight.
     public var isScrolling: Bool { isScrollingFlag }
 
+    /// Awaits the pending mouse-wheel scroll-end debounce task, if any. Test-only
+    /// hook so a suite can deterministically observe the post-debounce state.
+    ///
+    /// `@MainActor` so a main-actor caller (the probe is main-thread-confined by
+    /// contract, so its tests run on `@MainActor`) can await it without sending
+    /// the non-`Sendable` probe across an isolation boundary (`#SendingRisksDataRace`).
+    /// Awaiting the task's `value` only suspends; the debounce body itself already
+    /// hops onto the main actor before touching `self`.
+    @MainActor
+    func awaitPendingScrollEnd() async {
+        await scrollEndTask?.value
+    }
+
     /// Updates scroll state from a scroll-wheel event's momentum phase, arming
     /// or ending the lag-sampling window.
     public func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
-        // Cancel any pending scroll-end timer
-        scrollEndTimer?.cancel()
-        scrollEndTimer = nil
+        // Cancel any pending scroll-end debounce.
+        scrollEndTask?.cancel()
+        scrollEndTask = nil
+        scrollEndGeneration &+= 1
 
         if momentumEnded {
             // Trackpad momentum ended - scrolling is done
@@ -65,11 +99,25 @@ public final class ScrollLagProbe {
         } else {
             // Mouse wheel or non-momentum scroll - use timeout
             isScrollingFlag = true
-            let timer = DispatchWorkItem { [weak self] in
-                self?.endScrollSession()
+            let generation = scrollEndGeneration
+            let clock = clock
+            let debounce = scrollEndDebounce
+            // SAFETY: this probe is main-thread-confined by contract (the legacy
+            // `GhosttyApp` accessed all scroll-lag state only from main, and the
+            // legacy debounce used `DispatchQueue.main.asyncAfter`). The closure
+            // re-enters the main actor before touching `self`, so every access
+            // stays on main exactly as before; `nonisolated(unsafe)` only opts
+            // this one capture out of the Sendable check the non-`Sendable`
+            // probe cannot satisfy across the Task boundary.
+            nonisolated(unsafe) weak let weakSelf = self
+            scrollEndTask = Task {
+                try? await clock.sleep(for: debounce)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self = weakSelf, self.scrollEndGeneration == generation else { return }
+                    self.endScrollSession()
+                }
             }
-            scrollEndTimer = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: timer)
         }
     }
 

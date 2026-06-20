@@ -77,4 +77,40 @@ struct ScrollLagProbeTests {
 
         #expect(reports.isEmpty)
     }
+
+    @MainActor
+    @Test func mouseWheelDebounceEndsSessionAfterClockElapses() async {
+        var reports: [ScrollLagReport] = []
+        let probe = ScrollLagProbe(clock: ImmediateClock()) { reports.append($0) }
+
+        // Mouse-wheel (no momentum) arms the debounce timeout.
+        probe.markScrollActivity(hasMomentum: false, momentumEnded: false)
+        #expect(probe.isScrolling)
+        for _ in 0..<10 {
+            probe.recordTickSample(elapsedMs: 50)
+        }
+
+        await probe.awaitPendingScrollEnd()
+        #expect(!probe.isScrolling)
+        #expect(reports.count == 1)
+        #expect(reports.first?.samples == 10)
+    }
+}
+
+/// A clock whose `sleep` returns immediately, so the scroll-end debounce fires
+/// deterministically in tests without real-time waits.
+private struct ImmediateClock: Clock {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    var now: Instant { Instant(offset: .zero) }
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        // No-op: fire immediately.
+    }
 }
