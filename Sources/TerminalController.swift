@@ -314,6 +314,15 @@ class TerminalController {
     /// stored `nonisolated`.
     nonisolated(unsafe) var controlBrowserNavigationWorker: ControlBrowserNavigationWorker?
 
+    /// The worker-lane handler for the v2 `browser.*` interaction commands
+    /// (`click`/`dblclick`/`hover`/`focus`/`type`/`fill`/`press`/`keydown`/`keyup`/
+    /// `check`/`uncheck`/`select`/`scroll`/`scroll_into_view`/`highlight`). Lives in
+    /// CmuxControlSocket's ``ControlBrowserInteractionWorker``, reaching the live
+    /// browser surface strictly through the ``ControlBrowserInteractionReading``
+    /// seam conformed over this controller. Built in `init` (the conformer holds
+    /// `self` weakly). Read from the nonisolated socket-worker lane, so `nonisolated`.
+    nonisolated(unsafe) var controlBrowserInteractionWorker: ControlBrowserInteractionWorker?
+
     /// The worker-lane handler for the feed/feedback commands (`feed.push`,
     /// `feed.permission.reply`, `feed.question.reply`, `feed.exit_plan.reply`,
     /// `feedback.submit`). Lives in CmuxControlSocket's ``ControlFeedWorker``,
@@ -432,6 +441,9 @@ class TerminalController {
         )
         controlBrowserNavigationWorker = ControlBrowserNavigationWorker(
             reading: TerminalControllerBrowserNavigationReading(owner: self)
+        )
+        controlBrowserInteractionWorker = ControlBrowserInteractionWorker(
+            reading: TerminalControllerBrowserInteractionReading(owner: self)
         )
         controlFeedWorker = ControlFeedWorker(
             reading: TerminalControllerFeedWorkerReading(owner: self)
@@ -1147,15 +1159,21 @@ class TerminalController {
             // the legacy shared dispatch did for every JS-eval browser method.
             v2MainSync { self.v2RefreshKnownRefs() }
             return runBrowserNavigationWorker(request.control)
-        case "browser.snapshot", "browser.eval", "browser.wait",
-             "browser.click", "browser.dblclick", "browser.hover", "browser.focus",
+        case "browser.click", "browser.dblclick", "browser.hover", "browser.focus",
              "browser.type", "browser.fill", "browser.press", "browser.keydown", "browser.keyup",
              "browser.check", "browser.uncheck", "browser.select", "browser.scroll",
-             "browser.scroll_into_view",
+             "browser.scroll_into_view", "browser.highlight":
+            // The `browser.*` interaction commands are owned by CmuxControlSocket's
+            // ``ControlBrowserInteractionWorker``, reaching the live browser surface
+            // through the ``ControlBrowserInteractionReading`` seam
+            // (`controlResolveBrowserInteraction`). Refresh refs first like the
+            // legacy shared dispatch did for every JS-eval browser method.
+            v2MainSync { self.v2RefreshKnownRefs() }
+            return runBrowserInteractionWorker(request.control)
+        case "browser.snapshot", "browser.eval", "browser.wait",
              "browser.get.text", "browser.get.html", "browser.get.value", "browser.get.attr",
              "browser.get.count", "browser.get.box", "browser.get.styles",
-             "browser.is.visible", "browser.is.enabled", "browser.is.checked",
-             "browser.highlight":
+             "browser.is.visible", "browser.is.enabled", "browser.is.checked":
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserJSCommandOnSocketWorker(method: request.method, params: request.params))
@@ -1853,10 +1871,11 @@ class TerminalController {
         // browser.url.get, browser.focus_webview, browser.is_webview_focused) are
         // handled above by ControlCommandCoordinator (handleBrowser) via the
         // ControlBrowserContext seam.
-        // browser methods that evaluate page JavaScript (navigate/back/forward/
-        // reload included) run on the socket worker (see
-        // ControlCommandExecutionPolicy.socketWorkerMethods and
-        // v2BrowserJSCommandOnSocketWorker); they never reach this switch.
+        // browser methods that evaluate page JavaScript run on the socket worker
+        // (see ControlCommandExecutionPolicy.socketWorkerMethods); they never reach
+        // this switch. find/navigation/interaction are owned by CmuxControlSocket's
+        // ControlBrowser{Query,Navigation,Interaction}Worker; snapshot/eval/wait/
+        // get/is stay on v2BrowserJSCommandOnSocketWorker.
         case "browser.screenshot":
             return v2Result(id: id, self.v2BrowserScreenshot(params: params))
         case "browser.get.title":
@@ -5767,192 +5786,6 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2BrowserClick(params: [String: Any]) -> V2CallResult {
-        v2BrowserSelectorAction(params: params, actionName: "click") { selectorLiteral in
-            v2BrowserControl.clickScript(selectorLiteral: selectorLiteral)
-        }
-    }
-
-    private nonisolated func v2BrowserDblClick(params: [String: Any]) -> V2CallResult {
-        v2BrowserSelectorAction(params: params, actionName: "dblclick") { selectorLiteral in
-            v2BrowserControl.doubleClickScript(selectorLiteral: selectorLiteral)
-        }
-    }
-
-    private nonisolated func v2BrowserHover(params: [String: Any]) -> V2CallResult {
-        v2BrowserSelectorAction(params: params, actionName: "hover") { selectorLiteral in
-            v2BrowserControl.hoverScript(selectorLiteral: selectorLiteral)
-        }
-    }
-
-    private nonisolated func v2BrowserFocusElement(params: [String: Any]) -> V2CallResult {
-        v2BrowserSelectorAction(params: params, actionName: "focus") { selectorLiteral in
-            v2BrowserControl.focusElementScript(selectorLiteral: selectorLiteral)
-        }
-    }
-
-    private nonisolated func v2BrowserType(params: [String: Any]) -> V2CallResult {
-        guard let text = v2String(params, "text") else {
-            return .err(code: "invalid_params", message: "Missing text", data: nil)
-        }
-        return v2BrowserSelectorAction(params: params, actionName: "type") { selectorLiteral in
-            v2BrowserControl.typeScript(selectorLiteral: selectorLiteral, textLiteral: v2JSONLiteral(text))
-        }
-    }
-
-    private nonisolated func v2BrowserFill(params: [String: Any]) -> V2CallResult {
-        // `fill` must allow empty strings so callers can clear existing input values.
-        guard let text = v2RawString(params, "text") ?? v2RawString(params, "value") else {
-            return .err(code: "invalid_params", message: "Missing text/value", data: nil)
-        }
-        return v2BrowserSelectorAction(params: params, actionName: "fill") { selectorLiteral in
-            v2BrowserControl.fillScript(selectorLiteral: selectorLiteral, textLiteral: v2JSONLiteral(text))
-        }
-    }
-
-    private nonisolated func v2BrowserPress(params: [String: Any]) -> V2CallResult {
-        guard let key = v2String(params, "key") else {
-            return .err(code: "invalid_params", message: "Missing key", data: nil)
-        }
-
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let surfaceId = ctx.surfaceId
-            let script = v2BrowserControl.pressScript(keyLiteral: v2JSONLiteral(key))
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success:
-                var payload: [String: Any] = [
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ]
-                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-                return .ok(payload)
-            }
-        }
-    }
-
-    private nonisolated func v2BrowserKeyDown(params: [String: Any]) -> V2CallResult {
-        guard let key = v2String(params, "key") else {
-            return .err(code: "invalid_params", message: "Missing key", data: nil)
-        }
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let surfaceId = ctx.surfaceId
-            let script = v2BrowserControl.keyDownScript(keyLiteral: v2JSONLiteral(key))
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success:
-                var payload: [String: Any] = [
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ]
-                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-                return .ok(payload)
-            }
-        }
-    }
-
-    private nonisolated func v2BrowserKeyUp(params: [String: Any]) -> V2CallResult {
-        guard let key = v2String(params, "key") else {
-            return .err(code: "invalid_params", message: "Missing key", data: nil)
-        }
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let surfaceId = ctx.surfaceId
-            let script = v2BrowserControl.keyUpScript(keyLiteral: v2JSONLiteral(key))
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success:
-                var payload: [String: Any] = [
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ]
-                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-                return .ok(payload)
-            }
-        }
-    }
-
-    private nonisolated func v2BrowserCheck(params: [String: Any], checked: Bool) -> V2CallResult {
-        v2BrowserSelectorAction(params: params, actionName: checked ? "check" : "uncheck") { selectorLiteral in
-            v2BrowserControl.setCheckedScript(selectorLiteral: selectorLiteral, checked: checked)
-        }
-    }
-
-    private nonisolated func v2BrowserSelect(params: [String: Any]) -> V2CallResult {
-        let selectedValue = v2String(params, "value") ?? v2String(params, "text")
-        guard let selectedValue else {
-            return .err(code: "invalid_params", message: "Missing value", data: nil)
-        }
-        return v2BrowserSelectorAction(params: params, actionName: "select") { selectorLiteral in
-            v2BrowserControl.selectOptionScript(selectorLiteral: selectorLiteral, valueLiteral: v2JSONLiteral(selectedValue))
-        }
-    }
-
-    private nonisolated func v2BrowserScroll(params: [String: Any]) -> V2CallResult {
-        let dx = v2Int(params, "dx") ?? 0
-        let dy = v2Int(params, "dy") ?? 0
-        let selectorRaw = v2BrowserSelector(params)
-
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let surfaceId = ctx.surfaceId
-            let selector = selectorRaw.flatMap { v2BrowserResolveSelector($0, surfaceId: surfaceId) }
-            if selectorRaw != nil && selector == nil {
-                return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw ?? ""])
-            }
-
-            let script: String
-            if let selector {
-                script = v2BrowserControl.scrollElementScript(selectorLiteral: v2JSONLiteral(selector), dx: dx, dy: dy)
-            } else {
-                script = v2BrowserControl.scrollWindowScript(dx: dx, dy: dy)
-            }
-
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                if let dict = value as? [String: Any],
-                   let ok = dict["ok"] as? Bool,
-                   !ok,
-                   let errorText = dict["error"] as? String,
-                   errorText == "not_found" {
-                    if let selector {
-                        return v2BrowserElementNotFoundResult(
-                            actionName: "scroll",
-                            selector: selector,
-                            attempts: 1,
-                            surfaceId: surfaceId,
-                            browserPanel: ctx.browserPanel
-                        )
-                    }
-                    return .err(code: "not_found", message: "Element not found", data: ["selector": selector ?? ""])
-                }
-                var payload: [String: Any] = [
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ]
-                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-                return .ok(payload)
-            }
-        }
-    }
-
-    private nonisolated func v2BrowserScrollIntoView(params: [String: Any]) -> V2CallResult {
-        v2BrowserSelectorAction(params: params, actionName: "scroll_into_view") { selectorLiteral in
-            v2BrowserControl.scrollIntoViewScript(selectorLiteral: selectorLiteral)
-        }
-    }
-
     private func v2BrowserScreenshot(params: [String: Any]) -> V2CallResult {
         let resolved: (
             error: V2CallResult?,
@@ -6533,6 +6366,211 @@ class TerminalController {
         ))
     }
 
+    /// The ``ControlBrowserInteractionReading`` seam resolver for the worker-lane
+    /// `browser.*` interaction commands (worker:
+    /// ``ControlBrowserInteractionWorker``; conformer:
+    /// `TerminalController+ControlBrowserInteractionReading.swift`). `internal` and
+    /// co-located with the private per-surface browser state the witness cannot
+    /// reach. Byte-faithful fusion of the former `v2BrowserClick` … `v2BrowserScroll`
+    /// bodies: panel resolution, the per-action `BrowserControlService` script
+    /// construction, the shared `v2BrowserSelectorAction` retry loop (still shared
+    /// with the not-yet-extracted `browser.get.*` / `browser.is.*` query commands,
+    /// so its payload is carried pre-shaped), the JS eval, the not-found
+    /// diagnostics, and the post-snapshot stay here; the worker owns the leaf-param
+    /// parsing and the panel-action payload shaping. Runs on the socket-worker
+    /// thread.
+    nonisolated func controlResolveBrowserInteraction(
+        _ request: ControlBrowserInteractionRequest
+    ) -> ControlBrowserInteractionResolution {
+        switch request {
+        case let .click(params):
+            return controlBridgeSelectorAction(foundationParams(params), actionName: "click") { selectorLiteral in
+                v2BrowserControl.clickScript(selectorLiteral: selectorLiteral)
+            }
+        case let .doubleClick(params):
+            return controlBridgeSelectorAction(foundationParams(params), actionName: "dblclick") { selectorLiteral in
+                v2BrowserControl.doubleClickScript(selectorLiteral: selectorLiteral)
+            }
+        case let .hover(params):
+            return controlBridgeSelectorAction(foundationParams(params), actionName: "hover") { selectorLiteral in
+                v2BrowserControl.hoverScript(selectorLiteral: selectorLiteral)
+            }
+        case let .focusElement(params):
+            return controlBridgeSelectorAction(foundationParams(params), actionName: "focus") { selectorLiteral in
+                v2BrowserControl.focusElementScript(selectorLiteral: selectorLiteral)
+            }
+        case let .type(params, text):
+            return controlBridgeSelectorAction(foundationParams(params), actionName: "type") { selectorLiteral in
+                v2BrowserControl.typeScript(selectorLiteral: selectorLiteral, textLiteral: v2JSONLiteral(text))
+            }
+        case let .fill(params, text):
+            return controlBridgeSelectorAction(foundationParams(params), actionName: "fill") { selectorLiteral in
+                v2BrowserControl.fillScript(selectorLiteral: selectorLiteral, textLiteral: v2JSONLiteral(text))
+            }
+        case let .check(params, checked):
+            return controlBridgeSelectorAction(foundationParams(params), actionName: checked ? "check" : "uncheck") { selectorLiteral in
+                v2BrowserControl.setCheckedScript(selectorLiteral: selectorLiteral, checked: checked)
+            }
+        case let .selectOption(params, value):
+            return controlBridgeSelectorAction(foundationParams(params), actionName: "select") { selectorLiteral in
+                v2BrowserControl.selectOptionScript(selectorLiteral: selectorLiteral, valueLiteral: v2JSONLiteral(value))
+            }
+        case let .scrollIntoView(params):
+            return controlBridgeSelectorAction(foundationParams(params), actionName: "scroll_into_view") { selectorLiteral in
+                v2BrowserControl.scrollIntoViewScript(selectorLiteral: selectorLiteral)
+            }
+        case let .highlight(params):
+            return controlBridgeSelectorAction(foundationParams(params), actionName: "highlight") { selectorLiteral in
+                """
+                (() => {
+                  const el = document.querySelector(\(selectorLiteral));
+                  if (!el) return { ok: false, error: 'not_found' };
+                  const prev = el.style.outline;
+                  const prevOffset = el.style.outlineOffset;
+                  el.style.outline = '3px solid #ff9f0a';
+                  el.style.outlineOffset = '2px';
+                  setTimeout(() => {
+                    el.style.outline = prev;
+                    el.style.outlineOffset = prevOffset;
+                  }, 1200);
+                  return { ok: true };
+                })()
+                """
+            }
+        case let .press(params, key):
+            return controlResolveBrowserKeyEvent(foundationParams(params), script: v2BrowserControl.pressScript(keyLiteral: v2JSONLiteral(key)))
+        case let .keyDown(params, key):
+            return controlResolveBrowserKeyEvent(foundationParams(params), script: v2BrowserControl.keyDownScript(keyLiteral: v2JSONLiteral(key)))
+        case let .keyUp(params, key):
+            return controlResolveBrowserKeyEvent(foundationParams(params), script: v2BrowserControl.keyUpScript(keyLiteral: v2JSONLiteral(key)))
+        case let .scroll(params, dx, dy):
+            return controlResolveBrowserScroll(foundationParams(params), dx: dx, dy: dy)
+        }
+    }
+
+    /// Runs the shared `v2BrowserSelectorAction` retry body for one selector-action
+    /// interaction and carries its `V2CallResult` payload pre-shaped (including the
+    /// shared body's own missing-selector `invalid_params` branch).
+    private nonisolated func controlBridgeSelectorAction(
+        _ params: [String: Any],
+        actionName: String,
+        scriptBuilder: (_ selectorLiteral: String) -> String
+    ) -> ControlBrowserInteractionResolution {
+        .preShaped(controlBridge(v2BrowserSelectorAction(params: params, actionName: actionName, scriptBuilder: scriptBuilder)))
+    }
+
+    /// The byte-faithful `v2BrowserPress` / `v2BrowserKeyDown` / `v2BrowserKeyUp`
+    /// body (they differ only by the script). The panel-head and JS failures travel
+    /// as the returned `V2CallResult` (carried pre-shaped); the success is captured
+    /// out through a `var` as a `.panelAction` the worker shapes (the head's
+    /// sentinel `.ok` is ignored), matching the legacy branch structure exactly.
+    private nonisolated func controlResolveBrowserKeyEvent(
+        _ params: [String: Any],
+        script: String
+    ) -> ControlBrowserInteractionResolution {
+        var success: ControlBrowserPanelActionSuccess?
+        let panelResult = v2BrowserWithPanelContext(params: params) { ctx in
+            let surfaceId = ctx.surfaceId
+            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
+            case .failure(let message):
+                return .err(code: "js_error", message: message, data: nil)
+            case .success:
+                var postPayload: [String: Any] = [:]
+                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &postPayload)
+                success = ControlBrowserPanelActionSuccess(
+                    workspaceID: ctx.workspaceId,
+                    workspaceRef: (v2Ref(kind: .workspace, uuid: ctx.workspaceId) as? String) ?? ctx.workspaceId.uuidString,
+                    surfaceID: surfaceId,
+                    surfaceRef: (v2Ref(kind: .surface, uuid: surfaceId) as? String) ?? surfaceId.uuidString,
+                    postSnapshot: postPayload.compactMapValues { JSONValue(foundationObject: $0) }
+                )
+                return .ok(NSNull())
+            }
+        }
+        if let success {
+            return .panelAction(success)
+        }
+        return .preShaped(controlBridge(panelResult))
+    }
+
+    /// The byte-faithful `v2BrowserScroll` body. The panel-head/ref-not-found/JS/
+    /// not-found-diagnostics branches are carried pre-shaped (they reuse shared
+    /// app-side helpers); the window-vs-element success is a `.panelAction` the
+    /// worker shapes, captured out through a `var` like `controlResolveBrowserKeyEvent`.
+    private nonisolated func controlResolveBrowserScroll(
+        _ params: [String: Any],
+        dx: Int,
+        dy: Int
+    ) -> ControlBrowserInteractionResolution {
+        let selectorRaw = v2BrowserSelector(params)
+
+        var success: ControlBrowserPanelActionSuccess?
+        let panelResult = v2BrowserWithPanelContext(params: params) { ctx in
+            let surfaceId = ctx.surfaceId
+            let selector = selectorRaw.flatMap { v2BrowserResolveSelector($0, surfaceId: surfaceId) }
+            if selectorRaw != nil && selector == nil {
+                return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw ?? ""])
+            }
+
+            let script: String
+            if let selector {
+                script = v2BrowserControl.scrollElementScript(selectorLiteral: v2JSONLiteral(selector), dx: dx, dy: dy)
+            } else {
+                script = v2BrowserControl.scrollWindowScript(dx: dx, dy: dy)
+            }
+
+            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
+            case .failure(let message):
+                return .err(code: "js_error", message: message, data: nil)
+            case .success(let value):
+                if let dict = value as? [String: Any],
+                   let ok = dict["ok"] as? Bool,
+                   !ok,
+                   let errorText = dict["error"] as? String,
+                   errorText == "not_found" {
+                    if let selector {
+                        return v2BrowserElementNotFoundResult(
+                            actionName: "scroll",
+                            selector: selector,
+                            attempts: 1,
+                            surfaceId: surfaceId,
+                            browserPanel: ctx.browserPanel
+                        )
+                    }
+                    return .err(code: "not_found", message: "Element not found", data: ["selector": selector ?? ""])
+                }
+                var postPayload: [String: Any] = [:]
+                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &postPayload)
+                success = ControlBrowserPanelActionSuccess(
+                    workspaceID: ctx.workspaceId,
+                    workspaceRef: (v2Ref(kind: .workspace, uuid: ctx.workspaceId) as? String) ?? ctx.workspaceId.uuidString,
+                    surfaceID: surfaceId,
+                    surfaceRef: (v2Ref(kind: .surface, uuid: surfaceId) as? String) ?? surfaceId.uuidString,
+                    postSnapshot: postPayload.compactMapValues { JSONValue(foundationObject: $0) }
+                )
+                return .ok(NSNull())
+            }
+        }
+        if let success {
+            return .panelAction(success)
+        }
+        return .preShaped(controlBridge(panelResult))
+    }
+
+    /// Bridges an app-side `V2CallResult` to the package's typed `ControlCallResult`,
+    /// byte-faithful for any payload `JSONSerialization` accepts (these payloads are
+    /// dictionaries of strings/ints/bools and already-normalized JS values, so the
+    /// unencodable `.ok({})` fallback is unreachable — the same documented delta as
+    /// the surface.move / mobile passthroughs vs the legacy `v2Ok`).
+    private nonisolated func controlBridge(_ result: V2CallResult) -> ControlCallResult {
+        switch result {
+        case .ok(let payload):
+            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
+        case .err(let code, let message, let data):
+            return .err(code: code, message: message, data: data.flatMap { JSONValue(foundationObject: $0) })
+        }
+    }
+
     private func v2BrowserFrameSelect(params: [String: Any]) -> V2CallResult {
         guard let selectorRaw = v2BrowserSelector(params) else {
             return .err(code: "invalid_params", message: "Missing selector", data: nil)
@@ -6688,20 +6726,6 @@ class TerminalController {
         case "browser.snapshot": return v2BrowserSnapshot(params: params)
         case "browser.eval": return v2BrowserEval(params: params)
         case "browser.wait": return v2BrowserWait(params: params)
-        case "browser.click": return v2BrowserClick(params: params)
-        case "browser.dblclick": return v2BrowserDblClick(params: params)
-        case "browser.hover": return v2BrowserHover(params: params)
-        case "browser.focus": return v2BrowserFocusElement(params: params)
-        case "browser.type": return v2BrowserType(params: params)
-        case "browser.fill": return v2BrowserFill(params: params)
-        case "browser.press": return v2BrowserPress(params: params)
-        case "browser.keydown": return v2BrowserKeyDown(params: params)
-        case "browser.keyup": return v2BrowserKeyUp(params: params)
-        case "browser.check": return v2BrowserCheck(params: params, checked: true)
-        case "browser.uncheck": return v2BrowserCheck(params: params, checked: false)
-        case "browser.select": return v2BrowserSelect(params: params)
-        case "browser.scroll": return v2BrowserScroll(params: params)
-        case "browser.scroll_into_view": return v2BrowserScrollIntoView(params: params)
         case "browser.get.text": return v2BrowserGetText(params: params)
         case "browser.get.html": return v2BrowserGetHTML(params: params)
         case "browser.get.value": return v2BrowserGetValue(params: params)
@@ -6712,7 +6736,6 @@ class TerminalController {
         case "browser.is.visible": return v2BrowserIsVisible(params: params)
         case "browser.is.enabled": return v2BrowserIsEnabled(params: params)
         case "browser.is.checked": return v2BrowserIsChecked(params: params)
-        case "browser.highlight": return v2BrowserHighlight(params: params)
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }
@@ -7411,26 +7434,6 @@ class TerminalController {
                     "count": items.count
                 ])
             }
-        }
-    }
-
-    private nonisolated func v2BrowserHighlight(params: [String: Any]) -> V2CallResult {
-        return v2BrowserSelectorAction(params: params, actionName: "highlight") { selectorLiteral in
-            """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              const prev = el.style.outline;
-              const prevOffset = el.style.outlineOffset;
-              el.style.outline = '3px solid #ff9f0a';
-              el.style.outlineOffset = '2px';
-              setTimeout(() => {
-                el.style.outline = prev;
-                el.style.outlineOffset = prevOffset;
-              }, 1200);
-              return { ok: true };
-            })()
-            """
         }
     }
 
