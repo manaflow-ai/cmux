@@ -1,6 +1,5 @@
 import AppKit
 import CmuxFoundation
-import CmuxTerminalEngine
 import CmuxTerminal
 
 @MainActor

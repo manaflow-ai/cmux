@@ -1,7 +1,7 @@
 import CmuxControlSocket
 import CmuxRemoteSession
 import Foundation
-import CmuxWorkspaceCore
+import CmuxWorkspaces
 import CmuxSidebar
 
 /// The live-app half of the v1 sidebar telemetry/report commands
