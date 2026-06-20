@@ -114,6 +114,31 @@ extension ControlBrowserContext {
     ) {}
 
     func controlBrowserUnsupportedNetworkRequests(surfaceID: UUID) -> [JSONValue] { [] }
+
+    func controlBrowserAddInitScript(
+        params: [String: JSONValue],
+        script: String
+    ) -> ControlBrowserAddInitScriptResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserAddScript(
+        params: [String: JSONValue],
+        script: String
+    ) -> ControlBrowserAddScriptResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserAddStyle(
+        params: [String: JSONValue],
+        css: String
+    ) -> ControlBrowserAddStyleResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserDialogRespond(
+        params: [String: JSONValue],
+        accept: Bool,
+        text: String?
+    ) -> ControlBrowserDialogRespondResolution { .failed(.tabManagerUnavailable) }
+
+    func controlBrowserImportDialog(
+        params: [String: JSONValue]
+    ) -> ControlBrowserImportDialogResolution { .opened(scopeRawValue: nil) }
 }
 
 extension ControlBrowserPanelContext {

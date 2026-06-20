@@ -1850,7 +1850,9 @@ class TerminalController {
         // The non-JS-evaluating, main-actor browser.* methods (browser.open_split,
         // browser.react_grab.toggle, browser.devtools.toggle, browser.console.show,
         // browser.focus_mode.set, browser.zoom.set, browser.history.clear,
-        // browser.url.get, browser.focus_webview, browser.is_webview_focused) are
+        // browser.url.get, browser.focus_webview, browser.is_webview_focused,
+        // browser.addinitscript, browser.addscript, browser.addstyle,
+        // browser.dialog.accept, browser.dialog.dismiss, browser.import.dialog) are
         // handled above by ControlCommandCoordinator (handleBrowser) via the
         // ControlBrowserContext seam.
         // browser methods that evaluate page JavaScript run on the socket worker
@@ -1866,15 +1868,11 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserFrameSelect(params: params))
         case "browser.frame.main":
             return v2Result(id: id, self.v2BrowserFrameMain(params: params))
-        case "browser.dialog.accept":
-            return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: true))
-        case "browser.dialog.dismiss":
-            return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: false))
-        case "browser.import.dialog":
-            return v2Result(id: id, self.v2BrowserImportDialog(params: params))
-        // browser.cookies.get/set/clear and browser.storage.get/set/clear handled
-        // above by ControlCommandCoordinator (handleBrowser) via the
-        // ControlBrowserContext seam.
+        // browser.dialog.accept/dismiss, browser.import.dialog,
+        // browser.cookies.get/set/clear, browser.storage.get/set/clear, and
+        // browser.addinitscript/addscript/addstyle handled above by
+        // ControlCommandCoordinator (handleBrowser) via the ControlBrowserContext
+        // seam.
         case "browser.tab.new":
             return v2Result(id: id, self.v2BrowserTabNew(params: params))
         case "browser.tab.list":
@@ -1893,12 +1891,6 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserStateSave(params: params))
         case "browser.state.load":
             return v2Result(id: id, self.v2BrowserStateLoad(params: params))
-        case "browser.addinitscript":
-            return v2Result(id: id, self.v2BrowserAddInitScript(params: params))
-        case "browser.addscript":
-            return v2Result(id: id, self.v2BrowserAddScript(params: params))
-        case "browser.addstyle":
-            return v2Result(id: id, self.v2BrowserAddStyle(params: params))
         // browser.viewport.set / browser.geolocation.set / browser.offline.set /
         // browser.trace.start / browser.trace.stop / browser.screencast.start /
         // browser.screencast.stop / browser.input_mouse / browser.input_keyboard
@@ -4433,46 +4425,13 @@ class TerminalController {
         v2BrowserDialogQueueBySurface[surfaceId] = queue
     }
 
-    private func v2BrowserPopDialog(surfaceId: UUID) -> V2BrowserPendingDialog? {
-        var queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
-        guard !queue.isEmpty else { return nil }
-        let first = queue.removeFirst()
-        v2BrowserDialogQueueBySurface[surfaceId] = queue
-        return first
-    }
-
-    private func v2BrowserEnsureInitScriptsApplied(surfaceId: UUID, browserPanel: BrowserPanel) {
-        let scripts = v2BrowserInitScriptsBySurface[surfaceId] ?? []
-        let styles = v2BrowserInitStylesBySurface[surfaceId] ?? []
-        guard !scripts.isEmpty || !styles.isEmpty else { return }
-
-        let injector = """
-        (() => {
-          window.__cmuxInitScriptsApplied = window.__cmuxInitScriptsApplied || { scripts: [], styles: [] };
-          return true;
-        })()
-        """
-        _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: injector)
-
-        for script in scripts {
-            _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script)
-        }
-        for css in styles {
-            let cssLiteral = v2JSONLiteral(css)
-            let styleScript = """
-            (() => {
-              const id = 'cmux-init-style-' + btoa(unescape(encodeURIComponent(\(cssLiteral)))).replace(/=+$/g, '');
-              if (document.getElementById(id)) return true;
-              const el = document.createElement('style');
-              el.id = id;
-              el.textContent = String(\(cssLiteral));
-              (document.head || document.documentElement || document.body).appendChild(el);
-              return true;
-            })()
-            """
-            _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: styleScript)
-        }
-    }
+    // v2BrowserPopDialog and v2BrowserEnsureInitScriptsApplied were drained with
+    // the browser addscript/dialog domain (CmuxControlSocket
+    // ControlCommandCoordinator+BrowserScriptDialog): both were dead private
+    // holdovers with zero callers in Sources/CLI/cmuxTests (init scripts are now
+    // applied only via the WKUserScript registration in the addinitscript witness,
+    // and the dialog queue is popped in-page by the dialog-respond JS, not by a
+    // Swift pop helper).
 
     private func v2PNGData(from image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation,
@@ -6105,11 +6064,27 @@ class TerminalController {
         )
     }
 
-    private func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+    /// `browser.dialog.accept` / `browser.dialog.dismiss` witness
+    /// (``ControlBrowserContext``): shifts the front entry off the resolved
+    /// browser's in-page dialog queue and records the chosen default,
+    /// byte-faithful to the former `v2BrowserDialogRespond(params:accept:)` body.
+    /// The coordinator owns the `accepted` payload key (the `accept` arg) and the
+    /// `text`/`prompt_text` fallback. Stays on `TerminalController` because it
+    /// calls the `private` dialog-hook + pending-dialog plumbing
+    /// (`v2BrowserEnsureDialogHooks`, `v2BrowserPendingDialogs`).
+    func controlBrowserDialogRespond(
+        params: [String: JSONValue],
+        accept: Bool,
+        text: String?
+    ) -> ControlBrowserDialogRespondResolution {
+        switch browserResolvePanelTyped(params: params.mapValues(\.foundationObject)) {
+        case .failure(let failure):
+            return .failed(failure)
+        case .success(let resolved):
+            let surfaceId = resolved.surfaceId
+            let browserPanel = resolved.browserPanel
             v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
             v2BrowserEnsureDialogHooks(browserPanel: browserPanel)
-            let text = v2String(params, "text") ?? v2String(params, "prompt_text")
             let acceptLiteral = accept ? "true" : "false"
             let textLiteral = text.map(v2JSONLiteral) ?? "null"
             let script = """
@@ -6135,24 +6110,22 @@ class TerminalController {
 
             switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, world: .page) {
             case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+                return .jsError(message: message)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
                       ok else {
                     let pending = v2BrowserPendingDialogs(surfaceId: surfaceId)
-                    return .err(code: "not_found", message: "No pending dialog", data: ["pending": pending])
+                        .compactMap { JSONValue(foundationObject: $0) }
+                    return .notFound(pending: pending)
                 }
 
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                    "accepted": accept,
-                    "dialog": v2NormalizeJSValue(dict["dialog"]),
-                    "remaining": v2OrNull(dict["remaining"])
-                ])
+                return .resolved(
+                    workspaceID: resolved.workspace.id,
+                    surfaceID: surfaceId,
+                    dialog: JSONValue(foundationObject: v2NormalizeJSValue(dict["dialog"])) ?? .null,
+                    remaining: JSONValue(foundationObject: v2OrNull(dict["remaining"])) ?? .null
+                )
             }
         }
     }
@@ -6463,12 +6436,23 @@ class TerminalController {
         return event
     }
 
-    private func v2BrowserImportDialog(params: [String: Any]) -> V2CallResult {
+    /// `browser.import.dialog` witness (``ControlBrowserContext``): validates the
+    /// `scope` / `destination_profile` params and schedules the browser
+    /// data-import dialog presentation, byte-faithful to the former
+    /// `v2BrowserImportDialog(params:)` body. The coordinator re-emits each typed
+    /// failure category as the exact legacy `invalid_params` error. Stays on
+    /// `TerminalController` purely for co-location with the rest of the moved
+    /// browser-dialog domain (it reaches only app-wide singletons, no `private`
+    /// `TerminalController` state).
+    func controlBrowserImportDialog(
+        params: [String: JSONValue]
+    ) -> ControlBrowserImportDialogResolution {
+        let foundation = params.mapValues(\.foundationObject)
         let scope: BrowserImportScope?
-        if params.keys.contains("scope") {
-            guard let raw = v2String(params, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+        if foundation.keys.contains("scope") {
+            guard let raw = v2String(foundation, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                   !raw.isEmpty else {
-                return .err(code: "invalid_params", message: "scope must be a non-empty string", data: ["param": "scope"])
+                return .scopeEmpty
             }
             switch raw {
             case "cookie", "cookies", "cookiesonly", "cookies_only", "cookies-only":
@@ -6480,22 +6464,18 @@ class TerminalController {
             case "everything", "all":
                 scope = .everything
             default:
-                return .err(code: "invalid_params", message: "scope is invalid", data: ["param": "scope"])
+                return .scopeInvalid
             }
         } else {
             scope = nil
         }
 
         let defaultDestinationProfileID: UUID?
-        if params.keys.contains("destination_profile") {
-            guard let query = v2String(params, "destination_profile")?
+        if foundation.keys.contains("destination_profile") {
+            guard let query = v2String(foundation, "destination_profile")?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                   !query.isEmpty else {
-                return .err(
-                    code: "invalid_params",
-                    message: "destination_profile must be a non-empty string",
-                    data: ["param": "destination_profile"]
-                )
+                return .destinationProfileEmpty
             }
             let profiles = BrowserProfileStore.shared.profiles
             if let uuid = UUID(uuidString: query),
@@ -6506,22 +6486,14 @@ class TerminalController {
                     $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
             }) {
                 defaultDestinationProfileID = profile.id
-            } else if v2Bool(params, "create_destination_profile") == true ||
-                v2Bool(params, "create_profile") == true {
+            } else if v2Bool(foundation, "create_destination_profile") == true ||
+                v2Bool(foundation, "create_profile") == true {
                 guard let createdProfileID = BrowserProfileStore.shared.createProfile(named: query)?.id else {
-                    return .err(
-                        code: "invalid_params",
-                        message: "destination_profile could not be created",
-                        data: ["param": "destination_profile"]
-                    )
+                    return .destinationProfileCreateFailed
                 }
                 defaultDestinationProfileID = createdProfileID
             } else {
-                return .err(
-                    code: "invalid_params",
-                    message: "destination_profile does not match a cmux browser profile",
-                    data: ["param": "destination_profile"]
-                )
+                return .destinationProfileNoMatch
             }
         } else {
             defaultDestinationProfileID = nil
@@ -6532,10 +6504,7 @@ class TerminalController {
                 defaultScope: scope
             )
         }
-        return .ok([
-            "opened": true,
-            "scope": scope.map { $0.rawValue as Any } ?? NSNull(),
-        ])
+        return .opened(scopeRawValue: scope?.rawValue)
     }
 
     private func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
@@ -7010,57 +6979,82 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserAddInitScript(params: [String: Any]) -> V2CallResult {
-        guard let script = v2String(params, "script") ?? v2String(params, "content") else {
-            return .err(code: "invalid_params", message: "Missing script", data: nil)
-        }
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            var scripts = v2BrowserInitScriptsBySurface[surfaceId] ?? []
+    /// `browser.addinitscript` witness (``ControlBrowserContext``): registers a
+    /// document-start init script on the resolved browser and evaluates it once,
+    /// byte-faithful to the former `v2BrowserAddInitScript(params:)` body. The
+    /// coordinator emits the `Missing script` param error before this runs and
+    /// shapes the identity payload plus `scripts` count. Stays on
+    /// `TerminalController` (not the cookies/storage context file) because it
+    /// mutates the `private` per-surface `v2BrowserInitScriptsBySurface` cache,
+    /// which the surface-teardown cleanup also reaches.
+    func controlBrowserAddInitScript(
+        params: [String: JSONValue],
+        script: String
+    ) -> ControlBrowserAddInitScriptResolution {
+        switch browserResolvePanelTyped(params: params.mapValues(\.foundationObject)) {
+        case .failure(let failure):
+            return .failed(failure)
+        case .success(let resolved):
+            var scripts = v2BrowserInitScriptsBySurface[resolved.surfaceId] ?? []
             scripts.append(script)
-            v2BrowserInitScriptsBySurface[surfaceId] = scripts
+            v2BrowserInitScriptsBySurface[resolved.surfaceId] = scripts
 
             let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-            browserPanel.webView.configuration.userContentController.addUserScript(userScript)
-            _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script, timeout: 10.0)
+            resolved.browserPanel.webView.configuration.userContentController.addUserScript(userScript)
+            _ = v2RunBrowserJavaScript(resolved.browserPanel.webView, surfaceId: resolved.surfaceId, script: script, timeout: 10.0)
 
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "scripts": scripts.count
-            ])
+            return .resolved(
+                workspaceID: resolved.workspace.id,
+                surfaceID: resolved.surfaceId,
+                scriptCount: scripts.count
+            )
         }
     }
 
-    private func v2BrowserAddScript(params: [String: Any]) -> V2CallResult {
-        guard let script = v2String(params, "script") ?? v2String(params, "content") else {
-            return .err(code: "invalid_params", message: "Missing script", data: nil)
-        }
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script, timeout: 10.0) {
+    /// `browser.addscript` witness (``ControlBrowserContext``): evaluates a
+    /// one-shot script on the resolved browser, byte-faithful to the former
+    /// `v2BrowserAddScript(params:)` body. The coordinator emits the
+    /// `Missing script` param error before this runs and shapes the identity
+    /// payload plus the normalized `value`.
+    func controlBrowserAddScript(
+        params: [String: JSONValue],
+        script: String
+    ) -> ControlBrowserAddScriptResolution {
+        switch browserResolvePanelTyped(params: params.mapValues(\.foundationObject)) {
+        case .failure(let failure):
+            return .failed(failure)
+        case .success(let resolved):
+            switch v2RunBrowserJavaScript(resolved.browserPanel.webView, surfaceId: resolved.surfaceId, script: script, timeout: 10.0) {
             case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+                return .jsError(message: message)
             case .success(let value):
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                    "value": v2NormalizeJSValue(value)
-                ])
+                return .resolved(
+                    workspaceID: resolved.workspace.id,
+                    surfaceID: resolved.surfaceId,
+                    value: JSONValue(foundationObject: v2NormalizeJSValue(value)) ?? .null
+                )
             }
         }
     }
 
-    private func v2BrowserAddStyle(params: [String: Any]) -> V2CallResult {
-        guard let css = v2String(params, "css") ?? v2String(params, "style") ?? v2String(params, "content") else {
-            return .err(code: "invalid_params", message: "Missing css/style content", data: nil)
-        }
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            var styles = v2BrowserInitStylesBySurface[surfaceId] ?? []
+    /// `browser.addstyle` witness (``ControlBrowserContext``): registers a
+    /// document-start `<style>`-injecting init script on the resolved browser and
+    /// evaluates it once, byte-faithful to the former `v2BrowserAddStyle(params:)`
+    /// body. The coordinator emits the `Missing css/style content` param error
+    /// before this runs and shapes the identity payload plus `styles` count.
+    /// Stays on `TerminalController` because it mutates the `private` per-surface
+    /// `v2BrowserInitStylesBySurface` cache, which surface teardown also reaches.
+    func controlBrowserAddStyle(
+        params: [String: JSONValue],
+        css: String
+    ) -> ControlBrowserAddStyleResolution {
+        switch browserResolvePanelTyped(params: params.mapValues(\.foundationObject)) {
+        case .failure(let failure):
+            return .failed(failure)
+        case .success(let resolved):
+            var styles = v2BrowserInitStylesBySurface[resolved.surfaceId] ?? []
             styles.append(css)
-            v2BrowserInitStylesBySurface[surfaceId] = styles
+            v2BrowserInitStylesBySurface[resolved.surfaceId] = styles
 
             let cssLiteral = v2JSONLiteral(css)
             let source = """
@@ -7073,16 +7067,14 @@ class TerminalController {
             """
 
             let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-            browserPanel.webView.configuration.userContentController.addUserScript(userScript)
-            _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: source, timeout: 10.0)
+            resolved.browserPanel.webView.configuration.userContentController.addUserScript(userScript)
+            _ = v2RunBrowserJavaScript(resolved.browserPanel.webView, surfaceId: resolved.surfaceId, script: source, timeout: 10.0)
 
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "styles": styles.count
-            ])
+            return .resolved(
+                workspaceID: resolved.workspace.id,
+                surfaceID: resolved.surfaceId,
+                styleCount: styles.count
+            )
         }
     }
 
