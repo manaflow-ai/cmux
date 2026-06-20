@@ -418,6 +418,10 @@ class TabManager: ObservableObject {
     /// (`TabManager+FocusedSurfaceHosting`) and forwards the legacy entry
     /// points below.
     let focusedSurface = FocusedSurfaceModel()
+    /// Pure panel/surface id resolution over `workspaces` (CmuxWorkspaces); the
+    /// `focusedPanelId(for:)` / `panelId(forSurfaceOrPanelId:…)` entry points
+    /// forward here. Built in `init` (depends on `workspaces`).
+    let panelIdResolver: PanelIdResolver<Workspace>
     /// The per-window panel-title coalescer the `SurfaceMetadataCoordinator`
     /// schedules its flush on through `SurfaceMetadataTitleHosting`. The
     /// coalescing batch + flush logic live in the coordinator (CmuxWorkspaces);
@@ -603,6 +607,7 @@ class TabManager: ObservableObject {
             model: workspaces,
             backgroundLoad: backgroundWorkspaceLoad
         )
+        panelIdResolver = PanelIdResolver(model: workspaces)
 #if DEBUG
         let sidebarGitDebugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
 #else
@@ -2851,9 +2856,9 @@ class TabManager: ObservableObject {
 
     // MARK: - Panel/Surface ID Access
 
-    /// Returns the focused panel ID for a tab (replaces focusedSurfaceId)
+    /// Returns the focused panel ID for a tab (forwards to `PanelIdResolver`).
     func focusedPanelId(for tabId: UUID) -> UUID? {
-        tabs.first(where: { $0.id == tabId })?.focusedPanelId
+        panelIdResolver.focusedPanelId(forWorkspaceId: tabId)
     }
 
     /// Returns the focused panel if it's a BrowserPanel, nil otherwise
@@ -3194,10 +3199,7 @@ class TabManager: ObservableObject {
     }
 
     func panelId(forSurfaceOrPanelId surfaceOrPanelId: UUID, in workspace: Workspace) -> UUID? {
-        if workspace.panels[surfaceOrPanelId] != nil {
-            return surfaceOrPanelId
-        }
-        return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceOrPanelId))
+        panelIdResolver.panelId(forSurfaceOrPanelId: surfaceOrPanelId, in: workspace)
     }
 
     func selectNextTab() {
@@ -5835,7 +5837,9 @@ extension TabManager: WorkspaceCloseHosting {}
 extension TabManager: SurfaceMetadataTitleHosting {}
 
 // Workspace satisfies the CmuxWorkspaces tab seam with its existing
-// id/groupId/isPinned storage.
+// id/groupId/isPinned storage; the panel-resolution requirements
+// (`panelExists(_:)` / `panelId(forSurfaceId:)`) are already witnessed by
+// `Workspace+WorkspaceSurfaceTreeReading.swift`, so this conformance is empty.
 extension Workspace: WorkspaceTabRepresenting {}
 
 extension Notification.Name {

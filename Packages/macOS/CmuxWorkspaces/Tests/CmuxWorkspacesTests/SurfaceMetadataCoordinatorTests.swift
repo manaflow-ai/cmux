@@ -28,6 +28,9 @@ private final class MetadataStubTab: WorkspaceTabRepresenting {
         shellActivityUpdates.append((panelId, state))
     }
     func setCustomColor(_ hex: String?) {}
+    // This fake never participates in panel-id resolution.
+    func panelExists(_ panelId: UUID) -> Bool { false }
+    func panelId(forSurfaceId surfaceId: UUID) -> UUID? { nil }
 
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
