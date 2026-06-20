@@ -2562,9 +2562,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = id
     }
 
-    /// One-shot "actually navigate" deep-link intent; API in
-    /// `MobileShellComposite+DeeplinkNavigation.swift` (storage must live here).
-    public internal(set) var deeplinkWorkspaceNavigationRequest: DeeplinkWorkspaceNavigationRequest?
+    /// One-shot "actually navigate" terminal-target intent; API in
+    /// `MobileShellComposite+TerminalTargetNavigation.swift` (storage must live here).
+    public internal(set) var terminalTargetWorkspaceNavigationRequest: TerminalTargetWorkspaceNavigationRequest?
 
     /// Selects `id` as a chrome action (the terminal picker), so the surface
     /// that comes up does not grab the keyboard.
@@ -5193,6 +5193,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params: [
                         "workspace_id": workspaceID.rawValue,
                         "surface_id": surfaceID,
+                        "max_scrollback_rows": MobileTerminalScrollbackBudget.fullReplayRows,
                         MobileTerminalScrollbackReplayRequest.scopeParameter:
                             MobileTerminalScrollbackReplayRequest.fullScope,
                     ]

@@ -3,9 +3,9 @@ import Foundation
 
 extension TerminalController {
     /// Scrollback rows included in a cold-attach render-grid replay snapshot.
-    /// Live render-grid events carry no scrollback; the phone keeps its own
-    /// bounded Ghostty scrollback mirror and scrolls that mirror locally while
-    /// the Mac remains authoritative.
+    /// Live render-grid events carry no scrollback; the phone keeps a bounded
+    /// Ghostty mirror sized from the same budget and scrolls that mirror
+    /// locally while the Mac remains authoritative.
     nonisolated static let mobileReplayScrollbackLineBudget = MobileTerminalScrollbackBudget.defaultReplayRows
 
     /// Larger history window returned only on explicit mobile scroll prefetch
@@ -65,7 +65,11 @@ extension TerminalController {
 
     func mobileReplayScrollbackRows(params: [String: Any]) -> Int {
         if mobileRequestedScrollbackScope(params: params) == MobileTerminalScrollbackReplayRequest.fullScope {
-            return Int.max
+            let requestedRows = mobileRequestedScrollbackRows(params: params)
+            guard requestedRows > 0 else {
+                return MobileTerminalScrollbackBudget.fullReplayRows
+            }
+            return min(requestedRows, MobileTerminalScrollbackBudget.fullReplayRows)
         }
         let requestedRows = mobileRequestedScrollbackRows(params: params)
         guard requestedRows > 0 else {

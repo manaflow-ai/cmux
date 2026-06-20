@@ -389,6 +389,16 @@ struct CMUXMobileRootView: View {
         syncShellAuthentication(true)
         Task {
             let result = await store.connectPairingURLResult(rawURL)
+            #if os(iOS)
+            if result.didConnect,
+               let target = store.activeAttachTerminalTarget {
+                pushCoordinator.terminalTargets.openTarget(
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId,
+                    source: .attachURL
+                )
+            }
+            #endif
             if result == .needsUserApproval {
                 isShowingAddDeviceSheet = true
             }

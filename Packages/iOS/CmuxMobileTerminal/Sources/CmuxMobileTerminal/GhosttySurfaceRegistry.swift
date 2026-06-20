@@ -62,11 +62,10 @@ extension GhosttySurfaceView {
     /// later-enqueued `disposeSurface` free of the same pointer — the same
     /// lifetime argument `visibleTerminalSnapshot()` relies on.
     ///
-    /// The read is bounded at the source: iOS surfaces are created with
-    /// `scrollback-limit = 2000000` (see `GhosttyRuntime.applyiOSDefaults`),
-    /// so the SCREEN range can never materialize more than ~2MB of text no
-    /// matter how long the session ran. The sheet's 5000-line budget is then
-    /// applied off-main on top of that hard cap.
+    /// The read is bounded at the source: iOS surfaces are created with a
+    /// finite mirror scrollback byte budget derived from
+    /// `MobileTerminalScrollbackBudget.fullReplayRows`. The sheet's 5000-line
+    /// budget is then applied off-main on top of that hard cap.
     ///
     /// - Parameter surfaceID: The shell-level surface/terminal id the caller
     ///   wants text for (the same id the mounting representable stamped on the

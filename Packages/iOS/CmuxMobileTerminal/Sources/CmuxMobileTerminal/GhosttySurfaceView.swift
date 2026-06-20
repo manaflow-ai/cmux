@@ -603,11 +603,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
     var activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
-    var localScrollRowOffset: Double = 0
-    var localScrollbackMaxRowOffset: Double = 0
-    var localScrollbackBoundsInitialized = false
-    var localScrollbackAnchorToBottomOnNextScrollbar = false
-    var localScrollbackReplayRows: Int = 0
+    var localScrollbackModel = MobileTerminalLocalScrollbackModel()
     private let scrollForwardingPolicy = MobileTerminalScrollForwardingPolicy()
     public var decouplePrimaryScreenScroll: Bool = true
     /// Serial background queue for `ghostty_surface_process_output`, which
@@ -812,6 +808,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
     private var lastRenderRect: CGRect = .zero
+    /// The visible portion of ``lastRenderRect``. The renderer may keep a
+    /// hidden spare row below this rect so bottom-row newlines do not flash the
+    /// last visible line; dock placement, hit-testing, and cursor overlay use
+    /// this visible rect.
+    private var lastVisibleRenderRect: CGRect = .zero
     private var lastTerminalContainerSize: CGSize?
 
     #if DEBUG
@@ -1746,7 +1747,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if effectiveComposerHeight > 0 {
             toolbarTop = max(0, toolbarReservedTop)
         } else {
-            let renderBottom = lastRenderRect.isEmpty ? toolbarReservedTop : lastRenderRect.maxY
+            let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
+            let renderBottom = visibleRenderRect.isEmpty ? toolbarReservedTop : visibleRenderRect.maxY
             toolbarTop = max(0, min(renderBottom, toolbarReservedTop))
         }
         let toolbarFrame = CGRect(x: 0, y: toolbarTop, width: width, height: toolbarBottom - toolbarTop)
@@ -1905,8 +1907,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let scale = max(preferredScreenScale, 1)
         let cellW = max(cellPixelSize.width / scale, 1)
         let cellH = max(cellPixelSize.height / scale, 1)
-        let col = max(0, Int((point.x - lastRenderRect.minX) / cellW))
-        let row = max(0, Int((point.y - lastRenderRect.minY) / cellH))
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
+        let col = max(0, Int((point.x - visibleRenderRect.minX) / cellW))
+        let row = max(0, Int((point.y - visibleRenderRect.minY) / cellH))
         return (col, row)
     }
 
@@ -2256,20 +2259,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let activeScreen {
             self.activeScreen = activeScreen
         }
-        guard let scrollbackRows else { return }
-        let previousMax = localScrollbackMaxRowOffset
-        let wasAtBottom = !localScrollbackBoundsInitialized
-            || abs(localScrollRowOffset - previousMax) < 0.5
-        localScrollbackAnchorToBottomOnNextScrollbar = wasAtBottom
-        localScrollbackReplayRows = max(0, scrollbackRows)
-        if wasAtBottom, localScrollbackBoundsInitialized {
-            localScrollRowOffset = localScrollbackMaxRowOffset
-        }
+        let result = localScrollbackModel.applyMetadata(
+            activeScreen: activeScreen,
+            scrollbackRows: scrollbackRows
+        )
         updateCursorOverlay()
+        guard let scrollbackRows, let result else { return }
         MobileDebugLog.anchormux(
             "replay.metadata screen=\(activeScreen?.rawValue ?? "nil") "
-            + "scrollbackRows=\(scrollbackRows) maxOffset=\(String(format: "%.2f", localScrollbackMaxRowOffset)) "
-            + "rowOffset=\(String(format: "%.2f", localScrollRowOffset)) wasAtBottom=\(wasAtBottom) "
+            + "scrollbackRows=\(scrollbackRows) maxOffset=\(String(format: "%.2f", result.maxRowOffset)) "
+            + "rowOffset=\(String(format: "%.2f", result.rowOffset)) wasAtBottom=\(result.wasAtBottom) "
             + "awaitingScrollbar=true"
         )
     }
@@ -2954,14 +2953,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let cellWidth = max(cellPixelSize.width / scale, 1)
         let cellHeight = max(CGFloat(height), cellPixelSize.height / scale, 1)
         let cursorWidth = max(1.0 / scale, min(CGFloat(1.5), cellWidth))
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
         let cursorX = lastRenderRect.minX + CGFloat(x) - (cellWidth / 2)
         let cursorY = lastRenderRect.minY + CGFloat(y) - cellHeight
-        overlay.frame = CGRect(
+        let frame = CGRect(
             x: floor(cursorX),
             y: floor(cursorY),
             width: cursorWidth,
             height: ceil(cellHeight)
         )
+        guard frame.minY + 0.5 < visibleRenderRect.maxY else {
+            overlay.isHidden = true
+            return
+        }
+        overlay.frame = frame
         overlay.backgroundColor = cursorBlinkState.isVisible
             ? (configCursorColor ?? UIColor(red: 0xc0/255.0, green: 0xc1/255.0, blue: 0xb5/255.0, alpha: 1.0)).cgColor
             : (configBackgroundColor ?? backgroundColor ?? .black).cgColor
@@ -3117,7 +3122,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Result of an off-main geometry pass, handed back to the main actor.
     private struct GeometryResult: Sendable {
         let cellPixelSize: CGSize
-        let naturalSize: TerminalGridSize
+        let reportedSize: TerminalGridSize
+        let backingSize: TerminalGridSize
+        let visibleRenderSize: CGSize?
         /// Pinned render size in points when letterboxed to an effective
         /// grid; nil means fill the container.
         let pinnedSize: CGSize?
@@ -3186,30 +3193,62 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 )
             }
 
-            var pinnedSize: CGSize?
-            if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
-                let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
-                let pinnedW = CGFloat(eff.cols) * cell.width / scale
-                let pinnedH = CGFloat(eff.rows) * cell.height / scale
-                if !fillsNaturalGrid, !withinOneCell, pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
-                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
-                    let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
-                    let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
-                    pinnedSize = CGSize(
-                        width: min(CGFloat(aw) / scale, containerW),
-                        height: min(CGFloat(ah) / scale, containerH)
-                    )
-                }
-            }
-
-            let natural = TerminalGridSize(
+            let reported = TerminalGridSize(
                 columns: Int(measured.columns),
                 rows: Int(measured.rows),
                 pixelWidth: Int(measured.width_px),
                 pixelHeight: Int(measured.height_px)
             )
-            let result = GeometryResult(cellPixelSize: cell, naturalSize: natural, pinnedSize: pinnedSize)
+            var backingMeasured = measured
+            var pinnedSize: CGSize?
+            var visibleRenderSize: CGSize?
+            if cell.width > 0, cell.height > 0 {
+                if let eff, eff.cols > 0, eff.rows > 0 {
+                    let backingRows = TerminalLetterboxGeometry.backingRows(visibleRows: eff.rows)
+                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: backingRows, cellPixelSize: cell)
+                    backingMeasured = fitted.actual
+                    let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
+                    let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
+                    let backingPointSize = TerminalLetterboxGeometry.clampPinnedSize(
+                        actualWidthPx: CGFloat(aw),
+                        actualHeightPx: CGFloat(ah),
+                        scale: scale,
+                        container: CGSize(width: containerW, height: containerH + cell.height / max(scale, 1))
+                    )
+                    pinnedSize = backingPointSize
+                    visibleRenderSize = TerminalLetterboxGeometry.visibleRenderSize(
+                        backingSize: backingPointSize,
+                        cellPixelSize: cell,
+                        scale: scale
+                    )
+                } else if measured.columns > 0, measured.rows > 0 {
+                    let visibleRows = max(1, Int(measured.rows))
+                    let backingRows = TerminalLetterboxGeometry.backingRows(visibleRows: visibleRows)
+                    let fitted = Self.fitSurfaceToGrid(surface, cols: Int(measured.columns), rows: backingRows, cellPixelSize: cell)
+                    backingMeasured = fitted.actual
+                    let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
+                    let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
+                    let backingPointSize = CGSize(width: CGFloat(aw) / scale, height: CGFloat(ah) / scale)
+                    visibleRenderSize = TerminalLetterboxGeometry.visibleRenderSize(
+                        backingSize: backingPointSize,
+                        cellPixelSize: cell,
+                        scale: scale
+                    )
+                }
+            }
+            let backing = TerminalGridSize(
+                columns: Int(backingMeasured.columns),
+                rows: Int(backingMeasured.rows),
+                pixelWidth: Int(backingMeasured.width_px),
+                pixelHeight: Int(backingMeasured.height_px)
+            )
+            let result = GeometryResult(
+                cellPixelSize: cell,
+                reportedSize: reported,
+                backingSize: backing,
+                visibleRenderSize: visibleRenderSize,
+                pinnedSize: pinnedSize
+            )
             DispatchQueue.main.async {
                 self?.applyGeometryResult(
                     result,
@@ -3244,13 +3283,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // them match so frames present. Pinned (letterboxed) sizes are already
         // derived from the fitted surface px. Left-align + top-anchor either
         // way; any leftover container space is the letterbox margin.
-        let naturalRenderSize = CGSize(
-            width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
-            height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
+        let backingRenderSize = CGSize(
+            width: max(1, CGFloat(result.backingSize.pixelWidth) / scale),
+            height: max(1, CGFloat(result.backingSize.pixelHeight) / scale)
         )
         let renderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
-            ?? CGRect(origin: .zero, size: naturalRenderSize)
+            ?? CGRect(origin: .zero, size: backingRenderSize)
         lastRenderRect = renderRect
+        let visibleSize = result.visibleRenderSize ?? renderRect.size
+        lastVisibleRenderRect = CGRect(origin: renderRect.origin, size: visibleSize)
         // The docked toolbar's top hugs `lastRenderRect.maxY` (see
         // ``bottomDockFrames()``), so re-seat the whole bottom dock now that the
         // rendered terminal bottom has moved; otherwise the bar keeps the pre-geometry
@@ -3259,15 +3300,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
-            + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
+            + "natural=\(result.reportedSize.columns)x\(result.reportedSize.rows) "
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
-            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))"
+            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height)) "
+            + "visibleRect=\(Int(lastVisibleRenderRect.width))x\(Int(lastVisibleRenderRect.height))"
         )
         syncRendererLayerFrame(scale: scale, renderRect: renderRect)
         updateLetterboxBorder(
-            renderRect: renderRect,
-            isLetterboxed: renderRect.width + 0.5 < containerW || renderRect.height + 0.5 < containerH
+            renderRect: lastVisibleRenderRect,
+            isLetterboxed: lastVisibleRenderRect.width + 0.5 < containerW || lastVisibleRenderRect.height + 0.5 < containerH
         )
         updateCursorOverlay()
         needsDraw = true
@@ -3288,13 +3330,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if !waiters.isEmpty {
             MobileDebugLog.anchormux(
                 "replay.geometry.resume waiters=\(waiters.count) "
-                + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
+                + "natural=\(result.reportedSize.columns)x\(result.reportedSize.rows) "
                 + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
                 + "render=\(Int(renderRect.width))x\(Int(renderRect.height))"
             )
         }
 
-        let naturalSize = result.naturalSize
+        let naturalSize = result.reportedSize
         let currentContainerSize = CGSize(width: containerW, height: containerH)
         let containerShrank = lastTerminalContainerSize.map {
             currentContainerSize.width + 0.5 < $0.width || currentContainerSize.height + 0.5 < $0.height

@@ -7,41 +7,27 @@ nonisolated(unsafe) private var lastLocalScrollViewportLogTime: CFTimeInterval =
 
 extension GhosttySurfaceView {
     var isViewingLiveBottom: Bool {
-        activeScreen != .primary
-            || localScrollbackMaxRowOffset <= 0
-            || abs(localScrollRowOffset - localScrollbackMaxRowOffset) < 0.5
+        localScrollbackModel.isViewingLiveBottom
     }
 
     func updateLocalScrollbackBounds(total: UInt64, offset: UInt64, len: UInt64) {
-        guard activeScreen == .primary else {
-            localScrollRowOffset = 0
-            localScrollbackMaxRowOffset = 0
-            localScrollbackBoundsInitialized = false
-            localScrollbackAnchorToBottomOnNextScrollbar = false
-            return
-        }
-
-        let maxOffset = total > len ? Double(total - len) : 0
-        let previousMax = localScrollbackMaxRowOffset
-        let wasAtBottom = !localScrollbackBoundsInitialized
-            || localScrollbackAnchorToBottomOnNextScrollbar
-            || abs(localScrollRowOffset - previousMax) < 0.5
-
-        localScrollbackMaxRowOffset = maxOffset
-        localScrollbackBoundsInitialized = true
-        if wasAtBottom || localScrollRowOffset > maxOffset {
-            localScrollRowOffset = maxOffset
-        }
-        localScrollbackAnchorToBottomOnNextScrollbar = false
+        let result = localScrollbackModel.updateBounds(total: total, len: len)
         updateCursorOverlay()
 
         #if DEBUG
         MobileDebugLog.anchormux(
             "local.scroll.bounds total=\(total) offset=\(offset) len=\(len) "
-            + "max=\(String(format: "%.2f", maxOffset)) "
-            + "rowOffset=\(String(format: "%.2f", localScrollRowOffset)) "
-            + "wasAtBottom=\(wasAtBottom) replayRows=\(localScrollbackReplayRows)"
+            + "max=\(String(format: "%.2f", result.maxRowOffset)) "
+            + "rowOffset=\(String(format: "%.2f", result.rowOffset)) "
+            + "wasAtBottom=\(result.wasAtBottom) "
+            + "replayRows=\(localScrollbackModel.replayScrollbackRows)"
         )
+        if result.mirrorTruncated {
+            MobileDebugLog.anchormux(
+                "local.scroll.truncated expectedTotal=\(result.expectedTotalRows) actualTotal=\(total) "
+                + "missing=\(result.expectedTotalRows - total) len=\(len)"
+            )
+        }
         #endif
     }
 
@@ -53,21 +39,17 @@ extension GhosttySurfaceView {
         let size = ghostty_surface_size(surface)
         let cellHeightPx = max(Double(size.cell_height_px), 1)
         let rowDelta = pixelDeltaY / cellHeightPx
-        let previousOffset = localScrollRowOffset
-        localScrollRowOffset = min(
-            max(localScrollRowOffset - rowDelta, 0),
-            localScrollbackMaxRowOffset
-        )
+        let result = localScrollbackModel.applyGesture(rowDelta: rowDelta)
         MobileDebugLog.anchormux(
             "local.scroll.apply px=\(String(format: "%.1f", pixelDeltaY)) "
             + "rowDelta=\(String(format: "%.2f", rowDelta)) "
-            + "offset=\(String(format: "%.2f", previousOffset))->\(String(format: "%.2f", localScrollRowOffset)) "
-            + "max=\(String(format: "%.2f", localScrollbackMaxRowOffset)) "
+            + "offset=\(String(format: "%.2f", result.previousOffset))->\(String(format: "%.2f", result.rowOffset)) "
+            + "max=\(String(format: "%.2f", result.maxRowOffset)) "
             + "cellPx=\(String(format: "%.1f", cellHeightPx))"
         )
-        ghostty_surface_scroll_to_offset(surface, localScrollRowOffset)
+        ghostty_surface_scroll_to_offset(surface, result.rowOffset)
         updateCursorOverlay()
-        debugLogLocalScrollViewport(surface: surface, requestedOffset: localScrollRowOffset)
+        debugLogLocalScrollViewport(surface: surface, requestedOffset: result.rowOffset)
         drawForWakeup()
     }
 
@@ -78,8 +60,9 @@ extension GhosttySurfaceView {
         lastLocalScrollViewportLogTime = now
         let surfaceID = hostSurfaceID ?? "nil"
         let activeScreen = activeScreen.rawValue
-        let maxOffset = localScrollbackMaxRowOffset
-        let replayRows = localScrollbackReplayRows
+        let maxOffset = localScrollbackModel.maxRowOffset
+        let replayRows = localScrollbackModel.replayScrollbackRows
+        let mirrorTruncated = localScrollbackModel.mirrorTruncated
         Self.outputQueue.async {
             let viewport = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? ""
             let lines = viewport
@@ -92,6 +75,7 @@ extension GhosttySurfaceView {
                 "local.scroll.viewport surface=\(surfaceID) screen=\(activeScreen) "
                 + "requested=\(String(format: "%.2f", requestedOffset)) "
                 + "max=\(String(format: "%.2f", maxOffset)) replayRows=\(replayRows) "
+                + "truncated=\(mirrorTruncated) "
                 + "lineCount=\(lines.count) first=\(first) last=\(last)"
             )
         }

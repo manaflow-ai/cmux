@@ -289,4 +289,18 @@ struct TerminalLetterboxGeometryTests {
         )
         #expect(clamped == CGSize(width: 402, height: 700))
     }
+
+    @Test("bottom spare row separates backing grid from visible viewport")
+    func bottomSpareRowPolicy() {
+        #expect(TerminalLetterboxGeometry.backingRows(visibleRows: 48) == 49)
+        #expect(TerminalLetterboxGeometry.visibleRows(backingRows: 49) == 48)
+        #expect(TerminalLetterboxGeometry.visibleRows(backingRows: 1) == 1)
+
+        let visible = TerminalLetterboxGeometry.visibleRenderSize(
+            backingSize: CGSize(width: 402, height: 490),
+            cellPixelSize: CGSize(width: 18, height: 30),
+            scale: 3
+        )
+        #expect(visible == CGSize(width: 402, height: 480))
+    }
 }

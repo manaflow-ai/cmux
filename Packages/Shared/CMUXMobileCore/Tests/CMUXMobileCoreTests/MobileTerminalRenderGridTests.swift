@@ -2,6 +2,14 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
+@Test func mobileScrollbackBudgetsKeepReplayAndMirrorCapacityCoupled() {
+    #expect(MobileTerminalScrollbackBudget.fullReplayRows >= 10_000)
+    #expect(MobileTerminalScrollbackBudget.localMirrorScrollbackLimitBytes ==
+        MobileTerminalScrollbackBudget.fullReplayRows *
+        MobileTerminalScrollbackBudget.localMirrorBytesPerReplayRow)
+    #expect(MobileTerminalScrollbackBudget.localMirrorBytesPerReplayRow >= 12 * 1024)
+}
+
 @Test func renderGridFrameEncodesVisibleRowsAndCursor() throws {
     let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal-a",

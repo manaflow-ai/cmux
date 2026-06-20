@@ -12,6 +12,12 @@ import Foundation
 public struct TerminalLetterboxGeometry {
     private init() {}
 
+    /// One backing row is kept below the visible terminal grid on iOS. This is
+    /// the terminal equivalent of overscan: a newline from the last visible row
+    /// can land in the hidden row before the viewport scrolls, so the last
+    /// visible line does not flash in and out during live output.
+    public static let defaultBottomSpareRows = 1
+
     /// The drawable container size after subtracting the keyboard overlap.
     ///
     /// Mirrors the legacy `containerW`/`containerH`/`bottomInset` computation:
@@ -148,6 +154,33 @@ public struct TerminalLetterboxGeometry {
         let w = UInt32(max(1, Int((CGFloat(cols) * cellPixelSize.width).rounded(.down))))
         let h = UInt32(max(1, Int((CGFloat(rows) * cellPixelSize.height).rounded(.down))))
         return (w, h)
+    }
+
+    /// Converts a visible terminal row count into the backing row count used by
+    /// the local renderer.
+    public static func backingRows(visibleRows: Int, spareRows: Int = defaultBottomSpareRows) -> Int {
+        max(1, visibleRows) + max(0, spareRows)
+    }
+
+    /// Converts a backing terminal row count into the visible row count reported
+    /// to the host and used for the dock boundary.
+    public static func visibleRows(backingRows: Int, spareRows: Int = defaultBottomSpareRows) -> Int {
+        max(1, backingRows - max(0, spareRows))
+    }
+
+    /// The visible portion of a backing render box after reserving hidden
+    /// bottom overscan rows.
+    public static func visibleRenderSize(
+        backingSize: CGSize,
+        cellPixelSize: CGSize,
+        scale: CGFloat,
+        spareRows: Int = defaultBottomSpareRows
+    ) -> CGSize {
+        let hiddenHeight = CGFloat(max(0, spareRows)) * max(0, cellPixelSize.height) / max(scale, 1)
+        return CGSize(
+            width: backingSize.width,
+            height: max(1, backingSize.height - hiddenHeight)
+        )
     }
 
     /// Whether the surface should be letterbox-pinned to `effective` inside the
