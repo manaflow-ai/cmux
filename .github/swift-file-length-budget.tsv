@@ -5,7 +5,7 @@
 15036	Sources/AppDelegate.swift
 13356	Sources/ContentView.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
-12110	Sources/Workspace.swift
+12095	Sources/Workspace.swift
 11411	Sources/Panels/BrowserPanel.swift
 11299	Sources/GhosttyTerminalView.swift
 9418	Sources/TerminalController.swift
