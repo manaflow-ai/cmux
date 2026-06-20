@@ -189,7 +189,9 @@ struct CMUXMobileRootView: View {
             // paired-but-offline user (who can reach here after a failed
             // reconnect) is excluded by the gate and falls through to pairing.
             onboardingFlow
-        } else if store.connectionState != .connected {
+        } else if store.connectionState != .connected && !store.hasKnownPairedMac {
+            // ONLY when there are no saved Macs at all: the add-device flow (it
+            // auto-presents the pairing sheet since there is nothing to list).
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
@@ -197,11 +199,13 @@ struct CMUXMobileRootView: View {
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
                 store: store
             )
-            // The disconnected view decides whether to auto-present the pairing
-            // sheet: it loads saved Macs first and only pops the sheet when there
-            // are none to pick (otherwise it lists them for one-tap reconnect).
-            // See DisconnectedWorkspaceShellView.task.
         } else {
+            // Connected, OR we have saved Macs and are auto-connecting in the
+            // background: always show the integrated cross-Mac workspace list, so
+            // the user never sees a "Your Macs" picker screen. The list renders
+            // whatever workspaces have aggregated (foreground + live secondary
+            // subscriptions); the foreground connection is established without any
+            // tap. Opening a workspace attaches its Mac on demand.
             WorkspaceShellView(store: store, signOut: signOut)
         }
     }
