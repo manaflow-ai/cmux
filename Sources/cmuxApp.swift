@@ -26,6 +26,47 @@ import CmuxTerminal
 ///   rendered layer tree with the host;
 /// - the interpreter worker (stage-1 fallback path) runs before any
 ///   AppKit/SwiftUI setup.
+///
+/// `CmuxMain` plus ``cmuxApp`` are the executable target's permanent
+/// composition-root residue. The god-file decomposition drained the settings,
+/// app-shell, debug-tooling, workspace, and notification subsystems out of
+/// `cmuxApp.swift` into packages; what remains here is, by design, the code that
+/// cannot move down per the executable-target boundary (CONVENTIONS §6):
+///
+/// - **Constraint 1 (the `@main` App stays in the executable):** ``cmuxApp``'s
+///   `body`/`Scene`/`Commands`/`MenuBarExtra` trees are SwiftUI result-builder
+///   bodies on the `@main` `App`. A `some Scene`/`some Commands`
+///   `@SceneBuilder`/`@CommandsBuilder` body is a member of the App type, and a
+///   lower package cannot declare or extend the `@main` App type, so these trees
+///   are irreducible residue. They stay thin: each menu/scene item only places a
+///   button, reads a resolved snapshot (e.g. `WorkspaceCommandMenuState`,
+///   `NotificationMenuSnapshot`), and forwards to an injected package
+///   coordinator or to `AppDelegate`. No domain logic lives in the bodies.
+/// - **Composition root:** ``cmuxApp/init()`` is the single place the object
+///   graph is assembled (the `SettingsRuntime`, `MacAuthComposition`, secret
+///   migrations, the `TabManager` state object, appearance/socket bootstrap),
+///   then injected into scenes and into `AppDelegate.configure(...)`. This is the
+///   intended end state, not debt.
+/// - **Menu-builder satellites:** `cmuxApp+EqualizeSplitsMenu.swift` and
+///   `cmuxApp+HistoryMenu.swift` are `cmuxApp` extensions for the same reason
+///   (constraint 1). They are pure `@CommandsBuilder`/`@ViewBuilder` shims that
+///   forward to package coordinators (`CmuxWorkspaces` workspace/focus-history
+///   commands, the closed-item history model); their logic already lives in the
+///   packages.
+/// - **Accepted DEBUG-lab residue (deferred, not constraint-1):** the
+///   `#if DEBUG` lab/content views still in this file
+///   (`DebugWindowControlsView`, `TabBarBackdropLabView`, `BackgroundDebugView`,
+///   `StartupAppearanceDebugView`, `FileExplorerStyleDebugView`) are app-coupled
+///   SwiftUI content injected into the package-owned window shells in
+///   `CmuxAppKitSupportUI`. They read live app-target state (`GhosttyApp`,
+///   `Workspace`, `AppDelegate`, app-target settings enums), so they are
+///   documented residue pending the dedicated content-inversion slice; they are
+///   not part of the irreducible composition-root shape.
+/// - **Root anchors:** the `BuildFlavor` typealias (the value type lives in
+///   `CmuxFoundation`) and the file-scope `telemetrySettings` constant (the one
+///   process-wide `TelemetrySettingsStore`, read via the
+///   `TelemetrySettingsReading` seam) are composition-root anchors for global
+///   callers with nowhere to inject a dependency.
 @main
 enum CmuxMain {
     static func main() {
