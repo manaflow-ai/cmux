@@ -6111,7 +6111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     appDelegate.openDiffViewerAgentContextTasks.removeValue(forKey: taskKey)
                     guard appDelegate.openDiffViewerFocusedContextStillMatches(
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId
+                        surfaceId: surfaceId,
+                        sessionId: sessionId
                     ) else {
                         return
                     }
@@ -6157,10 +6158,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func openDiffViewerFocusedContextStillMatches(workspaceId: UUID, surfaceId: UUID) -> Bool {
+    private func openDiffViewerFocusedContextStillMatches(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        sessionId: String
+    ) -> Bool {
         mainWindowContexts.values.contains { context in
-            context.tabManager.selectedWorkspace?.id == workspaceId &&
-                context.tabManager.selectedWorkspace?.focusedPanelId == surfaceId
+            guard context.tabManager.selectedWorkspace?.id == workspaceId,
+                  context.tabManager.selectedWorkspace?.focusedPanelId == surfaceId,
+                  let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspaceId, panelId: surfaceId),
+                  Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) == sessionId else {
+                return false
+            }
+            return true
         }
     }
 
