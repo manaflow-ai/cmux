@@ -4074,6 +4074,42 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         bonsplitController.updateTab(tabId, isPinned: isPinned)
     }
 
+    var surfaceRegistryPanelCount: Int {
+        panels.count
+    }
+
+    var surfaceRegistryWorkspaceCustomTitle: String? {
+        customTitle
+    }
+
+    var surfaceRegistryWorkspaceTitle: String {
+        get { title }
+        set { title = newValue }
+    }
+
+    var surfaceRegistryWorkspaceProcessTitle: String {
+        get { processTitle }
+        set { processTitle = newValue }
+    }
+
+    func surfaceRegistryLogUpdatePanelTitle(
+        panelId: UUID,
+        trimmedTitle: String,
+        panelCount: Int,
+        hasCustomTitle: Bool,
+        didMutatePanelTitle: Bool,
+        didMutateWorkspaceTitle: Bool
+    ) {
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) panels=\(panelCount) custom=\(hasCustomTitle ? 1 : 0) " +
+            "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
+            "title=\"\(debugWorkspaceDescriptionPreview(trimmedTitle, limit: 80))\""
+        )
+#endif
+    }
+
     var surfaceRegistryIsRemoteTmuxMirror: Bool {
         isRemoteTmuxMirror
     }
@@ -4646,54 +4682,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        var didMutate = false
-        var didMutatePanelTitle = false
-        var didMutateWorkspaceTitle = false
-
-        if panelTitles[panelId] != trimmed {
-            panelTitles[panelId] = trimmed
-            didMutate = true
-            didMutatePanelTitle = true
-        }
-
-        // Update bonsplit tab title only when this panel's title changed.
-        if didMutate,
-           let tabId = surfaceIdFromPanelId(panelId),
-           let panel = panels[panelId] {
-            let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
-            bonsplitController.updateTab(
-                tabId,
-                title: resolvedTitle,
-                hasCustomTitle: panelCustomTitles[panelId] != nil
-            )
-        }
-
-        // If this is the only panel and no custom title, update workspace title
-        if panels.count == 1, customTitle == nil {
-            if self.title != trimmed {
-                self.title = trimmed
-                didMutate = true
-                didMutateWorkspaceTitle = true
-            }
-            if processTitle != trimmed {
-                processTitle = trimmed
-            }
-        }
-
-#if DEBUG
-        if didMutate {
-            cmuxDebugLog(
-                "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
-                "panel=\(panelId.uuidString.prefix(5)) panels=\(panels.count) custom=\(customTitle == nil ? 0 : 1) " +
-                "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
-                "title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 80))\""
-            )
-        }
-#endif
-        return didMutate
+        surfaceRegistry.updatePanelTitle(panelId: panelId, title: title)
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {

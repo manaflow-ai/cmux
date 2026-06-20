@@ -79,6 +79,41 @@ public protocol SurfaceRegistryHosting: AnyObject {
     /// `bonsplitController.updateTab(_:isPinned:)`).
     func surfaceRegistryUpdateTab(_ tabId: TabID, isPinned: Bool)
 
+    /// The number of panels currently in the workspace (legacy `panels.count`);
+    /// gates the single-panel workspace-title promotion in
+    /// ``SurfaceRegistryModel/updatePanelTitle(panelId:title:)``.
+    var surfaceRegistryPanelCount: Int { get }
+
+    /// The workspace's custom-title override (legacy `Workspace.customTitle`),
+    /// read by ``SurfaceRegistryModel/updatePanelTitle(panelId:title:)`` to skip
+    /// the workspace-title promotion when a custom title masks the process title.
+    /// Owned by the workspace's title vocabulary (``WorkspaceTitleModel``).
+    var surfaceRegistryWorkspaceCustomTitle: String? { get }
+
+    /// The workspace title (legacy `Workspace.title`); the single-panel
+    /// promotion in ``SurfaceRegistryModel/updatePanelTitle(panelId:title:)``
+    /// reads and writes it. Owned by the workspace's title vocabulary.
+    var surfaceRegistryWorkspaceTitle: String { get set }
+
+    /// The workspace process title (legacy `Workspace.processTitle`); the
+    /// single-panel promotion reads and writes it. Owned by the workspace's
+    /// title vocabulary.
+    var surfaceRegistryWorkspaceProcessTitle: String { get set }
+
+    /// Emits the DEBUG `workspace.title.updatePanel` trace for an applied
+    /// ``SurfaceRegistryModel/updatePanelTitle(panelId:title:)`` (legacy
+    /// `#if DEBUG cmuxDebugLog("workspace.title.updatePanel …")`). The title
+    /// preview escaping/truncation stays app-side so the moved body carries no
+    /// formatting; called only when the update mutated state.
+    func surfaceRegistryLogUpdatePanelTitle(
+        panelId: UUID,
+        trimmedTitle: String,
+        panelCount: Int,
+        hasCustomTitle: Bool,
+        didMutatePanelTitle: Bool,
+        didMutateWorkspaceTitle: Bool
+    )
+
     /// Whether this workspace is a remote tmux mirror (legacy
     /// `isRemoteTmuxMirror`); gates the `rename-window` propagation in
     /// ``SurfaceRegistryModel/setPanelCustomTitle(panelId:title:source:)``.
