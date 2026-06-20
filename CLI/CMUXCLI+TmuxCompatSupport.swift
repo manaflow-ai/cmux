@@ -128,19 +128,17 @@ extension CMUXCLI {
     /// hits that gate hangs forever (its pane opens but it never checks in —
     /// issue #6447). Re-supply it so teammates start the same way the lead does.
     ///
-    /// That trust gate is a real safety boundary, so — exactly as the lead does
-    /// in `claudeTeamsExtraEnvVars` — it is only waived when the user already
-    /// opted into skipping safety prompts: the teammate command Claude Code
-    /// issues carries `--dangerously-skip-permissions` only when the lead is in
-    /// bypass mode. Without it the teammate keeps its trust prompt.
-    ///
-    /// Scoped to claude-teams via `CMUX_CLAUDE_TEAMS_CMUX_BIN`, which the launcher
-    /// exports and which the tmux shim propagates to this `__tmux-compat`
-    /// process. OMO (`CMUX_OMO_CMUX_BIN`) and the public `respawn-pane` command
-    /// run without it and are unaffected.
-    func tmuxClaudeTeamsRespawnEnvironment(forCommand command: String) -> [(key: String, value: String)] {
-        guard ProcessInfo.processInfo.environment["CMUX_CLAUDE_TEAMS_CMUX_BIN"] != nil,
-              command.contains("--dangerously-skip-permissions") else {
+    /// That trust gate is a real safety boundary, so it is only waived when the
+    /// user already opted into skipping safety prompts. The opt-in is NOT inferred
+    /// from the respawn command text (a `--dangerously-skip-permissions` substring
+    /// can appear in a cwd, quoted value, or other non-flag position): the `cmux
+    /// claude-teams` launcher makes that decision once from its own argv and records
+    /// it in `CMUX_CLAUDE_TEAMS_SANDBOXED` (see `claudeTeamsExtraEnvVars`). That
+    /// launcher env is propagated by the tmux shim to this `__tmux-compat` process,
+    /// and is set only inside an opted-in claude-teams session, so OMO and the
+    /// public `respawn-pane` command never see it and are unaffected.
+    func tmuxClaudeTeamsRespawnEnvironment() -> [(key: String, value: String)] {
+        guard ProcessInfo.processInfo.environment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" else {
             return []
         }
         return [(key: "CLAUDE_CODE_SANDBOXED", value: "1")]

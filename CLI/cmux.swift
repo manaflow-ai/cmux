@@ -21905,7 +21905,7 @@ struct CMUXCLI {
             var params: [String: Any] = [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
-                "command": tmuxRespawnStartCommand(commandText, prependEnv: tmuxClaudeTeamsRespawnEnvironment(forCommand: commandText)),
+                "command": tmuxRespawnStartCommand(commandText, prependEnv: tmuxClaudeTeamsRespawnEnvironment()),
                 "tmux_start_command": commandText
             ]
             if let cwd = parsed.value("-c")?.trimmingCharacters(in: .whitespacesAndNewlines),

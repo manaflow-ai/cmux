@@ -37,6 +37,7 @@ def run_claude_teams(
 
         env_log = tmp / "agent-teams.log"
         sandboxed_log = tmp / "sandboxed.log"
+        marker_log = tmp / "sandboxed-marker.log"
         tmux_log = tmp / "tmux-path.log"
         cmux_bin_log = tmp / "cmux-bin.log"
         argv_log = tmp / "argv.log"
@@ -58,6 +59,7 @@ def run_claude_teams(
 set -euo pipefail
 printf '%s\\n' "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS-__UNSET__}" > "$FAKE_AGENT_TEAMS_LOG"
 printf '%s\\n' "${CLAUDE_CODE_SANDBOXED-__UNSET__}" > "$FAKE_SANDBOXED_LOG"
+printf '%s\\n' "${CMUX_CLAUDE_TEAMS_SANDBOXED-__UNSET__}" > "$FAKE_SANDBOXED_MARKER_LOG"
 command -v tmux > "$FAKE_TMUX_PATH_LOG"
 printf '%s\\n' "${CMUX_CLAUDE_TEAMS_CMUX_BIN-__UNSET__}" > "$FAKE_CMUX_BIN_LOG"
 printf '%s\\n' "$@" > "$FAKE_ARGV_LOG"
@@ -111,6 +113,7 @@ fs.writeFileSync(
         env["PATH"] = f"{real_bin}:{base_env.get('PATH', '/usr/bin:/bin')}"
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
         env["FAKE_SANDBOXED_LOG"] = str(sandboxed_log)
+        env["FAKE_SANDBOXED_MARKER_LOG"] = str(marker_log)
         env["FAKE_TMUX_PATH_LOG"] = str(tmux_log)
         env["FAKE_CMUX_BIN_LOG"] = str(cmux_bin_log)
         env["FAKE_ARGV_LOG"] = str(argv_log)
@@ -169,6 +172,14 @@ fs.writeFileSync(
         sandboxed_value = read_text(sandboxed_log)
         if sandboxed_value != "1":
             print(f"FAIL: expected CLAUDE_CODE_SANDBOXED=1 to skip the trust gate, got {sandboxed_value!r}")
+            raise SystemExit(1)
+
+        # The launcher records the opt-in in CMUX_CLAUDE_TEAMS_SANDBOXED so teammate
+        # respawns re-apply the same trust decision without re-deriving it from
+        # untrusted command text.
+        marker_value = read_text(marker_log)
+        if marker_value != "1":
+            print(f"FAIL: expected CMUX_CLAUDE_TEAMS_SANDBOXED=1 opt-in marker, got {marker_value!r}")
             raise SystemExit(1)
 
         tmux_path = read_text(tmux_log)

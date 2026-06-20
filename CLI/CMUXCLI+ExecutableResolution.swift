@@ -144,15 +144,20 @@ extension CMUXCLI {
     /// boundary — running `claude` in an untrusted checkout — so it is only waived
     /// when the user has already opted into skipping safety prompts with
     /// `--dangerously-skip-permissions`. Without that flag the trust prompt is left
-    /// in place and the user vets the directory normally. Teammate panes are
-    /// re-supplied the same value, under the same condition, by
-    /// `tmuxClaudeTeamsRespawnEnvironment(forCommand:)`.
+    /// in place and the user vets the directory normally.
+    ///
+    /// The opt-in decision is made here, once, by an exact argv check, and recorded
+    /// in `CMUX_CLAUDE_TEAMS_SANDBOXED` so teammate respawns (which run as a separate
+    /// `cmux __tmux-compat` process and cannot see this argv) re-apply the same
+    /// decision without re-deriving it from untrusted command text — see
+    /// `tmuxClaudeTeamsRespawnEnvironment()`.
     func claudeTeamsExtraEnvVars(commandArgs: [String]) -> [(key: String, value: String)] {
         var vars: [(key: String, value: String)] = [
             (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
         ]
         if claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) {
             vars.append((key: "CLAUDE_CODE_SANDBOXED", value: "1"))
+            vars.append((key: "CMUX_CLAUDE_TEAMS_SANDBOXED", value: "1"))
         }
         return vars
     }
