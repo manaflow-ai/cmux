@@ -9798,7 +9798,7 @@ final class Workspace: Identifiable, ObservableObject {
         scheduleLayoutFollowUpAttempt()
     }
 
-    private func suppressReparentFocusUntilLayoutFollowUp(
+    func suppressReparentFocusUntilLayoutFollowUp(
         _ hostedView: GhosttySurfaceScrollView?,
         reason: String
     ) {

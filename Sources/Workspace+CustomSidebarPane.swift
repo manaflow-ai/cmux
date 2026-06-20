@@ -150,6 +150,7 @@ extension Workspace {
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = customPanel.id
+        let previousHostedView = focusedTerminalPanel?.hostedView
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
@@ -166,7 +167,11 @@ extension Workspace {
         }
 
         bonsplitController.selectTab(newTab.id)
-        focusPanel(customPanel.id)
+        suppressReparentFocusUntilLayoutFollowUp(
+            previousHostedView,
+            reason: "workspace.customSidebarSplitReparent"
+        )
+        focusPanel(customPanel.id, previousHostedView: previousHostedView)
         publishCmuxSplitCreated(
             newPaneId,
             sourcePaneId: paneId,
