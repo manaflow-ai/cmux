@@ -116,6 +116,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.copyOnSelect",
         "terminal.resumeCommands",
         "terminal.focusTextBoxOnNewTerminals",
+        "terminal.scrollSpeed",
         "terminal.showScrollBar",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.textBoxMaxLines",
