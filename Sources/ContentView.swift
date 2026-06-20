@@ -237,7 +237,7 @@ struct ContentView: View {
     @State private var commandPaletteVisibleResultsFingerprint: Int?
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
-    @State private var cachedDefaultTerminalIsDefault = DefaultTerminalRegistration.currentStatus().isDefault
+    @State private var cachedDefaultTerminalIsDefault = DefaultTerminalUserAction.currentStatus().isDefault
     @State private var commandPalettePendingDismissFocusTarget: CommandPaletteRestoreFocusTarget?
     @State private var commandPaletteRestoreTimeoutWorkItem: DispatchWorkItem?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
@@ -4105,7 +4105,7 @@ struct ContentView: View {
     }
 
     private func refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: Bool = true) {
-        let isDefault = DefaultTerminalRegistration.currentStatus().isDefault
+        let isDefault = DefaultTerminalUserAction.currentStatus().isDefault
         guard cachedDefaultTerminalIsDefault != isDefault else { return }
 
         cachedDefaultTerminalIsDefault = isDefault
