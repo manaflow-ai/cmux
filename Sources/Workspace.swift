@@ -2091,6 +2091,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// `WorkspaceSurfaceTreeReading`; the legacy accessors below forward here.
     let surfaceList = WorkspaceSurfaceListModel()
 
+    /// The surface-lifecycle coordinator (CmuxWorkspaces): owns the pane/index
+    /// target resolvers over the live split tree (`paneId(forPanelId:)`,
+    /// `indexInPane(forPanelId:)`, `preferredRightSideTargetPane`,
+    /// `topRightBrowserReusePane`, `applyInitialSplitDividerPosition`). `Workspace`
+    /// is its `SurfaceLifecycleHosting` host (see the conformance file); the
+    /// legacy Panel-Operations accessors below forward here.
+    let surfaceLifecycle = SurfaceLifecycleCoordinator()
+
     /// The session-restore coordinator (CmuxWorkspaces): owns the
     /// persisted-layout serialization bridge (live Bonsplit tree → persisted
     /// layout DTO and back to live divider positions). `Workspace` is its
@@ -2984,6 +2992,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         self.surfaceDirectoryMetadata = WorkspaceSurfaceMetadataModel(registry: surfaceRegistry)
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
+        surfaceLifecycle.attach(host: self)
         sessionRestoreCoordinator.attach(host: self)
         unreadModel.attach(host: self)
         unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
@@ -8107,114 +8116,29 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
-        return bonsplitController.allPaneIds.first { paneId in
-            bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId })
-        }
+        surfaceLifecycle.paneId(forPanelId: panelId)
     }
 
     private func applyInitialSplitDividerPosition(_ position: CGFloat?, sourcePaneId: PaneID, newPaneId: PaneID) {
-        guard let position,
-              let splitId = bonsplitController.treeSnapshot().splitIdJoiningPanes(
-                sourcePaneId.id.uuidString,
-                newPaneId.id.uuidString
-              ) else { return }
-        _ = bonsplitController.setDividerPosition(position, forSplit: splitId, fromExternal: true)
+        surfaceLifecycle.applyInitialSplitDividerPosition(position, sourcePaneId: sourcePaneId, newPaneId: newPaneId)
     }
 
     func indexInPane(forPanelId panelId: UUID) -> Int? {
-        guard let tabId = surfaceIdFromPanelId(panelId),
-              let paneId = paneId(forPanelId: panelId) else { return nil }
-        return bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId })
+        surfaceLifecycle.indexInPane(forPanelId: panelId)
     }
 
     /// Returns the nearest right-side sibling pane for browser/file-preview placement.
     /// The search is local to the source pane's ancestry in the split tree:
     /// use the closest horizontal ancestor where the source is in the first (left) branch.
     func preferredRightSideTargetPane(fromPanelId panelId: UUID) -> PaneID? {
-        guard let sourcePane = paneId(forPanelId: panelId) else { return nil }
-        let sourcePaneId = sourcePane.id.uuidString
-        let tree = bonsplitController.treeSnapshot()
-        guard let path = tree.browserPathToPane(targetPaneId: sourcePaneId) else { return nil }
-
-        let layout = bonsplitController.layoutSnapshot()
-        let paneFrameById = Dictionary(uniqueKeysWithValues: layout.panes.map { ($0.paneId, $0.frame) })
-        let sourceFrame = paneFrameById[sourcePaneId]
-        let sourceCenterY = sourceFrame.map { $0.y + ($0.height * 0.5) } ?? 0
-        let sourceRightX = sourceFrame.map { $0.x + $0.width } ?? 0
-
-        for crumb in path {
-            guard crumb.split.orientation == "horizontal", crumb.branch == .first else { continue }
-            var candidateNodes: [ExternalPaneNode] = []
-            crumb.split.second.browserCollectPaneNodes(into: &candidateNodes)
-            if candidateNodes.isEmpty { continue }
-
-            let sorted = candidateNodes.sorted { lhs, rhs in
-                let lhsDy = abs((lhs.frame.y + (lhs.frame.height * 0.5)) - sourceCenterY)
-                let rhsDy = abs((rhs.frame.y + (rhs.frame.height * 0.5)) - sourceCenterY)
-                if lhsDy != rhsDy { return lhsDy < rhsDy }
-
-                let lhsDx = abs(lhs.frame.x - sourceRightX)
-                let rhsDx = abs(rhs.frame.x - sourceRightX)
-                if lhsDx != rhsDx { return lhsDx < rhsDx }
-
-                if lhs.frame.x != rhs.frame.x { return lhs.frame.x < rhs.frame.x }
-                return lhs.id < rhs.id
-            }
-
-            for candidate in sorted {
-                guard let candidateUUID = UUID(uuidString: candidate.id),
-                      candidateUUID != sourcePane.id,
-                      let pane = bonsplitController.allPaneIds.first(where: { $0.id == candidateUUID }) else {
-                    continue
-                }
-                return pane
-            }
-        }
-
-        return nil
+        surfaceLifecycle.preferredRightSideTargetPane(fromPanelId: panelId)
     }
 
     /// Returns the top-right pane in the current split tree.
     /// When a workspace is already split, sidebar PR opens should reuse an existing pane
     /// instead of creating additional right splits.
     func topRightBrowserReusePane() -> PaneID? {
-        let paneIds = bonsplitController.allPaneIds
-        guard paneIds.count > 1 else { return nil }
-
-        let paneById = Dictionary(uniqueKeysWithValues: paneIds.map { ($0.id.uuidString, $0) })
-        var paneBounds: [String: CGRect] = [:]
-        bonsplitController.treeSnapshot().browserCollectNormalizedPaneBounds(
-            availableRect: CGRect(x: 0, y: 0, width: 1, height: 1),
-            into: &paneBounds
-        )
-
-        guard !paneBounds.isEmpty else {
-            return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
-        }
-
-        let epsilon = 0.000_1
-        let rightMostX = paneBounds.values.map(\.maxX).max() ?? 0
-
-        let sortedCandidates = paneBounds
-            .filter { _, rect in abs(rect.maxX - rightMostX) <= epsilon }
-            .sorted { lhs, rhs in
-                if abs(lhs.value.minY - rhs.value.minY) > epsilon {
-                    return lhs.value.minY < rhs.value.minY
-                }
-                if abs(lhs.value.minX - rhs.value.minX) > epsilon {
-                    return lhs.value.minX > rhs.value.minX
-                }
-                return lhs.key < rhs.key
-            }
-
-        for candidate in sortedCandidates {
-            if let pane = paneById[candidate.key] {
-                return pane
-            }
-        }
-
-        return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
+        surfaceLifecycle.topRightBrowserReusePane()
     }
 
     private func stageClosedBrowserRestoreSnapshotIfNeeded(for tab: Bonsplit.Tab, inPane pane: PaneID) {
