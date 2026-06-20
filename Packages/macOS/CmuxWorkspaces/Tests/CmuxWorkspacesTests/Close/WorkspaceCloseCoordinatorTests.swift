@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxSettings
 @testable import CmuxWorkspaces
 
 @MainActor
@@ -348,5 +349,84 @@ struct WorkspaceCloseCoordinatorTests {
         coordinator.attachWorkspace(incoming, at: nil, select: false)
         #expect(model.tabs.map(\.id) == [a.id, incoming.id])
         #expect(model.selectedTabId == a.id)
+    }
+}
+
+/// A fixed ``CloseTabWarningReading`` for asserting the confirmation decision
+/// without touching `UserDefaults`.
+private struct FakeCloseTabWarning: CloseTabWarningReading {
+    var warnsBeforeClosingTab: Bool
+    var warnsBeforeClosingTabXButton: Bool
+    var hidesTabCloseButton: Bool = false
+}
+
+@MainActor
+@Suite
+struct WorkspaceCloseConfirmationDecisionTests {
+    private func makeCoordinator(
+        closeTabWarning: FakeCloseTabWarning
+    ) -> WorkspaceCloseCoordinator<StubTab> {
+        let coordinator = WorkspaceCloseCoordinator<StubTab>(model: WorkspacesModel<StubTab>())
+        coordinator.attach(closeTabWarning: closeTabWarning)
+        return coordinator
+    }
+
+    @Test
+    func workspaceSourceHonorsRequiresConfirmationVerbatim() {
+        let coordinator = makeCoordinator(
+            closeTabWarning: FakeCloseTabWarning(
+                warnsBeforeClosingTab: false,
+                warnsBeforeClosingTabXButton: false
+            )
+        )
+        // .workspace ignores the warning toggles entirely.
+        #expect(coordinator.shouldConfirmClose(requiresConfirmation: true, source: .workspace) == true)
+        #expect(coordinator.shouldConfirmClose(requiresConfirmation: false, source: .workspace) == false)
+    }
+
+    @Test
+    func tabCloseRoutesThroughShortcutWarning() {
+        let warnsOn = makeCoordinator(
+            closeTabWarning: FakeCloseTabWarning(
+                warnsBeforeClosingTab: true,
+                warnsBeforeClosingTabXButton: false
+            )
+        )
+        // .tabClose == .shortcut: warn only when the tab requires it AND the
+        // shortcut warning is on.
+        #expect(warnsOn.shouldConfirmClose(requiresConfirmation: true, source: .tabClose) == true)
+        #expect(warnsOn.shouldConfirmClose(requiresConfirmation: false, source: .tabClose) == false)
+
+        let warnsOff = makeCoordinator(
+            closeTabWarning: FakeCloseTabWarning(
+                warnsBeforeClosingTab: false,
+                warnsBeforeClosingTabXButton: true
+            )
+        )
+        // X-button toggle does not affect the shortcut path.
+        #expect(warnsOff.shouldConfirmClose(requiresConfirmation: true, source: .tabClose) == false)
+    }
+
+    @Test
+    func tabCloseButtonRoutesThroughXButtonWarning() {
+        let xOn = makeCoordinator(
+            closeTabWarning: FakeCloseTabWarning(
+                warnsBeforeClosingTab: false,
+                warnsBeforeClosingTabXButton: true
+            )
+        )
+        // .tabCloseButton warns whenever the X-button toggle is on, regardless
+        // of requiresConfirmation.
+        #expect(xOn.shouldConfirmClose(requiresConfirmation: false, source: .tabCloseButton) == true)
+
+        let bothOff = makeCoordinator(
+            closeTabWarning: FakeCloseTabWarning(
+                warnsBeforeClosingTab: true,
+                warnsBeforeClosingTabXButton: false
+            )
+        )
+        // X off but shortcut on + requiresConfirmation still warns (the OR arm).
+        #expect(bothOff.shouldConfirmClose(requiresConfirmation: true, source: .tabCloseButton) == true)
+        #expect(bothOff.shouldConfirmClose(requiresConfirmation: false, source: .tabCloseButton) == false)
     }
 }

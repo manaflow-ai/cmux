@@ -648,6 +648,10 @@ class TabManager: ObservableObject {
         workspaceGrouping.attach(host: self)
         workspaceClosing.attach(confirming: self)
         workspaceClosing.attach(host: self)
+        // The confirmation decision routes through the live close-tab warning
+        // settings, matching the legacy `CloseTabWarningStore(defaults: .standard)`
+        // the in-class `shouldConfirmClose` constructed per call.
+        workspaceClosing.attach(closeTabWarning: CloseTabWarningStore(defaults: .standard))
         // Wire the creation host before the first addWorkspace so the initial
         // workspace's creation effects (chrome inheritance, lifecycle publish,
         // git-metadata schedule, welcome send) reach the host with the legacy
@@ -2004,7 +2008,7 @@ class TabManager: ObservableObject {
         }
 
         guard let plan = workspaceClosing.closeWorkspacesPlan(for: workspaces) else { return }
-        if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
+        if workspaceClosing.shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
@@ -2451,12 +2455,6 @@ class TabManager: ObservableObject {
         let titles: [String]
     }
 
-    private enum CloseConfirmationSource {
-        case workspace
-        case tabClose
-        case tabCloseButton
-    }
-
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
         guard let workspace = selectedWorkspace else { return nil }
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
@@ -2513,7 +2511,7 @@ class TabManager: ObservableObject {
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
         if requiresConfirmation,
-           shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
+           workspaceClosing.shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
@@ -2537,23 +2535,6 @@ class TabManager: ObservableObject {
             }
         } else {
             closeWorkspace(workspace)
-        }
-    }
-
-    private func shouldConfirmClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
-        switch source {
-        case .workspace:
-            return requiresConfirmation
-        case .tabClose:
-            return CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
-                requiresConfirmation: requiresConfirmation,
-                source: .shortcut
-            )
-        case .tabCloseButton:
-            return CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
-                requiresConfirmation: requiresConfirmation,
-                source: .tabCloseButton
-            )
         }
     }
 
@@ -2635,7 +2616,7 @@ class TabManager: ObservableObject {
     }
 
     private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> Bool {
-        guard shouldConfirmClose(requiresConfirmation: true, source: source) else { return true }
+        guard workspaceClosing.shouldConfirmClose(requiresConfirmation: true, source: source) else { return true }
         return confirmClose(
             title: String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?"),
             message: String(
