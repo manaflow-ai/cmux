@@ -4,7 +4,7 @@ struct ActivePaneChromeBoundaryOverlay: View {
     let color: Color
     let height: CGFloat
 
-    private let lineWidth: CGFloat = 2
+    private var lineWidth: CGFloat { GhosttySurfaceActivePaneBoundaryMetrics.lineWidth }
 
     var body: some View {
         ZStack {
