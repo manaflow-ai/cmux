@@ -85,7 +85,7 @@ struct TerminalPanelView: View {
                 isVisibleInUI: isVisibleInUI,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
-                showsActivePaneBoundary: isFocused && isVisibleInUI && !panel.isTextBoxActive,
+                showsActivePaneBoundary: isFocused && isVisibleInUI,
                 activePaneBoundaryColor: appearance.dividerNSColor,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
@@ -141,12 +141,12 @@ struct TerminalPanelView: View {
                         panel.preserveTextBoxContentForUnmount(from: view)
                     }
                 )
+                .overlay {
+                    terminalTextBoxActivePaneBoundaryOverlay
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay {
-            terminalTextBoxActivePaneBoundaryOverlay
-        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load().fontSize
         }
@@ -155,9 +155,18 @@ struct TerminalPanelView: View {
     @ViewBuilder
     private var terminalTextBoxActivePaneBoundaryOverlay: some View {
         if panel.isTextBoxActive && isFocused && isVisibleInUI {
-            Rectangle()
-                .strokeBorder(appearance.dividerColor, lineWidth: 2)
-                .allowsHitTesting(false)
+            ZStack {
+                HStack(spacing: 0) {
+                    appearance.dividerColor.frame(width: 2)
+                    Spacer(minLength: 0)
+                    appearance.dividerColor.frame(width: 2)
+                }
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    appearance.dividerColor.frame(height: 2)
+                }
+            }
+            .allowsHitTesting(false)
         }
     }
 }
