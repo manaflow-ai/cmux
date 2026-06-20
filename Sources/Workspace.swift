@@ -1979,7 +1979,7 @@ final class SharedLiveAgentIndex: ObservableObject {
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
-final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, SurfaceMetadataHosting, WorkspaceTitleHosting, WorkspaceAppearanceHosting {
+final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, SurfaceMetadataHosting, WorkspaceTitleHosting, WorkspaceAppearanceHosting, SurfaceRegistryHosting {
     /// The browser-panel creation policy now lives in `CmuxBrowser` as a
     /// top-level `Sendable` value. This nested typealias keeps the existing
     /// unqualified `BrowserPanelCreationPolicy` and `Workspace.BrowserPanelCreationPolicy`
@@ -2327,11 +2327,23 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         get { surfaceRegistry.panelCustomTitles }
         set { surfaceRegistry.panelCustomTitles = newValue }
     }
-    /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
-    /// An entry may be absent for a title carried across panel moves or
-    /// restored from older snapshots; absent provenance is treated as `.user`.
-    var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
-    @Published var pinnedPanelIds: Set<UUID> = []
+    /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``);
+    /// stored in the surface-registry sub-model. An entry may be absent for a
+    /// title carried across panel moves or restored from older snapshots; absent
+    /// provenance is treated as `.user`.
+    var panelCustomTitleSources: [UUID: CustomTitleSource] {
+        get { surfaceRegistry.panelCustomTitleSources }
+        set { surfaceRegistry.panelCustomTitleSources = newValue }
+    }
+    /// The user's pinned panels; stored in the surface-registry sub-model. The
+    /// legacy property was `@Published` (no `$pinnedPanelIds` subscriber); the
+    /// model fires `willChange` (wired in `init` to `objectWillChange.send()`)
+    /// at `willSet` time to preserve the SwiftUI re-render moment for the
+    /// `ContentView` reader of `workspace.pinnedPanelIds`.
+    var pinnedPanelIds: Set<UUID> {
+        get { surfaceRegistry.pinnedPanelIds }
+        set { surfaceRegistry.pinnedPanelIds = newValue }
+    }
     /// The per-workspace unread / attention-indicator sub-model (CmuxNotifications):
     /// owns the unread state the legacy `Workspace` god object kept as loose
     /// `@Published` stored properties (`manualUnreadPanelIds`,
@@ -3069,6 +3081,8 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         sessionRestoreCoordinator.attach(host: self)
         unreadModel.attach(host: self)
         unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
+        surfaceRegistry.attach(host: self)
+        surfaceRegistry.willChange = { [weak self] in self?.objectWillChange.send() }
         surfaceDirectoryMetadata.attach(host: self)
         titleModel.attach(host: self)
         appearanceModel.attach(host: self)
@@ -3428,7 +3442,6 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     // conformance in `Workspace+AgentHibernationHosting.swift`.
     var agentHibernationAutoResumePresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
-    private var isNormalizingPinnedTabOrder = false
     /// The pending non-focusing-split focus re-assert request (the value
     /// type now lives in CmuxWorkspaceCore); stored in the surface-registry
     /// sub-model.
@@ -3824,28 +3837,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     private func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
-        let trimmedFallback = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallbackTitle = trimmedFallback.isEmpty ? "Tab" : trimmedFallback
-        if let custom = panelCustomTitles[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !custom.isEmpty {
-            return custom
-        }
-        return fallbackTitle
+        surfaceRegistry.resolvedPanelTitle(panelId: panelId, fallback: fallback)
     }
 
     private func syncPinnedStateForTab(_ tabId: TabID, panelId: UUID) {
-        let isPinned = pinnedPanelIds.contains(panelId)
-        let kind = panels[panelId].map { surfaceKind(for: $0) }
-        if let tab = bonsplitController.tab(tabId),
-           tab.isPinned == isPinned,
-           kind.map({ tab.kind == $0 }) ?? true {
-            return
-        }
-        if let kind {
-            bonsplitController.updateTab(tabId, kind: .some(kind), isPinned: isPinned)
-        } else {
-            bonsplitController.updateTab(tabId, isPinned: isPinned)
-        }
+        surfaceRegistry.syncPinnedStateForTab(tabId, panelId: panelId)
     }
 
     private func hasVisibleNotificationIndicator(panelId: UUID) -> Bool {
@@ -3881,40 +3877,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     private func normalizePinnedTabs(in paneId: PaneID) {
-        guard !isNormalizingPinnedTabOrder else { return }
-        isNormalizingPinnedTabOrder = true
-        defer { isNormalizingPinnedTabOrder = false }
-
-        let tabs = bonsplitController.tabs(inPane: paneId)
-        let pinnedTabs = tabs.filter { tab in
-            guard let panelId = panelIdFromSurfaceId(tab.id) else { return false }
-            return pinnedPanelIds.contains(panelId)
-        }
-        let unpinnedTabs = tabs.filter { tab in
-            guard let panelId = panelIdFromSurfaceId(tab.id) else { return true }
-            return !pinnedPanelIds.contains(panelId)
-        }
-        let desiredOrder = pinnedTabs + unpinnedTabs
-
-        for (index, desiredTab) in desiredOrder.enumerated() {
-            let currentTabs = bonsplitController.tabs(inPane: paneId)
-            guard let currentIndex = currentTabs.firstIndex(where: { $0.id == desiredTab.id }) else { continue }
-            if currentIndex != index {
-                _ = bonsplitController.reorderTab(desiredTab.id, toIndex: index)
-            }
-        }
+        surfaceRegistry.normalizePinnedTabs(in: paneId)
     }
 
     private func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
-        let tabs = bonsplitController.tabs(inPane: paneId)
-        guard let anchorIndex = tabs.firstIndex(where: { $0.id == anchorTabId }) else { return tabs.count }
-        let pinnedCount = tabs.reduce(into: 0) { count, tab in
-            if let panelId = panelIdFromSurfaceId(tab.id), pinnedPanelIds.contains(panelId) {
-                count += 1
-            }
-        }
-        let rawTarget = min(anchorIndex + 1, tabs.count)
-        return max(rawTarget, pinnedCount)
+        surfaceRegistry.insertionIndexToRight(of: anchorTabId, inPane: paneId)
     }
 
     /// Sets, replaces, or clears (empty/nil `title`) a panel custom title.
@@ -3923,51 +3890,15 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// never clears. Returns whether the write landed.
     @discardableResult
     func setPanelCustomTitle(panelId: UUID, title: String?, source: CustomTitleSource = .user) -> Bool {
-        guard panels[panelId] != nil else { return false }
-        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let previous = panelCustomTitles[panelId]
-        if source == .auto {
-            guard !trimmed.isEmpty else { return false }
-            if previous != nil, (panelCustomTitleSources[panelId] ?? .user) == .user { return false }
-        }
-        if trimmed.isEmpty {
-            guard previous != nil else { return false }
-            panelCustomTitles.removeValue(forKey: panelId)
-            panelCustomTitleSources.removeValue(forKey: panelId)
-        } else {
-            guard previous != trimmed else {
-                // Same text: a user write still claims ownership so a later
-                // auto write cannot replace a title the user re-confirmed.
-                if source == .user { panelCustomTitleSources[panelId] = .user }
-                return true
-            }
-            panelCustomTitles[panelId] = trimmed
-            panelCustomTitleSources[panelId] = source
-        }
-
-        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
-        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-        bonsplitController.updateTab(
-            tabId,
-            title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
-            hasCustomTitle: panelCustomTitles[panelId] != nil
-        )
-        // A remote tmux mirror tab rename propagates to `rename-window`.
-        if isRemoteTmuxMirror {
-            AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
-                workspaceId: id, panelId: panelId, title: trimmed
-            )
-        }
-        return true
+        surfaceRegistry.setPanelCustomTitle(panelId: panelId, title: title, source: source)
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
-        pinnedPanelIds.contains(panelId)
+        surfaceRegistry.isPanelPinned(panelId)
     }
 
     func panelKind(panelId: UUID) -> String? {
-        guard let panel = panels[panelId] else { return nil }
-        return surfaceKind(for: panel)
+        surfaceRegistry.panelKind(panelId: panelId)
     }
     private var backgroundPrimeTerminalPanels: [TerminalPanel] {
         var seenPanelIds = Set<UUID>()
@@ -4043,25 +3974,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func panelTitle(panelId: UUID) -> String? {
-        guard let panel = panels[panelId] else { return nil }
-        let fallback = panelTitles[panelId] ?? panel.displayTitle
-        return resolvedPanelTitle(panelId: panelId, fallback: fallback)
+        surfaceRegistry.panelTitle(panelId: panelId)
     }
 
     func setPanelPinned(panelId: UUID, pinned: Bool) {
-        guard panels[panelId] != nil else { return }
-        let wasPinned = pinnedPanelIds.contains(panelId)
-        guard wasPinned != pinned else { return }
-        if pinned {
-            pinnedPanelIds.insert(panelId)
-        } else {
-            pinnedPanelIds.remove(panelId)
-        }
-
-        guard let tabId = surfaceIdFromPanelId(panelId),
-              let paneId = paneId(forPanelId: panelId) else { return }
-        bonsplitController.updateTab(tabId, isPinned: pinned)
-        normalizePinnedTabs(in: paneId)
+        surfaceRegistry.setPanelPinned(panelId: panelId, pinned: pinned)
     }
 
     func markPanelUnread(_ panelId: UUID) {
@@ -4122,6 +4039,68 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             hasPanelUnreadIndicator: hasPanelUnreadIndicator,
             isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
             isWorkspaceManualUnreadRepresentative: isWorkspaceManualUnreadRepresentative
+        )
+    }
+
+    // MARK: - SurfaceRegistryHosting (live seam for SurfaceRegistryModel)
+
+    func surfaceRegistryPanelExists(_ panelId: UUID) -> Bool {
+        panels[panelId] != nil
+    }
+
+    func surfaceRegistryPanelDisplayTitle(panelId: UUID) -> String? {
+        panels[panelId]?.displayTitle
+    }
+
+    func surfaceRegistryPanelKind(panelId: UUID) -> String? {
+        guard let panel = panels[panelId] else { return nil }
+        return surfaceKind(for: panel)
+    }
+
+    func surfaceRegistrySurfaceId(forPanelId panelId: UUID) -> TabID? {
+        surfaceIdFromPanelId(panelId)
+    }
+
+    func surfaceRegistryPanelId(forSurfaceId surfaceId: TabID) -> UUID? {
+        panelIdFromSurfaceId(surfaceId)
+    }
+
+    func surfaceRegistryPaneId(forPanelId panelId: UUID) -> PaneID? {
+        paneId(forPanelId: panelId)
+    }
+
+    func surfaceRegistryTab(_ tabId: TabID) -> Bonsplit.Tab? {
+        bonsplitController.tab(tabId)
+    }
+
+    func surfaceRegistryTabs(inPane paneId: PaneID) -> [Bonsplit.Tab] {
+        bonsplitController.tabs(inPane: paneId)
+    }
+
+    @discardableResult
+    func surfaceRegistryReorderTab(_ tabId: TabID, toIndex index: Int) -> Bool {
+        bonsplitController.reorderTab(tabId, toIndex: index)
+    }
+
+    func surfaceRegistryUpdateTab(_ tabId: TabID, title: String, hasCustomTitle: Bool) {
+        bonsplitController.updateTab(tabId, title: title, hasCustomTitle: hasCustomTitle)
+    }
+
+    func surfaceRegistryUpdateTab(_ tabId: TabID, kind: String, isPinned: Bool) {
+        bonsplitController.updateTab(tabId, kind: .some(kind), isPinned: isPinned)
+    }
+
+    func surfaceRegistryUpdateTab(_ tabId: TabID, isPinned: Bool) {
+        bonsplitController.updateTab(tabId, isPinned: isPinned)
+    }
+
+    var surfaceRegistryIsRemoteTmuxMirror: Bool {
+        isRemoteTmuxMirror
+    }
+
+    func surfaceRegistryHandleMirrorWindowRenamed(panelId: UUID, title: String) {
+        AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
+            workspaceId: id, panelId: panelId, title: title
         )
     }
 
