@@ -209,19 +209,14 @@ final class FeedSidebarUITestRecorder: UITestRecording {
         return updates
     }
 
+    /// Merges `updates` into the feed-sidebar capture file at `path`, writing
+    /// byte-faithfully with unsorted keys.
+    ///
+    /// Forwards to ``UITestKeyValueCaptureFile/merge(_:)``, the single tested
+    /// owner of the load / merge / unsorted-write byte format, instead of the
+    /// previously inlined load-merge-serialize copy.
     private func writeData(_ updates: [String: String], at path: String) {
-        var payload: [String: String] = {
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-                return [:]
-            }
-            return object
-        }()
-        for (key, value) in updates {
-            payload[key] = value
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        UITestKeyValueCaptureFile(path: path).merge(updates)
     }
 }
 #endif
