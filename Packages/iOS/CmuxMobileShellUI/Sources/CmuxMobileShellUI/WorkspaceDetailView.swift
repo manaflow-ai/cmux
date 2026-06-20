@@ -438,10 +438,10 @@ struct WorkspaceDetailView: View {
             isPresented: $isConfirmingClose,
             confirm: confirmCloseWorkspaceFromMenu
         )
+        #if canImport(UIKit)
         .fullScreenCover(isPresented: $isTabOverviewPresented) {
             terminalOverviewCoverContent
         }
-        #if canImport(UIKit)
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
         }
