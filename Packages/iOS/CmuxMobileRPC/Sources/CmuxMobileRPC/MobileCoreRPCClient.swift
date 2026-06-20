@@ -4,6 +4,8 @@ internal import CmuxMobileSupport
 public import Foundation
 internal import os
 
+/// `@unchecked Sendable` carve-out justification: synchronous cancellation
+/// handlers cannot await an actor; the lock guards one-shot continuation state.
 private final class RPCRequestTimeoutState<T: Sendable>: @unchecked Sendable {
     private enum Completion: Sendable {
         case success(T)
@@ -16,6 +18,8 @@ private final class RPCRequestTimeoutState<T: Sendable>: @unchecked Sendable {
         var completion: Completion?
     }
 
+    // lint:allow lock — carve-out justification: one-shot timeout/cancellation
+    // race state, always accessed through scoped `withLock` sections.
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     func install(_ continuation: CheckedContinuation<T, any Error>) {
@@ -222,11 +226,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             requestData,
             forceID: !allowAuthRetry
         )
-        let authenticated = try await requestDataWithAuth(augmented)
         return try await Self.withRequestTimeout(
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
         ) {
-            try await self.session.send(payload: authenticated, requestID: id)
+            let authenticated = try await self.requestDataWithAuth(augmented)
+            try Task.checkCancellation()
+            return try await self.session.send(payload: authenticated, requestID: id)
         } cancelOperation: {
             await self.session.tearDown(error: .connectionClosed)
         }

@@ -172,6 +172,56 @@ import Testing
         #expect(try await transport.sentRequests().isEmpty)
     }
 
+    @Test func rpcRequestTimeoutCoversStackTokenAcquisition() async throws {
+        let tokenStarted = AsyncFlag()
+        let transport = QueuedCancellationProbeTransport()
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59125)
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessTokenProvider: {
+                await tokenStarted.set()
+                try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                return "late-token"
+            },
+            rpcRequestTimeoutNanoseconds: 10_000_000
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: "terminal-main",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "terminal.input",
+            params: [
+                "workspace_id": "workspace-main",
+                "terminal_id": "terminal-main",
+                "text": "needs-token",
+            ],
+            id: "needs-token"
+        )
+
+        do {
+            _ = try await client.sendRequest(request)
+            Issue.record("Expected slow Stack token provider to be bounded by the RPC timeout")
+        } catch MobileShellConnectionError.requestTimedOut {
+        } catch {
+            Issue.record("Expected requestTimedOut, got \(error)")
+        }
+
+        #expect(await tokenStarted.isSet())
+        #expect(try await transport.sentRequests().isEmpty)
+    }
+
     @Test func workspaceListResponseDecodesSnakeCaseWireShape() throws {
         let json = Data("""
         {
