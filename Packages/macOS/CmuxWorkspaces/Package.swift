@@ -37,6 +37,10 @@ let package = Package(
         // SessionDisplayGeometry (the live-screen geometry value the session
         // frame resolver reads) is owned by CmuxWindowing.
         .package(path: "../CmuxWindowing"),
+        // CmuxSurfaceConfigTemplate (the Sendable inherited-surface config the
+        // SurfaceCreation/ coordinator promotes for wait-after-command) is owned
+        // by CmuxTerminalCore.
+        .package(path: "../CmuxTerminalCore"),
     ],
     targets: [
         .target(
@@ -50,6 +54,7 @@ let package = Package(
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
                 .product(name: "CmuxWindowing", package: "CmuxWindowing"),
+                .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -57,15 +62,27 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
+        // Test-only stand-in for the @_silgen_name libghostty symbols bound by
+        // CmuxTerminalCore (which CmuxWorkspaces now depends on). SwiftPM cannot
+        // link the GhosttyKit macOS archive (its binary lacks the lib prefix), so
+        // the test runner satisfies the link with this stub; no test calls it.
+        // The app build links the real GhosttyKit. Mirrors CmuxTerminalCore's own
+        // GhosttyRuntimeTestStubs target.
+        .target(
+            name: "GhosttyRuntimeTestStubs",
+            path: "Tests/GhosttyRuntimeTestStubs"
+        ),
         .testTarget(
             name: "CmuxWorkspacesTests",
             dependencies: [
                 "CmuxWorkspaces",
+                "GhosttyRuntimeTestStubs",
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CmuxPanes", package: "CmuxPanes"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
                 .product(name: "CmuxWindowing", package: "CmuxWindowing"),
+                .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

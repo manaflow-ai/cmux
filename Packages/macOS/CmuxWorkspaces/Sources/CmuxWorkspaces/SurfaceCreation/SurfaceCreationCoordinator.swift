@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxTerminalCore
 
 /// Resolves the value-typed inputs a workspace computes when creating or
 /// respawning a terminal surface: the startup working directory (chosen from an
@@ -77,5 +78,74 @@ public final class SurfaceCreationCoordinator {
             return inheritedConfigFontPoints
         }
         return runtimeFontPoints
+    }
+
+    /// Overlays a remote SSH startup environment onto the workspace's base
+    /// startup environment, mirroring the legacy
+    /// `Workspace.terminalStartupEnvironment(base:remoteStartupCommand:)`.
+    ///
+    /// The legacy body only merged the remote environment when BOTH a remote
+    /// startup command was being used AND the workspace's `remoteConfiguration`
+    /// exposed an `sshTerminalStartupEnvironment`; otherwise it returned `base`
+    /// unchanged. Those two live-state reads stay on the workspace, which passes
+    /// the already-resolved `remoteEnvironment` here as `nil` when either
+    /// condition fails. When `remoteEnvironment` is non-`nil`, each of its
+    /// key/value pairs is assigned over `base` (remote wins on key collisions),
+    /// exactly as the legacy `environment[key] = value` loop did.
+    ///
+    /// - Parameters:
+    ///   - base: the workspace startup environment (explicit overrides already
+    ///     merged over the workspace environment).
+    ///   - remoteEnvironment: the remote SSH terminal startup environment to
+    ///     overlay, or `nil` when no remote command is in effect or the
+    ///     workspace has no remote configuration.
+    /// - Returns: `base` when `remoteEnvironment` is `nil`, otherwise `base`
+    ///   with the remote pairs assigned over it.
+    public nonisolated func mergedStartupEnvironment(
+        base: [String: String],
+        remoteEnvironment: [String: String]?
+    ) -> [String: String] {
+        guard let remoteEnvironment else { return base }
+        var environment = base
+        for (key, value) in remoteEnvironment {
+            environment[key] = value
+        }
+        return environment
+    }
+
+    /// Promotes the inherited surface config so the pane is held open after a
+    /// startup command exits, mirroring the legacy inline block in
+    /// `Workspace.newTerminalSplitLocal`/`newTerminalSurfaceLocal`:
+    ///
+    /// ```swift
+    /// if startupCommand != nil {
+    ///     var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+    ///     template.waitAfterCommand = true
+    ///     inheritedConfig = template
+    /// }
+    /// ```
+    ///
+    /// Holding the PTY open lets the user read a message a remote/login startup
+    /// command prints before exiting; otherwise Ghostty silently respawns a
+    /// local login shell, making a dead VM look identical to a healthy local
+    /// prompt. When no startup command is in effect the inherited config is
+    /// returned unchanged (including `nil`).
+    ///
+    /// - Parameters:
+    ///   - inheritedConfig: the config inherited from the source surface, or
+    ///     `nil` when there is no inheritance source.
+    ///   - hasStartupCommand: whether a startup command (explicit or the remote
+    ///     workspace command) will run in the new surface.
+    /// - Returns: the unchanged `inheritedConfig` when `hasStartupCommand` is
+    ///   `false`; otherwise the inherited config (or a fresh template) with
+    ///   `waitAfterCommand` set to `true`.
+    public nonisolated func configHoldingPaneAfterStartupCommand(
+        inheritedConfig: CmuxSurfaceConfigTemplate?,
+        hasStartupCommand: Bool
+    ) -> CmuxSurfaceConfigTemplate? {
+        guard hasStartupCommand else { return inheritedConfig }
+        var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+        template.waitAfterCommand = true
+        return template
     }
 }

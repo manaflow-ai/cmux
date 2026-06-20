@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import CmuxWorkspaces
+import CmuxTerminalCore
 
 @MainActor
 @Suite("SurfaceCreationCoordinator")
@@ -104,5 +105,68 @@ struct SurfaceCreationCoordinatorTests {
                 inheritedConfigFontPoints: 0
             ) == nil
         )
+    }
+
+    @Test("A nil remote environment leaves the base environment unchanged")
+    func mergeEnvironmentNilRemote() {
+        let base = ["PATH": "/usr/bin", "HOME": "/Users/me"]
+        #expect(coordinator.mergedStartupEnvironment(base: base, remoteEnvironment: nil) == base)
+    }
+
+    @Test("A remote environment is overlaid over the base, remote winning on collisions")
+    func mergeEnvironmentOverlays() {
+        let base = ["PATH": "/usr/bin", "HOME": "/Users/me"]
+        let remote = ["HOME": "/home/remote", "CMUX_REMOTE": "1"]
+        #expect(
+            coordinator.mergedStartupEnvironment(base: base, remoteEnvironment: remote)
+                == ["PATH": "/usr/bin", "HOME": "/home/remote", "CMUX_REMOTE": "1"]
+        )
+    }
+
+    @Test("An empty remote environment returns the base unchanged (non-nil empty is still a merge)")
+    func mergeEnvironmentEmptyRemote() {
+        let base = ["A": "1"]
+        #expect(coordinator.mergedStartupEnvironment(base: base, remoteEnvironment: [:]) == base)
+    }
+
+    @Test("No startup command leaves the inherited config untouched, including nil")
+    func holdPaneNoCommand() {
+        #expect(
+            coordinator.configHoldingPaneAfterStartupCommand(
+                inheritedConfig: nil,
+                hasStartupCommand: false
+            ) == nil
+        )
+        var config = CmuxSurfaceConfigTemplate()
+        config.fontSize = 17
+        let resolved = coordinator.configHoldingPaneAfterStartupCommand(
+            inheritedConfig: config,
+            hasStartupCommand: false
+        )
+        #expect(resolved?.fontSize == 17)
+        #expect(resolved?.waitAfterCommand == false)
+    }
+
+    @Test("A startup command sets waitAfterCommand on the inherited config")
+    func holdPanePromotesExistingConfig() {
+        var config = CmuxSurfaceConfigTemplate()
+        config.fontSize = 17
+        let resolved = coordinator.configHoldingPaneAfterStartupCommand(
+            inheritedConfig: config,
+            hasStartupCommand: true
+        )
+        #expect(resolved?.waitAfterCommand == true)
+        // Other fields are preserved.
+        #expect(resolved?.fontSize == 17)
+    }
+
+    @Test("A startup command with no inherited config synthesizes a fresh wait-after-command template")
+    func holdPaneSynthesizesFreshConfig() {
+        let resolved = coordinator.configHoldingPaneAfterStartupCommand(
+            inheritedConfig: nil,
+            hasStartupCommand: true
+        )
+        #expect(resolved != nil)
+        #expect(resolved?.waitAfterCommand == true)
     }
 }
