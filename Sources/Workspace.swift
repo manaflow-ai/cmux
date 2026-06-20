@@ -2253,9 +2253,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
     /// subscribers; same contract as `panelsPublisher`.
     let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
-    /// Legacy Combine bridge for observers that project closeability from shell
-    /// activity; emits when `panelShellActivityStates` changes.
-    let panelShellActivityStatesPublisher = CurrentValueSubject<[UUID: PanelShellActivityState], Never>([:])
+    /// Async change stream for observers that project closeability from shell activity.
+    private var panelShellActivityStateObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     /// Mapping from bonsplit TabID to our Panel instances
     var panels: [UUID: any Panel] {
@@ -2491,8 +2490,27 @@ final class Workspace: Identifiable, ObservableObject {
             let oldValue = surfaceRegistry.panelShellActivityStates
             surfaceRegistry.panelShellActivityStates = newValue
             if oldValue != newValue {
-                panelShellActivityStatesPublisher.send(newValue)
+                notifyPanelShellActivityStatesChanged()
             }
+        }
+    }
+
+    /// Emits whenever `panelShellActivityStates` changes.
+    func panelShellActivityStateChanges() -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID()
+            panelShellActivityStateObservers[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    self?.panelShellActivityStateObservers[id] = nil
+                }
+            }
+        }
+    }
+
+    private func notifyPanelShellActivityStatesChanged() {
+        for continuation in panelShellActivityStateObservers.values {
+            continuation.yield(())
         }
     }
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.

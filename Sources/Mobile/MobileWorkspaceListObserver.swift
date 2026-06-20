@@ -22,10 +22,11 @@ final class MobileWorkspaceListObserver {
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
     private var groupsCancellable: AnyCancellable?
-    private var closePolicyCancellable: AnyCancellable?
+    private var closePolicyTask: Task<Void, Never>?
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
+    private var perWorkspaceShellActivityTasks: [UUID: Task<Void, Never>] = [:]
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
@@ -41,6 +42,13 @@ final class MobileWorkspaceListObserver {
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
         attach(to: tabManager)
+    }
+
+    deinit {
+        closePolicyTask?.cancel()
+        for task in perWorkspaceShellActivityTasks.values {
+            task.cancel()
+        }
     }
 
     private func attach(to tabManager: TabManager) {
@@ -89,13 +97,11 @@ final class MobileWorkspaceListObserver {
         // close-warning preferences stored in UserDefaults. Preferences can
         // change without touching the TabManager/workspace graph, so observe
         // defaults and let the summary hash decide whether the payload changed.
-        closePolicyCancellable = NotificationCenter.default.publisher(
-            for: UserDefaults.didChangeNotification,
-            object: UserDefaults.standard
-        )
-        .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-        .sink { [weak self] _ in
-            self?.emitIfNeeded(force: false)
+        closePolicyTask = Task { @MainActor [weak self] in
+            for await _ in Self.closePolicyChangeSignals(defaults: .standard) {
+                if Task.isCancelled { break }
+                self?.emitIfNeeded(force: false)
+            }
         }
         // Last-activity preview lines come from the notification store, which is
         // not part of the TabManager graph. A new notification (or a cleared one)
@@ -173,6 +179,7 @@ final class MobileWorkspaceListObserver {
         // Drop subscriptions for workspaces that vanished.
         for id in perWorkspaceCancellables.keys where !currentIDs.contains(id) {
             perWorkspaceCancellables.removeValue(forKey: id)
+            perWorkspaceShellActivityTasks.removeValue(forKey: id)?.cancel()
         }
         // Merge the per-workspace publishers behind the mobile workspace
         // list: terminal set, terminal titles, workspace title, and displayed
@@ -206,14 +213,35 @@ final class MobileWorkspaceListObserver {
                 // set; bonsplit selection state is not `@Published`, so this counter
                 // is the only signal the observer gets for a reorder.
                 workspace.paneLayoutVersionPublisher.map { _ in () }.eraseToAnyPublisher(),
-                // Terminal `can_close` also depends on whether a terminal has
-                // active shell work that would require confirmation.
-                workspace.panelShellActivityStatesPublisher.map { _ in () }.eraseToAnyPublisher(),
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
+            }
+            perWorkspaceShellActivityTasks[workspace.id] = Task { @MainActor [weak self, weak workspace] in
+                guard let workspace else { return }
+                for await _ in workspace.panelShellActivityStateChanges() {
+                    if Task.isCancelled { break }
+                    self?.emitIfNeeded(force: false)
+                }
+            }
+        }
+    }
+
+    private static func closePolicyChangeSignals(defaults: UserDefaults) -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let observer = NotificationObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: UserDefaults.didChangeNotification,
+                    object: defaults,
+                    queue: nil
+                ) { _ in
+                    continuation.yield(())
+                }
+            )
+            continuation.onTermination = { _ in
+                observer.remove()
             }
         }
     }

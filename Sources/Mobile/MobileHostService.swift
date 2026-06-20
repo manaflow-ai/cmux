@@ -853,7 +853,7 @@ final class MobileHostService {
             let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
-            let observer = MobileHostStatusObserverToken(
+            let observer = NotificationObserverToken(
                 NotificationCenter.default.addObserver(
                     forName: .mobileHostStatusDidChange,
                     object: nil,
