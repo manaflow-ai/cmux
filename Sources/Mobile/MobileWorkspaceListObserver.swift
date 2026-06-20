@@ -29,17 +29,6 @@ final class MobileWorkspaceListObserver {
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var perWorkspaceShellActivityTasks: [UUID: Task<Void, Never>] = [:]
     private var lastSummaryHash: Int = 0
-    private struct ClosePolicySnapshot: Equatable, Sendable {
-        let warnsBeforeClosingTab: Bool
-        let warnsBeforeClosingTabXButton: Bool
-        let hidesTabCloseButton: Bool
-
-        init(store: CloseTabWarningStore) {
-            warnsBeforeClosingTab = store.warnsBeforeClosingTab
-            warnsBeforeClosingTabXButton = store.warnsBeforeClosingTabXButton
-            hidesTabCloseButton = store.hidesTabCloseButton
-        }
-    }
 
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
@@ -258,12 +247,12 @@ final class MobileWorkspaceListObserver {
                 }
             )
             let drainTask = Task {
-                var lastSnapshot = ClosePolicySnapshot(store: store)
+                var lastSignature = closePolicySignature(store: store)
                 for await _ in signals {
                     if Task.isCancelled { break }
-                    let current = ClosePolicySnapshot(store: store)
-                    guard current != lastSnapshot else { continue }
-                    lastSnapshot = current
+                    let current = closePolicySignature(store: store)
+                    guard current != lastSignature else { continue }
+                    lastSignature = current
                     continuation.yield(())
                 }
                 continuation.finish()
@@ -274,6 +263,12 @@ final class MobileWorkspaceListObserver {
                 observer.remove()
             }
         }
+    }
+
+    private static func closePolicySignature(store: CloseTabWarningStore) -> Int {
+        (store.warnsBeforeClosingTab ? 1 : 0)
+            | (store.warnsBeforeClosingTabXButton ? 2 : 0)
+            | (store.hidesTabCloseButton ? 4 : 0)
     }
 
     private func emitIfNeeded(force: Bool) {
