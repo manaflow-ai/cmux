@@ -204,21 +204,23 @@ extension MobileShellComposite {
     nonisolated private static func terminalOverviewPreviewLine(from row: String) -> String {
         let maxScalars = 160
         let maxUTF8Bytes = 1024
-        let space = Unicode.Scalar(" ")!
-        let tab = Unicode.Scalar("\t")!
+        let space: Unicode.Scalar = " "
+        let tab: Unicode.Scalar = "\t"
         var line = String()
-        line.unicodeScalars.reserveCapacity(maxScalars)
+        line.reserveCapacity(maxUTF8Bytes)
+        var scalarCount = 0
         var byteCount = 0
         for scalar in row.unicodeScalars {
-            guard line.unicodeScalars.count < maxScalars else { break }
+            guard scalarCount < maxScalars else { break }
             let scalarByteCount = String(scalar).utf8.count
             guard byteCount + scalarByteCount <= maxUTF8Bytes else { break }
             line.unicodeScalars.append(scalar)
+            scalarCount += 1
             byteCount += scalarByteCount
         }
         while let last = line.unicodeScalars.last,
               last == space || last == tab {
-            line.unicodeScalars.removeLast()
+            line.removeLast()
         }
         return line
     }
