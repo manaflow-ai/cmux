@@ -1,14 +1,14 @@
 #if DEBUG
 import AppKit
-import CMUXWorkstream
+import CMUXAgentLaunch
 import SwiftUI
 
 /// Debug-only window that renders every Feed item kind + state against
 /// synthetic fixtures. Open via Debug → Debug Windows → Feed Preview…
-final class FeedPreviewWindowController: NSWindowController, NSWindowDelegate {
+final class FeedPreviewWindowController: ReleasingWindowController {
     static let shared = FeedPreviewWindowController()
 
-    convenience init() {
+    override func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 820),
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
@@ -19,18 +19,12 @@ final class FeedPreviewWindowController: NSWindowController, NSWindowDelegate {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.feedPreview")
         window.minSize = NSSize(width: 420, height: 500)
         window.center()
-        window.isReleasedWhenClosed = false
-        self.init(window: window)
-        window.delegate = self
         window.contentView = NSHostingView(rootView: FeedPreviewRootView())
+        return window
     }
 
     func show() {
-        if window?.isVisible != true {
-            window?.center()
-        }
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        showManagedWindow(activateApplication: true)
     }
 }
 

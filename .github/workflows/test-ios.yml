@@ -40,7 +40,7 @@ permissions:
 
 jobs:
   detect-ios-changes:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
@@ -86,7 +86,7 @@ jobs:
   package-conventions-lint:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -110,7 +110,7 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -150,7 +150,12 @@ jobs:
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: macos-26
+    # Blacksmith, not the bare `macos-26` label (which our self-hosted fleet
+    # carries). iOS simulator XCTest runs inside the Simulator, not as a
+    # foregrounded Mac app, so the Blacksmith macOS foreground limitation that
+    # blocks macOS app-host XCTest does not apply here; this lane is verified
+    # green on blacksmith-6vcpu-macos-26.
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -192,6 +197,17 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: ./scripts/install-zig-ci.sh
 
+      - name: Ensure iOS simulator runtime
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          if xcrun simctl list runtimes available | grep -Eq '\biOS\b'; then
+            exit 0
+          fi
+          echo "No available iOS simulator runtime; downloading the iOS platform."
+          xcodebuild -downloadPlatform iOS
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b'
+
       - name: Provision GhosttyKit
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
@@ -207,11 +223,13 @@ jobs:
           DEVICE_FAMILY: ${{ matrix.family }}
         run: |
           set -euo pipefail
-          SIMULATOR_ENV="${RUNNER_TEMP:-/tmp}/simulator-${DEVICE_FAMILY}.env"
+          SIMULATOR_ENV="${RUNNER_TEMP:-$PWD/.tmp}/simulator-${DEVICE_FAMILY}.env"
+          mkdir -p "$(dirname "$SIMULATOR_ENV")"
           python3 - <<'PY' > "$SIMULATOR_ENV"
           import json
           import os
           import subprocess
+          import sys
 
           def simctl_json(*args):
               return json.loads(subprocess.check_output(["xcrun", "simctl", "list", *args, "-j"]))
@@ -269,11 +287,26 @@ jobs:
                   runtime["identifier"],
               ], text=True).strip()
               selected = {"udid": udid, "name": created_name}
+              print(
+                  f"Created {selected['name']} ({udid}) with {runtime['identifier']}",
+                  file=sys.stderr,
+              )
           print(f"SIMULATOR_ID={selected['udid']}")
           print(f"SIMULATOR_NAME={selected['name']}")
           PY
           cat "$SIMULATOR_ENV"
           cat "$SIMULATOR_ENV" >> "$GITHUB_ENV"
+
+      - name: Prepare iOS build paths
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          DEVICE_FAMILY: ${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-${DEVICE_FAMILY}"
+          rm -rf "$IOS_DERIVED_DATA"
+          mkdir -p "$IOS_DERIVED_DATA/logs"
+          echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
 
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
@@ -281,7 +314,7 @@ jobs:
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }} \
+            -derivedDataPath "$IOS_DERIVED_DATA" \
             -resolvePackageDependencies
 
       - name: Run iOS simulator tests
@@ -294,7 +327,7 @@ jobs:
             -workspace ios/cmux.xcworkspace
             -scheme cmux-ios
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
-            -derivedDataPath /tmp/cmux-ios-${{ matrix.family }}
+            -derivedDataPath "$IOS_DERIVED_DATA"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
@@ -318,7 +351,7 @@ jobs:
               ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)|✘ Test|✘ Suite" "$log_path"
           }
           for attempt in 1 2; do
-            LOG_PATH="/tmp/cmux-ios-${{ matrix.family }}-attempt-${attempt}.log"
+            LOG_PATH="$IOS_DERIVED_DATA/logs/attempt-${attempt}.log"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
             xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl erase "$SIMULATOR_ID"

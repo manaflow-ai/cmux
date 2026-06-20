@@ -1,3 +1,4 @@
+import Darwin
 import Combine
 import XCTest
 import CmuxCore
@@ -15,9 +16,7 @@ import CmuxTerminal
 /// Closure shape shared by the scripted process-runner tests; mirrors the
 /// legacy `runProcessOverrideForTesting` static signature so the scripted
 /// bodies stay byte-identical.
-private typealias RemoteProcessScript = (
-    _ executable: String, _ arguments: [String], _ stdin: Data?, _ timeout: TimeInterval
-) throws -> (status: Int32, stdout: String, stderr: String)
+private typealias RemoteProcessScript = (_ executable: String, _ arguments: [String], _ stdin: Data?, _ timeout: TimeInterval) throws -> (status: Int32, stdout: String, stderr: String)
 
 /// Test fake for the coordinator's injected process-runner seam: scripts each
 /// subprocess invocation. `@unchecked Sendable` because the scripts capture
@@ -25,10 +24,7 @@ private typealias RemoteProcessScript = (
 private struct ScriptedRemoteProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
     let script: RemoteProcessScript
 
-    func run(
-        _ request: RemoteProcessRequest,
-        operation: (any RemoteTransferCancelling)?
-    ) throws -> RemoteCommandResult {
+    func run(_ request: RemoteProcessRequest, operation: (any RemoteTransferCancelling)?) throws -> RemoteCommandResult {
         let result = try script(request.executable, request.arguments, request.stdin, request.timeout)
         return RemoteCommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
     }
@@ -36,17 +32,11 @@ private struct ScriptedRemoteProcessRunner: RemoteSessionProcessRunning, @unchec
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
     private struct ProcessRunResult {
-        let status: Int32
-        let stdout: String
-        let stderr: String
+        let status: Int32, stdout: String, stderr: String
         let timedOut: Bool
     }
 
-    private func runProcess(
-        executablePath: String,
-        arguments: [String],
-        timeout: TimeInterval
-    ) -> ProcessRunResult {
+    private func runProcess(executablePath: String, arguments: [String], timeout: TimeInterval) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -3866,6 +3856,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.05)
         }
         return false
+    }
+
+    private func cliTestEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        return environment
     }
 
     private func waitForSocketCommand(
