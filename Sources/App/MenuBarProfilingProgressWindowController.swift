@@ -6,6 +6,7 @@ import Foundation
 final class MenuBarProfilingProgressWindowController: NSWindowController {
     static let shared = MenuBarProfilingProgressWindowController()
 
+    nonisolated let scriptOutputBuffer = MenuBarProfilingOutputBuffer()
     let feedbackSettings = FeedbackComposerSettings()
     let titleLabel = NSTextField(labelWithString: "")
     let countdownLabel = NSTextField(labelWithString: "")
@@ -93,6 +94,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            self?.scriptOutputBuffer.append(text)
             Task { @MainActor [weak self] in
                 self?.appendScriptOutput(text)
             }
@@ -100,6 +102,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            self?.scriptOutputBuffer.append(text)
             Task { @MainActor [weak self] in
                 self?.appendScriptOutput(text)
             }
@@ -233,6 +236,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
 
     private func resetInterface() {
         scriptOutput = ""
+        scriptOutputBuffer.reset()
         submitOutput = ""
         submitErrorOutput = ""
         outputURL = nil
@@ -372,6 +376,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         errorPipe?.fileHandleForReading.readabilityHandler = nil
         appendRemainingData(from: outputPipe)
         appendRemainingData(from: errorPipe)
+        scriptOutput = scriptOutputBuffer.snapshot()
+        parseOutputURL(from: scriptOutput)
     }
 
     private func appendRemainingData(from pipe: Pipe?) {
@@ -379,7 +385,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
             return
         }
         if let text = String(data: data, encoding: .utf8) {
-            appendScriptOutput(text)
+            scriptOutputBuffer.append(text)
         }
     }
 

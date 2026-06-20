@@ -272,6 +272,22 @@ CMUX_PROFILE_OSASCRIPT="$cancel_bin" CMUX_PROFILE_OPEN="$open_bin" CMUX_PROFILE_
   --channel dev \
   --bundle-id com.cmuxterm.app.debug.dog
 
+if CMUX_PROFILE_OSASCRIPT="$cancel_bin" CMUX_PROFILE_OPEN="$open_bin" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
+  --profile "$timeout_out" \
+  --target-name "cmux DEV dog" \
+  --target-pid 303 \
+  --channel dev \
+  --bundle-id com.cmuxterm.app.debug.dog \
+  --send >/tmp/cmux-profile-send-cancel.log 2>&1; then
+  echo "FAIL: submit helper send mode should fail when Mail send is canceled" >&2
+  exit 1
+fi
+if ! grep -Fq "User canceled" /tmp/cmux-profile-send-cancel.log; then
+  echo "FAIL: submit helper send cancellation did not preserve the AppleScript error" >&2
+  cat /tmp/cmux-profile-send-cancel.log >&2
+  exit 1
+fi
+
 capture_osascript="$TMP_DIR/capture-osascript"
 captured_args="$TMP_DIR/captured-osascript-args"
 cat > "$capture_osascript" <<EOF

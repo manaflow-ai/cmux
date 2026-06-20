@@ -222,7 +222,7 @@ if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$bo
   exit 0
 fi
 
-if grep -Fq "(-128)" "$apple_error"; then
+if grep -Fq "(-128)" "$apple_error" && [ "$send_message" != "true" ]; then
   exit 0
 fi
 

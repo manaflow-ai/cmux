@@ -43,13 +43,6 @@ extension MenuBarProfilingProgressWindowController {
         )
         process.standardOutput = FileHandle.nullDevice
         process.standardError = errorPipe
-        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            Task { @MainActor [weak self] in
-                self?.submitErrorOutput += text
-            }
-        }
         process.terminationHandler = { [weak self] process in
             Task { @MainActor [weak self] in
                 self?.finishSubmit(terminationStatus: process.terminationStatus)
@@ -84,20 +77,6 @@ extension MenuBarProfilingProgressWindowController {
         process.arguments = [submitterURL.path] + MenuBarProfilingProfilePreview.packageArguments(profileURL: profileURL)
         process.standardOutput = outputPipe
         process.standardError = errorPipe
-        outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            Task { @MainActor [weak self] in
-                self?.submitOutput += text
-            }
-        }
-        errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            Task { @MainActor [weak self] in
-                self?.submitErrorOutput += text
-            }
-        }
         process.terminationHandler = { [weak self] process in
             Task { @MainActor [weak self] in
                 self?.finishPackage(terminationStatus: process.terminationStatus)
