@@ -1290,7 +1290,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
+    func testClaudePromptSubmitResumeBindingPersistsSafeAuthSelectionValues() throws {
         let context = try makeClaudeHookContext(name: "claude-resume-env-redaction")
         defer { context.cleanup() }
 
@@ -1309,7 +1309,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "ANTHROPIC_MODEL": "claude-sonnet-test",
             "CLAUDE_CONFIG_DIR": context.root.appendingPathComponent("claude-config", isDirectory: true).path,
         ]
-        let start = runClaudeHook(
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [context.surfaceId],
+            connectionLimit: 5
+        )
+
+        let start = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
@@ -1319,7 +1325,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(start.status, 0, start.stderr)
 
         let commandStart = context.state.commands.count
-        let prompt = runClaudeHook(
+        let prompt = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "prompt-submit"],
             standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
@@ -1346,9 +1352,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "ANTHROPIC_BASE_URL,ANTHROPIC_MODEL,CLAUDE_CONFIG_DIR"
         )
         XCTAssertNil(environment["ANTHROPIC_API_KEY"])
-        XCTAssertNil(environment["ANTHROPIC_BASE_URL"])
-        XCTAssertNil(environment["ANTHROPIC_MODEL"])
-        XCTAssertNil(environment["CLAUDE_CONFIG_DIR"])
+        XCTAssertEqual(environment["ANTHROPIC_BASE_URL"] as? String, "https://api.example.test")
+        XCTAssertEqual(environment["ANTHROPIC_MODEL"] as? String, "claude-sonnet-test")
+        XCTAssertEqual(
+            environment["CLAUDE_CONFIG_DIR"] as? String,
+            context.root.appendingPathComponent("claude-config", isDirectory: true).path
+        )
     }
 
     func testClaudeSessionEndChecksConsumedWorkspaceBeforeClearingVisibleState() throws {
@@ -3683,10 +3692,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: remote PTY start failed"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, [
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_attach_end",
-        ])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"])
     }
 
     func testSSHPTYAttachBridgeEOFWhileSessionRunsExitsWithoutSSHRetryStatus() throws {
@@ -3727,6 +3733,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "attachment_id": surfaceId,
                     ]
                 )
+            case "workspace.remote.pty_resize":
+                XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(id: id, ok: true, result: ["resized": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
                     id: id,
@@ -3791,11 +3801,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             result.stderr
         )
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, [
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_sessions",
-            "workspace.remote.pty_detach",
-        ])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_detach"])
     }
 
     func testSSHPTYAttachBridgeEOFWhenSessionGoneClearsLocalState() throws {
@@ -3834,6 +3840,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "attachment_id": surfaceId,
                     ]
                 )
+            case "workspace.remote.pty_resize":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(id: id, ok: true, result: ["resized": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
                     id: id,
@@ -3889,11 +3900,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, [
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_sessions",
-            "workspace.remote.pty_attach_end",
-        ])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
     func testSSHPTYAttachWithoutSurfaceDoesNotSendLocalAttachEnd() throws {
@@ -3937,6 +3944,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "attachment_id": attachmentID ?? "attachment",
                     ]
                 )
+            case "workspace.remote.pty_resize":
+                XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
+                XCTAssertNil(params["surface_id"])
+                return self.v2Response(id: id, ok: true, result: ["resized": true])
             case "workspace.remote.pty_sessions":
                 XCTAssertNil(params["surface_id"])
                 return self.v2Response(
@@ -3978,10 +3989,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, [
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_sessions",
-        ])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions"])
     }
 
     func testSSHPTYAttachBridgeResetWhenSessionGoneClearsLocalState() throws {
@@ -4020,6 +4028,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "attachment_id": surfaceId,
                     ]
                 )
+            case "workspace.remote.pty_resize":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(id: id, ok: true, result: ["resized": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
                     id: id,
@@ -4075,11 +4088,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, [
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_sessions",
-            "workspace.remote.pty_attach_end",
-        ])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
     func testSSHPTYAttachWaitUsesCurrentTerminalSizeForBridgeHandshake() throws {
@@ -4151,6 +4160,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "attachment_id": surfaceId,
                     ]
                 )
+            case "workspace.remote.pty_resize":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
+                XCTAssertEqual(params["cols"] as? Int, 132)
+                XCTAssertEqual(params["rows"] as? Int, 43)
+                return self.v2Response(id: id, ok: true, result: ["resized": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_attach_end":
@@ -4257,7 +4272,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(capturedHandshake?["rows"] as? Int, 43)
     }
 
-    func testSSHPTYAttachSerializesResizeBeforeEOFLocalCleanup() throws {
+    func testSSHPTYAttachSendsResizeWithoutBlockingEOFLocalCleanup() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyresize")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -4278,7 +4293,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandler: (String) -> String = { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4334,6 +4349,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
+        let socketHandled = (0..<2).map { _ in startMockServer(listenerFD: listenerFD, state: state, handler: socketHandler) }
 
         let bridgeHandled = expectation(description: "controlled bridge handled")
         DispatchQueue.global(qos: .userInitiated).async {
@@ -4394,18 +4410,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertEqual(bridgeReady.wait(timeout: .now() + 5), .success)
 
-        var sawResize = false
-        for _ in 0..<10 {
-            Darwin.kill(process.processIdentifier, SIGWINCH)
-            if resizeRequestReceived.wait(timeout: .now() + 0.2) == .success {
-                sawResize = true
-                break
-            }
-        }
-        XCTAssertTrue(sawResize, "Expected ssh-pty-attach to issue a resize RPC after SIGWINCH")
+        XCTAssertEqual(
+            resizeRequestReceived.wait(timeout: .now() + 5),
+            .success,
+            "Expected ssh-pty-attach to issue its initial resize RPC after bridge ready"
+        )
 
         closeBridge.signal()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        wait(for: [bridgeHandled], timeout: 5)
         allowResizeResponse.signal()
 
         let exited = DispatchSemaphore(value: 0)
@@ -4415,19 +4427,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertEqual(exited.wait(timeout: .now() + 5), .success)
 
-        wait(for: [socketHandled, bridgeHandled], timeout: 5)
+        wait(for: socketHandled, timeout: 5)
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         XCTAssertEqual(process.terminationStatus, 0, stderr)
         XCTAssertEqual(stdout, "")
         XCTAssertEqual(stderr, "")
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, [
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_resize",
-            "workspace.remote.pty_sessions",
-            "workspace.remote.pty_attach_end",
-        ])
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_bridge" }.count, 1)
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_resize" }.count, 1)
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 1)
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1)
     }
 
     func testSSHSessionAttachCreatesSurfaceWithPersistedPTYSessionID() throws {
@@ -4588,10 +4598,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: missing session"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, [
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_attach_end",
-        ])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"])
     }
 
     func testSSHPTYAttachRequireExistingSessionNotFoundFailsWithoutWaitRetry() throws {
@@ -4675,10 +4682,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, [
-            "workspace.remote.pty_bridge",
-            "workspace.remote.pty_attach_end",
-        ])
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"])
     }
 
     func testSSHSessionListAllWorkspacesReportsQueryErrors() throws {
