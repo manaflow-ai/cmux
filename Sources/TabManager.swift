@@ -1328,17 +1328,16 @@ class TabManager: ObservableObject {
         cachedInheritedTerminalFontPointsForNewWorkspace(workspace: workspace)
     }
 
+    // Inherited-surface config-template building lives in
+    // WorkspaceCreationCoordinator (CmuxWorkspaces); this forwarder keeps the
+    // legacy entry point used by the creation host witness and the
+    // detached-workspace path.
     func workspaceCreationConfigTemplate(
         inheritedTerminalFontPoints: Float?
     ) -> CmuxSurfaceConfigTemplate? {
-        guard let inheritedTerminalFontPoints, inheritedTerminalFontPoints > 0 else {
-            return nil
-        }
-        // Rebuild a clean Swift-owned template instead of carrying over any pointer-backed
-        // inherited config state from the source workspace.
-        var config = CmuxSurfaceConfigTemplate()
-        config.fontSize = inheritedTerminalFontPoints
-        return config
+        workspaceCreating.workspaceCreationConfigTemplate(
+            inheritedTerminalFontPoints: inheritedTerminalFontPoints
+        )
     }
 
     func normalizedWorkingDirectory(_ directory: String?) -> String? {

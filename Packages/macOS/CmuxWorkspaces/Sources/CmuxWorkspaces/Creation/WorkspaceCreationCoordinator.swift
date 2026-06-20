@@ -1,5 +1,6 @@
 public import Foundation
 public import CmuxSettings
+public import CmuxTerminalCore
 
 /// Computes the pure insertion-planning half of the window's new-workspace
 /// creation flows over the window's ``WorkspacesModel``: the pre-creation
@@ -104,6 +105,31 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
             preferredWorkingDirectory: preferredWorkingDirectory,
             inheritedTerminalFontPoints: inheritedTerminalFontPoints
         )
+    }
+
+    /// Builds the inherited-surface config template a new workspace boots with
+    /// from the inherited terminal font points, or `nil` when there is no
+    /// positive font to seed. Lifts the legacy
+    /// `TabManager.workspaceCreationConfigTemplate(inheritedTerminalFontPoints:)`
+    /// body one-for-one.
+    ///
+    /// A clean Swift-owned ``CmuxSurfaceConfigTemplate`` is rebuilt here rather
+    /// than carrying over any pointer-backed inherited config state from the
+    /// source workspace, so the value is pure over the `Float?` input and lives
+    /// in the package next to the rest of the creation planning. The host
+    /// witness (`makeWorkspaceForCreation`) and the detached-workspace path
+    /// forward to it for the single source of truth.
+    public func workspaceCreationConfigTemplate(
+        inheritedTerminalFontPoints: Float?
+    ) -> CmuxSurfaceConfigTemplate? {
+        guard let inheritedTerminalFontPoints, inheritedTerminalFontPoints > 0 else {
+            return nil
+        }
+        // Rebuild a clean Swift-owned template instead of carrying over any pointer-backed
+        // inherited config state from the source workspace.
+        var config = CmuxSurfaceConfigTemplate()
+        config.fontSize = inheritedTerminalFontPoints
+        return config
     }
 
     /// Re-maps the snapshot's tab order onto the model's current live order, or
