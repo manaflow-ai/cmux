@@ -98,7 +98,7 @@ struct SettingsWindowPresenterTests {
         }
     }
 
-    @Test func closedSettingsWindowReopensHiddenAliveWindowInsteadOfDroppingToSceneOpen() async throws {
+    @Test func closedSettingsWindowReopensThroughSceneInsteadOfRetainingHiddenTree() async throws {
         try await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter()
             let settingsWindow = makeWindow(identifier: SettingsWindowPresenter.windowIdentifier)
@@ -120,9 +120,9 @@ struct SettingsWindowPresenterTests {
                 openWindowOverride: { didOpen = true }
             )
 
-            #expect(!didOpen)
-            #expect(settingsWindow.makeKeyAndOrderFrontCallCount == 2)
-            #expect(settingsWindow.isVisible)
+            #expect(didOpen)
+            #expect(settingsWindow.makeKeyAndOrderFrontCallCount == 1)
+            #expect(settingsWindow.identifier == nil)
         }
     }
 

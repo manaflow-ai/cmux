@@ -45,6 +45,9 @@ struct SettingsWindowPresenter {
                 name: NSWindow.willCloseNotification,
                 object: window
             )
+            // Ordered-out live windows can still be re-fronted through the weak
+            // reference; closed windows must not be rediscovered from NSApp.
+            window.identifier = nil
             settingsWindow = nil
             isOpeningSettingsWindow = false
             openVerificationTask?.cancel()
