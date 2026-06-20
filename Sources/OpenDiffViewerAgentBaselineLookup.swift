@@ -1,0 +1,80 @@
+import Foundation
+
+extension AppDelegate {
+    nonisolated static func latestAgentTurnDiffRepoRoot(
+        storeURL: URL,
+        workspaceId: UUID,
+        surfaceId: UUID,
+        sessionId: String
+    ) -> String? {
+        guard let data = try? Data(contentsOf: storeURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let records = object["records"] as? [[String: Any]] else {
+            return nil
+        }
+        let workspaceKey = workspaceId.uuidString.lowercased()
+        let surfaceKey = surfaceId.uuidString.lowercased()
+        let candidates = records.compactMap { record -> (repoRoot: String, capturedAt: TimeInterval)? in
+            guard let recordWorkspace = normalizedOpenDiffViewerIdentifier(record["workspaceId"] as? String),
+                  let recordSurface = normalizedOpenDiffViewerIdentifier(record["surfaceId"] as? String),
+                  let recordSession = normalizedOpenDiffViewerSessionId(record["sessionId"] as? String),
+                  recordWorkspace == workspaceKey,
+                  recordSurface == surfaceKey,
+                  recordSession == sessionId,
+                  let repoRoot = normalizedOpenDiffViewerPath(record["repoRoot"] as? String) else {
+                return nil
+            }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: repoRoot, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return nil
+            }
+            let capturedAt = (record["capturedAt"] as? NSNumber)?.doubleValue ?? 0
+            return (repoRoot, capturedAt)
+        }
+        return candidates.max(by: { $0.capturedAt < $1.capturedAt })?.repoRoot
+    }
+
+    nonisolated static func openDiffViewerAgentContextTaskKey(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        sessionId: String
+    ) -> String {
+        [
+            workspaceId.uuidString.lowercased(),
+            surfaceId.uuidString.lowercased(),
+            sessionId
+        ].joined(separator: ":")
+    }
+
+    nonisolated static func agentTurnDiffBaselineStoreURL() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let override = normalizedOpenDiffViewerPath(environment["CMUX_AGENT_HOOK_STATE_DIR"]) {
+            let expandedOverride = (override as NSString).expandingTildeInPath
+            return URL(fileURLWithPath: expandedOverride, isDirectory: true)
+                .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+    }
+
+    nonisolated static func normalizedOpenDiffViewerIdentifier(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .nilIfEmpty
+    }
+
+    nonisolated static func normalizedOpenDiffViewerSessionId(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    nonisolated static func normalizedOpenDiffViewerPath(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+}
