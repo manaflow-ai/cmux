@@ -376,14 +376,16 @@ function updateTranscriptTurn(row: HTMLDivElement, entry: TranscriptEntry): void
       row.className = "codex-assistant-turn";
       const content = row.firstElementChild as HTMLDivElement | null;
       if (content) {
+        // Render markdown live during streaming too (parity with the React
+        // renderer). This debug-only path renders directly per delta — no
+        // useDeferredValue coalescing — which is acceptable for the Debug menu.
+        content.className = "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
         if (entry.isComplete === false) {
-          content.className =
-            "codex-assistant-message codex-assistant-message-streaming text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
-          content.textContent = entry.text;
+          content.dataset.streaming = "true";
         } else {
-          content.className = "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]";
-          content.innerHTML = renderMarkdownHTML(entry.text);
+          delete content.dataset.streaming;
         }
+        content.innerHTML = renderMarkdownHTML(entry.text);
       }
       break;
     }

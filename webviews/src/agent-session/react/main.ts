@@ -1,4 +1,13 @@
-import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { activityGlyph } from "../shared/activityGlyph";
 import { callNative, subscribeToAgentEvents } from "../shared/bridge";
 import {
@@ -984,6 +993,23 @@ const TranscriptThread = React.memo(function TranscriptThread({
   );
 });
 
+// During streaming the assistant text grows token-by-token. Rendering markdown
+// on every token would re-parse + DOM-sanitize the whole (growing) message each
+// delta — O(n^2) over a long turn, on the typing-sensitive main thread. Wrapping
+// the text in useDeferredValue lets React coalesce rapid token bursts so the
+// useMemo'd parse only runs for the latest "settled" value, not once per token.
+// Keep the useMemo explicit so the parse stays cached even under React Compiler.
+function StreamingAssistantMessage({ text }: { text: string }) {
+  const deferredText = useDeferredValue(text);
+  const html = useMemo(() => renderMarkdownHTML(deferredText), [deferredText]);
+  return h("div", {
+    className:
+      "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)] [&>*:last-child]:mb-0 [&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0",
+    "data-streaming": "true",
+    dangerouslySetInnerHTML: { __html: html },
+  });
+}
+
 export const TranscriptTurn = React.memo(function TranscriptTurn({
   copy,
   entry,
@@ -1021,14 +1047,7 @@ export const TranscriptTurn = React.memo(function TranscriptTurn({
         return h(
           "div",
           { className: "codex-assistant-turn group flex min-w-0 flex-col" },
-          h(
-            "div",
-            {
-              className:
-                "codex-assistant-message codex-assistant-message-streaming text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]",
-            },
-            entry.text,
-          ),
+          h(StreamingAssistantMessage, { text: entry.text }),
         );
       }
       return h(
