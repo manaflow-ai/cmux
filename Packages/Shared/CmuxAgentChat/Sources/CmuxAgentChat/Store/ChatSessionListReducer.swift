@@ -52,6 +52,8 @@ public struct ChatSessionListReducer: Sendable {
             var updated = sessions
             updated[index] = updated[index].withState(state)
             return updated
+        case .removed:
+            return sessions.filter { $0.id != frame.sessionID }
         case .appended, .updated, .terminalBlocks, .reset, .unknown:
             // Transcript-content frames don't affect the session list.
             return sessions

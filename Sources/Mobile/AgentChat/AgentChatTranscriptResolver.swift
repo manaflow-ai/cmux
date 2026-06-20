@@ -78,7 +78,8 @@ struct AgentChatTranscriptResolver: Sendable {
         let candidates = Self.cwdCandidates(workingDirectory)
             .filter { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path != home }
         let normalizedTitleHint = Self.normalizedClaudeTitle(titleHint)
-        for cwd in candidates {
+        var transcriptCandidates: [(url: URL, date: Date, title: String?, rank: Int)] = []
+        for (rank, cwd) in candidates.enumerated() {
             guard !Task.isCancelled else { return nil }
             let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
             let dir = homeDirectory
@@ -90,7 +91,6 @@ struct AgentChatTranscriptResolver: Sendable {
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]
             ) else { continue }
-            var transcriptCandidates: [(url: URL, date: Date, title: String?)] = []
             for url in entries where url.pathExtension == "jsonl" {
                 guard !Task.isCancelled else { return nil }
                 let sessionID = url.deletingPathExtension().lastPathComponent
@@ -98,35 +98,35 @@ struct AgentChatTranscriptResolver: Sendable {
                 transcriptCandidates.append((
                     url: url,
                     date: (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast,
-                    title: Self.claudeTranscriptTitle(at: url)
+                    title: Self.claudeTranscriptTitle(at: url),
+                    rank: rank
                 ))
             }
-            let newest: URL?
-            if let normalizedTitleHint {
-                let exactTitleCandidates = transcriptCandidates
-                    .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint }
-                let untitledCandidates = transcriptCandidates.filter { $0.title == nil }
-                let newestExact = exactTitleCandidates.max { $0.date < $1.date }
-                let newestUntitled = untitledCandidates.max { $0.date < $1.date }
-                if let newestExact,
-                   let newestUntitled,
-                   newestUntitled.date > newestExact.date {
-                    return nil
-                }
-                newest = (newestExact ?? newestUntitled)?.url
-            } else {
-                // A generic "Claude Code" title cannot identify one of several
-                // same-cwd sessions. Avoid stealing a transcript that already
-                // has a conversation title; a later title-change scan can bind
-                // it to the matching terminal.
-                newest = transcriptCandidates
-                    .filter { $0.title == nil }
-                    .max { $0.date < $1.date }?
-                    .url
+        }
+
+        let newest: URL?
+        if let normalizedTitleHint {
+            let exactTitleCandidates = transcriptCandidates
+                .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint }
+            let untitledCandidates = transcriptCandidates.filter { $0.title == nil }
+            let preferredExact = Self.preferredClaudeTranscript(exactTitleCandidates)
+            let preferredUntitled = Self.preferredClaudeTranscript(untitledCandidates)
+            if let preferredExact,
+               let preferredUntitled,
+               preferredUntitled.rank == preferredExact.rank,
+               preferredUntitled.date > preferredExact.date {
+                return nil
             }
-            if let newest {
-                return (sessionID: newest.deletingPathExtension().lastPathComponent, path: newest.path)
-            }
+            newest = (preferredExact ?? preferredUntitled)?.url
+        } else {
+            // A generic "Claude Code" title cannot identify one of several
+            // same-cwd sessions. Avoid stealing a transcript that already
+            // has a conversation title; a later title-change scan can bind
+            // it to the matching terminal.
+            newest = Self.preferredClaudeTranscript(transcriptCandidates.filter { $0.title == nil })?.url
+        }
+        if let newest {
+            return (sessionID: newest.deletingPathExtension().lastPathComponent, path: newest.path)
         }
         return nil
     }
@@ -156,6 +156,15 @@ struct AgentChatTranscriptResolver: Sendable {
             }
         }
         return result
+    }
+
+    private static func preferredClaudeTranscript(
+        _ candidates: [(url: URL, date: Date, title: String?, rank: Int)]
+    ) -> (url: URL, date: Date, title: String?, rank: Int)? {
+        candidates.min {
+            if $0.rank != $1.rank { return $0.rank < $1.rank }
+            return $0.date > $1.date
+        }
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
