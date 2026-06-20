@@ -33,7 +33,9 @@ actor MobileCoreRPCSession {
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
     private var pending: [String: PendingContinuation] = [:]
-    private var queuedRequestIDs: Set<String> = []
+    // `internal` (not `private`) so the cancellation test can observe the gate
+    // via `@testable import`, instead of a debug accessor in production source.
+    var queuedRequestIDs: Set<String> = []
     private var cancelledQueuedRequestIDs: Set<String> = []
     private var listeners: [UUID: EventListener] = [:]
     private var isTearingDown: Bool = false
