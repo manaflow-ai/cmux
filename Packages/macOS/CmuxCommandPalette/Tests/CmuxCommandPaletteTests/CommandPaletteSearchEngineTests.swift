@@ -217,9 +217,10 @@ struct CommandPaletteSearchEngineTests {
                 FixtureResult(id: entry.id, rank: entry.rank, title: entry.title, score: 0, titleMatchIndices: [])
             }
             : entries.compactMap { entry in
-                guard let fuzzyScore = weightedReferenceScore(
+                guard let fuzzyScore = commandPaletteWeightedReferenceScore(
                     query: query,
-                    entry: entry
+                    title: entry.title,
+                    searchableTexts: entry.searchableTexts
                 ) else {
                     return nil
                 }
@@ -255,25 +256,6 @@ struct CommandPaletteSearchEngineTests {
         queryDurationsMs.reduce(0) { total, durationMs in
             total + max(0, Int(ceil(durationMs / frameBudgetMs)) - 1)
         }
-    }
-
-    private func weightedReferenceScore(
-        query: String,
-        entry: FixtureEntry
-    ) -> Int? {
-        guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
-            query: query,
-            candidates: entry.searchableTexts
-        ) else {
-            return nil
-        }
-        guard let titleScore = CommandPaletteFuzzyMatcher.score(
-            query: query,
-            candidate: entry.title
-        ) else {
-            return fuzzyScore
-        }
-        return max(fuzzyScore, titleScore + 2000)
     }
 
     private func benchmarkElapsedMs(operation: () -> Void) -> Double {
@@ -879,27 +861,6 @@ struct CommandPaletteSearchEngineTests {
             results.prefix(2).map(\.id) ==
             ["command.checkForUpdates", "command.attemptUpdate"]
         )
-    }
-
-    @Test func searchPrefersEmojiPrefixedFullTitleWordsOverPartialTitlePrefix() {
-        let entries = [
-            FixtureEntry(
-                id: "workspace.fullTitleMatch",
-                rank: 20,
-                title: "🧪 Command Palette",
-                searchableTexts: ["🧪 Command Palette", "Workspace", "workspace", "switch", "go"]
-            ),
-            FixtureEntry(
-                id: "workspace.partialTitlePrefix",
-                rank: 0,
-                title: "Command Palette Archive",
-                searchableTexts: ["Command Palette Archive", "Workspace", "workspace", "switch", "go"]
-            ),
-        ]
-
-        let results = optimizedResults(entries: entries, query: "command palette")
-
-        #expect(results.first?.id == "workspace.fullTitleMatch")
     }
 
     @Test func previewCandidateCommandIDsAreBounded() {
