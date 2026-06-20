@@ -336,7 +336,7 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
-  tests:
+  app-host-unit-tests:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/4)
@@ -663,7 +663,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
 
-  tests-required-status:
+  tests:
     name: tests
     # Aggregate gate for the test/build suites in this workflow. Required by
     # branch protection under the stable name "tests", and references each suite
@@ -672,7 +672,7 @@ jobs:
     # that stranded the old "tests" check). Add new ci.yml test/build jobs here.
     needs:
       - changes
-      - tests
+      - app-host-unit-tests
       - swift-package-tests
       - agent-session-web-resources
     if: ${{ always() }}
@@ -690,7 +690,7 @@ jobs:
 
           needs = json.loads(os.environ["TESTS_NEEDS"])
           changes = needs["changes"]
-          tests = needs["tests"]
+          tests = needs["app-host-unit-tests"]
           macos = changes.get("outputs", {}).get("macos")
 
           if changes["result"] != "success":
@@ -1913,8 +1913,8 @@ jobs:
       - web-typecheck
       - react-apps-check
       - web-db-migrations
+      - app-host-unit-tests
       - tests
-      - tests-required-status
       - swift-package-tests
       - agent-session-web-resources
       - tests-build-and-lag
