@@ -441,6 +441,9 @@ class TabManager: ObservableObject {
         resolveFocusedBrowser: { [weak self] in self?.focusedBrowserPanel },
         resolveFocusedMarkdown: { [weak self] in self?.focusedMarkdownPanel }
     )
+    /// React Grab toggle resolution + orchestration (CmuxBrowser). Stateless;
+    /// each call passes the target workspace as a `ReactGrabWorkspaceContext`.
+    let reactGrabController = ReactGrabController()
     /// Sidebar multi-selection state + sync events (CmuxSidebar).
     let sidebarMultiSelection = SidebarMultiSelectionModel()
     /// Typed synchronous settings access (CmuxSettings).
@@ -3021,96 +3024,21 @@ class TabManager: ObservableObject {
     /// `cmux browser react-grab toggle` CLI command so both share one action path.
     /// Returns the resolved browser surface id it acted on, or nil if it could not resolve/act
     /// (so callers can report the actual browser surface rather than the focused panel).
+    ///
+    /// The resolution + toggle orchestration lives in `reactGrabController`
+    /// (CmuxBrowser); `Workspace` conforms to `ReactGrabWorkspaceContext` so the
+    /// controller drives it without importing the app target.
     @discardableResult
     func toggleReactGrab(
         in workspace: Workspace,
         browserSurfaceId: UUID?,
         returnTerminalSurfaceId: UUID?
     ) -> UUID? {
-        let snapshots = workspace.panels.values.map { panel in
-            ReactGrabShortcutPanelSnapshot(
-                id: panel.id,
-                panelType: panel.panelType,
-                isFocused: panel.id == workspace.focusedPanelId
-            )
-        }
-        let route = resolveReactGrabShortcutRoute(panels: snapshots)
-
-        // Browser target: an explicit surface is authoritative (it must be a browser, no
-        // fallback to a different browser); otherwise resolve the route's browser from focus.
-        let browserPanelId: UUID?
-        if let explicit = browserSurfaceId {
-            guard workspace.browserPanel(for: explicit) != nil else { return nil }
-            browserPanelId = explicit
-        } else {
-            browserPanelId = route?.browserPanelId
-        }
-        guard let browserPanelId else { return nil }
-
-        // Return terminal: an explicit return surface is authoritative (must be a terminal in
-        // this workspace, no fallback) so pasteback never silently goes to the wrong terminal.
-        // With no explicit return, adopt the route's terminal only when the browser also came
-        // from the route (matching shortcut semantics).
-        let returnTerminalPanelId: UUID?
-        if let explicit = returnTerminalSurfaceId {
-            guard workspace.panels[explicit]?.panelType == .terminal else { return nil }
-            returnTerminalPanelId = explicit
-        } else if browserSurfaceId == nil {
-            returnTerminalPanelId = route?.returnTerminalPanelId
-        } else {
-            returnTerminalPanelId = nil
-        }
-
-        let didToggle = performReactGrabToggle(
+        reactGrabController.toggleReactGrab(
             in: workspace,
-            browserPanelId: browserPanelId,
-            returnTerminalPanelId: returnTerminalPanelId
+            browserSurfaceId: browserSurfaceId,
+            returnTerminalSurfaceId: returnTerminalSurfaceId
         )
-        return didToggle ? browserPanelId : nil
-    }
-
-    @discardableResult
-    private func performReactGrabToggle(
-        in workspace: Workspace,
-        browserPanelId: UUID,
-        returnTerminalPanelId: UUID?
-    ) -> Bool {
-        guard let browserPanel = workspace.browserPanel(for: browserPanelId) else { return false }
-
-        if let returnTerminalPanelId {
-            browserPanel.armReactGrabRoundTrip(returnTo: returnTerminalPanelId)
-        } else {
-            browserPanel.clearReactGrabRoundTrip(reason: "shortcut.noReturnTarget")
-        }
-
-        if workspace.focusedPanelId != browserPanel.id {
-            workspace.clearSplitZoom()
-            workspace.focusPanel(browserPanel.id)
-        }
-
-        let didRequestExplicitWebViewFocus = browserPanel.requestExplicitWebViewFocus()
-#if DEBUG
-        cmuxDebugLog(
-            "reactGrab.pasteback h1.focusRequestResult " +
-            "workspace=\(workspace.id.uuidString.prefix(5)) " +
-            "browser=\(browserPanel.id.uuidString.prefix(5)) " +
-            "return=\(returnTerminalPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
-            "success=\(didRequestExplicitWebViewFocus ? 1 : 0)"
-        )
-#endif
-
-        Task { @MainActor [weak browserPanel] in
-            guard let browserPanel else { return }
-            if returnTerminalPanelId != nil {
-                await browserPanel.ensureReactGrabActive()
-            } else {
-                await browserPanel.toggleOrInjectReactGrab()
-            }
-            if !didRequestExplicitWebViewFocus {
-                _ = browserPanel.requestExplicitWebViewFocus()
-            }
-        }
-        return true
     }
 
     /// Backwards compatibility: returns the focused surface ID
