@@ -4760,39 +4760,51 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         )
     }
 
+    /// The sidebar directory/order resolver, reading this workspace's live panel
+    /// directories and canonicalization inputs through the
+    /// ``SidebarMetadataHosting`` seam. Constructed per use; the resolver is a
+    /// stateless throwaway value holding only the host reference.
+    private var sidebarDirectoryResolver: SidebarDirectoryResolver {
+        SidebarDirectoryResolver(host: self)
+    }
+
     private func sidebarHomeDirectoryForCanonicalization(
         resolvedPanelDirectories: [UUID: String]
     ) -> String? {
-        if isRemoteWorkspace {
-            return SidebarBranchOrdering().inferredRemoteHomeDirectory(
-                from: Array(resolvedPanelDirectories.values),
-                fallbackDirectory: SidebarBranchOrdering().normalizedDirectory(currentDirectory)
-            )
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.path
+        sidebarDirectoryResolver.homeDirectoryForCanonicalization(
+            resolvedPanelDirectories: resolvedPanelDirectories
+        )
     }
 
     private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
-        if let directory = SidebarBranchOrdering().normalizedDirectory(panelDirectories[panelId]) {
-            return directory
-        }
-        if let requestedDirectory = SidebarBranchOrdering().normalizedDirectory(
-            terminalPanel(for: panelId)?.requestedWorkingDirectory
-        ) {
-            return requestedDirectory
-        }
-        guard panelId == focusedPanelId else { return nil }
-        return SidebarBranchOrdering().normalizedDirectory(currentDirectory)
+        sidebarDirectoryResolver.resolvedDirectory(for: panelId)
     }
 
     private func sidebarResolvedPanelDirectories(orderedPanelIds: [UUID]) -> [UUID: String] {
-        var resolved: [UUID: String] = [:]
-        for panelId in orderedPanelIds {
-            if let directory = sidebarResolvedDirectory(for: panelId) {
-                resolved[panelId] = directory
-            }
-        }
-        return resolved
+        sidebarDirectoryResolver.resolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
+    }
+
+    // MARK: - SidebarMetadataHosting
+
+    /// The currently focused panel id, exposed to ``SidebarDirectoryResolver``.
+    var sidebarFocusedPanelId: UUID? { focusedPanelId }
+
+    /// The workspace's current directory, exposed to ``SidebarDirectoryResolver``.
+    var sidebarCurrentDirectory: String { currentDirectory }
+
+    /// Whether this is a remote workspace, exposed to ``SidebarDirectoryResolver``.
+    var sidebarIsRemoteWorkspace: Bool { isRemoteWorkspace }
+
+    /// The panel's last-reported working directory, exposed to
+    /// ``SidebarDirectoryResolver``.
+    func sidebarPanelDirectory(for panelId: UUID) -> String? {
+        panelDirectories[panelId]
+    }
+
+    /// The panel's terminal-requested working directory, exposed to
+    /// ``SidebarDirectoryResolver``.
+    func sidebarPanelRequestedWorkingDirectory(for panelId: UUID) -> String? {
+        terminalPanel(for: panelId)?.requestedWorkingDirectory
     }
 
     /// Resolves each panel's directory and the canonicalization home directory
@@ -10319,6 +10331,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 // per-member contract. `probeInheritanceCandidate` pins the panel/surface once
 // (the legacy single pin) for both C reads; `commitInheritanceSelection` applies
 // the writes in the legacy order (seed → remember → record-last).
+/// `Workspace` supplies the sidebar directory/order projection's live-state
+/// reads. The conforming members live with the other sidebar projection code in
+/// the main class body.
+extension Workspace: SidebarMetadataHosting {}
+
 extension Workspace: SurfaceCreationHosting {
     func configInheritanceCandidatePanelIds(preferredPanelId: UUID?, inPane preferredPaneId: PaneID?) -> [UUID] {
         terminalPanelConfigInheritanceCandidates(preferredPanelId: preferredPanelId, inPane: preferredPaneId).map(\.id)
