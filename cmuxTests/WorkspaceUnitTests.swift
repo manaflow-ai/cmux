@@ -527,6 +527,14 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         }
     }
 
+    func testSelectSurfaceByNumberIsUnboundByDefault() {
+        XCTAssertTrue(KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut.isUnbound)
+    }
+
+    func testSelectWorkspaceByNumberIsUnboundByDefault() {
+        XCTAssertTrue(KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultShortcut.isUnbound)
+    }
+
     func testSettingsVisibleShortcutActionsIncludeRemappableExampleShortcuts() {
         let visibleActions = Set(KeyboardShortcutSettings.settingsVisibleActions)
 
@@ -2794,6 +2802,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
     }
 
     func testShortcutRecorderValidationPresentationUsesNumberedDisplayOnlyForNumberedConflicts() {
+        let workspaceDigits = StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
         let presentation = ShortcutRecorderValidationPresentation(
             attempt: ShortcutRecorderRejectedAttempt(
                 reason: .conflictsWithAction(.selectWorkspaceByNumber),
@@ -2801,7 +2810,9 @@ final class StoredShortcutMatchingTests: XCTestCase {
             ),
             action: .openBrowser,
             currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
-            shortcutForAction: { $0.defaultShortcut }
+            shortcutForAction: { action in
+                action == .selectWorkspaceByNumber ? workspaceDigits : action.defaultShortcut
+            }
         )
 
         XCTAssertEqual(

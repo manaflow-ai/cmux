@@ -2527,7 +2527,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testGhosttyConfigDoesNotRetainNumberedGotoTabFallback() throws {
         // Regression for https://github.com/manaflow-ai/cmux/issues/5189.
-        // cmux owns "Select Workspace 1…9" (default ⌘1–9) through KeyboardShortcutSettings.
+        // cmux owns any user-bound "Select Workspace 1…9" shortcut through
+        // KeyboardShortcutSettings.
         // Ghostty's built-in super+1…8 = goto_tab and super+9 = last_tab fallbacks must be
         // unbound — exactly like cmux already unbinds super+d / super+w — so the numbered
         // shortcut is driven solely by the configured value. Otherwise a remapped-away ⌘1–9
@@ -2558,7 +2559,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                     modifiers: [.command],
                     keyCode: keyCode
                 ),
-                "Ghostty must not retain its super+\(digit) goto_tab/last_tab fallback; the numbered workspace shortcut is owned by KeyboardShortcutSettings"
+                "Ghostty must not retain its super+\(digit) goto_tab/last_tab fallback; any numbered workspace shortcut is owned by KeyboardShortcutSettings"
             )
         }
     }
@@ -3104,6 +3105,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testRightSidebarHeaderChromeUsesSharedButtonsWithCompactIcons() {
         let titlebarConfig = TitlebarControlsStyle.classic.config
 
+        for style in TitlebarControlsStyle.allCases {
+            XCTAssertEqual(style.config.buttonCornerRadius, 0, accuracy: 0.001)
+        }
         XCTAssertEqual(HeaderChromeControlMetrics.buttonSize, titlebarConfig.buttonSize, accuracy: 0.001)
         XCTAssertEqual(HeaderChromeControlMetrics.iconSize, titlebarConfig.iconSize, accuracy: 0.001)
         XCTAssertEqual(HeaderChromeControlMetrics.cornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
@@ -3120,6 +3124,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             HeaderChromeIconStyle.iconFrameSize(forIconSize: titlebarConfig.iconSize)
         )
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlCornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.controlCornerRadius, 0, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.controlHeight, RightSidebarChromeMetrics.headerControlSize, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.barVerticalPadding, 4, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment, 0, accuracy: 0.001)
@@ -6599,6 +6604,90 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 )
             }
         }
+    }
+
+    func testDefaultControlDigitFallsThroughToTerminalApps() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "1",
+            modifiers: [.control],
+            keyCode: 18,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Ctrl+1 event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Default Ctrl+1 must fall through so foreground terminal apps can handle it"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testCustomControlDigitSurfaceShortcutRoutesBeforeTerminalInput() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "2",
+            modifiers: [.control],
+            keyCode: 19,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Ctrl+2 event")
+            return
+        }
+
+        let surfaceDigits = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: false,
+            control: true
+        )
+
+        withTemporaryShortcut(action: .selectSurfaceByNumber, shortcut: surfaceDigits) {
+            XCTAssertTrue(
+                appDelegate.handleConfiguredShortcutKeyEquivalent(event),
+                "A user-bound Select Surface 1…9 Ctrl digit must be claimed before Ghostty's Ctrl fast path"
+            )
+        }
+    }
+
+    func testDefaultCommandDigitFallsThroughToTerminalApps() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "1",
+            modifiers: [.command],
+            keyCode: 18,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Cmd+1 event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Default Cmd+1 must fall through so foreground terminal apps can handle it"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
     }
 
     func testStaleCloseDefaultShortcutsSuppressMenuFallbackAfterReassignment() {

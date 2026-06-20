@@ -3934,6 +3934,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return currentBounds
     }
 
+    private func clampSurfaceSizeToVisibleWindowContent(_ size: CGSize) -> CGSize {
+        guard let contentView = window?.contentView,
+              contentView.window === window,
+              size.width > 0,
+              size.height > 0 else {
+            return size
+        }
+
+        let boundsInContent = convert(bounds, to: contentView)
+        let visible = boundsInContent.intersection(contentView.bounds)
+        guard !visible.isNull,
+              visible.width > 0,
+              visible.height > 0,
+              visible.width.isFinite,
+              visible.height.isFinite else {
+            return size
+        }
+
+        return CGSize(
+            width: min(size.width, visible.width),
+            height: min(size.height, visible.height)
+        )
+    }
+
     private static func hasTabDragPasteboardTypes() -> Bool {
         let types = NSPasteboard(name: .drag).types ?? []
         return types.contains(tabTransferPasteboardType) || types.contains(sidebarTabReorderPasteboardType)
@@ -3985,7 +4009,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         bypassLiveResizeCoalescing: Bool = false
     ) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
-        let size = resolvedSurfaceSize(preferred: size)
+        let resolvedSize = resolvedSurfaceSize(preferred: size)
+        let size = clampSurfaceSizeToVisibleWindowContent(resolvedSize)
         guard size.width > 0 && size.height > 0 else {
 #if DEBUG
             let signature = "nonPositive-\(Int(size.width))x\(Int(size.height))"
@@ -4058,6 +4083,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 #if DEBUG
+        if !nearlyEqual(resolvedSize.width, size.width) || !nearlyEqual(resolvedSize.height, size.height) {
+            cmuxDebugLog(
+                "surface.size.clamp surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                "raw=\(String(format: "%.1fx%.1f", resolvedSize.width, resolvedSize.height)) " +
+                "visible=\(String(format: "%.1fx%.1f", size.width, size.height))"
+            )
+        }
         if lastSizeSkipSignature != nil {
             cmuxDebugLog(
                 "surface.size.resume surface=\(terminalSurface.id.uuidString.prefix(5)) " +
@@ -5332,6 +5364,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // AppKit text interpretation and send a single deterministic Ghostty key event.
         // This avoids intermittent drops after rapid split close/reparent transitions.
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
+            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+#if DEBUG
+                cmuxDebugLog(
+                    "key.ctrl path=cmuxShortcut surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "keyCode=\(event.keyCode) chars=\((event.characters?.unicodeScalarHexList ?? "")) " +
+                    "ign=\((event.charactersIgnoringModifiers?.unicodeScalarHexList ?? "")) mods=\(event.modifierFlags.rawValue)"
+                )
+#endif
+                return
+            }
             terminalSurface?.recordExternalFocusState(true)
             ghostty_surface_set_focus(surface, true)
             var keyEvent = ghostty_input_key_s()

@@ -790,7 +790,10 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
-        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "window-padding-x = 2\nwindow-padding-y = 2"
+        )
 
         let notificationCenter = NotificationCenter()
         var notificationCount = 0
@@ -815,7 +818,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "copy-on-select = clipboard"
+            "window-padding-x = 2\nwindow-padding-y = 2\ncopy-on-select = clipboard"
         )
         XCTAssertEqual(notificationCount, 1)
 
@@ -831,7 +834,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "copy-on-select = false"
+            "window-padding-x = 2\nwindow-padding-y = 2\ncopy-on-select = false"
         )
         XCTAssertEqual(notificationCount, 2)
 
@@ -841,7 +844,10 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
-        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "window-padding-x = 2\nwindow-padding-y = 2"
+        )
         XCTAssertEqual(notificationCount, 2)
     }
 }

@@ -56,7 +56,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: false,
-                buttonCornerRadius: 5,
+                buttonCornerRadius: 0,
                 hoverBackground: false
             )
         case .roomy:
@@ -69,7 +69,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: false,
-                buttonCornerRadius: 7,
+                buttonCornerRadius: 0,
                 hoverBackground: false
             )
         case .pillGroup:
@@ -82,7 +82,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 groupBackground: false,
                 groupPadding: EdgeInsets(top: 1, leading: 3, bottom: 1, trailing: 3),
                 buttonBackground: false,
-                buttonCornerRadius: 6,
+                buttonCornerRadius: 0,
                 hoverBackground: true
             )
         case .softButtons:
@@ -95,7 +95,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: true,
-                buttonCornerRadius: 6,
+                buttonCornerRadius: 0,
                 hoverBackground: false
             )
         }

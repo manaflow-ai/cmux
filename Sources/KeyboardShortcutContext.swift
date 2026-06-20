@@ -102,7 +102,7 @@ extension KeyboardShortcutSettings.Action {
     /// Whether `handleCustomShortcut` consumes this action before general
     /// configured-shortcut matching whenever its context holds (the
     /// `rightSidebarModeShortcut` pre-route). Priority-resolved pairs — the
-    /// sidebar's `⌃1…5` over the Select Surface `⌃1…9` family — coexist in
+    /// sidebar's `⌃1…5` over a user-bound Select Surface `⌃1…9` family — coexist in
     /// conflict detection because the winner owns the overlapping context and
     /// the other binding keeps every other state. Mirrors
     /// `ShortcutAction.hasPriorityShortcutRouting` in CmuxSettings; the drift

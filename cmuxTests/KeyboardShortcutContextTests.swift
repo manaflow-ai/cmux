@@ -209,15 +209,15 @@ final class KeyboardShortcutContextTests: XCTestCase {
     }
 
     func testSurfaceDigitFamilyCoexistsWithPrioritizedSidebarModeShortcuts() {
-        let surfaceDigits = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut
+        let surfaceDigits = StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
         let sidebarFiles = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.defaultShortcut
 
-        // Re-recording the factory default ⌃1 for Select Surface 1…9 must not be
+        // Binding ⌃1 for Select Surface 1…9 must not be
         // rejected against Show Sidebar Files (⌃1): the key router consumes the
         // sidebar-mode shortcuts before general shortcut matching whenever the
         // right sidebar is focused, so the pair is resolved by priority — the
         // sidebar action owns the overlap and the digit family keeps every other
-        // context. The shipped defaults rely on exactly this coexistence.
+        // context.
         XCTAssertFalse(
             KeyboardShortcutSettings.Action.switchRightSidebarToFiles.conflicts(
                 with: surfaceDigits,
