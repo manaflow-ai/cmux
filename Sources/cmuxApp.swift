@@ -589,7 +589,7 @@ struct cmuxApp: App {
                         AppDelegate.shared?.debugWindowsCoordinator.showTabBarBackdropLab()
                     }
                     Button("File Explorer Style Debug…") {
-                        FileExplorerStyleDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showFileExplorerStyleDebug()
                     }
                     Button(
                         String(
@@ -1700,7 +1700,7 @@ private struct AcknowledgmentsView: View {
 
 // MARK: - File Explorer Style Debug
 
-private struct FileExplorerStyleDebugView: View {
+struct FileExplorerStyleDebugView: View {
     @AppStorage("fileExplorer.style") private var styleRawValue: Int = 0
 
     private var currentStyle: FileExplorerStyle {
@@ -1767,45 +1767,6 @@ private struct FileExplorerStyleDebugView: View {
         case .proStudio: return "Logic Pro, chunky rows, pill selection"
         case .finder: return "Finder sidebar, filled icons, hover tint"
         }
-    }
-}
-
-extension Notification.Name {
-    static let fileExplorerStyleDidChange = Notification.Name("fileExplorerStyleDidChange")
-}
-
-private final class FileExplorerStyleDebugWindowController: ReleasingWindowController {
-    static let shared = FileExplorerStyleDebugWindowController()
-
-    private override init() {
-        super.init()
-    }
-
-    override func makeWindow() -> NSWindow {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 380),
-            styleMask: [.titled, .closable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "File Explorer Style"
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.fileExplorerStyleDebug")
-        window.center()
-        window.contentView = NSHostingView(rootView: FileExplorerStyleDebugView())
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-        return window
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func show() {
-        showManagedWindow()
     }
 }
 

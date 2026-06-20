@@ -67,6 +67,12 @@ public final class DebugWindowsCoordinator {
 
     @ObservationIgnored
     private let backgroundDebugContentProvider: (@MainActor () -> NSView)?
+
+    @ObservationIgnored
+    private var fileExplorerStyleDebugController: FileExplorerStyleDebugWindowController?
+
+    @ObservationIgnored
+    private let fileExplorerStyleDebugContentProvider: (@MainActor () -> NSView)?
     #endif
 
     /// Creates the coordinator.
@@ -103,6 +109,12 @@ public final class DebugWindowsCoordinator {
     ///     localized active-indicator display names against the app bundle, so the
     ///     app target injects it here. `nil` disables ``showSidebarDebug()`` (no
     ///     panel is presented).
+    ///   - fileExplorerStyleDebugContentProvider: Builds the content view for the
+    ///     "File Explorer Style Debug" panel (DEBUG only). The panel reads and
+    ///     writes the app-target `FileExplorerStyle` enum and posts the app-owned
+    ///     `fileExplorerStyleDidChange` notification, so the app target injects it
+    ///     here. `nil` disables ``showFileExplorerStyleDebug()`` (no panel is
+    ///     presented).
     public init(
         decorator: (any WindowDecorating)?,
         browserDebugContext: (any BrowserDebugContext)? = nil,
@@ -110,7 +122,8 @@ public final class DebugWindowsCoordinator {
         sidebarDebugContentProvider: (@MainActor () -> NSView)? = nil,
         debugWindowControlsContentProvider: (@MainActor () -> NSView)? = nil,
         menuBarExtraDebugRefresh: (@MainActor () -> Void)? = nil,
-        backgroundDebugContentProvider: (@MainActor () -> NSView)? = nil
+        backgroundDebugContentProvider: (@MainActor () -> NSView)? = nil,
+        fileExplorerStyleDebugContentProvider: (@MainActor () -> NSView)? = nil
     ) {
         self.decorator = decorator
         self.browserDebugContext = browserDebugContext
@@ -121,10 +134,12 @@ public final class DebugWindowsCoordinator {
         self.debugWindowControlsContentProvider = debugWindowControlsContentProvider
         self.menuBarExtraDebugRefresh = menuBarExtraDebugRefresh
         self.backgroundDebugContentProvider = backgroundDebugContentProvider
+        self.fileExplorerStyleDebugContentProvider = fileExplorerStyleDebugContentProvider
         #else
         _ = debugWindowControlsContentProvider
         _ = menuBarExtraDebugRefresh
         _ = backgroundDebugContentProvider
+        _ = fileExplorerStyleDebugContentProvider
         #endif
     }
 
@@ -235,6 +250,21 @@ public final class DebugWindowsCoordinator {
                 contentProvider: backgroundDebugContentProvider
             )
         backgroundDebugController = controller
+        controller.show()
+    }
+
+    /// Presents the File Explorer Style debug panel, creating its window on first
+    /// use.
+    ///
+    /// No-op when no content provider was injected at construction.
+    public func showFileExplorerStyleDebug() {
+        guard let fileExplorerStyleDebugContentProvider else { return }
+        let controller = fileExplorerStyleDebugController
+            ?? FileExplorerStyleDebugWindowController(
+                decorator: decorator,
+                contentProvider: fileExplorerStyleDebugContentProvider
+            )
+        fileExplorerStyleDebugController = controller
         controller.show()
     }
     #endif

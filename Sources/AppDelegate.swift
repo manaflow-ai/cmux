@@ -526,7 +526,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         },
         debugWindowControlsContentProvider: { NSHostingView(rootView: DebugWindowControlsView()) },
         menuBarExtraDebugRefresh: { AppDelegate.shared?.refreshMenuBarExtraForDebug() },
-        backgroundDebugContentProvider: { NSHostingView(rootView: BackgroundDebugView()) }
+        backgroundDebugContentProvider: { NSHostingView(rootView: BackgroundDebugView()) },
+        fileExplorerStyleDebugContentProvider: { NSHostingView(rootView: FileExplorerStyleDebugView()) }
     )
     #else
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(

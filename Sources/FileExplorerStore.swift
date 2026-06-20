@@ -7,6 +7,10 @@ import SwiftUI
 
 // MARK: - Explorer Visual Style
 
+extension Notification.Name {
+    static let fileExplorerStyleDidChange = Notification.Name("fileExplorerStyleDidChange")
+}
+
 enum FileExplorerStyle: Int, CaseIterable {
     case liquidGlass = 0
     case highDensity = 1
