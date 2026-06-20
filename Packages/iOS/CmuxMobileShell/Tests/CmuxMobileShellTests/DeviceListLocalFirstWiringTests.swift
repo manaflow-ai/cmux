@@ -198,6 +198,36 @@ import Testing
         #expect(composite.deviceTreeDevices.isEmpty)   // but NOT shown in the tree
     }
 
+    /// Before the first sync (cursor 0), an offline launch must still show the
+    /// local paired Macs via the fallback — the gate only hides them once synced.
+    @Test func localFirstBeforeSyncStillShowsPairedMacs() async throws {
+        let (store, dir) = try emptySyncStore() // never synced: cursor 0
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let macDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: macDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: macDir) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: macDir.appendingPathComponent("paired-macs.sqlite3"))
+        try await pairedStore.upsert(
+            macDeviceID: "mac-old", displayName: "Old", routes: [],
+            markActive: true, stackUserID: Self.owner)
+
+        let composite = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            syncStore: store,
+            deviceListLocalFirst: true,
+            syncTeamIDProvider: { "team-1" },
+            makeSyncTransport: makeTransportFactory(),
+            identityProvider: FakeIdentity(userID: Self.owner),
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+        )
+        await composite.loadPairedMacs()
+        await composite.loadRegistryDevices() // empty + not synced -> no authoritative gate
+        #expect(composite.deviceTreeDevices.map(\.deviceId) == ["mac-old"])
+    }
+
     /// Finding #2: a late frame for the OLD team (a team switch mid-stream) must
     /// not overwrite the current team's list.
     @Test func staleTeamFrameDoesNotOverwriteCurrentTeam() async throws {

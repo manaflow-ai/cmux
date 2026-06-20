@@ -1513,6 +1513,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     syncTask?.cancel()
                     syncTask = nil
                     syncSubscriptionTeamID = nil
+                    deviceSyncAuthoritative = false // new team hasn't synced yet
                     evaluateSyncSubscription()
                 }
                 // Serve the durable list when present. A non-mutating read so an
@@ -1531,6 +1532,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let syncStore,
                    let cursor = try? await syncStore.cursor(teamID: teamID, collection: devicesSyncCollection),
                    cursor > 0 {
+                    deviceSyncAuthoritative = true
                     registryDevices = []
                     return
                 }
@@ -1596,15 +1598,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// device sorts first, then most-recently-seen.
     public var deviceTreeDevices: [RegistryDevice] {
         if !registryDevices.isEmpty { return registryDevices }
-        // In local-first mode the sync store is authoritative: the local paired
-        // Macs are seeded into it as provisional rows, so an empty
-        // `registryDevices` (after the store has loaded) means the team genuinely
-        // has no devices. Do NOT synthesize from `pairedMacs` — that XOR fallback
-        // is only for the registry-only path; here it would resurrect stale local
-        // Macs the DO no longer knows about. (`loadRegistryDevices` still falls
-        // back to `/api/devices` before the first sync, so this only bites once
-        // the store is authoritatively empty.)
-        if deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil {
+        // In local-first mode, once the store has AUTHORITATIVELY synced this
+        // team (`deviceSyncAuthoritative`), an empty `registryDevices` means the
+        // team genuinely has no devices: do NOT synthesize from `pairedMacs` (that
+        // XOR fallback is only for the registry-only path; it would resurrect
+        // stale local Macs the DO removed). BEFORE the first sync we keep the
+        // fallback, so an offline first launch still shows the local paired Macs.
+        if deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil, deviceSyncAuthoritative {
             return []
         }
         let connectedID = connectedMacDeviceID
@@ -1668,6 +1668,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// team switch re-seeds the new team (the per-team migration marker also
     /// makes the underlying seed idempotent).
     private var seededSyncTeams: Set<String> = []
+    /// Whether the sync store has synced the current team (cursor > 0), so an
+    /// empty list is AUTHORITATIVE. Until then `deviceTreeDevices` keeps the
+    /// paired-Mac fallback, so an offline first launch still shows local Macs
+    /// rather than collapsing to empty. Reset on team change / sign-out.
+    private var deviceSyncAuthoritative = false
 
     /// Start or stop the device-list sync to match the session + flag. Called
     /// from the `isSignedIn` edge and `resumeForegroundRefresh()`, exactly like
@@ -1685,6 +1690,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             syncTask = nil
             syncSubscriptionTeamID = nil
             seededSyncTeams = []
+            deviceSyncAuthoritative = false
         }
     }
 
@@ -1696,7 +1702,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// presence loop re-grabs `self` per frame rather than across the await.
     private func startSyncSubscription() {
         guard syncTask == nil, deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil else { return }
-        syncTask = Task { @MainActor [weak self] in
+        // NOT @MainActor: the frame loop (receive + JSON parse + apply) must run
+        // OFF the main actor so the shared socket's frequent presence-tick noise
+        // never parses on the UI thread. The pieces that touch main-actor state
+        // hop explicitly: `makeSyncSubscriptionClient()` (resolve team/seed/build)
+        // and the `onApplied` reload are `@MainActor` and reached via `await`; the
+        // applier is its own actor; `SyncClient`/transport are Sendable.
+        syncTask = Task { [weak self] in
             let clock = ContinuousClock()
             var backoff: Duration = .seconds(1)
             while !Task.isCancelled {
@@ -1769,9 +1781,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applier: applier,
             collections: [devicesSyncCollection],
             onApplied: { [weak self] in
-                await self?.reloadDeviceListFromSyncStore(teamID: teamID)
+                await self?.handleSyncCommit(teamID: teamID)
             }
         )
+    }
+
+    /// A committed sync frame for `teamID` (cursor advanced): the store has now
+    /// synced this team, so an empty list is authoritative. Mark it (when still
+    /// the current team) and refresh the rendered list. Runs on the main actor;
+    /// reached via `await` from the off-main sync loop's apply callback.
+    private func handleSyncCommit(teamID: String) async {
+        if (await syncTeamIDProvider?() ?? "") == teamID {
+            deviceSyncAuthoritative = true
+        }
+        await reloadDeviceListFromSyncStore(teamID: teamID)
     }
 
     /// Read + guard + sort the device list from the local sync store (no
