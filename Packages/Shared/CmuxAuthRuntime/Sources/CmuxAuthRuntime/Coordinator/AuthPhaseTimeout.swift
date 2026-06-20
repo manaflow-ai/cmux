@@ -1,61 +1,85 @@
 import Foundation
+internal import os
 
 private final class AuthPhaseTimeoutState<T: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<T, any Error>?
-    private var cancelHandler: (@Sendable () -> Void)?
-    private var finished = false
+    private enum Completion: Sendable {
+        case success(T)
+        case failure(any Error)
+    }
+
+    private struct State {
+        var continuation: CheckedContinuation<T, any Error>?
+        var cancelHandler: (@Sendable () -> Void)?
+        var completion: Completion?
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     func install(_ continuation: CheckedContinuation<T, any Error>) {
-        lock.lock()
-        if finished {
-            lock.unlock()
-            continuation.resume(throwing: CancellationError())
-            return
+        let completion = state.withLock { state -> Completion? in
+            guard let completion = state.completion else {
+                state.continuation = continuation
+                return nil
+            }
+            state.continuation = nil
+            return completion
         }
-        self.continuation = continuation
-        lock.unlock()
+        if let completion {
+            resume(continuation, with: completion)
+        }
     }
 
     func setCancelHandler(_ handler: @escaping @Sendable () -> Void) {
-        lock.lock()
-        if finished {
-            lock.unlock()
-            handler()
-            return
+        let shouldCancel = state.withLock { state in
+            guard state.completion == nil else { return true }
+            state.cancelHandler = handler
+            return false
         }
-        cancelHandler = handler
-        lock.unlock()
+        if shouldCancel {
+            handler()
+        }
     }
 
     func resume(returning value: T) {
-        finish { $0.resume(returning: value) }
+        finish(.success(value))
     }
 
     func resume(throwing error: any Error) {
-        finish { $0.resume(throwing: error) }
+        finish(.failure(error))
     }
 
     func cancel() {
-        finish { $0.resume(throwing: CancellationError()) }
+        finish(.failure(CancellationError()))
     }
 
-    private func finish(_ resume: (CheckedContinuation<T, any Error>) -> Void) {
-        lock.lock()
-        if finished {
-            lock.unlock()
-            return
+    private func finish(_ completion: Completion) {
+        let installed = state.withLock { state -> (
+            continuation: CheckedContinuation<T, any Error>?,
+            cancelHandler: (@Sendable () -> Void)?
+        )? in
+            guard state.completion == nil else { return nil }
+            state.completion = completion
+            let continuation = state.continuation
+            let cancelHandler = state.cancelHandler
+            state.continuation = nil
+            state.cancelHandler = nil
+            return (continuation, cancelHandler)
         }
-        finished = true
-        let continuation = continuation
-        let cancelHandler = cancelHandler
-        self.continuation = nil
-        self.cancelHandler = nil
-        lock.unlock()
 
-        guard let continuation else { return }
-        cancelHandler?()
-        resume(continuation)
+        guard let installed else { return }
+        installed.cancelHandler?()
+        if let continuation = installed.continuation {
+            resume(continuation, with: completion)
+        }
+    }
+
+    private func resume(_ continuation: CheckedContinuation<T, any Error>, with completion: Completion) {
+        switch completion {
+        case let .success(value):
+            continuation.resume(returning: value)
+        case let .failure(error):
+            continuation.resume(throwing: error)
+        }
     }
 }
 

@@ -1202,7 +1202,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let ticket = try await manualHostTicket(
                 name: trimmedName,
                 host: normalizedHost,
-                port: port
+                port: port,
+                attemptStartedAt: pairingAttemptStartedAt
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
             let noThrowFailure = try await connect(ticket: ticket, allowsStackAuthFallback: true)
@@ -2397,14 +2398,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return String(String.UnicodeScalarView(scalars))
     }
 
-    private func manualHostTicket(name: String, host: String, port: Int) async throws -> CmxAttachTicket {
+    private func manualHostTicket(
+        name: String,
+        host: String,
+        port: Int,
+        attemptStartedAt: Date?
+    ) async throws -> CmxAttachTicket {
         let directRoute = try Self.manualHostRoute(host: host, port: port)
         let displayName = name.isEmpty ? host : name
         if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
             do {
                 let ticket = try await requestManualAttachTicket(
                     route: directRoute,
-                    displayName: displayName
+                    displayName: displayName,
+                    attemptStartedAt: attemptStartedAt
                 )
                 return ticket
             } catch {
@@ -2459,7 +2466,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func requestManualAttachTicket(
         route: CmxAttachRoute,
-        displayName: String
+        displayName: String,
+        attemptStartedAt: Date?
     ) async throws -> CmxAttachTicket {
         guard let runtime else {
             throw MobileShellConnectionError.insecureManualRoute
@@ -2475,6 +2483,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: probeTicket,
             allowsStackAuthFallback: true
         )
+        let timeoutNanoseconds: UInt64
+        if let attemptStartedAt {
+            timeoutNanoseconds = Self.boundedPairingRequestTimeoutNanoseconds(
+                runtime: runtime,
+                attemptStartedAt: attemptStartedAt
+            )
+            guard timeoutNanoseconds > 0 else {
+                throw MobileShellConnectionError.requestTimedOut
+            }
+        } else {
+            timeoutNanoseconds = runtime.pairingRequestTimeoutNanoseconds
+        }
         let resultData = try await client.sendRequest(
             MobileCoreRPCClient.requestData(
                 method: "mobile.attach_ticket.create",
@@ -2483,7 +2503,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "scope": "mac",
                 ]
             ),
-            timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+            timeoutNanoseconds: timeoutNanoseconds
         )
         let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
         return try response.ticket.constrainingRoutes(to: [route], fallbackDisplayName: displayName)
@@ -3325,7 +3345,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // therefore cannot authorize, which is intended.
         let routeAllowsStackAuthFallback = allowsStackAuthFallback
             ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsStackAuth)
-        let pairingAttemptStartedAt = Date()
+        let connectionAttemptStartedAt = pairingAttemptStartedAt ?? runtime.now()
         var lastError: (any Error)?
         for route in supportedRoutes {
             activeRoute = route
@@ -3340,7 +3360,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 do {
                     let requestTimeoutNanoseconds = Self.boundedPairingRequestTimeoutNanoseconds(
                         runtime: runtime,
-                        attemptStartedAt: pairingAttemptStartedAt
+                        attemptStartedAt: connectionAttemptStartedAt
                     )
                     guard requestTimeoutNanoseconds > 0 else {
                         throw MobileShellConnectionError.requestTimedOut
