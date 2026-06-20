@@ -257,6 +257,14 @@ printf 'zip' > "$dest"
 EOF
 chmod +x "$ditto_bin"
 
+package_output="$(CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" --profile "$timeout_out" --package-only)"
+package_archive="$(printf '%s\n' "$package_output" | sed -n 's/^Archive: //p')"
+if [ ! -f "$package_archive" ] || [ "$(cat "$package_archive")" != "zip" ]; then
+  echo "FAIL: submit helper package-only did not create the preview archive" >&2
+  echo "$package_output" >&2
+  exit 1
+fi
+
 CMUX_PROFILE_OSASCRIPT="$cancel_bin" CMUX_PROFILE_OPEN="$open_bin" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
   --profile "$timeout_out" \
   --target-name "cmux DEV dog" \
@@ -281,14 +289,14 @@ CMUX_PROFILE_LOCALE=ja_JP CMUX_PROFILE_OSASCRIPT="$capture_osascript" CMUX_PROFI
   --bundle-id com.cmuxterm.app.debug.dog \
   --reply-to "user@example.com" \
   --note "profile note" \
-  --skip-dialog
+  --send
 if ! grep -Fq "cmuxプロファイルを送信" "$captured_args" ||
    ! grep -Fq "下書きを開く" "$captured_args" ||
    ! grep -Fq "cmuxプロファイリングキャプチャ" "$captured_args" ||
    ! grep -Fq "user@example.com" "$captured_args" ||
    ! grep -Fq "profile note" "$captured_args" ||
    ! grep -Fq "true" "$captured_args"; then
-  echo "FAIL: submit helper did not pass localized Japanese dialog/body strings" >&2
+  echo "FAIL: submit helper did not pass localized Japanese send strings" >&2
   cat "$captured_args" >&2
   exit 1
 fi

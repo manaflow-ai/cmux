@@ -5,10 +5,11 @@ usage() {
   cat >&2 <<'USAGE'
 Usage: submit-cmux-profile --profile <dir> [--target-name <name>] [--target-pid <pid>]
                            [--channel <channel>] [--bundle-id <id>]
-                           [--reply-to <email>] [--note <text>] [--skip-dialog] [--dry-run]
+                           [--reply-to <email>] [--note <text>] [--skip-dialog] [--send]
+                           [--package-only] [--dry-run]
 
-Package a cmux profiling directory and open a separate submission window. The
-window creates an email draft to founders@manaflow.com with the archive attached.
+Package a cmux profiling directory and submit it to founders@manaflow.com with
+the archive attached.
 USAGE
 }
 
@@ -20,6 +21,8 @@ bundle_id="unknown"
 reply_to=""
 note_text=""
 skip_dialog="false"
+send_message="false"
+package_only="false"
 dry_run="false"
 recipient="${CMUX_PROFILE_FEEDBACK_EMAIL:-founders@manaflow.com}"
 osascript_bin="${CMUX_PROFILE_OSASCRIPT:-/usr/bin/osascript}"
@@ -65,6 +68,15 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skip-dialog)
       skip_dialog="true"
+      shift
+      ;;
+    --send)
+      send_message="true"
+      skip_dialog="true"
+      shift
+      ;;
+    --package-only)
+      package_only="true"
       shift
       ;;
     --dry-run)
@@ -143,6 +155,11 @@ mkdir -p "$archive_dir"
 rm -f "$archive_path"
 "$ditto_bin" -c -k --sequesterRsrc --keepParent "$profile_dir" "$archive_path"
 
+if [ "$package_only" = "true" ]; then
+  printf 'Archive: %s\n' "$archive_path"
+  exit 0
+fi
+
 subject="${subject_prefix}: ${target_name}"
 [ -n "$target_pid" ] && subject="${subject} pid ${target_pid}"
 body="$(cat <<EOF
@@ -175,6 +192,7 @@ on run argv
   set dialogTitle to item 8 of argv
   set suppliedNote to item 9 of argv
   set skipDialog to item 10 of argv
+  set shouldSend to item 11 of argv
 
   if skipDialog is "true" then
     set noteText to suppliedNote
@@ -185,17 +203,22 @@ on run argv
   set messageBody to baseBody & return & noteText
 
   tell application "Mail"
-    activate
-    set newMessage to make new outgoing message with properties {subject:messageSubject, content:messageBody & return & return, visible:true}
+    if shouldSend is "true" then
+      set newMessage to make new outgoing message with properties {subject:messageSubject, content:messageBody & return & return, visible:false}
+    else
+      activate
+      set newMessage to make new outgoing message with properties {subject:messageSubject, content:messageBody & return & return, visible:true}
+    end if
     tell newMessage
       make new to recipient at end of to recipients with properties {address:recipientAddress}
       make new attachment with properties {file name:(POSIX file archivePath)} at after last paragraph
+      if shouldSend is "true" then send
     end tell
   end tell
 end run
 OSA
 
-if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" "$note_text" "$skip_dialog" 2>"$apple_error"; then
+if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" "$note_text" "$skip_dialog" "$send_message" 2>"$apple_error"; then
   exit 0
 fi
 
@@ -204,6 +227,9 @@ if grep -Fq "(-128)" "$apple_error"; then
 fi
 
 cat "$apple_error" >&2
+if [ "$send_message" = "true" ]; then
+  exit 1
+fi
 "$open_bin" -R "$archive_path" >/dev/null 2>&1 || true
 "$open_bin" "mailto:${recipient}?subject=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$subject")" >/dev/null 2>&1 || true
 exit 1

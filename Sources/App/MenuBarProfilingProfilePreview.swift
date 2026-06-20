@@ -5,8 +5,8 @@ enum MenuBarProfilingProfilePreview {
         [
             String(localized: "statusMenu.profiling.previewRecipient", defaultValue: "Recipient: founders@manaflow.com"),
             String(format: String(localized: "statusMenu.profiling.previewEmailFormat", defaultValue: "Your email: %@"), email),
-            String(format: String(localized: "statusMenu.profiling.previewAttachmentFormat", defaultValue: "Attachment source: %@"), outputURL.path),
-            String(localized: "statusMenu.profiling.previewArchiveNote", defaultValue: "The draft attaches a zip of this folder, including traces, logs, and summary.md."),
+            String(format: String(localized: "statusMenu.profiling.previewAttachmentFormat", defaultValue: "Attachment: %@"), outputURL.lastPathComponent + ".zip"),
+            String(localized: "statusMenu.profiling.previewArchiveNote", defaultValue: "The email includes a zip with traces, logs, and summary.md."),
             "",
             fileListText(for: outputURL),
             "",
@@ -23,7 +23,7 @@ enum MenuBarProfilingProfilePreview {
         return summary
     }
 
-    static func submitArguments(profileURL: URL, email: String, note: String) -> [String] {
+    static func submitArguments(profileURL: URL, email: String, note: String, send: Bool = false) -> [String] {
         let summary = summaryText(for: profileURL)
         var args = [
             "--profile", profileURL.path,
@@ -31,11 +31,32 @@ enum MenuBarProfilingProfilePreview {
             "--note", note,
             "--skip-dialog",
         ]
+        if send {
+            args.append("--send")
+        }
         appendSummaryArgument("Name", as: "--target-name", from: summary, to: &args)
         appendSummaryArgument("PID", as: "--target-pid", from: summary, to: &args)
         appendSummaryArgument("Channel", as: "--channel", from: summary, to: &args)
         appendSummaryArgument("Bundle ID", as: "--bundle-id", from: summary, to: &args)
         return args
+    }
+
+    static func packageArguments(profileURL: URL) -> [String] {
+        [
+            "--profile", profileURL.path,
+            "--package-only",
+        ]
+    }
+
+    static func fileCount(for outputURL: URL) -> Int {
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: outputURL,
+            includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+        return urls.count
     }
 
     private static func fileListText(for outputURL: URL) -> String {

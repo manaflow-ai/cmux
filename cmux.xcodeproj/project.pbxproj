@@ -517,6 +517,7 @@
 		C0DE70570000000000000002 /* MenuBarProfilingProfilePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70570000000000000001 /* MenuBarProfilingProfilePreview.swift */; };
 		C0DE70560000000000000002 /* MenuBarProfilingProgressWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70560000000000000001 /* MenuBarProfilingProgressWindowController.swift */; };
 		C0DE70580000000000000002 /* MenuBarProfilingProgressWindowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70580000000000000001 /* MenuBarProfilingProgressWindowLayout.swift */; };
+		C0DE70590000000000000002 /* MenuBarProfilingSubmissionActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */; };
 		3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0033865B0033865B003 /* MenubarSearchPopover.swift */; };
 		E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
 		C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */; };
@@ -1505,6 +1506,7 @@
 		C0DE70570000000000000001 /* MenuBarProfilingProfilePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingProfilePreview.swift; sourceTree = "<group>"; };
 		C0DE70560000000000000001 /* MenuBarProfilingProgressWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingProgressWindowController.swift; sourceTree = "<group>"; };
 		C0DE70580000000000000001 /* MenuBarProfilingProgressWindowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingProgressWindowLayout.swift; sourceTree = "<group>"; };
+		C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingSubmissionActions.swift; sourceTree = "<group>"; };
 		3865B0033865B0033865B003 /* MenubarSearchPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/MenubarSearchPopover.swift; sourceTree = "<group>"; };
 		E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
 		C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/MinimalModeSidebarControls.swift; sourceTree = "<group>"; };
@@ -2316,6 +2318,7 @@
 					C0DE70560000000000000001 /* MenuBarProfilingProgressWindowController.swift */,
 					C0DE70570000000000000001 /* MenuBarProfilingProfilePreview.swift */,
 					C0DE70580000000000000001 /* MenuBarProfilingProgressWindowLayout.swift */,
+					C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */,
 					2F0C07000000000000000001 /* CmuxMainWindow.swift */,
 				AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */,
 				A6D1F0200000000000000001 /* WindowCloseObserver.swift */,
@@ -3750,6 +3753,7 @@
 					C0DE70570000000000000002 /* MenuBarProfilingProfilePreview.swift in Sources */,
 					C0DE70560000000000000002 /* MenuBarProfilingProgressWindowController.swift in Sources */,
 					C0DE70580000000000000002 /* MenuBarProfilingProgressWindowLayout.swift in Sources */,
+					C0DE70590000000000000002 /* MenuBarProfilingSubmissionActions.swift in Sources */,
 					3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */,
 				C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */,
 				284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */,
