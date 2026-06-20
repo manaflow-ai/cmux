@@ -1,15 +1,17 @@
 import Darwin
 import Foundation
-import XCTest
+import Testing
 
-final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
+private final class CMUXCLISentryTelemetryBundleToken {}
+
+@Suite struct CMUXCLISentryTelemetryRegressionTests {
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let timedOut: Bool
     }
 
-    func testStaleSocketConnectRefusalDoesNotCaptureSentryTelemetry() throws {
+    @Test func staleSocketConnectRefusalDoesNotCaptureSentryTelemetry() throws {
         let cliPath = try bundledCLIPath()
         let root = URL(
             fileURLWithPath: "/tmp/cmux-sr-\(UUID().uuidString.prefix(8))",
@@ -30,16 +32,16 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.lowercased().contains("connection refused"), result.stdout)
-        XCTAssertFalse(
-            FileManager.default.fileExists(atPath: probePath),
-            (try? String(contentsOfFile: probePath, encoding: .utf8)) ?? result.stdout
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout.lowercased().contains("connection refused"), Comment(rawValue: result.stdout))
+        #expect(
+            !FileManager.default.fileExists(atPath: probePath),
+            Comment(rawValue: (try? String(contentsOfFile: probePath, encoding: .utf8)) ?? result.stdout)
         )
     }
 
-    func testMissingSocketDoesNotCaptureSentryTelemetry() throws {
+    @Test func missingSocketDoesNotCaptureSentryTelemetry() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-sentry-missing-\(UUID().uuidString)", isDirectory: true)
@@ -55,16 +57,16 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.lowercased().contains("socket not found"), result.stdout)
-        XCTAssertFalse(
-            FileManager.default.fileExists(atPath: probePath),
-            (try? String(contentsOfFile: probePath, encoding: .utf8)) ?? result.stdout
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout.lowercased().contains("socket not found"), Comment(rawValue: result.stdout))
+        #expect(
+            !FileManager.default.fileExists(atPath: probePath),
+            Comment(rawValue: (try? String(contentsOfFile: probePath, encoding: .utf8)) ?? result.stdout)
         )
     }
 
-    func testUnexpectedSocketTelemetryStoresWithoutBlockingForSentryFlush() throws {
+    @Test func unexpectedSocketTelemetryStoresWithoutBlockingForSentryFlush() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-sentry-flush-\(UUID().uuidString)", isDirectory: true)
@@ -84,21 +86,21 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
             timeout: 2
         )
 
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.contains("Missing relay auth metadata"), result.stdout)
-        XCTAssertTrue(
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("Missing relay auth metadata"), Comment(rawValue: result.stdout))
+        #expect(
             FileManager.default.fileExists(atPath: captureProbePath),
-            "Unexpected relay auth failures should still be captured as telemetry-worthy errors. Output: \(result.stdout)"
+            Comment(rawValue: "Unexpected relay auth failures should still be captured as telemetry-worthy errors. Output: \(result.stdout)")
         )
-        XCTAssertTrue(
+        #expect(
             FileManager.default.fileExists(atPath: storeProbePath),
-            "Unexpected relay auth failures should be stored durably without synchronously flushing Sentry. Output: \(result.stdout)"
+            Comment(rawValue: "Unexpected relay auth failures should be stored durably without synchronously flushing Sentry. Output: \(result.stdout)")
         )
     }
 
     private func bundledCLIPath() throws -> String {
-        try BundledCLITestSupport.bundledCLIPath(for: Self.self)
+        try BundledCLITestSupport.bundledCLIPath(for: CMUXCLISentryTelemetryBundleToken.self)
     }
 
     private func sentryProbeEnvironment(socketPath: String, probePath: String) -> [String: String] {
