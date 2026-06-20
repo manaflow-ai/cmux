@@ -662,7 +662,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `AppDelegate.SessionDisplayGeometry` references stay source-identical.
     typealias SessionDisplayGeometry = CmuxWindowing.SessionDisplayGeometry
 
-    struct PersistedWindowGeometry: Codable, Sendable {
+    struct PersistedWindowGeometry: Codable, Sendable, WindowGeometryPersisting {
         let version: Int
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
@@ -676,6 +676,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
         "cmux.session.lastWindowGeometry.v1"
     ]
+
+    /// `UserDefaults`-backed primary-window geometry persistence, lifted to
+    /// ``CmuxWorkspaces/WindowGeometryStore``. The FROZEN defaults key, legacy
+    /// keys, and schema version are passed in so the wire format stays
+    /// app-owned. A pure value, so a shared constant, not per-call.
+    private nonisolated static let windowGeometryStore = WindowGeometryStore<PersistedWindowGeometry>(
+        schemaVersion: persistedWindowGeometrySchemaVersion,
+        defaultsKey: persistedWindowGeometryDefaultsKey,
+        legacyDefaultsKeys: legacyPersistedWindowGeometryDefaultsKeys
+    )
 
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
@@ -2234,22 +2244,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func prepareStartupSessionSnapshotIfNeeded() {
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
-        Self.removeLegacyPersistedWindowGeometry()
+        Self.windowGeometryStore.removeLegacy(defaults: .standard)
         sessionSnapshotStore.syncManualRestoreSnapshotCache()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
         startupSessionSnapshot = sessionSnapshotStore.loadStartupSnapshot()
     }
 
     private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
-        Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
-        guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
-            return nil
-        }
-        guard let payload = Self.decodedPersistedWindowGeometryData(data) else {
-            defaults.removeObject(forKey: Self.persistedWindowGeometryDefaultsKey)
-            return nil
-        }
-        return payload
+        Self.windowGeometryStore.load(defaults: defaults)
     }
 
     private func persistWindowGeometry(
@@ -2257,38 +2259,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         display: SessionDisplaySnapshot?,
         defaults: UserDefaults = .standard
     ) {
-        Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
-        guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
+        // A nil payload (no frame) still clears the legacy keys, as before.
+        guard let payload = Self.persistedWindowGeometryPayload(frame: frame, display: display) else {
+            Self.windowGeometryStore.removeLegacy(defaults: defaults)
             return
         }
-        defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
+        Self.windowGeometryStore.save(payload, defaults: defaults)
+    }
+
+    /// Builds the `PersistedWindowGeometry` payload, or nil when there is no
+    /// frame. Encode/decode and `UserDefaults` access live in the store.
+    private nonisolated static func persistedWindowGeometryPayload(
+        frame: SessionRectSnapshot?,
+        display: SessionDisplaySnapshot?
+    ) -> PersistedWindowGeometry? {
+        guard let frame else { return nil }
+        return PersistedWindowGeometry(
+            version: persistedWindowGeometrySchemaVersion,
+            frame: frame,
+            display: display
+        )
     }
 
     private nonisolated static func encodedPersistedWindowGeometryData(
         frame: SessionRectSnapshot?,
         display: SessionDisplaySnapshot?
     ) -> Data? {
-        guard let frame else { return nil }
-        let payload = PersistedWindowGeometry(
-            version: persistedWindowGeometrySchemaVersion,
-            frame: frame,
-            display: display
-        )
-        return try? JSONEncoder().encode(payload)
+        persistedWindowGeometryPayload(frame: frame, display: display)
+            .flatMap { windowGeometryStore.encode($0) }
     }
 
     nonisolated static func decodedPersistedWindowGeometryData(_ data: Data) -> PersistedWindowGeometry? {
-        guard let payload = try? JSONDecoder().decode(PersistedWindowGeometry.self, from: data),
-              payload.version == persistedWindowGeometrySchemaVersion else {
-            return nil
-        }
-        return payload
-    }
-
-    private nonisolated static func removeLegacyPersistedWindowGeometry(
-        defaults: UserDefaults = .standard
-    ) {
-        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObject(forKey: $0) }
+        windowGeometryStore.decode(data)
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -3088,12 +3090,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
         let writeBlock = {
-            Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
-                UserDefaults.standard.set(
-                    persistedGeometryData,
-                    forKey: Self.persistedWindowGeometryDefaultsKey
-                )
+                Self.windowGeometryStore.saveEncoded(persistedGeometryData, defaults: .standard)
+            } else {
+                Self.windowGeometryStore.removeLegacy(defaults: .standard)
             }
             if let snapshot {
                 _ = self.sessionSnapshotStore.save(snapshot, fileURL: nil)
