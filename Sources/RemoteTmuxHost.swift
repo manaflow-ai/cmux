@@ -36,13 +36,15 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// collapse to the same slug — uniqueness comes from ``connectionHash``,
     /// never from the slug alone.
     ///
+    /// The slug is *not* length-capped here: ``controlSocketPath`` trims it to
+    /// whatever budget remains after the fixed parts of the path, so the socket
+    /// (plus OpenSSH's transient bind suffix) always fits the AF_UNIX limit.
     var slug: String {
         let lowered = destination.lowercased()
         let mapped = lowered.map { ch -> Character in
             ch.isLetter || ch.isNumber ? ch : "-"
         }
-        let collapsed = String(mapped.prefix(40))
-        return collapsed.isEmpty ? "host" : collapsed
+        return mapped.isEmpty ? "host" : String(mapped)
     }
 
     /// A stable, deterministic, collision-resistant hex digest of this host's full
@@ -76,6 +78,14 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// commands — including the destructive `kill-session` — to the wrong host
     /// through a shared master).
     ///
+    /// The slug is trimmed so the final path *plus OpenSSH's transient bind
+    /// suffix* stays within the AF_UNIX limit. OpenSSH never binds `ControlPath`
+    /// directly: it binds `<ControlPath>.XXXXXXXXXXXXXXXX` (a 17-byte suffix) and
+    /// atomically renames it into place, so the socket path budget must account
+    /// for that suffix — otherwise long destinations fail with
+    /// `unix_listener: path "…" too long for Unix domain socket`. The
+    /// ``connectionHash`` is never trimmed, so uniqueness is preserved even when
+    /// the slug is dropped entirely.
     var controlSocketPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return Self.controlSocketPath(homeDirectory: home, slug: slug, connectionHash: connectionHash)
@@ -90,11 +100,35 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// fit the AF_UNIX limit, not just the final renamed `ControlPath`.
     static let opensshTransientSuffixLength = 17
 
-    /// Builds the control socket path for a given home directory. Factored out
-    /// (and home-dir injectable) so the length budget is unit-testable
+    /// Builds the control socket path for a given home directory, trimming the
+    /// slug so `path + OpenSSH transient suffix` fits the AF_UNIX limit. Factored
+    /// out (and home-dir injectable) so the length budget is unit-testable
     /// independent of the running machine's home directory.
     static func controlSocketPath(homeDirectory: String, slug: String, connectionHash: String) -> String {
-        return "\(homeDirectory)/.cmux/ssh/tmux-\(slug)-\(connectionHash).sock"
+        // Fixed parts that can never be trimmed: directory, the `tmux-` prefix,
+        // the `-<hash>.sock` tail, and the transient suffix OpenSSH binds first.
+        let prefix = "\(homeDirectory)/.cmux/ssh/tmux-"
+        let suffix = "-\(connectionHash).sock"
+        let fixedBytes = prefix.utf8.count + suffix.utf8.count + opensshTransientSuffixLength
+        let slugBudget = max(0, maxUnixSocketPathLength - fixedBytes)
+        return "\(prefix)\(trimmedToUTF8ByteBudget(slug, slugBudget))\(suffix)"
+    }
+
+    /// Returns the longest whole-`Character` prefix of `value` whose UTF-8
+    /// encoding fits `byteBudget`. Trims on Character (not byte) boundaries so a
+    /// multi-byte scalar is never split, and counts bytes (not characters)
+    /// because the AF_UNIX limit is measured in bytes.
+    private static func trimmedToUTF8ByteBudget(_ value: String, _ byteBudget: Int) -> String {
+        guard value.utf8.count > byteBudget else { return value }
+        var result = ""
+        var used = 0
+        for ch in value {
+            let chBytes = String(ch).utf8.count
+            if used + chBytes > byteBudget { break }
+            result.append(ch)
+            used += chBytes
+        }
+        return result
     }
 
     /// Ensures the directory that holds the control socket exists.
