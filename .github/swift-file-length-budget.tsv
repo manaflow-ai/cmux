@@ -6,7 +6,7 @@
 16057	Sources/ContentView.swift
 14100	Sources/TerminalController.swift
 12695	Sources/Workspace.swift
-12400	cmuxTests/AppDelegateShortcutRoutingTests.swift
+12522	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11853	Sources/GhosttyTerminalView.swift
 11411	Sources/Panels/BrowserPanel.swift
 9335	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
@@ -88,7 +88,7 @@
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
-984	Sources/App/ShortcutRoutingSupport.swift
+983	Sources/App/ShortcutRoutingSupport.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift

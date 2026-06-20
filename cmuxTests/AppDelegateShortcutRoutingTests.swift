@@ -10943,6 +10943,72 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.workspaceGroups.count, workspaceGroupCountBefore + 1)
     }
 
+    func testWorkspaceSidebarFocusForwardsTypingBackToTerminal() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+
+        let sidebarResponder = WorkspaceSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+        sidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
+        XCTAssertTrue(appDelegate.focusWorkspaceSidebar(in: window), "Expected workspace sidebar responder to take focus")
+        XCTAssertTrue(window.firstResponder === sidebarResponder, "Expected workspace sidebar responder to own focus before typing")
+
+        let repairProbe = installFocusedTerminalRepairProbeForTesting(appDelegate: appDelegate, keyCode: 0)
+        defer { repairProbe.restore() }
+
+        guard let keyDown = makeKeyDownEvent(
+            key: "a",
+            modifiers: [],
+            keyCode: 0,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct typing event")
+            return
+        }
+
+        sidebarResponder.keyDown(with: keyDown)
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+                && window.firstResponder === terminalView
+                && repairProbe.forwardedKeyDownCount() > 0
+        }
+
+        XCTAssertTrue(terminalPanel.hostedView.isSurfaceViewFirstResponder())
+        XCTAssertTrue(window.firstResponder === terminalView, "Typing should restore terminal focus after sidebar shortcut focus")
+        XCTAssertEqual(repairProbe.repairCount(), 0, "Forwarding should be owned by the sidebar focus host, not stale-focus repair")
+        XCTAssertGreaterThan(
+            repairProbe.forwardedKeyDownCount(),
+            0,
+            "Typing after a workspace-sidebar shortcut should preserve the first key in Ghostty"
+        )
+    }
+
     func testGhosttyFindNavigationShortcutsFallThroughForTerminalFirstResponderWithSidebarMultiSelection() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -11016,6 +11082,62 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertEqual(manager.workspaceGroups.count, workspaceGroupCountBefore, testCase.name)
             XCTAssertEqual(manager.tabs.count, workspaceCountBefore, testCase.name)
         }
+    }
+
+    func testFindInDirectoryFromTerminalFocusUsesAppShortcutInsteadOfGhosttyPreMenuRouting() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before Cmd+Shift+F"
+        )
+
+        guard let event = makeKeyDownEvent(
+            key: "F",
+            modifiers: [.command, .shift],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+F event")
+            return
+        }
+
+        XCTAssertFalse(
+            appDelegate.shouldRouteFocusedTerminalGhosttyOwnedShortcut(event, in: window),
+            "Cmd+Shift+F is the app Find in Directory default, not a terminal pre-menu shortcut"
+        )
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNil(terminalPanel.searchState, "Cmd+Shift+F should not create terminal find state")
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .find)
     }
 
     func testFindShortcutFromFileTreeOpensRightSidebarFind() {
