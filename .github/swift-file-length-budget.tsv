@@ -5,7 +5,7 @@
 15063	Sources/AppDelegate.swift
 13222	Sources/ContentView.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
-12095	Sources/Workspace.swift
+12088	Sources/Workspace.swift
 11411	Sources/Panels/BrowserPanel.swift
 11281	Sources/GhosttyTerminalView.swift
 9450	Sources/TerminalController.swift
@@ -45,7 +45,7 @@
 2257	Sources/TerminalNotificationStore.swift
 2257	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
-2067	Sources/SessionPersistence.swift
+2074	Sources/SessionPersistence.swift
 2047	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1942	Sources/KeyboardShortcutSettingsFileStore.swift

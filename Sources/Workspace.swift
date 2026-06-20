@@ -989,25 +989,22 @@ extension Workspace {
     }
 
     func reconcileSurfaceResumeBindings(using surfaceResumeBindingIndex: SurfaceResumeBindingIndex) {
+        // The per-panel stored-vs-detected decision lives in
+        // SessionRestoreCoordinator (CmuxWorkspaces); the live panel set and the
+        // stored binding map are Workspace-owned live state, so the iteration and
+        // map mutation stay here and apply the coordinator's decision.
         for panelId in panels.keys {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
             let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
-
-            guard let storedBinding else {
-                if let detectedBinding, detectedBinding.isProcessDetected {
-                    surfaceResumeBindingsByPanelId[panelId] = detectedBinding
-                }
+            switch sessionRestoreCoordinator.reconcileResumeBinding(
+                stored: storedBinding,
+                detected: detectedBinding
+            ) {
+            case .keep:
                 continue
-            }
-            guard let detectedBinding else {
-                if storedBinding.isProcessDetected {
-                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-                }
-                continue
-            }
-            if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) {
-                surfaceResumeBindingsByPanelId[panelId] = detectedBinding
-            } else if storedBinding.isProcessDetected {
+            case .store(let binding):
+                surfaceResumeBindingsByPanelId[panelId] = binding
+            case .remove:
                 surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
             }
         }
@@ -1017,17 +1014,13 @@ extension Workspace {
         panelId: UUID,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> SurfaceResumeBindingSnapshot? {
-        let storedBinding = surfaceResumeBindingsByPanelId[panelId]
-        guard let surfaceResumeBindingIndex else {
-            return storedBinding
-        }
-
-        let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
-        guard let storedBinding else { return detectedBinding }
-        guard let detectedBinding else { return storedBinding.isProcessDetected ? nil : storedBinding }
-        if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
-        if storedBinding.isProcessDetected { return nil }
-        return storedBinding
+        // The resolution logic lives in SessionRestoreCoordinator
+        // (CmuxWorkspaces); Workspace gathers the live stored/detected bindings.
+        sessionRestoreCoordinator.effectiveResumeBinding(
+            stored: surfaceResumeBindingsByPanelId[panelId],
+            detected: surfaceResumeBindingIndex?.binding(workspaceId: id, panelId: panelId),
+            hasDetectionSource: surfaceResumeBindingIndex != nil
+        )
     }
 
     private func createPanel(
