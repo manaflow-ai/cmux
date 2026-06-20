@@ -9,6 +9,65 @@ import AppKit
 
 @MainActor
 final class AppDelegateSurfaceShortcutRoutingTests: XCTestCase {
+    func testRightSidebarModeShortcutsDoNotFallThroughWhenResponderTemporarilyClears() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
+
+        let rawModeEvents: [(mode: RightSidebarMode, event: NSEvent?)] = [
+            (.files, makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: window.windowNumber)),
+            (.find, makeKeyDownEvent(key: "2", keyCode: 19, windowNumber: window.windowNumber)),
+            (.sessions, makeKeyDownEvent(key: "3", keyCode: 20, windowNumber: window.windowNumber))
+        ]
+        let modeEvents = rawModeEvents.compactMap { entry -> (mode: RightSidebarMode, event: NSEvent)? in
+            guard let event = entry.event else { return nil }
+            return (entry.mode, event)
+        }
+        XCTAssertEqual(modeEvents.count, 3, "Failed to construct Ctrl+1/2/3 events")
+
+        for cycle in 0..<10 {
+            for (mode, event) in modeEvents {
+                _ = window.makeFirstResponder(nil)
+#if DEBUG
+                XCTAssertTrue(
+                    appDelegate.debugHandleCustomShortcut(event: event),
+                    "Ctrl+\(event.charactersIgnoringModifiers ?? "?") should be handled on cycle \(cycle)"
+                )
+#else
+                XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+                XCTAssertEqual(
+                    appDelegate.fileExplorerState?.mode,
+                    mode,
+                    "Ctrl+\(event.charactersIgnoringModifiers ?? "?") should keep routing as a right-sidebar mode shortcut on cycle \(cycle)"
+                )
+                XCTAssertFalse(
+                    terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+                    "Ctrl+\(event.charactersIgnoringModifiers ?? "?") should not refocus the terminal on cycle \(cycle)"
+                )
+            }
+        }
+    }
+
     func testSurfaceNumberShortcutsCycleInEventWindowWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
