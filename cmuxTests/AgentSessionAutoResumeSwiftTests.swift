@@ -27,13 +27,14 @@ struct AgentSessionAutoResumeSwiftTests {
         #expect(snapshot.statusEntries.contains { $0.key == "claude_code" })
 
         let restored = Workspace()
-        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
 
         #expect(restored.statusEntries["claude_code"] == nil)
         #expect(restored.agentPIDs.isEmpty)
         #expect(restored.agentPIDPanelIdsByKey.isEmpty)
         #expect(restored.agentPIDKeysByPanelId.isEmpty)
-        #expect(restored.agentHibernationLifecycleState(panelId: sourcePanelId, fallback: nil) == .unknown)
+        #expect(restored.agentHibernationLifecycleState(panelId: restoredPanelId, fallback: nil) == .unknown)
     }
 
     @MainActor
