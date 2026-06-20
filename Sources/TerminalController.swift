@@ -3752,40 +3752,10 @@ class TerminalController {
     // and the dialog queue is popped in-page by the dialog-respond JS, not by a
     // Swift pop helper).
 
-    private func v2PNGData(from image: NSImage) -> Data? {
-        guard let tiff = image.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff) else { return nil }
-        return rep.representation(using: .png, properties: [:])
-    }
-
-    private func bestEffortPruneTemporaryFiles(
-        in directoryURL: URL,
-        keepingMostRecent maxCount: Int = 50,
-        maxAge: TimeInterval = 24 * 60 * 60
-    ) {
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .creationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-
-        let now = Date()
-        let datedEntries = entries.compactMap { url -> (url: URL, date: Date)? in
-            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .creationDateKey]),
-                  values.isRegularFile == true else {
-                return nil
-            }
-            return (url, values.contentModificationDate ?? values.creationDate ?? .distantPast)
-        }.sorted { $0.date > $1.date }
-
-        for (index, entry) in datedEntries.enumerated() {
-            if index >= maxCount || now.timeIntervalSince(entry.date) > maxAge {
-                try? FileManager.default.removeItem(at: entry.url)
-            }
-        }
-    }
+    // `v2PNGData` and `bestEffortPruneTemporaryFiles` moved to
+    // `BrowserControlService` in `CmuxBrowser` (Control/BrowserControlService+Screenshot.swift)
+    // as `pngData(from:)` / `persistScreenshot(imageData:surfaceId:)`; the
+    // `browser.screenshot` witness forwards into the held `v2BrowserControl`.
 
     // MARK: - Markdown
 
@@ -5382,10 +5352,13 @@ class TerminalController {
     /// resolved browser's automation-visible viewport snapshot (15s budget),
     /// PNG-encodes it, and best-effort writes a pruned temp file, byte-faithful
     /// to the former `v2BrowserScreenshot(params:)` body. The coordinator owns
-    /// the identity payload + `png_base64`/`path`/`url` keys. Stays on
-    /// `TerminalController` because it calls the `private`
-    /// `v2AwaitCallback`/`v2PNGData`/`bestEffortPruneTemporaryFiles` plumbing
-    /// and `BrowserPanel.captureAutomationVisibleViewportSnapshot`.
+    /// the identity payload + `png_base64`/`path`/`url` keys. The stateless PNG
+    /// encode and temp-file persistence moved to
+    /// `BrowserControlService.pngData(from:)` /
+    /// `BrowserControlService.persistScreenshot(imageData:surfaceId:)` in
+    /// `CmuxBrowser`; this witness stays on `TerminalController` because it calls
+    /// the `private` `v2AwaitCallback` blocking-await plumbing and
+    /// `BrowserPanel.captureAutomationVisibleViewportSnapshot` (the WebKit seam).
     func controlBrowserScreenshot(
         params: [String: JSONValue]
     ) -> ControlBrowserScreenshotResolution {
@@ -5403,7 +5376,7 @@ class TerminalController {
             browserPanel.captureAutomationVisibleViewportSnapshot { result in
                 switch result {
                 case .success(let image):
-                    finish(self.v2PNGData(from: image))
+                    finish(self.v2BrowserControl.pngData(from: image))
                 case .failure:
                     finish(nil)
                 }
@@ -5420,29 +5393,14 @@ class TerminalController {
         let pngBase64 = imageData.base64EncodedString()
 
         // Best effort: keep screenshot data available even when temp-file writes fail.
-        var filePath: String?
-        var fileURL: String?
-        let screenshotsDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
-        if (try? FileManager.default.createDirectory(at: screenshotsDirectory, withIntermediateDirectories: true)) != nil {
-            bestEffortPruneTemporaryFiles(in: screenshotsDirectory)
-            let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
-            let shortSurfaceId = String(surfaceId.uuidString.prefix(8))
-            let shortRandomId = String(UUID().uuidString.prefix(8))
-            let filename = "surface-\(shortSurfaceId)-\(timestampMs)-\(shortRandomId).png"
-            let imageURL = screenshotsDirectory.appendingPathComponent(filename, isDirectory: false)
-            if (try? imageData.write(to: imageURL, options: .atomic)) != nil {
-                filePath = imageURL.path
-                fileURL = imageURL.absoluteString
-            }
-        }
+        let persistence = v2BrowserControl.persistScreenshot(imageData: imageData, surfaceId: surfaceId)
 
         return .resolved(
             workspaceID: resolved.workspace.id,
             surfaceID: surfaceId,
             pngBase64: pngBase64,
-            filePath: filePath,
-            fileURL: fileURL
+            filePath: persistence.filePath,
+            fileURL: persistence.fileURL
         )
     }
 
