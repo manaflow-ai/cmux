@@ -56,7 +56,7 @@ final class BrowserPaneDropTargetView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(point), dropContext != nil else { return nil }
+        guard bounds.contains(point), dropContext?.allowsPaneDrops == true else { return nil }
         let eventType = NSApp.currentEvent?.type
         guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return nil }
         if shouldDeferToPaneTabBar(at: point) {
@@ -88,7 +88,7 @@ final class BrowserPaneDropTargetView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let dropContext else {
+        guard let dropContext = activeDropContext() else {
 #if DEBUG
             cmuxDebugLog("browser.paneDrop.prepare allowed=0 reason=missingContext")
 #endif
@@ -118,7 +118,7 @@ final class BrowserPaneDropTargetView: NSView {
             clearDragState(phase: "perform.clear")
         }
 
-        guard let dropContext else {
+        guard let dropContext = activeDropContext() else {
 #if DEBUG
             cmuxDebugLog("browser.paneDrop.perform allowed=0 reason=missingContext")
 #endif
@@ -273,7 +273,7 @@ final class BrowserPaneDropTargetView: NSView {
             return []
         }
 
-        guard let dropContext else {
+        guard let dropContext = activeDropContext() else {
             exitActiveFileDropWebView(sender)
             clearDragState(phase: "\(phase).reject")
             return []
@@ -331,6 +331,11 @@ final class BrowserPaneDropTargetView: NSView {
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
             canDropAsText: canDropIntoHostedWebView
         )
+    }
+
+    private func activeDropContext() -> BrowserPaneDropContext? {
+        guard let dropContext, dropContext.allowsPaneDrops else { return nil }
+        return dropContext
     }
 
     private func updateHostedWebViewDragState(_ sender: any NSDraggingInfo, at location: NSPoint) -> NSDragOperation {

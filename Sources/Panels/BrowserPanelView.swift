@@ -7990,16 +7990,16 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {
         // Dock-hosted browsers are not registered in the Workspace tree, so the
-        // workspace lookup can't resolve their pane. When the host injects an
-        // explicit ownership signal (Dock), synthesize the context from the
-        // host-provided pane so portal-visibility, focus, and drop gating all
-        // resolve to this pane. `false` means another Dock tab owns the pane.
+        // workspace lookup can't resolve their pane. Keep the context for portal
+        // ownership and focused-browser shortcut lookup, but disable pane drops:
+        // the drop handlers still mutate the main workspace Bonsplit tree.
         if let paneOwnershipOverride {
             guard paneOwnershipOverride else { return nil }
             return BrowserPaneDropContext(
                 workspaceId: panel.workspaceId,
                 panelId: panel.id,
-                paneId: paneId
+                paneId: paneId,
+                allowsPaneDrops: false
             )
         }
         guard let app = AppDelegate.shared,

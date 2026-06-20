@@ -1327,6 +1327,14 @@ struct BrowserPaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
     let paneId: PaneID
+    let allowsPaneDrops: Bool
+
+    init(workspaceId: UUID, panelId: UUID, paneId: PaneID, allowsPaneDrops: Bool = true) {
+        self.workspaceId = workspaceId
+        self.panelId = panelId
+        self.paneId = paneId
+        self.allowsPaneDrops = allowsPaneDrops
+    }
 }
 
 final class WindowBrowserSlotView: NSView {
@@ -1441,7 +1449,7 @@ final class WindowBrowserSlotView: NSView {
     }
 
     func paneDropTargetForDrop(at localPoint: NSPoint) -> BrowserPaneDropTargetView? {
-        guard paneDropTargetView.dropContext != nil else { return nil }
+        guard paneDropTargetView.dropContext?.allowsPaneDrops == true else { return nil }
         guard bounds.contains(localPoint) else { return nil }
         let pointInTarget = paneDropTargetView.convert(localPoint, from: self)
         guard paneDropTargetView.bounds.contains(pointInTarget) else { return nil }
