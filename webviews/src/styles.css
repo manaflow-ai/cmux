@@ -127,6 +127,10 @@ body {
 }
 .toolbar-left {
   justify-self: stretch;
+  /* Container for the base picker's drop-order queries: ahead/behind and the
+     reason hide first as this cell narrows, the ref never collapses. */
+  container-type: inline-size;
+  container-name: toolbar-left;
 }
 .toolbar-middle {
   justify-content: center;
@@ -154,7 +158,7 @@ body {
   font: inherit;
 }
 #source-select {
-  flex: 0 1 118px;
+  flex: 0 2 76px;
 }
 #source-select:hover,
 #repo-select:hover,
@@ -173,7 +177,7 @@ body {
   width: 100%;
 }
 #repo-select {
-  flex: 0 1 132px;
+  flex: 0 6 92px;
 }
 #base-select {
   flex: 0 1 120px;
@@ -197,7 +201,12 @@ body {
   display: flex;
   align-items: center;
   min-width: 0;
-  flex: 0 1 auto;
+  /* Base is the primary action of this toolbar: it claims the remaining space in
+     toolbar-left and holds a floor so the compact, highly-shrinkable source/repo
+     selects are the crush victims, not the base button. The min-width keeps at
+     least `Base: <ref>` visible at realistic diff-panel widths. */
+  flex: 1 1 auto;
+  min-width: 156px;
 }
 .base-picker-button {
   display: inline-flex;
@@ -240,18 +249,42 @@ body {
   align-items: center;
   gap: 5px;
   min-width: 0;
-  overflow: hidden;
+  /* No overflow:hidden here — clipping the label dropped the trailing
+     ahead/behind and chevron. Only the ref token truncates (below), and the
+     ahead/behind + reason are removed by container queries when too narrow. */
 }
 .base-picker-prefix {
+  flex: 0 0 auto;
   font-weight: 500;
   color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
 }
 .base-picker-ref {
+  /* The ref is the priority token and the LAST thing to ellipsize. The
+     secondaries (reason + ahead/behind) live in `.base-picker-meta`, which has a
+     far higher flex-shrink, so it collapses entirely before the ref gives up a
+     single character. The ref only ellipsizes once the meta group is gone and
+     `Base: <ref> v` still does not fit, keeping a ~6ch floor with the chevron
+     always visible. This is font- and width-independent: no pixel thresholds. */
+  flex: 0 1 auto;
+  min-width: 6ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Secondary group: reason + ahead/behind. It is the shrink sponge — a huge
+   flex-shrink plus overflow:hidden means the toolbar steals width from here
+   first, clipping ahead/behind (rightmost) before the reason, before the ref is
+   ever touched. min-width:0 lets it collapse to nothing. */
+.base-picker-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+}
 .base-picker-reason {
+  flex: 0 0 auto;
   font-weight: 500;
   color: color-mix(in lab, var(--cmux-diff-fg) 64%, var(--cmux-diff-bg));
   white-space: nowrap;
@@ -261,10 +294,25 @@ body {
   font-style: italic;
 }
 .base-picker-aheadbehind {
+  flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
   color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
   white-space: nowrap;
+}
+/* Clean-hide the secondaries at narrow toolbar-left widths so they disappear
+   whole rather than clipping mid-glyph. The .base-picker-meta flex shrink above
+   is the hard guarantee that the ref always wins; these container queries only
+   make the transition tidy. Widest-first: ahead/behind, then reason. */
+@container toolbar-left (max-width: 380px) {
+  .base-picker-aheadbehind {
+    display: none;
+  }
+}
+@container toolbar-left (max-width: 312px) {
+  .base-picker-reason {
+    display: none;
+  }
 }
 .base-picker-text {
   overflow: hidden;
@@ -355,6 +403,13 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
+}
+.base-picker-more {
+  padding: 5px 8px 7px;
+  font-size: 11px;
+  color: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
+  cursor: default;
+  user-select: none;
 }
 .base-picker-row {
   display: flex;

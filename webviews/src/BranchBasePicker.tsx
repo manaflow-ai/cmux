@@ -48,7 +48,22 @@ type FlatRow = {
   firstInGroup: boolean;
   match: [number, number] | null;
   raw: boolean;
+  // Hidden-row count when this is the last rendered row of a group whose tail
+  // was capped (empty filter only). Renders a muted "... N more" footer beneath
+  // the row; the footer is not selectable and not part of keyboard navigation.
+  moreCount: number;
 };
+
+// Per-group render cap when the filter is empty: huge ref lists (thousands of
+// remotes) would jank the popover if every row became DOM. The data is fetched
+// once; this only limits rendered rows. Suggested/Worktrees are usually small,
+// so they keep a higher cap. Typing switches to a flat, global filter cap.
+const EMPTY_FILTER_GROUP_CAP: Record<string, number> = {
+  suggested: 50,
+  worktrees: 50,
+};
+const EMPTY_FILTER_DEFAULT_CAP = 8;
+const FILTERED_TOTAL_CAP = 50;
 
 const GROUP_LABEL_KEY: Record<string, DiffViewerLabelKey> = {
   suggested: "branchPickerGroupSuggested",
@@ -165,6 +180,15 @@ export function BranchBasePicker({
     ? label("branchPickerGenerating").replace("{ref}", generatingRef)
     : null;
 
+  // The visual `title` exposes the full, untruncated label on hover so a
+  // narrowed button (ref ellipsized, reason/ahead-behind shed by container
+  // queries) still surfaces the complete value. The aria-label stays the action
+  // label ("Change diff base") for assistive tech. While generating, the button
+  // is disabled and shows its own transient text, so fall back to the action.
+  const buttonTitle = generatingRef != null
+    ? label("branchPickerOpen")
+    : baseButtonTitle(label, picker);
+
   return (
     <div id="base-picker" ref={containerRef}>
       <button
@@ -176,7 +200,7 @@ export function BranchBasePicker({
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         aria-label={label("branchPickerOpen")}
-        title={label("branchPickerOpen")}
+        title={buttonTitle}
         data-generating={generatingRef != null ? "true" : "false"}
         disabled={generatingRef != null}
         onClick={() => (open ? setOpen(false) : openPopover())}
@@ -242,6 +266,22 @@ export function BranchBasePicker({
   );
 }
 
+// Full, untruncated button label as a plain string for the visual `title`
+// tooltip. Mirrors what BranchBaseButtonLabel renders: `Base: <ref> (<reason>)
+// +<ahead> -<behind>`, with the low-confidence `~` prefix and omitting empty
+// parts, so a truncated button still exposes the complete value on hover.
+function baseButtonTitle(label: DiffViewerLabelResolver, picker: BranchPickerPayload): string {
+  const low = picker.confidence === "low";
+  const parts = [label("branchPickerBasePrefix"), picker.currentRef];
+  if (picker.currentReason) {
+    parts.push(`(${low ? "~" : ""}${picker.currentReason})`);
+  }
+  if (picker.aheadBehind) {
+    parts.push(`+${picker.aheadBehind.ahead} -${picker.aheadBehind.behind}`);
+  }
+  return parts.join(" ");
+}
+
 function BranchBaseButtonLabel({
   label,
   picker,
@@ -256,14 +296,23 @@ function BranchBaseButtonLabel({
     <span className="base-picker-label">
       <span className="base-picker-prefix">{label("branchPickerBasePrefix")}</span>
       <span className="base-picker-ref">{picker.currentRef}</span>
-      {picker.currentReason ? (
-        <span className={low ? "base-picker-reason base-picker-reason-low" : "base-picker-reason"}>
-          ({reason})
-        </span>
-      ) : null}
-      {aheadBehind ? (
-        <span className="base-picker-aheadbehind">
-          +{aheadBehind.ahead} -{aheadBehind.behind}
+      {/* Secondaries live in their own flex group that absorbs all the shrink
+          (high flex-shrink + overflow:hidden), so as the toolbar narrows the
+          ahead/behind clips first, then the reason, and the ref is only forced
+          to ellipsize once this group has fully collapsed. Keeps the base ref
+          the last token to truncate regardless of font or panel width. */}
+      {picker.currentReason || aheadBehind ? (
+        <span className="base-picker-meta">
+          {picker.currentReason ? (
+            <span className={low ? "base-picker-reason base-picker-reason-low" : "base-picker-reason"}>
+              ({reason})
+            </span>
+          ) : null}
+          {aheadBehind ? (
+            <span className="base-picker-aheadbehind">
+              +{aheadBehind.ahead} -{aheadBehind.behind}
+            </span>
+          ) : null}
         </span>
       ) : null}
       <Icon name="expand" />
@@ -320,6 +369,11 @@ function BranchPickerRowView({
         {row.current ? <span className="base-picker-pill">{label("branchPickerCurrent")}</span> : null}
         {secondary ? <span className="base-picker-row-secondary">{secondary}</span> : null}
       </div>
+      {entry.moreCount > 0 ? (
+        <div className="base-picker-more" role="presentation">
+          {label("branchPickerMore").replace("{count}", String(entry.moreCount))}
+        </div>
+      ) : null}
     </>
   );
 }
@@ -346,7 +400,7 @@ function renderMatched(text: string, match: [number, number] | null) {
 // primary label across all groups, drop non-matches, and compute the matched
 // span for bolding. A synthetic raw row is prepended when the query matches no
 // row. Empty groups are omitted (no header) per LOCKED DECISIONS.
-function buildFlatRows(
+export function buildFlatRows(
   groups: BranchPickerGroup[] | null,
   query: string,
   picker: BranchPickerPayload,
@@ -356,18 +410,44 @@ function buildFlatRows(
   const result: FlatRow[] = [];
   let anyMatch = false;
 
-  if (groups) {
+  if (groups && trimmed === "") {
+    // Empty filter: render each group up to its cap, then a "... N more" footer
+    // on the last visible row of any group whose tail was dropped.
     for (const group of groups) {
+      const groupLabel = resolveGroupLabel(group, label);
+      const cap = EMPTY_FILTER_GROUP_CAP[group.id] ?? EMPTY_FILTER_DEFAULT_CAP;
+      const visible = group.rows.slice(0, cap);
+      const hidden = group.rows.length - visible.length;
+      visible.forEach((row, index) => {
+        result.push({
+          row,
+          groupId: group.id,
+          groupLabel,
+          firstInGroup: index === 0,
+          match: null,
+          raw: false,
+          moreCount: index === visible.length - 1 ? hidden : 0,
+        });
+      });
+    }
+  } else if (groups) {
+    // Filtering: match across ALL rows of every group, then cap the total
+    // rendered set so a query that matches thousands of rows stays cheap.
+    for (const group of groups) {
+      if (result.length >= FILTERED_TOTAL_CAP) {
+        break;
+      }
       const groupLabel = resolveGroupLabel(group, label);
       let firstInGroup = true;
       for (const row of group.rows) {
-        const match = trimmed === "" ? null : fuzzyMatchSpan(row.label, trimmed);
-        if (trimmed !== "" && match == null) {
+        if (result.length >= FILTERED_TOTAL_CAP) {
+          break;
+        }
+        const match = fuzzyMatchSpan(row.label, trimmed);
+        if (match == null) {
           continue;
         }
-        if (match != null) {
-          anyMatch = true;
-        }
+        anyMatch = true;
         result.push({
           row,
           groupId: group.id,
@@ -375,6 +455,7 @@ function buildFlatRows(
           firstInGroup,
           match,
           raw: false,
+          moreCount: 0,
         });
         firstInGroup = false;
       }
@@ -391,6 +472,7 @@ function buildFlatRows(
       firstInGroup: false,
       match: null,
       raw: true,
+      moreCount: 0,
     });
   }
   void picker;

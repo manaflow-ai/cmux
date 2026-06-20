@@ -732,6 +732,12 @@ function devBranchPickerMock(): BranchPickerPayload {
           { ref: "develop", label: "develop", secondary: "2 days ago" },
           { ref: "release/1.0", label: "release/1.0", secondary: "1 week ago" },
         ] },
+        // Large remotes group so the render cap (top N + "... more") is
+        // exercisable in DEV without a wired backend.
+        { id: "remotes", label: "Remotes", rows: Array.from({ length: 2304 }, (_value, index) => ({
+          ref: `origin/feature-${index}`,
+          label: `origin/feature-${index}`,
+        })) },
       ],
     })),
     regenerateURLTemplate: "about:blank#base={ref}",

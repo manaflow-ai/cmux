@@ -12,6 +12,7 @@ const DEFAULT_DIFF_VIEWER_LABELS = {
   branchPickerGroupSuggested: "Suggested",
   branchPickerGroupWorktrees: "Worktrees",
   branchPickerLoadFailed: "Could not load branches.",
+  branchPickerMore: "{count} more, type to filter",
   branchPickerLoading: "Loading branches...",
   branchPickerNoMatches: "No matching branches",
   branchPickerOpen: "Change diff base",
