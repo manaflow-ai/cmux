@@ -58,6 +58,10 @@ struct TerminalInputBackspaceRepeatTests {
         func selectionDidChange(_ textInput: (any UITextInput)?) {}
         func textWillChange(_ textInput: (any UITextInput)?) { willChange += 1 }
         func textDidChange(_ textInput: (any UITextInput)?) { didChange += 1 }
+        // Required by `UITextInputDelegate` as of the iOS 18.4 SDK (Writing Tools
+        // conversation context). Unused by these tests.
+        @available(iOS 18.4, *)
+        func conversationContext(_ context: UIConversationContext?, didChange textInput: (any UITextInput)?) {}
     }
 
     @Test("when not composing the virtual document is a single non-empty anchor char")
