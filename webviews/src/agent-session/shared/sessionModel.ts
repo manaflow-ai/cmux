@@ -225,11 +225,23 @@ async function startProviderSnapshot(
 ): Promise<void> {
   dispatch({ type: "starting" });
   try {
-    const reply = await callNative<{ sessionId: string }>("provider.start", {
+    const reply = await callNative<{ sessionId: string; firstPrompt?: string }>("provider.start", {
       providerId: snapshot.providerId,
       workingDirectory: snapshot.workingDirectory,
     });
     dispatch({ type: "startAccepted", sessionId: reply.sessionId });
+    if (reply.firstPrompt) {
+      // A live session's first turn (the Kanban card's spec) was written to the
+      // provider natively. Surface it in the transcript so the session does not
+      // appear to begin mid-conversation with the agent's reply.
+      dispatch({
+        type: "sent",
+        sessionId: reply.sessionId,
+        submittedInput: "",
+        text: reply.firstPrompt,
+        sentAtMs: Date.now(),
+      });
+    }
   } catch (error) {
     dispatch({ type: "failed", message: messageForError(error, snapshot.copy) });
   }

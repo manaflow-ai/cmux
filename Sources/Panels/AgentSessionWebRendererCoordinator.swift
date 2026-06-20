@@ -614,24 +614,28 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 plan: plan,
                 workingDirectory: request.string("workingDirectory") ?? workingDirectory
             )
+            var response: [String: Any] = [
+                "sessionId": session.sessionId,
+                "providerId": provider.rawValue,
+                "executablePath": plan.executableURL.path,
+                "arguments": plan.arguments
+            ]
             // Live sessions open with the Kanban card's spec as the first turn.
-            // Sent once, best-effort: a failure here must not fail the start.
+            // Write it to the provider once (best-effort: a failure must not fail
+            // the start) and hand it back so the webview shows it as the first user
+            // message — the webview cannot see this out-of-band stdin write.
             if let prompt = pendingFirstPrompt {
                 pendingFirstPrompt = nil
                 do {
                     try await processStore.writeLine(sessionId: session.sessionId, text: prompt)
+                    response["firstPrompt"] = prompt
                 } catch {
 #if DEBUG
                     cmuxDebugLog("agentSession.live.injectFirstPrompt.failed error=\(error.localizedDescription)")
 #endif
                 }
             }
-            return [
-                "sessionId": session.sessionId,
-                "providerId": provider.rawValue,
-                "executablePath": plan.executableURL.path,
-                "arguments": plan.arguments
-            ] as [String: Any]
+            return response
         case "provider.writeLine":
             try await processStore.writeLine(
                 sessionId: request.requiredString("sessionId"),
