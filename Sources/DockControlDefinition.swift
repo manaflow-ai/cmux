@@ -51,10 +51,9 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         let rawID = try container.decode(String.self, forKey: .id)
         let normalizedID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedID.isEmpty else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .id,
-                in: container,
-                debugDescription: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank.")
+            throw Self.validationError(
+                code: 2,
+                message: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank.")
             )
         }
 
@@ -64,10 +63,9 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             .lowercased(),
             !rawType.isEmpty {
             guard let parsed = DockSurfaceKind(rawValue: rawType) else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .type,
-                    in: container,
-                    debugDescription: String(localized: "dock.error.unknownControlType", defaultValue: "Dock control type must be terminal or browser.")
+                throw Self.validationError(
+                    code: 3,
+                    message: String(localized: "dock.error.unknownControlType", defaultValue: "Dock control type must be terminal or browser.")
                 )
             }
             resolvedKind = parsed
@@ -86,20 +84,18 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         switch resolvedKind {
         case .terminal:
             guard let normalizedCommand, !normalizedCommand.isEmpty else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .command,
-                    in: container,
-                    debugDescription: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
+                throw Self.validationError(
+                    code: 4,
+                    message: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
                 )
             }
             command = normalizedCommand
             url = nil
         case .browser:
             guard let normalizedURL, !normalizedURL.isEmpty else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .url,
-                    in: container,
-                    debugDescription: String(localized: "dock.error.blankControlURL", defaultValue: "Dock browser control url must not be blank.")
+                throw Self.validationError(
+                    code: 5,
+                    message: String(localized: "dock.error.blankControlURL", defaultValue: "Dock browser control url must not be blank.")
                 )
             }
             url = normalizedURL
@@ -150,5 +146,13 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         if !env.isEmpty {
             try container.encode(env, forKey: .env)
         }
+    }
+
+    private static func validationError(code: Int, message: String) -> NSError {
+        NSError(
+            domain: "cmux.dock",
+            code: code,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
     }
 }

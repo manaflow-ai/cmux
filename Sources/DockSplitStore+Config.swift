@@ -130,25 +130,7 @@ extension DockSplitStore {
             return message
         }
 
-        let debugDescription: String?
-        switch error {
-        case DecodingError.dataCorrupted(let context):
-            debugDescription = context.debugDescription
-        case DecodingError.keyNotFound(_, let context):
-            debugDescription = context.debugDescription
-        case DecodingError.typeMismatch(_, let context):
-            debugDescription = context.debugDescription
-        case DecodingError.valueNotFound(_, let context):
-            debugDescription = context.debugDescription
-        default:
-            debugDescription = nil
-        }
-
-        guard let message = debugDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
-              message.hasPrefix("Dock ") else {
-            return nil
-        }
-        return message
+        return nil
     }
 
     nonisolated static func trustDescriptor(for resolution: DockConfigResolution) -> CmuxActionTrustDescriptor {

@@ -184,6 +184,18 @@ struct DockControlDefinitionDecodingTests {
         #expect(!secondIdentity.requiresPanelReload(comparedTo: firstIdentity))
     }
 
+    @Test("Dock validation errors preserve localized descriptions without English prefix")
+    func dockValidationErrorPreservesLocalizedDescription() {
+        let message = "DockブラウザコントロールのURLは空にできません。"
+        let error = NSError(
+            domain: "cmux.dock",
+            code: 5,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
+
+        #expect(DockSplitStore.configurationLoadErrorMessage(for: error) == message)
+    }
+
     @Test("Project config parent traversal stops at the filesystem root")
     @MainActor
     func projectConfigParentTraversalStopsAtRoot() {
