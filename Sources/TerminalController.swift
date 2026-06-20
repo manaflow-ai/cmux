@@ -87,7 +87,6 @@ class TerminalController {
     // Pure transforms over the raw arg string; holds no state and reaches no
     // app singletons, so the `report_*`/sidebar-mutation handlers forward to it.
     private nonisolated let sidebarMetadataArgumentParser = SidebarMetadataArgumentParser()
-    private nonisolated let myPid = getpid()
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
@@ -759,13 +758,6 @@ class TerminalController {
 
     func activeTabManagerForCallerNotification() -> TabManager? { tabManager }
 
-    // MARK: - Process Ancestry Check
-
-    /// Check if `pid` is a descendant of this process by walking the process tree.
-    nonisolated func isDescendant(_ pid: pid_t) -> Bool {
-        transport.isProcessDescendant(pid, of: myPid)
-    }
-
     private nonisolated static func shouldCaptureSocketListenerFailure(
         message: String,
         stage: String,
@@ -1314,7 +1306,7 @@ class TerminalController {
             // the peer can disconnect), falling back to live lookup.
             let pid = peerPid ?? transport.peerProcessID(of: socket)
             if let pid {
-                guard isDescendant(pid) else {
+                guard transport.isProcessDescendant(pid, of: getpid()) else {
                     _ = writeSocketResponse(
                         "ERROR: Access denied — only processes started inside cmux can connect",
                         to: socket
