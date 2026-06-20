@@ -12912,6 +12912,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           !configuredShortcutChordPrefixMatchesCurrentEvent(event: event),
            shouldRouteFocusedTerminalGhosttyOwnedShortcut(event) {
             return false
         }
@@ -14843,6 +14844,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
         }
+        return false
+    }
+
+    private func configuredShortcutChordPrefixMatchesCurrentEvent(event: NSEvent) -> Bool {
+        let shortcutContext = shortcutEventFocusContext(event).shortcutContext
+        for action in currentConfiguredShortcutChordActions() {
+            guard KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext) else {
+                continue
+            }
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard shortcut.hasChord,
+                  matchShortcutStroke(event: event, stroke: shortcut.firstStroke) else {
+                continue
+            }
+            return true
+        }
+
+        let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
+        for action in configuredCmuxShortcutActions(for: configuredCmuxShortcutContext) {
+            guard let shortcut = action.shortcut,
+                  shortcut.hasChord,
+                  matchShortcutStroke(event: event, stroke: shortcut.firstStroke) else {
+                continue
+            }
+            return true
+        }
+
         return false
     }
 

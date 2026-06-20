@@ -881,6 +881,73 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialWorkspaceCount + 1, "Cmd+G chord suffix should dispatch the app action")
     }
 
+    func testConfiguredChordPrefixWinsOverTerminalGhosttyPreRoute() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
+        let initialWorkspaceCount = manager.tabs.count
+        let shortcut = StoredShortcut(
+            key: "g",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 5,
+            chordKey: "n",
+            chordKeyCode: 45
+        )
+
+        withTemporaryShortcut(action: .newTab, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "g",
+                modifiers: [.command],
+                keyCode: 5,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+G prefix event")
+                return
+            }
+
+            guard let suffixEvent = makeKeyDownEvent(
+                key: "n",
+                modifiers: [],
+                keyCode: 45,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct N suffix event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+                "Configured app chord prefixes must arm before terminal Ghostty pre-routing"
+            )
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: suffixEvent))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(manager.tabs.count, initialWorkspaceCount + 1, "Cmd+G chord prefix should arm and dispatch the app action")
+    }
+
     func testConfiguredChordDoesNotCrossWindowBoundary() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
