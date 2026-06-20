@@ -2203,6 +2203,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// conformance file); the legacy Panel-Operations methods below forward here.
     let splitMoveReorder = SplitMoveReorderCoordinator()
 
+    /// The split-close coordinator (CmuxPanes): owns the surface close commands
+    /// against the live split tree (close a tab, optionally forcing; the same
+    /// close with close-history recording). `Workspace` is its
+    /// ``SplitCloseHosting`` host (conformed below); the `forceCloseTabIds`
+    /// bypass set and close-history marks stay owned by `Workspace` because its
+    /// `BonsplitDelegate` callbacks read them mid-close.
+    private let splitClose = SplitCloseCoordinator()
+
     /// The split-detach coordinator (CmuxPanes): owns the surface detach command
     /// against the live split tree, driving every workspace-side effect through
     /// ``SplitDetachHosting`` (conformed below). Holds `splitLayout` for the
@@ -3076,6 +3084,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         surfaceList.attach(tree: self)
         surfaceLifecycle.attach(host: self)
         splitMoveReorder.attach(host: self)
+        splitClose.attach(host: self)
         splitDetach.attach(host: self)
         closedBrowserRestoreStaging.attach(host: self)
         sessionRestoreCoordinator.attach(host: self)
@@ -3520,13 +3529,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 
     @discardableResult
     func requestCloseTabRecordingHistory(_ tabId: TabID, force: Bool) -> Bool {
-        let panelId = panelIdFromSurfaceId(tabId)
-        if let panelId {
-            markCloseHistoryEligible(panelId: panelId)
-        }
-
-        let closed = requestCloseTab(tabId, force: force)
-        return closed
+        splitClose.requestCloseTabRecordingHistory(tabId, force: force)
     }
 
     /// Non-interactive socket/API close path. Remote-tmux mirror tabs must be
@@ -8019,9 +8022,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
-        if force { forceCloseTabIds.insert(tabId) }
-        let closed = bonsplitController.closeTab(tabId); if force && !closed { forceCloseTabIds.remove(tabId) }
-        return closed
+        splitClose.requestCloseTab(tabId, force: force)
     }
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {
