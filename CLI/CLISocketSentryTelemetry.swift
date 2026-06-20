@@ -164,6 +164,9 @@ final class CLISocketSentryTelemetry {
         let envelopeItem = SentryEnvelopeItem(event: scrubbedEvent)
         let envelope = SentryEnvelope(id: scrubbedEvent.eventId, singleItem: envelopeItem)
         PrivateSentrySDKOnly.store(envelope)
+        // `store` is the durable step. A zero-timeout flush only schedules the
+        // SDK's cached-envelope sender without waiting for network completion.
+        SentrySDK.flush(timeout: 0)
 #if DEBUG
         recordStoreProbe(eventId: scrubbedEvent.eventId.sentryIdString)
 #endif

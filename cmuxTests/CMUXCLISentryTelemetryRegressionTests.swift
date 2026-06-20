@@ -109,6 +109,7 @@ final class CMUXCLISentryTelemetryRegressionTests: XCTestCase {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+        environment["HOME"] = URL(fileURLWithPath: probePath).deletingLastPathComponent().path
         return environment
     }
 
