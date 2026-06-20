@@ -379,7 +379,7 @@ jobs:
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
           PROFILE_PATH="$APP_PATH/Contents/embedded.provisionprofile"
           TMP_PROFILE="$(mktemp /tmp/cmux-release-profile.XXXXXX)"
-          TMP_PLIST="$(mktemp /tmp/cmux-release-profile.XXXXXX.plist)"
+          TMP_PLIST="$(mktemp /tmp/cmux-release-profile-plist.XXXXXX)"
           trap 'rm -f "$TMP_PROFILE" "$TMP_PLIST"' EXIT
           echo "$APPLE_RELEASE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
           security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"

@@ -94,7 +94,7 @@ echo "==> verifying"
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"
 
-SIGNED_ENTITLEMENTS="$(mktemp /tmp/cmux-signed-entitlements.XXXXXX.plist)"
+SIGNED_ENTITLEMENTS="$(mktemp /tmp/cmux-signed-entitlements.XXXXXX)"
 trap 'rm -f "$SIGNED_ENTITLEMENTS"' EXIT
 /usr/bin/codesign -d --entitlements :- "$APP_PATH" >"$SIGNED_ENTITLEMENTS" 2>/dev/null
 
@@ -109,7 +109,7 @@ binary_entitlement_value() {
   local entitlements_path
   local value
 
-  entitlements_path="$(mktemp /tmp/cmux-binary-entitlements.XXXXXX.plist)"
+  entitlements_path="$(mktemp /tmp/cmux-binary-entitlements.XXXXXX)"
   if /usr/bin/codesign -d --entitlements :- "$binary_path" >"$entitlements_path" 2>/dev/null; then
     value="$(/usr/libexec/PlistBuddy -c "Print :$key" "$entitlements_path" 2>/dev/null || true)"
   else

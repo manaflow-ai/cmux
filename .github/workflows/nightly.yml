@@ -467,7 +467,7 @@ jobs:
           APP_PATH="build-universal/Build/Products/Release/cmux NIGHTLY.app"
           PROFILE_PATH="$APP_PATH/Contents/embedded.provisionprofile"
           TMP_PROFILE="$(mktemp /tmp/cmux-nightly-profile.XXXXXX)"
-          TMP_PLIST="$(mktemp /tmp/cmux-nightly-profile.XXXXXX.plist)"
+          TMP_PLIST="$(mktemp /tmp/cmux-nightly-profile-plist.XXXXXX)"
           trap 'rm -f "$TMP_PROFILE" "$TMP_PLIST"' EXIT
 
           echo "$APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
