@@ -6137,6 +6137,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   let repoRoot = normalizedOpenDiffViewerPath(record["repoRoot"] as? String) else {
                 return nil
             }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: repoRoot, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return nil
+            }
             let capturedAt = (record["capturedAt"] as? NSNumber)?.doubleValue ?? 0
             return (repoRoot, capturedAt)
         }
@@ -6146,7 +6151,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func agentTurnDiffBaselineStoreURL() -> URL {
         let environment = ProcessInfo.processInfo.environment
         if let override = normalizedOpenDiffViewerPath(environment["CMUX_AGENT_HOOK_STATE_DIR"]) {
-            return URL(fileURLWithPath: override, isDirectory: true)
+            let expandedOverride = (override as NSString).expandingTildeInPath
+            return URL(fileURLWithPath: expandedOverride, isDirectory: true)
                 .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
         }
         return FileManager.default.homeDirectoryForCurrentUser
