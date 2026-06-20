@@ -55,7 +55,7 @@ struct TerminalTabOverviewView: View {
             Spacer()
 
             VStack(spacing: 2) {
-                Text(tabCountText)
+                Text(L10n.terminalOverviewTabCount(items.count))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .contentTransition(.numericText())
@@ -77,18 +77,5 @@ struct TerminalTabOverviewView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .background(.regularMaterial)
-    }
-
-    private var tabCountText: String {
-        if items.count == 1 {
-            return String.localizedStringWithFormat(
-                L10n.string("mobile.terminal.overview.tabCount.one", defaultValue: "%d Tab"),
-                items.count
-            )
-        }
-        return String.localizedStringWithFormat(
-            L10n.string("mobile.terminal.overview.tabCount.other", defaultValue: "%d Tabs"),
-            items.count
-        )
     }
 }
