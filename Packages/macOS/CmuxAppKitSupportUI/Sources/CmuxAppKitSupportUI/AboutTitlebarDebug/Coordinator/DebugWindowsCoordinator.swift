@@ -26,6 +26,18 @@ public final class DebugWindowsCoordinator {
     private weak var browserDebugContext: (any BrowserDebugContext)?
 
     @ObservationIgnored
+    private let aboutPanelStrings: AboutPanelStrings
+
+    @ObservationIgnored
+    private let acknowledgmentsStrings: AcknowledgmentsStrings
+
+    @ObservationIgnored
+    private var aboutController: AboutWindowController?
+
+    @ObservationIgnored
+    private var acknowledgmentsController: AcknowledgmentsWindowController?
+
+    @ObservationIgnored
     private var aboutTitlebarController: AboutTitlebarDebugWindowController?
 
     @ObservationIgnored
@@ -81,6 +93,11 @@ public final class DebugWindowsCoordinator {
     ///   - decorator: The window-decoration seam. Held weakly because the
     ///     app-side conformer (`AppDelegate`) is a singleton that also owns this
     ///     coordinator.
+    ///   - aboutPanelStrings: Localized labels for the About window, resolved
+    ///     app-side against the app bundle's catalog.
+    ///   - acknowledgmentsStrings: Localized title and fallback text for the
+    ///     Acknowledgments window, resolved app-side against the app bundle's
+    ///     catalog.
     ///   - browserDebugContext: The browser-debug action seam. Held weakly for the
     ///     same reason as `decorator`. Backs the import-hint panel's quick-action
     ///     buttons. `nil` makes those buttons no-ops.
@@ -117,6 +134,8 @@ public final class DebugWindowsCoordinator {
     ///     presented).
     public init(
         decorator: (any WindowDecorating)?,
+        aboutPanelStrings: AboutPanelStrings,
+        acknowledgmentsStrings: AcknowledgmentsStrings,
         browserDebugContext: (any BrowserDebugContext)? = nil,
         tabBarBackdropLabContentProvider: (@MainActor () -> NSView)? = nil,
         sidebarDebugContentProvider: (@MainActor () -> NSView)? = nil,
@@ -126,6 +145,8 @@ public final class DebugWindowsCoordinator {
         fileExplorerStyleDebugContentProvider: (@MainActor () -> NSView)? = nil
     ) {
         self.decorator = decorator
+        self.aboutPanelStrings = aboutPanelStrings
+        self.acknowledgmentsStrings = acknowledgmentsStrings
         self.browserDebugContext = browserDebugContext
         self.aboutTitlebarStore = AboutTitlebarDebugStore(decorator: decorator)
         self.tabBarBackdropLabContentProvider = tabBarBackdropLabContentProvider
@@ -141,6 +162,35 @@ public final class DebugWindowsCoordinator {
         _ = backgroundDebugContentProvider
         _ = fileExplorerStyleDebugContentProvider
         #endif
+    }
+
+    /// Presents the "About cmux" window, creating it on first use.
+    ///
+    /// Replaces the former `AboutWindowController.shared` singleton: the
+    /// coordinator owns the controller's lifecycle and injects the
+    /// ``AboutTitlebarDebugStore``, the ``WindowDecorating`` seam, the localized
+    /// strings, and the closure that opens the Acknowledgments window.
+    public func showAbout() {
+        let controller = aboutController ?? AboutWindowController(
+            store: aboutTitlebarStore,
+            decorator: decorator,
+            strings: aboutPanelStrings,
+            showAcknowledgments: { [weak self] in self?.showAcknowledgments() }
+        )
+        aboutController = controller
+        controller.show()
+    }
+
+    /// Presents the Acknowledgments (Third-Party Licenses) window, creating it on
+    /// first use.
+    ///
+    /// Replaces the former `AcknowledgmentsWindowController.shared` singleton.
+    public func showAcknowledgments() {
+        let controller = acknowledgmentsController ?? AcknowledgmentsWindowController(
+            strings: acknowledgmentsStrings
+        )
+        acknowledgmentsController = controller
+        controller.show()
     }
 
     /// Presents the About Titlebar Debug editor, creating its window on first use.
