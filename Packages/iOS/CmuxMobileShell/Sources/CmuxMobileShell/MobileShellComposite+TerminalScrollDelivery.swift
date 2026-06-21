@@ -40,7 +40,7 @@ extension MobileShellComposite {
         terminalScrollbackPrefetchStatesBySurfaceID[surfaceID] = prefetchState
         enqueueTerminalScroll(TerminalScrollDelivery(
             surfaceID: surfaceID,
-            lines: lines,
+            lines: hydrateScrollback ? 0 : lines,
             col: col,
             row: row,
             maxScrollbackRows: maxScrollbackRows,
@@ -49,7 +49,7 @@ extension MobileShellComposite {
     }
 
     private func enqueueTerminalScroll(_ delivery: TerminalScrollDelivery) {
-        guard delivery.lines != 0 else { return }
+        guard delivery.lines != 0 || delivery.maxScrollbackRows != nil else { return }
         let queueToken = terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] ?? UUID()
         terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] = queueToken
         var queue = terminalScrollQueuesBySurfaceID[delivery.surfaceID] ?? TerminalScrollDeliveryQueue()

@@ -10,7 +10,10 @@ struct TerminalScrollDelivery: Equatable, Sendable {
     var scrollbackScope: String? = nil
 
     mutating func append(_ delivery: TerminalScrollDelivery) {
-        lines += delivery.lines
+        let shouldHydrate =
+            delivery.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope
+            || scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope
+        lines = shouldHydrate ? 0 : lines + delivery.lines
         col = delivery.col
         row = delivery.row
         switch (maxScrollbackRows, delivery.maxScrollbackRows) {
@@ -21,8 +24,7 @@ struct TerminalScrollDelivery: Equatable, Sendable {
         case (.some, nil), (nil, nil):
             break
         }
-        if delivery.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope
-            || scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope {
+        if shouldHydrate {
             scrollbackScope = MobileTerminalScrollbackReplayRequest.fullScope
         } else if scrollbackScope == nil {
             scrollbackScope = delivery.scrollbackScope
