@@ -3271,7 +3271,6 @@ class TabManager: ObservableObject {
         notificationDismissal.dismissNotificationOnTerminalInteraction(workspaceId: tabId, surfaceId: surfaceId)
     }
 
-
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -3308,8 +3307,7 @@ class TabManager: ObservableObject {
 
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
         guard let tab = workspacesById[tabId], tab.panels[panelId] != nil else { return }
-        let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
 
         if tab.focusedPanelId == panelId {
@@ -3318,8 +3316,7 @@ class TabManager: ObservableObject {
                 updateWindowTitle(for: tab)
             }
         }
-        let currentDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
         if currentDisplayTitle != previousDisplayTitle {
             NotificationCenter.default.post(
                 name: .workspaceTitleDidChange,
@@ -3331,6 +3328,8 @@ class TabManager: ObservableObject {
             )
         }
     }
+
+    func shouldScheduleRawTitleRefresh(forWorkspaceId workspaceId: UUID?) -> Bool { workspaceId == selectedTabId && !PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings) }
 
     func focusedSurfaceTitleDidChange(tabId: UUID) {
         guard let tab = workspacesById[tabId],
