@@ -85,6 +85,7 @@ jobs:
             // next real beta's notes base (the generator also fails closed to a
             // fallback line when the base is not an ancestor of HEAD).
             let lastUploadedSha = null;
+            let lookupFailed = false;
             try {
               const runs = await github.rest.actions.listWorkflowRuns({
                 owner,
@@ -96,7 +97,20 @@ jobs:
               });
               lastUploadedSha = runs.data.workflow_runs[0]?.head_sha ?? null;
             } catch (e) {
+              lookupFailed = true;
               core.warning(`could not resolve last uploaded sha: ${e.message}`);
+            }
+
+            // A scheduled run must FAIL CLOSED when the history lookup ERRORED: a
+            // null last-uploaded SHA reads as "not HEAD" below, so the lane would
+            // re-upload the same already-shipped main commit every 2h with a fresh
+            // build number and fallback notes. Before this job wrapped the lookup in
+            // try/catch the throw failed the job here; preserve that. A genuine
+            // no-prior-run (the API SUCCEEDED but returned no runs) is NOT a failure:
+            // lookupFailed stays false and the first beta builds normally.
+            if (context.eventName === 'schedule' && lookupFailed) {
+              core.setFailed('could not resolve the last uploaded beta SHA (workflow run history lookup failed); refusing to auto-upload to avoid duplicate TestFlight builds');
+              return;
             }
 
             // workflow_dispatch always builds (the operator asked for it).
