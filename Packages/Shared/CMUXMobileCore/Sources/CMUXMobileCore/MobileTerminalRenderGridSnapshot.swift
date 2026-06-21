@@ -33,6 +33,8 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
     private var alternateRows: [MobileTerminalRenderGridSnapshotRow]
     private var primaryVisibleRowCount: Int
     private var alternateVisibleRowCount: Int
+    private var primaryStylesByID: [Int: MobileTerminalRenderGridFrame.Style]
+    private var alternateStylesByID: [Int: MobileTerminalRenderGridFrame.Style]
 
     /// Creates a semantic snapshot from a render-grid frame.
     public init(frame: MobileTerminalRenderGridFrame) {
@@ -45,17 +47,22 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
         self.terminalForeground = frame.terminalForeground
         self.terminalBackground = frame.terminalBackground
         self.terminalCursorColor = frame.terminalCursorColor
-        let initialRows = snapshotRows(from: frame)
+        let initialStylesByID = styleTable(from: frame.styles)
+        let initialRows = snapshotRows(from: frame, stylesByID: initialStylesByID)
         if frame.activeScreen == .primary {
             self.primaryRows = initialRows
             self.alternateRows = []
             self.primaryVisibleRowCount = frame.rows
             self.alternateVisibleRowCount = 0
+            self.primaryStylesByID = initialStylesByID
+            self.alternateStylesByID = styleTable(from: [.default])
         } else {
             self.primaryRows = []
             self.alternateRows = Array(initialRows.suffix(frame.rows))
             self.primaryVisibleRowCount = 0
             self.alternateVisibleRowCount = frame.rows
+            self.primaryStylesByID = styleTable(from: [.default])
+            self.alternateStylesByID = initialStylesByID
         }
     }
 
@@ -77,7 +84,9 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
             return
         }
 
-        let nextViewportRows = snapshotViewportRows(from: frame)
+        var targetStylesByID = stylesByID(for: frame.activeScreen)
+        mergeStyles(frame.styles, into: &targetStylesByID)
+        let nextViewportRows = snapshotViewportRows(from: frame, stylesByID: targetStylesByID)
         let fullViewportReplacement = isFullViewportReplacement(frame)
         var targetRows = rows(for: frame.activeScreen)
         let previousTargetVisibleRowCount = visibleRowCount(for: frame.activeScreen)
@@ -115,6 +124,7 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
             )
         }
         setRows(targetRows, for: frame.activeScreen)
+        setStylesByID(targetStylesByID, for: frame.activeScreen)
 
         surfaceID = frame.surfaceID
         stateSeq = frame.stateSeq
@@ -187,6 +197,23 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
         }
     }
 
+    private func stylesByID(
+        for screen: MobileTerminalRenderGridFrame.Screen
+    ) -> [Int: MobileTerminalRenderGridFrame.Style] {
+        screen == .primary ? primaryStylesByID : alternateStylesByID
+    }
+
+    private mutating func setStylesByID(
+        _ stylesByID: [Int: MobileTerminalRenderGridFrame.Style],
+        for screen: MobileTerminalRenderGridFrame.Screen
+    ) {
+        if screen == .primary {
+            primaryStylesByID = stylesByID
+        } else {
+            alternateStylesByID = stylesByID
+        }
+    }
+
     private mutating func trimRowsToBudget() {
         let maxRows = MobileTerminalScrollbackBudget.fullReplayRows + max(primaryVisibleRowCount, visibleRowCount, 0)
         if primaryRows.count > maxRows {
@@ -220,17 +247,23 @@ private func patchTrailingViewport(
     }
 }
 
-private func snapshotRows(from frame: MobileTerminalRenderGridFrame) -> [MobileTerminalRenderGridSnapshotRow] {
+private func snapshotRows(
+    from frame: MobileTerminalRenderGridFrame,
+    stylesByID: [Int: MobileTerminalRenderGridFrame.Style]
+) -> [MobileTerminalRenderGridSnapshotRow] {
     let scrollback = groupedRows(
         spans: frame.scrollbackSpans,
         rowCount: frame.scrollbackRows,
-        styles: frame.styles
+        stylesByID: stylesByID
     )
-    return scrollback + snapshotViewportRows(from: frame)
+    return scrollback + snapshotViewportRows(from: frame, stylesByID: stylesByID)
 }
 
-private func snapshotViewportRows(from frame: MobileTerminalRenderGridFrame) -> [MobileTerminalRenderGridSnapshotRow] {
-    groupedRows(spans: frame.rowSpans, rowCount: frame.rows, styles: frame.styles)
+private func snapshotViewportRows(
+    from frame: MobileTerminalRenderGridFrame,
+    stylesByID: [Int: MobileTerminalRenderGridFrame.Style]
+) -> [MobileTerminalRenderGridSnapshotRow] {
+    groupedRows(spans: frame.rowSpans, rowCount: frame.rows, stylesByID: stylesByID)
 }
 
 private func isFullViewportReplacement(_ frame: MobileTerminalRenderGridFrame) -> Bool {
@@ -253,12 +286,8 @@ private func changedRows(in frame: MobileTerminalRenderGridFrame) -> Set<Int> {
 private func groupedRows(
     spans: [MobileTerminalRenderGridFrame.RowSpan],
     rowCount: Int,
-    styles: [MobileTerminalRenderGridFrame.Style]
+    stylesByID: [Int: MobileTerminalRenderGridFrame.Style]
 ) -> [MobileTerminalRenderGridSnapshotRow] {
-    var stylesByID: [Int: MobileTerminalRenderGridFrame.Style] = [:]
-    for style in styles {
-        stylesByID[style.id] = style
-    }
     var rows = Array(repeating: MobileTerminalRenderGridSnapshotRow(), count: max(0, rowCount))
     for span in spans.sorted(by: { lhs, rhs in
         lhs.row == rhs.row ? lhs.column < rhs.column : lhs.row < rhs.row
@@ -271,6 +300,28 @@ private func groupedRows(
         ))
     }
     return rows
+}
+
+private func styleTable(
+    from styles: [MobileTerminalRenderGridFrame.Style]
+) -> [Int: MobileTerminalRenderGridFrame.Style] {
+    var stylesByID: [Int: MobileTerminalRenderGridFrame.Style] = [0: .default]
+    for style in styles {
+        stylesByID[style.id] = style
+    }
+    return stylesByID
+}
+
+private func mergeStyles(
+    _ styles: [MobileTerminalRenderGridFrame.Style],
+    into stylesByID: inout [Int: MobileTerminalRenderGridFrame.Style]
+) {
+    if stylesByID[0] == nil {
+        stylesByID[0] = .default
+    }
+    for style in styles {
+        stylesByID[style.id] = style
+    }
 }
 
 private func snapshotMaxRowOffset(for rows: [MobileTerminalRenderGridSnapshotRow], visibleRowCount: Int) -> Double {

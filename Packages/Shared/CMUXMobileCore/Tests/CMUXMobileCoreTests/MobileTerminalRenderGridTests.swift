@@ -270,6 +270,43 @@ import Testing
     #expect(snapshot.cursor?.column == 3)
 }
 
+@Test func renderGridSnapshotKeepsStyledRowsAcrossCursorOnlyDelta() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 2,
+        styles: [
+            .init(id: 0, foreground: "#E0E0E0", background: "#101010"),
+            .init(id: 1, foreground: "#FFAA00", background: "#202020", bold: true),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "colored"),
+            .init(row: 1, column: 0, styleID: 0, text: "plain"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: full)
+
+    let cursorOnly = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 2,
+        cursor: .init(row: 1, column: 3),
+        full: false,
+        rowSpans: []
+    )
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(cursorOnly))
+
+    let visible = snapshot.visibleRows(rowOffset: 0)
+    #expect(visible.map(\.plainText) == ["colored", "plain"])
+    #expect(visible[0].spans.first?.style.foreground == "#FFAA00")
+    #expect(visible[0].spans.first?.style.background == "#202020")
+    #expect(visible[0].spans.first?.style.bold == true)
+    #expect(snapshot.cursor?.row == 1)
+    #expect(snapshot.cursor?.column == 3)
+}
+
 @Test func renderGridSnapshotResetsTerminalColorsWhenDeltaCarriesNullState() throws {
     let full = try MobileTerminalRenderGridFrame(
         surfaceID: "surface-a",

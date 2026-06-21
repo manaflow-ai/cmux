@@ -623,6 +623,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
     var localScrollbackModel = MobileTerminalLocalScrollbackModel()
     var renderGridSnapshot: MobileTerminalRenderGridSnapshot?
+    private var isUsingSemanticRenderGrid: Bool {
+        renderGridSnapshot != nil
+    }
     private let scrollForwardingPolicy = MobileTerminalScrollForwardingPolicy()
     public var decouplePrimaryScreenScroll: Bool = true
     /// Serial background queue for `ghostty_surface_process_output`, which
@@ -2390,6 +2393,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         } else {
             renderGridSnapshot = MobileTerminalRenderGridSnapshot(frame: envelope.frame)
         }
+        setGhosttyRendererLayersHidden(true)
         surfaceHasReceivedOutput = true
         if let snapshot = renderGridSnapshot {
             updateLocalScrollbackBounds(
@@ -2415,6 +2419,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
         renderGridSnapshot = nil
+        setGhosttyRendererLayersHidden(false)
         snapshotFallbackView.isHidden = true
         snapshotFallbackView.attributedText = nil
         #if DEBUG
@@ -2938,6 +2943,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
         guard !renderingSuspended, let surface, !isDismantled else { return }
+        guard !isUsingSemanticRenderGrid else {
+            needsDraw = false
+            needsAnotherRender = false
+            pendingRenderFrames = 0
+            return
+        }
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
@@ -2957,6 +2968,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 self.renderInFlight = false
                 guard !self.isDismantled else {
                     self.needsAnotherRender = false
+                    return
+                }
+                guard !self.isUsingSemanticRenderGrid else {
+                    self.setGhosttyRendererLayersHidden(true)
+                    self.needsDraw = false
+                    self.needsAnotherRender = false
+                    self.pendingRenderFrames = 0
                     return
                 }
                 if self.needsAnotherRender {
@@ -3524,7 +3542,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             cellPixelSize: cellPixelSize,
             scale: scale
         )
+        let hideRenderer = isUsingSemanticRenderGrid
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.isHidden = hideRenderer
+            guard !hideRenderer else { continue }
             if sublayer.frame != renderRect {
                 sublayer.frame = renderRect
             }
@@ -3557,6 +3578,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.commit()
     }
 
+    private func setGhosttyRendererLayersHidden(_ hidden: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.isHidden = hidden
+        }
+        CATransaction.commit()
+    }
+
     private func updateBottomOverscanCover(scale: CGFloat) {
         let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
         let coverFrame = TerminalLetterboxGeometry.bottomOverscanCoverRect(
@@ -3572,7 +3602,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             width: coverFrame.width,
             height: max(0, min(coverFrame.maxY, dockTop) - coverFrame.minY)
         )
-        bottomOverscanCoverView.backgroundColor = configBackgroundColor ?? backgroundColor ?? .black
+        bottomOverscanCoverView.backgroundColor = semanticRenderGridBackgroundColor()
+            ?? configBackgroundColor
+            ?? backgroundColor
+            ?? .black
         bottomOverscanCoverView.isHidden = boundedCoverFrame.isEmpty
         if bottomOverscanCoverView.frame != boundedCoverFrame {
             bottomOverscanCoverView.frame = boundedCoverFrame
@@ -3689,6 +3722,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func drawForWakeup() {
         guard surface != nil, window != nil, !isDismantled else { return }
+        guard !isUsingSemanticRenderGrid else {
+            needsDraw = false
+            return
+        }
         // Don't call `ghostty_surface_refresh` here: that wakes the renderer
         // thread to present asynchronously (`setSurface` → `dispatch_async` to
         // main → size-guard discard), which both blanks frames and competes
@@ -3712,6 +3749,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func syncSnapshotFallback() {
         if renderGridSnapshot != nil {
+            setGhosttyRendererLayersHidden(true)
             renderSemanticRenderGridSnapshot()
             return
         }
@@ -3768,6 +3806,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let snapshot = renderGridSnapshot else {
             return
         }
+        setGhosttyRendererLayersHidden(true)
 
         let fractionalOffset = snapshot.fractionalRowOffset(rowOffset: localScrollbackModel.rowOffset)
         let visibleRows = snapshot.visibleRows(
@@ -3951,6 +3990,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
     }
 
+    private func semanticRenderGridBackgroundColor() -> UIColor? {
+        guard let snapshot = renderGridSnapshot else { return nil }
+        return color(from: snapshot.terminalBackground)
+    }
+
     private func flushSnapshotFallbackPresentation() {
         snapshotFallbackView.textContainer.size = snapshotFallbackView.bounds.size
         snapshotFallbackView.layoutManager.ensureLayout(for: snapshotFallbackView.textContainer)
@@ -4012,7 +4056,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func isGhosttyRendererLayerVisible(_ layer: CALayer) -> Bool {
-        isGhosttyRendererLayer(layer) && layer.contents != nil
+        isGhosttyRendererLayer(layer) && !layer.isHidden && layer.contents != nil
     }
 
     nonisolated private static func handleWrite(
