@@ -46,6 +46,16 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         })
 
         observers.append(center.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: tabManager,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateFocusedCommandText()
+            }
+        })
+
+        observers.append(center.addObserver(
             forName: .ghosttyDidFocusTab,
             object: nil,
             queue: .main

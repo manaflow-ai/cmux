@@ -55,6 +55,17 @@ struct TabManagerTitleUpdateTests {
         )
         let workspace = try #require(manager.selectedWorkspace)
         let focusedPanelId = try #require(workspace.focusedPanelId)
+        var notifiedWorkspaceIds: [UUID] = []
+        let titleDidChangeObserver = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            if let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID {
+                notifiedWorkspaceIds.append(workspaceId)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(titleDidChangeObserver) }
 
         settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
         settings.set(300, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
@@ -73,10 +84,12 @@ struct TabManagerTitleUpdateTests {
         #expect(scheduler.delays == [0.3])
         #expect(workspace.panelTitles[focusedPanelId] != "Runtime Delay - grok")
         #expect(workspace.title != "Runtime Delay - grok")
+        #expect(notifiedWorkspaceIds.isEmpty)
 
         scheduler.fire(at: 0)
         #expect(workspace.panelTitles[focusedPanelId] == "Runtime Delay - grok")
         #expect(workspace.title == "Runtime Delay - grok")
+        #expect(notifiedWorkspaceIds == [workspace.id])
     }
 
     @Test

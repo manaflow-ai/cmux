@@ -27,8 +27,9 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
     private var pendingSource: String = "unspecified"
     private let logEvent: (@MainActor (String) -> Void)?
 
-    init(
+    nonisolated init(
         delay: TimeInterval = 1.0 / 30.0,
+        coalescer: NotificationBurstCoalescer? = nil,
         logEvent: (@MainActor (String) -> Void)? = nil,
         postNotification: @escaping @MainActor ([AnyHashable: Any]) -> Void = { userInfo in
             NotificationCenter.default.post(
@@ -38,7 +39,7 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
             )
         }
     ) {
-        coalescer = NotificationBurstCoalescer(delay: delay)
+        self.coalescer = coalescer ?? NotificationBurstCoalescer(delay: delay)
         self.logEvent = logEvent
         self.postNotification = postNotification
     }

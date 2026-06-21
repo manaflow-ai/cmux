@@ -12,7 +12,7 @@ final class NotificationBurstCoalescer {
     private var cancelScheduledFlush: Cancellation?
     private var pendingAction: (@MainActor () -> Void)?
 
-    init(
+    nonisolated init(
         delay: TimeInterval = 1.0 / 30.0,
         schedule: @escaping Scheduler = { delay, action in
             let timer = Timer(timeInterval: max(0, delay), repeats: false) { timer in

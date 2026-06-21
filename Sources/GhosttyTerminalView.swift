@@ -2379,7 +2379,9 @@ class GhosttyApp {
         if Thread.isMainThread {
             MainActor.assumeIsolated { signal() }
         } else {
-            DispatchQueue.main.async { MainActor.assumeIsolated { signal() } }
+            Task { @MainActor in
+                signal()
+            }
         }
     }
 
