@@ -19773,9 +19773,6 @@ struct CMUXCLI {
             if let appServerError = error as? CodexTeamsAppServerRequestError {
                 return appServerError.isMissingRollout
             }
-            if let cliError = error as? CLIError {
-                return cliError.message.localizedCaseInsensitiveContains("no rollout found for thread id")
-            }
             return false
         }
 
