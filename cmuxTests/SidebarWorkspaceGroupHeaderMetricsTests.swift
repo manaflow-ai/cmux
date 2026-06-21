@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -52,7 +53,7 @@ import Testing
         #expect(metrics.unreadHorizontalPadding == SidebarWorkspaceGroupHeaderMetrics.baseUnreadHorizontalPadding * scale)
         #expect(metrics.unreadVerticalPadding == SidebarWorkspaceGroupHeaderMetrics.baseUnreadVerticalPadding * scale)
         #expect(metrics.plusFontSize == SidebarWorkspaceGroupHeaderMetrics.basePlusFontSize * scale)
-        #expect(metrics.plusFrame == SidebarWorkspaceGroupHeaderMetrics.basePlusFrame * scale)
+        #expect(metrics.plusFrame == SidebarWorkspaceGroupHeaderMetrics.basePlusFrame)
     }
 
     @Test func headerAndRowFontScaleShareOneScalingPath() {
@@ -65,5 +66,36 @@ import Testing
 
         #expect(metrics.nameFontSize == SidebarWorkspaceGroupHeaderMetrics.baseNameFontSize * rowScale)
         #expect(rowScale > 1)
+    }
+
+    @Test func groupPlusAndWorkspaceCloseShareTrailingXPositions() {
+        let closeButtonWidth = SidebarTrailingAccessoryWidthPolicy().closeButtonWidth
+        let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: 1)
+
+        #expect(SidebarWorkspaceListMetrics.rowContentHorizontalPadding == 10)
+        #expect(SidebarWorkspaceListMetrics.rowOuterHorizontalPadding == 6)
+        #expect(metrics.plusFrame == closeButtonWidth)
+        #expect(SidebarWorkspaceListMetrics.trailingAccessoryRightEdgeOffset == 16)
+        #expect(SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: metrics.plusFrame) == 24)
+        #expect(
+            SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: metrics.plusFrame)
+                == SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: closeButtonWidth)
+        )
+    }
+
+    @Test func groupPlusAndWorkspaceCloseStayAlignedWhenFontScaleChanges() {
+        for scale in [CGFloat(0.5), CGFloat(1), CGFloat(2)] {
+            let closeButtonWidth = max(
+                SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
+                SidebarWorkspaceGroupHeaderMetrics.basePlusFrame * scale
+            )
+            let plusButtonWidth = SidebarWorkspaceGroupHeaderMetrics(fontScale: scale).plusFrame
+
+            #expect(plusButtonWidth == closeButtonWidth)
+            #expect(
+                SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: plusButtonWidth)
+                    == SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: closeButtonWidth)
+            )
+        }
     }
 }
