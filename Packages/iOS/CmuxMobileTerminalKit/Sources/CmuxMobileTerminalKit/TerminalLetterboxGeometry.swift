@@ -17,6 +17,9 @@ public struct TerminalLetterboxGeometry {
     /// can land in the hidden row before the viewport scrolls, so the last
     /// visible line does not flash in and out during live output.
     public static let defaultBottomSpareRows = 1
+    /// The visual guard covers more than the spare backing row because glyphs
+    /// can extend across row boundaries while Metal presents a live-tail frame.
+    public static let defaultBottomGuardRows = defaultBottomSpareRows + 3
 
     /// The drawable container size after subtracting the keyboard overlap.
     ///
@@ -180,6 +183,55 @@ public struct TerminalLetterboxGeometry {
         return CGSize(
             width: backingSize.width,
             height: max(1, backingSize.height - hiddenHeight)
+        )
+    }
+
+    /// Mask rect, in a backing render layer's local coordinate space, that
+    /// exposes only the visible terminal viewport and hides bottom overscan.
+    public static func visibleRendererMaskRect(
+        renderRect: CGRect,
+        visibleRenderRect: CGRect,
+        cellPixelSize: CGSize,
+        scale: CGFloat,
+        hiddenBottomRows: Int = defaultBottomSpareRows
+    ) -> CGRect {
+        guard !renderRect.isEmpty, !visibleRenderRect.isEmpty else {
+            return CGRect(origin: .zero, size: renderRect.size)
+        }
+        let hiddenHeight = CGFloat(max(0, hiddenBottomRows)) * max(0, cellPixelSize.height) / max(scale, 1)
+        let clippedVisibleRect = CGRect(
+            x: visibleRenderRect.minX,
+            y: visibleRenderRect.minY,
+            width: visibleRenderRect.width,
+            height: max(1, visibleRenderRect.height - hiddenHeight)
+        )
+        let local = clippedVisibleRect.offsetBy(dx: -renderRect.minX, dy: -renderRect.minY)
+        return local.intersection(CGRect(origin: .zero, size: renderRect.size))
+    }
+
+    /// Cover rect, in the host view's coordinate space, that blanks the bottom
+    /// guard rows plus any slack below them. The local scroll renderer can briefly
+    /// leave stale glyphs in the final row while live output advances, so the
+    /// visual clip must cover whole terminal rows, not just the sub-cell
+    /// spare strip used by the backing renderer.
+    public static func bottomOverscanCoverRect(
+        bounds: CGSize,
+        visibleRenderRect: CGRect,
+        cellPixelSize: CGSize,
+        scale: CGFloat,
+        guardRows: Int = defaultBottomGuardRows
+    ) -> CGRect {
+        guard bounds.width > 0, bounds.height > 0, !visibleRenderRect.isEmpty else {
+            return .zero
+        }
+        let rowHeight = max(1, cellPixelSize.height)
+        let guardHeight = (CGFloat(max(0, guardRows)) + 0.5) * rowHeight
+        let coverTop = min(max(0, visibleRenderRect.maxY - guardHeight), bounds.height)
+        return CGRect(
+            x: 0,
+            y: coverTop,
+            width: bounds.width,
+            height: max(0, bounds.height - coverTop)
         )
     }
 

@@ -304,6 +304,38 @@ struct TerminalLetterboxGeometryTests {
         #expect(visible == CGSize(width: 402, height: 480))
     }
 
+    @Test("renderer mask clips hidden bottom spare row")
+    func rendererMaskClipsBottomSpareRow() {
+        let renderRect = CGRect(x: 0, y: 0, width: 402, height: 490)
+        let visibleRenderRect = CGRect(x: 0, y: 0, width: 402, height: 480)
+
+        #expect(TerminalLetterboxGeometry.visibleRendererMaskRect(
+            renderRect: renderRect,
+            visibleRenderRect: visibleRenderRect,
+            cellPixelSize: CGSize(width: 18, height: 30),
+            scale: 3
+        ) == CGRect(x: 0, y: 0, width: 402, height: 470))
+
+        let shiftedRenderRect = CGRect(x: 4, y: 8, width: 402, height: 490)
+        let shiftedVisibleRect = CGRect(x: 4, y: 8, width: 402, height: 480)
+        #expect(TerminalLetterboxGeometry.visibleRendererMaskRect(
+            renderRect: shiftedRenderRect,
+            visibleRenderRect: shiftedVisibleRect,
+            cellPixelSize: CGSize(width: 18, height: 30),
+            scale: 3
+        ) == CGRect(x: 0, y: 0, width: 402, height: 470))
+    }
+
+    @Test("bottom overscan cover blanks final guard row and slack below")
+    func bottomOverscanCoverBlanksFinalGuardRowAndSlack() {
+        #expect(TerminalLetterboxGeometry.bottomOverscanCoverRect(
+            bounds: CGSize(width: 402, height: 700),
+            visibleRenderRect: CGRect(x: 0, y: 0, width: 402, height: 480),
+            cellPixelSize: CGSize(width: 18, height: 30),
+            scale: 3
+        ) == CGRect(x: 0, y: 345, width: 402, height: 355))
+    }
+
     @Test("bottom dock anchors to visible terminal rect instead of hidden spare row")
     func bottomDockUsesVisibleRenderRect() {
         let frames = TerminalLetterboxGeometry.bottomDockFrames(

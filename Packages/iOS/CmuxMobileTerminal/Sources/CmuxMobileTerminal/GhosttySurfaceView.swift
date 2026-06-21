@@ -813,6 +813,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// last visible line; dock placement, hit-testing, and cursor overlay use
     /// this visible rect.
     private var lastVisibleRenderRect: CGRect = .zero
+    private let bottomOverscanCoverView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .black
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+        view.layer.zPosition = 1002
+        return view
+    }()
     private var lastTerminalContainerSize: CGSize?
 
     #if DEBUG
@@ -988,6 +996,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         addSubview(snapshotFallbackView)
         addSubview(scrollMechanicsView)
         scrollMechanicsView.addGestureRecognizer(scrollPanGesture)
+        addSubview(bottomOverscanCoverView)
         addSubview(inputProxy)
         #if DEBUG
         addSubview(debugAccessibilityProxy)
@@ -2932,7 +2941,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             width: cursorWidth,
             height: ceil(cellHeight)
         )
-        guard frame.minY + 0.5 < visibleRenderRect.maxY else {
+        let bottomClipTop = TerminalLetterboxGeometry.bottomOverscanCoverRect(
+            bounds: bounds.size,
+            visibleRenderRect: visibleRenderRect,
+            cellPixelSize: cellPixelSize,
+            scale: scale
+        ).minY
+        guard frame.minY + 0.5 < bottomClipTop else {
             overlay.isHidden = true
             return
         }
@@ -2971,6 +2986,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let bg = UIColor(red: CGFloat(bgColor.r) / 255.0, green: CGFloat(bgColor.g) / 255.0, blue: CGFloat(bgColor.b) / 255.0, alpha: 1.0)
             backgroundColor = bg
             snapshotFallbackView.backgroundColor = bg
+            bottomOverscanCoverView.backgroundColor = bg
             configBackgroundColor = bg
             #if DEBUG
             log.debug("applyBg: config r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public) -> UIColor(\(bg.debugDescription, privacy: .public)), hardcoded Monokai=#272822 r=39 g=40 b=34")
@@ -3278,6 +3294,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             + "visibleRect=\(Int(lastVisibleRenderRect.width))x\(Int(lastVisibleRenderRect.height))"
         )
         syncRendererLayerFrame(scale: scale, renderRect: renderRect)
+        updateBottomOverscanCover(scale: scale)
         updateLetterboxBorder(
             renderRect: lastVisibleRenderRect,
             isLetterboxed: lastVisibleRenderRect.width + 0.5 < containerW || lastVisibleRenderRect.height + 0.5 < containerH
@@ -3350,6 +3367,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.contentsScale = scale
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? renderRect : lastVisibleRenderRect
+        let maskRect = TerminalLetterboxGeometry.visibleRendererMaskRect(
+            renderRect: renderRect,
+            visibleRenderRect: visibleRenderRect,
+            cellPixelSize: cellPixelSize,
+            scale: scale
+        )
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
             if sublayer.frame != renderRect {
                 sublayer.frame = renderRect
@@ -3358,8 +3382,51 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 sublayer.bounds = CGRect(origin: .zero, size: renderRect.size)
             }
             sublayer.contentsScale = scale
+            let mask = sublayer.mask ?? {
+                let mask = CALayer()
+                mask.name = "cmux.visibleRendererMask"
+                mask.backgroundColor = UIColor.black.cgColor
+                mask.actions = [
+                    "backgroundColor": NSNull(),
+                    "bounds": NSNull(),
+                    "frame": NSNull(),
+                    "position": NSNull(),
+                ]
+                return mask
+            }()
+            if mask.frame != maskRect {
+                mask.frame = maskRect
+            }
+            if mask.bounds.size != maskRect.size {
+                mask.bounds = CGRect(origin: .zero, size: maskRect.size)
+            }
+            if sublayer.mask !== mask {
+                sublayer.mask = mask
+            }
         }
         CATransaction.commit()
+    }
+
+    private func updateBottomOverscanCover(scale: CGFloat) {
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
+        let coverFrame = TerminalLetterboxGeometry.bottomOverscanCoverRect(
+            bounds: bounds.size,
+            visibleRenderRect: visibleRenderRect,
+            cellPixelSize: cellPixelSize,
+            scale: scale
+        )
+        let dockTop = bottomDockFrames().toolbar.minY
+        let boundedCoverFrame = CGRect(
+            x: coverFrame.minX,
+            y: coverFrame.minY,
+            width: coverFrame.width,
+            height: max(0, min(coverFrame.maxY, dockTop) - coverFrame.minY)
+        )
+        bottomOverscanCoverView.backgroundColor = configBackgroundColor ?? backgroundColor ?? .black
+        bottomOverscanCoverView.isHidden = boundedCoverFrame.isEmpty
+        if bottomOverscanCoverView.frame != boundedCoverFrame {
+            bottomOverscanCoverView.frame = boundedCoverFrame
+        }
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface
