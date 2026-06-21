@@ -103,8 +103,12 @@ worker: get your own **isolated** one instead.
 Each `cmux-presence-dev-<slug>` is a separate worker with its **own Durable
 Object namespace**, so presence + paired-Mac-backup state is fully isolated per
 developer — multiple people dogfood worker changes simultaneously without
-clobbering each other or the shared baseline. The script prints the worker URL
-and the env var to export:
+clobbering each other or the shared baseline. Because Cloudflare secrets are
+scoped to each Worker, the script also provisions the new Worker with the dev
+Stack Auth values from your shell environment or `.dev.vars`
+(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`, optional `STACK_API_URL`);
+it refuses to deploy if those values are missing. The script prints the worker
+URL and the env var to export:
 
 ```
 export CMUX_PRESENCE_BASE_URL=https://cmux-presence-dev-<slug>.<subdomain>.workers.dev
