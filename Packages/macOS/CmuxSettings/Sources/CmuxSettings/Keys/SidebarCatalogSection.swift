@@ -116,6 +116,42 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowStatusPills"
     )
 
+    public let optimizedWorkspaceSnapshotsEnabled = DefaultsKey<Bool>(
+        id: "sidebar.performance.optimizedWorkspaceSnapshots.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.performance.optimizedWorkspaceSnapshots.enabled"
+    )
+
+    public let optimizedWorkspaceSnapshotsMode = DefaultsKey<String>(
+        id: "sidebar.performance.optimizedWorkspaceSnapshots.mode",
+        defaultValue: "splitView",
+        userDefaultsKey: "sidebar.performance.optimizedWorkspaceSnapshots.mode"
+    )
+
+    public let optimizedWorkspaceSnapshotsSummaryDebounceMilliseconds = DefaultsKey<Int>(
+        id: "sidebar.performance.optimizedWorkspaceSnapshots.summaryDebounceMilliseconds",
+        defaultValue: 40,
+        userDefaultsKey: "sidebar.performance.optimizedWorkspaceSnapshots.summaryDebounceMilliseconds"
+    )
+
+    public let optimizedWorkspaceSnapshotsDetailDebounceMilliseconds = DefaultsKey<Int>(
+        id: "sidebar.performance.optimizedWorkspaceSnapshots.detailDebounceMilliseconds",
+        defaultValue: 40,
+        userDefaultsKey: "sidebar.performance.optimizedWorkspaceSnapshots.detailDebounceMilliseconds"
+    )
+
+    public let optimizedWorkspaceSnapshotsDiagnostics = DefaultsKey<Bool>(
+        id: "sidebar.performance.optimizedWorkspaceSnapshots.diagnostics",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.performance.optimizedWorkspaceSnapshots.diagnostics"
+    )
+
+    public let optimizedWorkspaceSnapshotsLogInvalidationSource = DefaultsKey<Bool>(
+        id: "sidebar.performance.optimizedWorkspaceSnapshots.logInvalidationSource",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.performance.optimizedWorkspaceSnapshots.logInvalidationSource"
+    )
+
     public let rightMaxWidth = DefaultsKey<Double>(
         id: "sidebar.rightMaxWidth",
         defaultValue: RightSidebarWidthSettings.noOverrideValue,

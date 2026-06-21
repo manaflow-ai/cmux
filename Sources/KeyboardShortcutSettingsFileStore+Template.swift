@@ -142,6 +142,16 @@ extension CmuxSettingsFileStore {
                     "showLog": SidebarWorkspaceDetailDefaults.showLog,
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
                     "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
+                    "performance": [
+                        "optimizedWorkspaceSnapshots": [
+                            "enabled": SidebarOptimizedWorkspaceSnapshotsSettings.defaultEnabled,
+                            "mode": SidebarOptimizedWorkspaceSnapshotsSettings.defaultMode.rawValue,
+                            "summaryDebounceMilliseconds": SidebarOptimizedWorkspaceSnapshotsSettings.defaultSummaryDebounceMilliseconds,
+                            "detailDebounceMilliseconds": SidebarOptimizedWorkspaceSnapshotsSettings.defaultDetailDebounceMilliseconds,
+                            "diagnostics": SidebarOptimizedWorkspaceSnapshotsSettings.defaultDiagnostics,
+                            "logInvalidationSource": SidebarOptimizedWorkspaceSnapshotsSettings.defaultLogInvalidationSource,
+                        ],
+                    ],
                 ],
             ],
             [

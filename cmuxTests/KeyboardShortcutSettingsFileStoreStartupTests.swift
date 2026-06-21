@@ -1308,6 +1308,67 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreAppliesSidebarOptimizedWorkspaceSnapshotsConfig() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            SidebarOptimizedWorkspaceSnapshotsSettings.enabledKey,
+            SidebarOptimizedWorkspaceSnapshotsSettings.modeKey,
+            SidebarOptimizedWorkspaceSnapshotsSettings.summaryDebounceMillisecondsKey,
+            SidebarOptimizedWorkspaceSnapshotsSettings.detailDebounceMillisecondsKey,
+            SidebarOptimizedWorkspaceSnapshotsSettings.diagnosticsKey,
+            SidebarOptimizedWorkspaceSnapshotsSettings.logInvalidationSourceKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: SidebarOptimizedWorkspaceSnapshotsSettings.enabledKey)
+            defaults.removeObject(forKey: SidebarOptimizedWorkspaceSnapshotsSettings.modeKey)
+            defaults.removeObject(forKey: SidebarOptimizedWorkspaceSnapshotsSettings.summaryDebounceMillisecondsKey)
+            defaults.removeObject(forKey: SidebarOptimizedWorkspaceSnapshotsSettings.detailDebounceMillisecondsKey)
+            defaults.removeObject(forKey: SidebarOptimizedWorkspaceSnapshotsSettings.diagnosticsKey)
+            defaults.removeObject(forKey: SidebarOptimizedWorkspaceSnapshotsSettings.logInvalidationSourceKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "sidebar": {
+                    "performance": {
+                      "optimizedWorkspaceSnapshots": {
+                        "enabled": true,
+                        "mode": "split-view",
+                        "summaryDebounceMilliseconds": 12,
+                        "detailDebounceMilliseconds": 34,
+                        "diagnostics": true,
+                        "logInvalidationSource": true
+                      }
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertTrue(SidebarOptimizedWorkspaceSnapshotsSettings.isEnabled(defaults: defaults))
+            XCTAssertEqual(SidebarOptimizedWorkspaceSnapshotsSettings.mode(defaults: defaults), .splitView)
+            XCTAssertEqual(SidebarOptimizedWorkspaceSnapshotsSettings.summaryDebounceMilliseconds(defaults: defaults), 12)
+            XCTAssertEqual(SidebarOptimizedWorkspaceSnapshotsSettings.detailDebounceMilliseconds(defaults: defaults), 34)
+            XCTAssertTrue(SidebarOptimizedWorkspaceSnapshotsSettings.diagnosticsEnabled(defaults: defaults))
+            XCTAssertTrue(SidebarOptimizedWorkspaceSnapshotsSettings.logsInvalidationSource(defaults: defaults))
+        }
+    }
+
     func testSettingsFileStoreRejectsInvalidTerminalTextBoxMaxLinesSetting() throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [

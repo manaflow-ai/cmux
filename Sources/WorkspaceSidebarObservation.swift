@@ -41,6 +41,29 @@ private struct SidebarObservationState: Equatable {
     let listeningPorts: [Int]
 }
 
+private struct SidebarSummaryObservationState: Equatable {
+    let statusEntries: [String: SidebarStatusEntry]
+    let metadataBlocks: [String: SidebarMetadataBlock]
+    let logEntries: [SidebarLogEntry]
+    let progress: SidebarProgressState?
+    let remoteConfiguration: WorkspaceRemoteConfiguration?
+    let remoteConnectionState: WorkspaceRemoteConnectionState
+    let remoteConnectionDetail: String?
+    let activeRemoteTerminalSessionCount: Int
+    let listeningPorts: [Int]
+}
+
+private struct SidebarStructuredDetailObservationState: Equatable {
+    let currentDirectory: String
+    let extensionSidebarProjectRootPath: String?
+    let panels: SidebarPanelObservationState
+    let panelDirectories: [UUID: String]
+    let gitBranch: SidebarGitBranchState?
+    let panelGitBranches: [UUID: SidebarGitBranchState]
+    let pullRequest: SidebarPullRequestState?
+    let panelPullRequests: [UUID: SidebarPullRequestState]
+}
+
 extension Workspace {
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
@@ -66,6 +89,73 @@ extension Workspace {
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2
+                )
+            }
+            .removeDuplicates()
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+
+    func makeSidebarSummaryObservationPublisher() -> AnyPublisher<Void, Never> {
+        let metadataFields = Publishers.CombineLatest4(
+            sidebarMetadata.statusEntriesPublisher,
+            sidebarMetadata.metadataBlocksPublisher,
+            sidebarMetadata.logEntriesPublisher,
+            sidebarMetadata.progressPublisher
+        )
+        let remoteFields = Publishers.CombineLatest4(
+            $remoteConfiguration,
+            $remoteConnectionState,
+            $remoteConnectionDetail,
+            $activeRemoteTerminalSessionCount
+        )
+
+        return metadataFields
+            .combineLatest(remoteFields, $listeningPorts)
+            .map { metadataFields, remoteFields, listeningPorts in
+                SidebarSummaryObservationState(
+                    statusEntries: metadataFields.0,
+                    metadataBlocks: metadataFields.1,
+                    logEntries: metadataFields.2,
+                    progress: metadataFields.3,
+                    remoteConfiguration: remoteFields.0,
+                    remoteConnectionState: remoteFields.1,
+                    remoteConnectionDetail: remoteFields.2,
+                    activeRemoteTerminalSessionCount: remoteFields.3,
+                    listeningPorts: listeningPorts
+                )
+            }
+            .removeDuplicates()
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+
+    func makeSidebarStructuredDetailObservationPublisher() -> AnyPublisher<Void, Never> {
+        let workspaceFields = Publishers.CombineLatest4(
+            $currentDirectory,
+            $extensionSidebarProjectRootPath,
+            panelsPublisher.map(SidebarPanelObservationState.init),
+            $panelDirectories
+        )
+        let gitFields = Publishers.CombineLatest4(
+            sidebarMetadata.gitBranchPublisher,
+            sidebarMetadata.panelGitBranchesPublisher,
+            sidebarMetadata.pullRequestPublisher,
+            sidebarMetadata.panelPullRequestsPublisher
+        )
+
+        return workspaceFields
+            .combineLatest(gitFields)
+            .map { workspaceFields, gitFields in
+                SidebarStructuredDetailObservationState(
+                    currentDirectory: workspaceFields.0,
+                    extensionSidebarProjectRootPath: workspaceFields.1,
+                    panels: workspaceFields.2,
+                    panelDirectories: workspaceFields.3,
+                    gitBranch: gitFields.0,
+                    panelGitBranches: gitFields.1,
+                    pullRequest: gitFields.2,
+                    panelPullRequests: gitFields.3
                 )
             }
             .removeDuplicates()

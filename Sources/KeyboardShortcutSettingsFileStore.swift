@@ -663,6 +663,76 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains(RightSidebarWidthSettings.jsonKey) {
             logInvalid(RightSidebarWidthSettings.settingsPath, sourcePath: sourcePath)
         }
+
+        parseSidebarPerformanceSection(section["performance"], sourcePath: sourcePath, snapshot: &snapshot)
+    }
+
+    private func parseSidebarPerformanceSection(
+        _ rawSection: Any?,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let rawSection else { return }
+        guard let section = rawSection as? [String: Any] else {
+            logInvalid("sidebar.performance", sourcePath: sourcePath)
+            return
+        }
+
+        guard let rawOptimized = section["optimizedWorkspaceSnapshots"] else { return }
+        guard let optimized = rawOptimized as? [String: Any] else {
+            logInvalid("sidebar.performance.optimizedWorkspaceSnapshots", sourcePath: sourcePath)
+            return
+        }
+
+        if let value = jsonBool(optimized["enabled"]) {
+            snapshot.managedUserDefaults[SidebarOptimizedWorkspaceSnapshotsSettings.enabledKey] = .bool(value)
+        } else if optimized.keys.contains("enabled") {
+            logInvalid("sidebar.performance.optimizedWorkspaceSnapshots.enabled", sourcePath: sourcePath)
+        }
+
+        if let rawMode = jsonString(optimized["mode"]) {
+            if let mode = SidebarOptimizedWorkspaceSnapshotsSettings.Mode.normalized(rawMode) {
+                snapshot.managedUserDefaults[SidebarOptimizedWorkspaceSnapshotsSettings.modeKey] = .string(mode.rawValue)
+            } else {
+                logInvalid("sidebar.performance.optimizedWorkspaceSnapshots.mode", sourcePath: sourcePath)
+            }
+        } else if optimized.keys.contains("mode") {
+            logInvalid("sidebar.performance.optimizedWorkspaceSnapshots.mode", sourcePath: sourcePath)
+        }
+
+        if let value = jsonInt(optimized["summaryDebounceMilliseconds"]) {
+            snapshot.managedUserDefaults[SidebarOptimizedWorkspaceSnapshotsSettings.summaryDebounceMillisecondsKey] = .int(
+                SidebarOptimizedWorkspaceSnapshotsSettings.sanitizedDebounceMilliseconds(
+                    value,
+                    defaultValue: SidebarOptimizedWorkspaceSnapshotsSettings.defaultSummaryDebounceMilliseconds
+                )
+            )
+        } else if optimized.keys.contains("summaryDebounceMilliseconds") {
+            logInvalid("sidebar.performance.optimizedWorkspaceSnapshots.summaryDebounceMilliseconds", sourcePath: sourcePath)
+        }
+
+        if let value = jsonInt(optimized["detailDebounceMilliseconds"]) {
+            snapshot.managedUserDefaults[SidebarOptimizedWorkspaceSnapshotsSettings.detailDebounceMillisecondsKey] = .int(
+                SidebarOptimizedWorkspaceSnapshotsSettings.sanitizedDebounceMilliseconds(
+                    value,
+                    defaultValue: SidebarOptimizedWorkspaceSnapshotsSettings.defaultDetailDebounceMilliseconds
+                )
+            )
+        } else if optimized.keys.contains("detailDebounceMilliseconds") {
+            logInvalid("sidebar.performance.optimizedWorkspaceSnapshots.detailDebounceMilliseconds", sourcePath: sourcePath)
+        }
+
+        if let value = jsonBool(optimized["diagnostics"]) {
+            snapshot.managedUserDefaults[SidebarOptimizedWorkspaceSnapshotsSettings.diagnosticsKey] = .bool(value)
+        } else if optimized.keys.contains("diagnostics") {
+            logInvalid("sidebar.performance.optimizedWorkspaceSnapshots.diagnostics", sourcePath: sourcePath)
+        }
+
+        if let value = jsonBool(optimized["logInvalidationSource"]) {
+            snapshot.managedUserDefaults[SidebarOptimizedWorkspaceSnapshotsSettings.logInvalidationSourceKey] = .bool(value)
+        } else if optimized.keys.contains("logInvalidationSource") {
+            logInvalid("sidebar.performance.optimizedWorkspaceSnapshots.logInvalidationSource", sourcePath: sourcePath)
+        }
     }
 
     private func parseWorkspaceColorsSection(

@@ -9539,6 +9539,12 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
+    let optimizedWorkspaceSnapshotsEnabled: Bool
+    let optimizedWorkspaceSnapshotsMode: SidebarOptimizedWorkspaceSnapshotsSettings.Mode
+    let optimizedWorkspaceSnapshotsSummaryDebounceMilliseconds: Int
+    let optimizedWorkspaceSnapshotsDetailDebounceMilliseconds: Int
+    let optimizedWorkspaceSnapshotsDiagnosticsEnabled: Bool
+    let optimizedWorkspaceSnapshotsLogInvalidationSource: Bool
 
     init(
         defaults: UserDefaults = .standard,
@@ -9594,6 +9600,12 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
+        optimizedWorkspaceSnapshotsEnabled = settings.value(for: catalog.sidebar.optimizedWorkspaceSnapshotsEnabled)
+        optimizedWorkspaceSnapshotsMode = SidebarOptimizedWorkspaceSnapshotsSettings.mode(defaults: defaults)
+        optimizedWorkspaceSnapshotsSummaryDebounceMilliseconds = SidebarOptimizedWorkspaceSnapshotsSettings.summaryDebounceMilliseconds(defaults: defaults)
+        optimizedWorkspaceSnapshotsDetailDebounceMilliseconds = SidebarOptimizedWorkspaceSnapshotsSettings.detailDebounceMilliseconds(defaults: defaults)
+        optimizedWorkspaceSnapshotsDiagnosticsEnabled = SidebarOptimizedWorkspaceSnapshotsSettings.diagnosticsEnabled(defaults: defaults)
+        optimizedWorkspaceSnapshotsLogInvalidationSource = SidebarOptimizedWorkspaceSnapshotsSettings.logsInvalidationSource(defaults: defaults)
     }
 
     private static func bool(
@@ -12886,6 +12898,37 @@ struct SidebarWorkspaceSnapshotBuilder {
         let isStale: Bool
     }
 
+    struct StructuredDetailsPresentationKey: Equatable {
+        let usesVerticalBranchLayout: Bool
+        let showsGitBranch: Bool
+        let usesViewportAwarePath: Bool
+        let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+    }
+
+    struct StructuredDetailsSnapshot: Equatable {
+        let presentationKey: StructuredDetailsPresentationKey
+        let compactGitBranchSummaryText: String?
+        let compactDirectoryCandidates: [String]
+        let compactBranchDirectoryCandidates: [String]
+        let branchDirectoryLines: [VerticalBranchDirectoryLine]
+        let branchLinesContainBranch: Bool
+        let pullRequestRows: [PullRequestDisplay]
+
+        static func empty(
+            presentationKey: StructuredDetailsPresentationKey
+        ) -> StructuredDetailsSnapshot {
+            StructuredDetailsSnapshot(
+                presentationKey: presentationKey,
+                compactGitBranchSummaryText: nil,
+                compactDirectoryCandidates: [],
+                compactBranchDirectoryCandidates: [],
+                branchDirectoryLines: [],
+                branchLinesContainBranch: false,
+                pullRequestRows: []
+            )
+        }
+    }
+
     struct Snapshot: Equatable {
         let presentationKey: PresentationKey
         let title: String
@@ -13046,6 +13089,11 @@ struct TabItemView: View, Equatable {
 
     private var sidebarShowSSH: Bool {
         settings.showsSSH
+    }
+
+    private var usesOptimizedWorkspaceSnapshots: Bool {
+        settings.optimizedWorkspaceSnapshotsEnabled &&
+            settings.optimizedWorkspaceSnapshotsMode == .splitView
     }
 
     private var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -13320,6 +13368,27 @@ struct TabItemView: View, Equatable {
         )
     }
 
+    private var workspaceStructuredDetailsPresentationKey: SidebarWorkspaceSnapshotBuilder.StructuredDetailsPresentationKey {
+        SidebarWorkspaceSnapshotBuilder.StructuredDetailsPresentationKey(
+            usesVerticalBranchLayout: sidebarBranchVerticalLayout,
+            showsGitBranch: sidebarShowGitBranch,
+            usesViewportAwarePath: sidebarUsesLastSegmentPath,
+            visibleAuxiliaryDetails: visibleAuxiliaryDetails
+        )
+    }
+
+    private var workspaceObservationPublisherForSnapshot: AnyPublisher<Void, Never> {
+        usesOptimizedWorkspaceSnapshots
+            ? tab.sidebarSummaryObservationPublisher
+            : tab.sidebarObservationPublisher
+    }
+
+    private var workspaceObservationCoalesceIntervalForSnapshot: RunLoop.SchedulerTimeType.Stride {
+        usesOptimizedWorkspaceSnapshots
+            ? .milliseconds(settings.optimizedWorkspaceSnapshotsSummaryDebounceMilliseconds)
+            : Self.workspaceObservationCoalesceInterval
+    }
+
     var body: some View {
         let workspaceSnapshot = self.workspaceSnapshot
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -13506,47 +13575,47 @@ struct TabItemView: View, Equatable {
                 .transition(.opacity)
             }
 
-            // Branch + directory row
-            if detailVisibility.showsBranchDirectory {
-                if sidebarBranchVerticalLayout {
-                    if !workspaceSnapshot.branchDirectoryLines.isEmpty {
-                        HStack(alignment: .top, spacing: 3) {
-                            if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
-                                Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: scaledFontSize(9)))
-                                    .foregroundColor(activeSecondaryColor(0.6))
-                            }
-                            VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                    if sidebarStacksBranchAndDirectory {
-                                        if let branch = line.branch {
-                                            Text(branch)
-                                                .font(.system(size: scaledFontSize(10), design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                        }
-                                        if !line.directoryCandidates.isEmpty {
-                                            SidebarDirectoryText(
-                                                candidates: line.directoryCandidates,
-                                                color: activeSecondaryColor(0.75),
-                                                fontScale: fontScale
-                                            )
-                                        }
-                                    } else {
-                                        HStack(spacing: 3) {
+            if usesOptimizedWorkspaceSnapshots,
+               detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests {
+                SidebarWorkspaceStructuredDetailsSection(
+                    tab: tab,
+                    presentationKey: workspaceStructuredDetailsPresentationKey,
+                    detailVisibility: detailVisibility,
+                    sidebarBranchVerticalLayout: sidebarBranchVerticalLayout,
+                    sidebarStacksBranchAndDirectory: sidebarStacksBranchAndDirectory,
+                    sidebarShowGitBranchIcon: sidebarShowGitBranchIcon,
+                    makesPullRequestsClickable: settings.makesPullRequestsClickable,
+                    detailDebounceMilliseconds: settings.optimizedWorkspaceSnapshotsDetailDebounceMilliseconds,
+                    diagnosticsEnabled: settings.optimizedWorkspaceSnapshotsDiagnosticsEnabled,
+                    logInvalidationSource: settings.optimizedWorkspaceSnapshotsLogInvalidationSource,
+                    fontScale: fontScale,
+                    branchTextColor: activeSecondaryColor(0.75),
+                    branchIconColor: activeSecondaryColor(0.6),
+                    pullRequestForegroundColor: pullRequestForegroundColor,
+                    makeSnapshot: makeWorkspaceStructuredDetailsSnapshot,
+                    openPullRequestLink: openPullRequestLink,
+                    pullRequestStatusLabel: pullRequestStatusLabel
+                )
+            } else {
+                // Branch + directory row
+                if detailVisibility.showsBranchDirectory {
+                    if sidebarBranchVerticalLayout {
+                        if !workspaceSnapshot.branchDirectoryLines.isEmpty {
+                            HStack(alignment: .top, spacing: 3) {
+                                if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
+                                    Image(systemName: "arrow.triangle.branch")
+                                        .font(.system(size: scaledFontSize(9)))
+                                        .foregroundColor(activeSecondaryColor(0.6))
+                                }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
+                                        if sidebarStacksBranchAndDirectory {
                                             if let branch = line.branch {
                                                 Text(branch)
                                                     .font(.system(size: scaledFontSize(10), design: .monospaced))
                                                     .foregroundColor(activeSecondaryColor(0.75))
                                                     .lineLimit(1)
                                                     .truncationMode(.tail)
-                                            }
-                                            if line.branch != nil, !line.directoryCandidates.isEmpty {
-                                                Image(systemName: "circle.fill")
-                                                    .font(.system(size: scaledFontSize(3)))
-                                                    .foregroundColor(activeSecondaryColor(0.6))
-                                                    .padding(.horizontal, 1)
                                             }
                                             if !line.directoryCandidates.isEmpty {
                                                 SidebarDirectoryText(
@@ -13555,81 +13624,104 @@ struct TabItemView: View, Equatable {
                                                     fontScale: fontScale
                                                 )
                                             }
+                                        } else {
+                                            HStack(spacing: 3) {
+                                                if let branch = line.branch {
+                                                    Text(branch)
+                                                        .font(.system(size: scaledFontSize(10), design: .monospaced))
+                                                        .foregroundColor(activeSecondaryColor(0.75))
+                                                        .lineLimit(1)
+                                                        .truncationMode(.tail)
+                                                }
+                                                if line.branch != nil, !line.directoryCandidates.isEmpty {
+                                                    Image(systemName: "circle.fill")
+                                                        .font(.system(size: scaledFontSize(3)))
+                                                        .foregroundColor(activeSecondaryColor(0.6))
+                                                        .padding(.horizontal, 1)
+                                                }
+                                                if !line.directoryCandidates.isEmpty {
+                                                    SidebarDirectoryText(
+                                                        candidates: line.directoryCandidates,
+                                                        color: activeSecondaryColor(0.75),
+                                                        fontScale: fontScale
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                } else if sidebarStacksBranchAndDirectory,
-                          (workspaceSnapshot.compactGitBranchSummaryText != nil
-                           || !workspaceSnapshot.compactDirectoryCandidates.isEmpty) {
-                    HStack(alignment: .top, spacing: 3) {
-                        if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: scaledFontSize(9)))
-                                .foregroundColor(activeSecondaryColor(0.6))
-                        }
-                        VStack(alignment: .leading, spacing: 1) {
-                            if let branchRow = workspaceSnapshot.compactGitBranchSummaryText {
-                                Text(branchRow)
-                                    .font(.system(size: scaledFontSize(10), design: .monospaced))
-                                    .foregroundColor(activeSecondaryColor(0.75))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
+                    } else if sidebarStacksBranchAndDirectory,
+                              (workspaceSnapshot.compactGitBranchSummaryText != nil
+                               || !workspaceSnapshot.compactDirectoryCandidates.isEmpty) {
+                        HStack(alignment: .top, spacing: 3) {
+                            if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.system(size: scaledFontSize(9)))
+                                    .foregroundColor(activeSecondaryColor(0.6))
                             }
-                            if !workspaceSnapshot.compactDirectoryCandidates.isEmpty {
-                                SidebarDirectoryText(
-                                    candidates: workspaceSnapshot.compactDirectoryCandidates,
-                                    color: activeSecondaryColor(0.75),
-                                    fontScale: fontScale
-                                )
+                            VStack(alignment: .leading, spacing: 1) {
+                                if let branchRow = workspaceSnapshot.compactGitBranchSummaryText {
+                                    Text(branchRow)
+                                        .font(.system(size: scaledFontSize(10), design: .monospaced))
+                                        .foregroundColor(activeSecondaryColor(0.75))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                }
+                                if !workspaceSnapshot.compactDirectoryCandidates.isEmpty {
+                                    SidebarDirectoryText(
+                                        candidates: workspaceSnapshot.compactDirectoryCandidates,
+                                        color: activeSecondaryColor(0.75),
+                                        fontScale: fontScale
+                                    )
+                                }
                             }
                         }
-                    }
-                } else if !workspaceSnapshot.compactBranchDirectoryCandidates.isEmpty {
-                    HStack(spacing: 3) {
-                        if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: scaledFontSize(9)))
-                                .foregroundColor(activeSecondaryColor(0.6))
-                        }
-                        SidebarDirectoryText(
-                            candidates: workspaceSnapshot.compactBranchDirectoryCandidates,
-                            color: activeSecondaryColor(0.75),
-                            fontScale: fontScale
-                        )
-                    }
-                }
-            }
-
-            // Pull request rows
-            if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
-                        let pullRequestNumber = String(pullRequest.number)
-                        let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
-                        let rowContent = HStack(spacing: 4) {
-                            PullRequestStatusIcon(
-                                status: pullRequest.status,
-                                color: pullRequestForegroundColor,
+                    } else if !workspaceSnapshot.compactBranchDirectoryCandidates.isEmpty {
+                        HStack(spacing: 3) {
+                            if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.system(size: scaledFontSize(9)))
+                                    .foregroundColor(activeSecondaryColor(0.6))
+                            }
+                            SidebarDirectoryText(
+                                candidates: workspaceSnapshot.compactBranchDirectoryCandidates,
+                                color: activeSecondaryColor(0.75),
                                 fontScale: fontScale
                             )
-                            Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
-                            Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
-                            Spacer(minLength: 0)
                         }
-                        .font(.system(size: scaledFontSize(10), weight: .semibold))
-                        .foregroundColor(pullRequestForegroundColor)
-                        .opacity(pullRequest.isStale ? 0.5 : 1)
-                        if settings.makesPullRequestsClickable {
-                            Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
-                                .buttonStyle(.plain)
-                                .tint(pullRequestForegroundColor)
-                                .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
-                                .accessibilityIdentifier("SidebarPullRequestRow")
-                        } else {
-                            rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
+                    }
+                }
+
+                // Pull request rows
+                if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
+                    VStack(alignment: .leading, spacing: 1) {
+                        ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
+                            let pullRequestNumber = String(pullRequest.number)
+                            let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
+                            let rowContent = HStack(spacing: 4) {
+                                PullRequestStatusIcon(
+                                    status: pullRequest.status,
+                                    color: pullRequestForegroundColor,
+                                    fontScale: fontScale
+                                )
+                                Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
+                                Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .font(.system(size: scaledFontSize(10), weight: .semibold))
+                            .foregroundColor(pullRequestForegroundColor)
+                            .opacity(pullRequest.isStale ? 0.5 : 1)
+                            if settings.makesPullRequestsClickable {
+                                Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
+                                    .buttonStyle(.plain)
+                                    .tint(pullRequestForegroundColor)
+                                    .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
+                                    .accessibilityIdentifier("SidebarPullRequestRow")
+                            } else {
+                                rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
+                            }
                         }
                     }
                 }
@@ -13748,18 +13840,19 @@ struct TabItemView: View, Equatable {
             refreshWorkspaceSnapshot()
         }
         .onReceive(
-            tab.sidebarObservationPublisher
+            workspaceObservationPublisherForSnapshot
                 .receive(on: RunLoop.main)
                 // Prompt-time sidebar telemetry can arrive as a short burst
                 // (pwd, branch, PR, shell state). Coalesce that burst so the
                 // row redraws once with the settled state instead of blinking.
-                .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
+                .debounce(for: workspaceObservationCoalesceIntervalForSnapshot, scheduler: RunLoop.main)
         ) { _ in
 #if DEBUG
             let description = tab.customDescription ?? ""
+            let source = usesOptimizedWorkspaceSnapshots ? "summary" : "debounced"
             cmuxDebugLog(
                 "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=debounced " +
+                "source=\(source) " +
                 "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
                 "descLen=\((description as NSString).length) " +
                 "desc=\"\(debugCommandPaletteTextPreview(description))\""
@@ -13856,6 +13949,7 @@ struct TabItemView: View, Equatable {
     @ViewBuilder
     private var workspaceContextMenu: some View {
         let workspaceSnapshot = self.workspaceSnapshot
+        let finderDirectoryPath = contextMenuFinderDirectoryPath
         let targetIds = contextMenuWorkspaceIds
         let isMulti = targetIds.count > 1
         let shouldPin = contextMenuPinState?.pinned ?? !tab.isPinned
@@ -14116,12 +14210,19 @@ struct TabItemView: View, Equatable {
 
         if !isMulti {
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                let url = workspaceSnapshot.finderDirectoryPath
+                let url = finderDirectoryPath
                     .map { URL(fileURLWithPath: $0, isDirectory: true) }
                 workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
             }
-            .disabled(workspaceSnapshot.finderDirectoryPath == nil)
+            .disabled(finderDirectoryPath == nil)
         }
+    }
+
+    private var contextMenuFinderDirectoryPath: String? {
+        if usesOptimizedWorkspaceSnapshots {
+            return WorkspaceFinderDirectoryResolver.path(for: tab)
+        }
+        return workspaceSnapshot.finderDirectoryPath
     }
 
     private var backgroundColor: Color {
@@ -14383,7 +14484,46 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private func makeWorkspaceSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+    private func makeWorkspaceSnapshot(
+        includeStructuredDetails: Bool? = nil
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+        let detailVisibility = visibleAuxiliaryDetails
+        let shouldIncludeStructuredDetails = includeStructuredDetails ?? !usesOptimizedWorkspaceSnapshots
+        let structuredDetails = shouldIncludeStructuredDetails
+            ? makeWorkspaceStructuredDetailsSnapshot()
+            : SidebarWorkspaceSnapshotBuilder.StructuredDetailsSnapshot.empty(
+                presentationKey: workspaceStructuredDetailsPresentationKey
+            )
+
+        return SidebarWorkspaceSnapshotBuilder.Snapshot(
+            presentationKey: workspaceSnapshotPresentationKey,
+            title: tab.title,
+            customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
+            isPinned: tab.isPinned,
+            customColorHex: tab.customColor,
+            remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
+            remoteConnectionStatusText: remoteConnectionStatusText,
+            remoteStateHelpText: remoteStateHelpText,
+            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended
+                || tab.remoteConnectionState == .disconnected,
+            copyableSidebarSSHError: copyableSidebarSSHError,
+            latestConversationMessage: tab.latestConversationMessage,
+            metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
+            metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
+            latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
+            progress: detailVisibility.showsProgress ? tab.progress : nil,
+            compactGitBranchSummaryText: structuredDetails.compactGitBranchSummaryText,
+            compactDirectoryCandidates: structuredDetails.compactDirectoryCandidates,
+            compactBranchDirectoryCandidates: structuredDetails.compactBranchDirectoryCandidates,
+            branchDirectoryLines: structuredDetails.branchDirectoryLines,
+            branchLinesContainBranch: structuredDetails.branchLinesContainBranch,
+            pullRequestRows: structuredDetails.pullRequestRows,
+            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
+            finderDirectoryPath: shouldIncludeStructuredDetails ? WorkspaceFinderDirectoryResolver.path(for: tab) : nil
+        )
+    }
+
+    private func makeWorkspaceStructuredDetailsSnapshot() -> SidebarWorkspaceSnapshotBuilder.StructuredDetailsSnapshot {
         let detailVisibility = visibleAuxiliaryDetails
         let orderedPanelIds: [UUID]? = (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
             ? tab.sidebarOrderedPanelIds()
@@ -14423,31 +14563,14 @@ struct TabItemView: View, Equatable {
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
 
-        return SidebarWorkspaceSnapshotBuilder.Snapshot(
-            presentationKey: workspaceSnapshotPresentationKey,
-            title: tab.title,
-            customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
-            isPinned: tab.isPinned,
-            customColorHex: tab.customColor,
-            remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
-            remoteConnectionStatusText: remoteConnectionStatusText,
-            remoteStateHelpText: remoteStateHelpText,
-            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended
-                || tab.remoteConnectionState == .disconnected,
-            copyableSidebarSSHError: copyableSidebarSSHError,
-            latestConversationMessage: tab.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
-            metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
-            latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
-            progress: detailVisibility.showsProgress ? tab.progress : nil,
+        return SidebarWorkspaceSnapshotBuilder.StructuredDetailsSnapshot(
+            presentationKey: workspaceStructuredDetailsPresentationKey,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
-            pullRequestRows: pullRequestRows,
-            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
-            finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab)
+            pullRequestRows: pullRequestRows
         )
     }
 
@@ -14703,6 +14826,219 @@ struct TabItemView: View, Equatable {
             return "~" + trimmed.dropFirst(home.count)
         }
         return trimmed
+    }
+
+    private struct SidebarWorkspaceStructuredDetailsSection: View {
+        let tab: Workspace
+        let presentationKey: SidebarWorkspaceSnapshotBuilder.StructuredDetailsPresentationKey
+        let detailVisibility: SidebarWorkspaceAuxiliaryDetailVisibility
+        let sidebarBranchVerticalLayout: Bool
+        let sidebarStacksBranchAndDirectory: Bool
+        let sidebarShowGitBranchIcon: Bool
+        let makesPullRequestsClickable: Bool
+        let detailDebounceMilliseconds: Int
+        let diagnosticsEnabled: Bool
+        let logInvalidationSource: Bool
+        let fontScale: CGFloat
+        let branchTextColor: Color
+        let branchIconColor: Color
+        let pullRequestForegroundColor: Color
+        let makeSnapshot: () -> SidebarWorkspaceSnapshotBuilder.StructuredDetailsSnapshot
+        let openPullRequestLink: (URL) -> Void
+        let pullRequestStatusLabel: (SidebarPullRequestStatus) -> String
+
+        @State private var snapshotStorage: SidebarWorkspaceSnapshotBuilder.StructuredDetailsSnapshot?
+
+        private var snapshot: SidebarWorkspaceSnapshotBuilder.StructuredDetailsSnapshot {
+            if let snapshotStorage,
+               snapshotStorage.presentationKey == presentationKey {
+                return snapshotStorage
+            }
+            return makeSnapshot()
+        }
+
+        private var detailCoalesceInterval: RunLoop.SchedulerTimeType.Stride {
+            .milliseconds(detailDebounceMilliseconds)
+        }
+
+        private func scaledFontSize(_ baseSize: CGFloat) -> CGFloat {
+            baseSize * fontScale
+        }
+
+        var body: some View {
+            let workspaceSnapshot = self.snapshot
+            Group {
+                if detailVisibility.showsBranchDirectory {
+                    branchDirectoryRows(workspaceSnapshot)
+                }
+
+                if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
+                    pullRequestRows(workspaceSnapshot.pullRequestRows)
+                }
+            }
+            .onAppear {
+                refreshSnapshot(force: true, source: "appear")
+            }
+            .onReceive(
+                tab.sidebarStructuredDetailObservationPublisher
+                    .receive(on: RunLoop.main)
+                    .debounce(for: detailCoalesceInterval, scheduler: RunLoop.main)
+            ) { _ in
+                refreshSnapshot(source: "detail")
+            }
+            .onChange(of: presentationKey) { _ in
+                refreshSnapshot(force: true, source: "settings")
+            }
+        }
+
+        @ViewBuilder
+        private func branchDirectoryRows(
+            _ workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.StructuredDetailsSnapshot
+        ) -> some View {
+            if sidebarBranchVerticalLayout {
+                if !workspaceSnapshot.branchDirectoryLines.isEmpty {
+                    HStack(alignment: .top, spacing: 3) {
+                        if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: scaledFontSize(9)))
+                                .foregroundColor(branchIconColor)
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
+                                if sidebarStacksBranchAndDirectory {
+                                    if let branch = line.branch {
+                                        Text(branch)
+                                            .font(.system(size: scaledFontSize(10), design: .monospaced))
+                                            .foregroundColor(branchTextColor)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                    }
+                                    if !line.directoryCandidates.isEmpty {
+                                        SidebarDirectoryText(
+                                            candidates: line.directoryCandidates,
+                                            color: branchTextColor,
+                                            fontScale: fontScale
+                                        )
+                                    }
+                                } else {
+                                    HStack(spacing: 3) {
+                                        if let branch = line.branch {
+                                            Text(branch)
+                                                .font(.system(size: scaledFontSize(10), design: .monospaced))
+                                                .foregroundColor(branchTextColor)
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                        }
+                                        if line.branch != nil, !line.directoryCandidates.isEmpty {
+                                            Image(systemName: "circle.fill")
+                                                .font(.system(size: scaledFontSize(3)))
+                                                .foregroundColor(branchIconColor)
+                                                .padding(.horizontal, 1)
+                                        }
+                                        if !line.directoryCandidates.isEmpty {
+                                            SidebarDirectoryText(
+                                                candidates: line.directoryCandidates,
+                                                color: branchTextColor,
+                                                fontScale: fontScale
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if sidebarStacksBranchAndDirectory,
+                      (workspaceSnapshot.compactGitBranchSummaryText != nil
+                       || !workspaceSnapshot.compactDirectoryCandidates.isEmpty) {
+                HStack(alignment: .top, spacing: 3) {
+                    if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: scaledFontSize(9)))
+                            .foregroundColor(branchIconColor)
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        if let branchRow = workspaceSnapshot.compactGitBranchSummaryText {
+                            Text(branchRow)
+                                .font(.system(size: scaledFontSize(10), design: .monospaced))
+                                .foregroundColor(branchTextColor)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        if !workspaceSnapshot.compactDirectoryCandidates.isEmpty {
+                            SidebarDirectoryText(
+                                candidates: workspaceSnapshot.compactDirectoryCandidates,
+                                color: branchTextColor,
+                                fontScale: fontScale
+                            )
+                        }
+                    }
+                }
+            } else if !workspaceSnapshot.compactBranchDirectoryCandidates.isEmpty {
+                HStack(spacing: 3) {
+                    if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: scaledFontSize(9)))
+                            .foregroundColor(branchIconColor)
+                    }
+                    SidebarDirectoryText(
+                        candidates: workspaceSnapshot.compactBranchDirectoryCandidates,
+                        color: branchTextColor,
+                        fontScale: fontScale
+                    )
+                }
+            }
+        }
+
+        @ViewBuilder
+        private func pullRequestRows(
+            _ pullRequests: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay]
+        ) -> some View {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(pullRequests) { pullRequest in
+                    let pullRequestNumber = String(pullRequest.number)
+                    let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
+                    let rowContent = HStack(spacing: 4) {
+                        PullRequestStatusIcon(
+                            status: pullRequest.status,
+                            color: pullRequestForegroundColor,
+                            fontScale: fontScale
+                        )
+                        Text(pullRequestTitle).underline(makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
+                        Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: scaledFontSize(10), weight: .semibold))
+                    .foregroundColor(pullRequestForegroundColor)
+                    .opacity(pullRequest.isStale ? 0.5 : 1)
+                    if makesPullRequestsClickable {
+                        Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
+                            .buttonStyle(.plain)
+                            .tint(pullRequestForegroundColor)
+                            .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
+                            .accessibilityIdentifier("SidebarPullRequestRow")
+                    } else {
+                        rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
+                    }
+                }
+            }
+        }
+
+        private func refreshSnapshot(force: Bool = false, source: String) {
+            let nextSnapshot = makeSnapshot()
+            if force || snapshotStorage != nextSnapshot {
+                snapshotStorage = nextSnapshot
+            }
+#if DEBUG
+            if diagnosticsEnabled || logInvalidationSource {
+                cmuxDebugLog(
+                    "sidebar.row.structuredDetails.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                    "source=\(source) " +
+                    "title=\"\(debugCommandPaletteTextPreview(tab.title))\""
+                )
+            }
+#endif
+        }
     }
 
     private struct PullRequestStatusIcon: View {

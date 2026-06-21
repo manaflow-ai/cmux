@@ -2517,6 +2517,8 @@ final class Workspace: Identifiable, ObservableObject {
     // workspace state. Build state publishers from @Published current values
     // instead of dropping the first value and repairing timing with a Void event.
     lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = makeSidebarImmediateObservationPublisher()
+    lazy var sidebarSummaryObservationPublisher: AnyPublisher<Void, Never> = makeSidebarSummaryObservationPublisher()
+    lazy var sidebarStructuredDetailObservationPublisher: AnyPublisher<Void, Never> = makeSidebarStructuredDetailObservationPublisher()
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = makeSidebarObservationPublisher()
 
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {

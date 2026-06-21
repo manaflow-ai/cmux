@@ -57,6 +57,94 @@ extension SidebarWorkspaceDetailDefaults {
     }
 }
 
+enum SidebarOptimizedWorkspaceSnapshotsSettings {
+    enum Mode: String {
+        case legacy
+        case splitView
+
+        static func normalized(_ rawValue: String) -> Mode? {
+            switch rawValue {
+            case "legacy":
+                return .legacy
+            case "splitView", "split-view", "split_view":
+                return .splitView
+            default:
+                return nil
+            }
+        }
+    }
+
+    private static let catalog = SidebarCatalogSection()
+
+    static let enabledKey = catalog.optimizedWorkspaceSnapshotsEnabled.userDefaultsKey
+    static let modeKey = catalog.optimizedWorkspaceSnapshotsMode.userDefaultsKey
+    static let summaryDebounceMillisecondsKey = catalog.optimizedWorkspaceSnapshotsSummaryDebounceMilliseconds.userDefaultsKey
+    static let detailDebounceMillisecondsKey = catalog.optimizedWorkspaceSnapshotsDetailDebounceMilliseconds.userDefaultsKey
+    static let diagnosticsKey = catalog.optimizedWorkspaceSnapshotsDiagnostics.userDefaultsKey
+    static let logInvalidationSourceKey = catalog.optimizedWorkspaceSnapshotsLogInvalidationSource.userDefaultsKey
+
+    static let defaultEnabled = catalog.optimizedWorkspaceSnapshotsEnabled.defaultValue
+    static let defaultMode = Mode.normalized(catalog.optimizedWorkspaceSnapshotsMode.defaultValue) ?? .splitView
+    static let defaultSummaryDebounceMilliseconds = catalog.optimizedWorkspaceSnapshotsSummaryDebounceMilliseconds.defaultValue
+    static let defaultDetailDebounceMilliseconds = catalog.optimizedWorkspaceSnapshotsDetailDebounceMilliseconds.defaultValue
+    static let defaultDiagnostics = catalog.optimizedWorkspaceSnapshotsDiagnostics.defaultValue
+    static let defaultLogInvalidationSource = catalog.optimizedWorkspaceSnapshotsLogInvalidationSource.defaultValue
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        SidebarWorkspaceDetailDefaults.boolValue(
+            defaults: defaults,
+            key: enabledKey,
+            defaultValue: defaultEnabled
+        )
+    }
+
+    static func mode(defaults: UserDefaults = .standard) -> Mode {
+        guard let rawValue = defaults.string(forKey: modeKey) else { return defaultMode }
+        return Mode.normalized(rawValue) ?? defaultMode
+    }
+
+    static func summaryDebounceMilliseconds(defaults: UserDefaults = .standard) -> Int {
+        guard defaults.object(forKey: summaryDebounceMillisecondsKey) != nil else {
+            return defaultSummaryDebounceMilliseconds
+        }
+        return sanitizedDebounceMilliseconds(
+            defaults.integer(forKey: summaryDebounceMillisecondsKey),
+            defaultValue: defaultSummaryDebounceMilliseconds
+        )
+    }
+
+    static func detailDebounceMilliseconds(defaults: UserDefaults = .standard) -> Int {
+        guard defaults.object(forKey: detailDebounceMillisecondsKey) != nil else {
+            return defaultDetailDebounceMilliseconds
+        }
+        return sanitizedDebounceMilliseconds(
+            defaults.integer(forKey: detailDebounceMillisecondsKey),
+            defaultValue: defaultDetailDebounceMilliseconds
+        )
+    }
+
+    static func diagnosticsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        SidebarWorkspaceDetailDefaults.boolValue(
+            defaults: defaults,
+            key: diagnosticsKey,
+            defaultValue: defaultDiagnostics
+        )
+    }
+
+    static func logsInvalidationSource(defaults: UserDefaults = .standard) -> Bool {
+        SidebarWorkspaceDetailDefaults.boolValue(
+            defaults: defaults,
+            key: logInvalidationSourceKey,
+            defaultValue: defaultLogInvalidationSource
+        )
+    }
+
+    static func sanitizedDebounceMilliseconds(_ value: Int, defaultValue: Int) -> Int {
+        guard value >= 0 else { return defaultValue }
+        return min(value, 5_000)
+    }
+}
+
 enum AutomationSettings {
     static let portBaseKey = "cmuxPortBase"
     static let portRangeKey = "cmuxPortRange"
@@ -384,6 +472,12 @@ extension CmuxSettingsFileStore {
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showCustomMetadata",
+        "sidebar.performance.optimizedWorkspaceSnapshots.enabled",
+        "sidebar.performance.optimizedWorkspaceSnapshots.mode",
+        "sidebar.performance.optimizedWorkspaceSnapshots.summaryDebounceMilliseconds",
+        "sidebar.performance.optimizedWorkspaceSnapshots.detailDebounceMilliseconds",
+        "sidebar.performance.optimizedWorkspaceSnapshots.diagnostics",
+        "sidebar.performance.optimizedWorkspaceSnapshots.logInvalidationSource",
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",
