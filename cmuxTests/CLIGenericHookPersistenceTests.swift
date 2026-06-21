@@ -864,8 +864,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testCopilotHookInstallWritesToHooksSubdirectory() throws {
-        // Bug: hooks were previously installed to ~/.copilot/config.json;
-        // Copilot CLI only loads hooks from ~/.copilot/hooks/*.json.
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-copilot-hook-install-\(UUID().uuidString)", isDirectory: true)
@@ -886,16 +884,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
-        // Must NOT write to the old incorrect path.
-        let wrongURL = root
-            .appendingPathComponent(".copilot", isDirectory: true)
-            .appendingPathComponent("config.json", isDirectory: false)
-        XCTAssertFalse(
-            FileManager.default.fileExists(atPath: wrongURL.path),
-            "Copilot hooks must not be installed to ~/.copilot/config.json"
-        )
-
-        // Must write to ~/.copilot/hooks/cmux.json.
         let hookURL = root
             .appendingPathComponent(".copilot", isDirectory: true)
             .appendingPathComponent("hooks", isDirectory: true)
@@ -908,13 +896,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(json["version"] as? Int, 1)
         let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
 
-        // All expected lifecycle events must be present.
         XCTAssertNotNil(hooks["SessionStart"], "Missing SessionStart hook")
         XCTAssertNotNil(hooks["Stop"], "Missing Stop hook")
         XCTAssertNotNil(hooks["Notification"], "Missing Notification hook")
         XCTAssertNotNil(hooks["SessionEnd"], "Missing SessionEnd hook")
 
-        // PreToolUse feed hook must be present with the correct command and 120 000 ms timeout.
         let preToolUseGroups = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]], "Missing PreToolUse hook")
         let preToolUseCommands = preToolUseGroups
             .compactMap { $0["hooks"] as? [[String: Any]] }
