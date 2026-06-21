@@ -612,6 +612,235 @@ struct FeedCoordinatorTests {
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
     }
 
+    @Test func codexTeamsThreadSubscriptionRetriesTransientRolloutMiss() throws {
+        let state = CodexTeamsThreadSubscriptionProbe()
+        var resumeResults: [Result<[String: Any], Error>] = [
+            .failure(CodexTeamsRolloutMissingError()),
+            .success(["thread": ["id": "thread-1"]])
+        ]
+        var requestedResumeParams: [[String: Any]] = []
+        var observedThreadIds: [String] = []
+
+        try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+            threadId: "thread-1",
+            claim: state.claim,
+            finish: state.finish,
+            isTransientError: { $0 is CodexTeamsRolloutMissingError },
+            resume: {
+                requestedResumeParams.append([
+                    "threadId": "thread-1",
+                    "excludeTurns": true
+                ])
+                return try resumeResults.removeFirst().get()
+            },
+            observe: { response in
+                let thread = try #require(response["thread"] as? [String: Any])
+                observedThreadIds.append(try #require(thread["id"] as? String))
+            }
+        )
+
+        #expect(requestedResumeParams.count == 2)
+        #expect(requestedResumeParams.allSatisfy { $0["excludeTurns"] as? Bool == true })
+        #expect(observedThreadIds == ["thread-1"])
+        #expect(state.isSubscribed("thread-1"))
+        #expect(!state.isSubscribing("thread-1"))
+
+        try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+            threadId: "thread-1",
+            claim: state.claim,
+            finish: state.finish,
+            isTransientError: { $0 is CodexTeamsRolloutMissingError },
+            resume: {
+                requestedResumeParams.append(["threadId": "thread-1"])
+                return ["thread": ["id": "thread-1"]]
+            },
+            observe: { _ in
+                Issue.record("already subscribed thread should not be observed again")
+            }
+        )
+        #expect(requestedResumeParams.count == 2)
+    }
+
+    @Test func codexTeamsThreadSubscriptionRetriesAfterExhaustingTransientRolloutMiss() throws {
+        let state = CodexTeamsThreadSubscriptionProbe()
+        var resumeResults: [Result<[String: Any], Error>] = Array(
+            repeating: .failure(CodexTeamsRolloutMissingError()),
+            count: 4
+        )
+        var resumeRequestCount = 0
+
+        do {
+            try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+                threadId: "thread-1",
+                claim: state.claim,
+                finish: state.finish,
+                isTransientError: { $0 is CodexTeamsRolloutMissingError },
+                resume: {
+                    resumeRequestCount += 1
+                    return try resumeResults.removeFirst().get()
+                },
+                observe: { _ in
+                    Issue.record("failed resume should not be observed")
+                }
+            )
+            Issue.record("exhausted transient rollout miss should throw")
+        } catch {
+            #expect(error is CodexTeamsRolloutMissingError)
+        }
+
+        #expect(resumeRequestCount == 4)
+        #expect(!state.isSubscribed("thread-1"))
+        #expect(!state.isSubscribing("thread-1"))
+
+        try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+            threadId: "thread-1",
+            claim: state.claim,
+            finish: state.finish,
+            isTransientError: { $0 is CodexTeamsRolloutMissingError },
+            resume: {
+                resumeRequestCount += 1
+                return ["thread": ["id": "thread-1"]]
+            },
+            observe: { _ in }
+        )
+        #expect(resumeRequestCount == 5)
+        #expect(state.isSubscribed("thread-1"))
+    }
+
+    @Test func codexTeamsThreadSubscriptionRollsBackWhenObservationFails() throws {
+        let state = CodexTeamsThreadSubscriptionProbe()
+        var resumeRequestCount = 0
+
+        do {
+            try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+                threadId: "thread-1",
+                claim: state.claim,
+                finish: state.finish,
+                isTransientError: { $0 is CodexTeamsRolloutMissingError },
+                resume: {
+                    resumeRequestCount += 1
+                    return ["thread": ["id": "thread-1"]]
+                },
+                observe: { _ in
+                    throw CodexTeamsObservationError()
+                }
+            )
+            Issue.record("observation failure should throw")
+        } catch {
+            #expect(error is CodexTeamsObservationError)
+        }
+
+        #expect(resumeRequestCount == 1)
+        #expect(!state.isSubscribed("thread-1"))
+        #expect(!state.isSubscribing("thread-1"))
+
+        try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+            threadId: "thread-1",
+            claim: state.claim,
+            finish: state.finish,
+            isTransientError: { $0 is CodexTeamsRolloutMissingError },
+            resume: {
+                resumeRequestCount += 1
+                return ["thread": ["id": "thread-1"]]
+            },
+            observe: { _ in }
+        )
+        #expect(resumeRequestCount == 2)
+        #expect(state.isSubscribed("thread-1"))
+    }
+
+    @Test func codexTeamsThreadSubscriptionDoesNotRetryTransientObservationFailure() throws {
+        let state = CodexTeamsThreadSubscriptionProbe()
+        var resumeRequestCount = 0
+
+        do {
+            try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+                threadId: "thread-1",
+                claim: state.claim,
+                finish: state.finish,
+                isTransientError: { $0 is CodexTeamsRolloutMissingError },
+                resume: {
+                    resumeRequestCount += 1
+                    return ["thread": ["id": "thread-1"]]
+                },
+                observe: { _ in
+                    throw CodexTeamsRolloutMissingError()
+                }
+            )
+            Issue.record("observation failure should throw without retrying resume")
+        } catch {
+            #expect(error is CodexTeamsRolloutMissingError)
+        }
+
+        #expect(resumeRequestCount == 1)
+        #expect(!state.isSubscribed("thread-1"))
+        #expect(!state.isSubscribing("thread-1"))
+    }
+
+    @Test func codexTeamsThreadSubscriptionRetryBudgetBoundsReconnectRounds() {
+        var budget = CodexTeamsThreadSubscriptionRetryBudget(maxPendingRounds: 2, retryInterval: 1)
+
+        let firstPendingMark = budget.markPending("thread-1")
+        #expect(firstPendingMark)
+        #expect(budget.isPending("thread-1"))
+        #expect(budget.isDeferred("thread-1"))
+        let duplicatePendingMark = budget.markPending("thread-1")
+        #expect(duplicatePendingMark)
+        #expect(Set(budget.pendingThreadIdSnapshot()) == Set(["thread-1"]))
+
+        budget.resetDeadline()
+        #expect(Set(budget.pendingThreadIdSnapshot()) == Set(["thread-1"]))
+        #expect(budget.pendingRetryTimeout() == nil)
+
+        budget.beginRetry("thread-1")
+        #expect(!budget.isPending("thread-1"))
+        let secondRoundPendingMark = budget.markPending("thread-1")
+        #expect(secondRoundPendingMark)
+        #expect(budget.isPending("thread-1"))
+        let duplicateSecondRoundPendingMark = budget.markPending("thread-1")
+        #expect(duplicateSecondRoundPendingMark)
+        budget.beginRetry("thread-1")
+        let exhaustedPendingMark = budget.markPending("thread-1")
+        #expect(!exhaustedPendingMark)
+        #expect(!budget.isPending("thread-1"))
+        #expect(budget.isDeferred("thread-1"))
+        #expect(budget.pendingThreadIdSnapshot().isEmpty)
+        #expect(budget.pendingRetryTimeout() == nil)
+
+        let stillExhaustedPendingMark = budget.markPending("thread-1")
+        #expect(!stillExhaustedPendingMark)
+        budget.clear("thread-1")
+        let resetPendingMark = budget.markPending("thread-1")
+        #expect(resetPendingMark)
+    }
+
+    @Test func codexTeamsThreadSubscriptionRetryBudgetBoundsExhaustedThreads() {
+        var budget = CodexTeamsThreadSubscriptionRetryBudget(
+            maxPendingRounds: 1,
+            retryInterval: 1,
+            maxExhaustedThreadIds: 1
+        )
+
+        let firstThreadInitialMark = budget.markPending("thread-1")
+        #expect(firstThreadInitialMark)
+        budget.beginRetry("thread-1")
+        let firstThreadExhaustedMark = budget.markPending("thread-1")
+        #expect(!firstThreadExhaustedMark)
+        #expect(budget.isDeferred("thread-1"))
+        let firstThreadTombstonedMark = budget.markPending("thread-1")
+        #expect(!firstThreadTombstonedMark)
+
+        let secondThreadInitialMark = budget.markPending("thread-2")
+        #expect(secondThreadInitialMark)
+        budget.beginRetry("thread-2")
+        let secondThreadExhaustedMark = budget.markPending("thread-2")
+        #expect(!secondThreadExhaustedMark)
+
+        let firstThreadEvictedMark = budget.markPending("thread-1")
+        #expect(firstThreadEvictedMark)
+        #expect(budget.isDeferred("thread-1"))
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
@@ -664,5 +893,38 @@ private final class NotificationRequestRecorder: @unchecked Sendable {
         lock.lock()
         recordedRequestIds.append(requestId)
         lock.unlock()
+    }
+}
+
+private struct CodexTeamsRolloutMissingError: Error {}
+
+private struct CodexTeamsObservationError: Error {}
+
+private final class CodexTeamsThreadSubscriptionProbe {
+    private var subscribingThreadIds = Set<String>()
+    private var subscribedThreadIds = Set<String>()
+
+    func claim(threadId: String) -> Bool {
+        guard !subscribedThreadIds.contains(threadId),
+              !subscribingThreadIds.contains(threadId) else {
+            return false
+        }
+        subscribingThreadIds.insert(threadId)
+        return true
+    }
+
+    func finish(threadId: String, succeeded: Bool) {
+        subscribingThreadIds.remove(threadId)
+        if succeeded {
+            subscribedThreadIds.insert(threadId)
+        }
+    }
+
+    func isSubscribed(_ threadId: String) -> Bool {
+        subscribedThreadIds.contains(threadId)
+    }
+
+    func isSubscribing(_ threadId: String) -> Bool {
+        subscribingThreadIds.contains(threadId)
     }
 }
