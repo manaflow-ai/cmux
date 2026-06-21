@@ -2,7 +2,12 @@ import Testing
 
 @testable import CmuxTerminal
 
+// `@MainActor`: the probe's scroll-lag instance methods are main-actor-isolated
+// (the state is main-thread-confined), so the suite runs on the main actor to
+// drive them directly. The pure `shouldCaptureScrollLagEvent` cases are
+// `nonisolated static` and unaffected.
 @Suite("Scroll lag probe")
+@MainActor
 struct ScrollLagProbeTests {
     @Test func captureRequiresSustainedLag() {
         let cases: [(samples: Int, averageMs: Double, maxMs: Double, expected: Bool)] = [

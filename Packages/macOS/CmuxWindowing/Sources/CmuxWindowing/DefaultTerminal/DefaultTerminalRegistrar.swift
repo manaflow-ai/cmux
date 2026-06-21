@@ -43,7 +43,14 @@ public struct DefaultTerminalRegistrar {
     }
 
     private let bundleURL: URL
-    private let workspace: NSWorkspace
+    // `NSWorkspace` is an immutable reference to the process-wide, thread-safe
+    // shared workspace; its handler-query/update methods are documented as
+    // callable from any thread. Storing it `nonisolated(unsafe)` (the same shape
+    // this codebase uses for injected `UserDefaults` / `FileManager` /
+    // `NotificationCenter` singletons) lets the `nonisolated async`
+    // `setDefaultApplication(...)` calls in `setAsDefault()` read it without
+    // sending a main-actor-isolated value across the isolation boundary.
+    private nonisolated(unsafe) let workspace: NSWorkspace
     private let onRegistrationDidChange: @MainActor () -> Void
 
     /// Creates a registrar.

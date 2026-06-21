@@ -44,7 +44,15 @@ public final class TerminalBellService {
         }
 
         if (features & (1 << 2)) != 0 {
-            NSApp.requestUserAttention(.informationalRequest)
+            // `NSApp` and `requestUserAttention(_:)` are `@MainActor`-isolated.
+            // `ring(...)` is main-thread-confined by contract (the OSC/runtime
+            // bell callback marshals to main before calling this), and the type
+            // deliberately stays non-isolated to avoid rippling `@MainActor` onto
+            // the non-isolated engine/NSView readers that own it. Assert the
+            // main-actor isolation that already holds rather than widening it.
+            MainActor.assumeIsolated {
+                NSApp.requestUserAttention(.informationalRequest)
+            }
         }
     }
 }

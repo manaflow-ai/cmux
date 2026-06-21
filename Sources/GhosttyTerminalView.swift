@@ -638,10 +638,18 @@ class GhosttyApp {
 
     /// Whether a scroll session is in flight. Forwards to `scrollLagProbe` so
     /// the `scrollWheel`/`tick` readers stay unchanged.
-    var isScrolling: Bool { scrollLagProbe.isScrolling }
+    ///
+    /// `scrollLagProbe`'s scroll-lag methods are `@MainActor` (the state is
+    /// main-thread-confined). These forwarders are only invoked from the main
+    /// thread (`scrollWheel(with:)` and the main-queue `tick()`), so they assert
+    /// that isolation via `MainActor.assumeIsolated` rather than rippling
+    /// `@MainActor` onto the non-isolated `GhosttyApp` god type.
+    var isScrolling: Bool { MainActor.assumeIsolated { scrollLagProbe.isScrolling } }
 
     func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
-        scrollLagProbe.markScrollActivity(hasMomentum: hasMomentum, momentumEnded: momentumEnded)
+        MainActor.assumeIsolated {
+            scrollLagProbe.markScrollActivity(hasMomentum: hasMomentum, momentumEnded: momentumEnded)
+        }
     }
 
     private init() {
@@ -1230,8 +1238,12 @@ class GhosttyApp {
             NotificationCenter.default.post(name: .ghosttyDidTick, object: self)
         }
 
-        // Track lag during scrolling
-        scrollLagProbe.recordTickSample(elapsedMs: elapsedMs)
+        // Track lag during scrolling. `tick()` runs on the main queue
+        // (scheduled via `scheduleTick`), and `recordTickSample` is `@MainActor`,
+        // so assert the main isolation that already holds here.
+        MainActor.assumeIsolated {
+            scrollLagProbe.recordTickSample(elapsedMs: elapsedMs)
+        }
     }
 
     func reloadConfiguration(
