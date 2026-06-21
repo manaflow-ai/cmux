@@ -82,7 +82,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshUI()
+            MainActor.assumeIsolated { self?.refreshUI() }
         }
 
         refreshUI()

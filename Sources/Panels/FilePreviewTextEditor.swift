@@ -220,6 +220,10 @@ final class SavingTextView: NSTextView {
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
+    convenience init() {
+        self.init(frame: .zero, textContainer: nil)
+    }
+
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
         installFontMagnificationObserver()
