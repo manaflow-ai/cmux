@@ -4747,8 +4747,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               let metrics = keyboardCopyModeGridMetrics(surface: surface),
               metrics.columns > 0,
               let lowerRow = UInt32(exactly: selectedRows.lowerBound),
-              let upperRow = UInt32(exactly: selectedRows.upperBound),
-              let lastColumn = UInt32(exactly: metrics.columns - 1) else { return nil }
+              let upperRow = UInt32(exactly: selectedRows.upperBound) else { return nil }
         let selectedRowCount = selectedRows.upperBound - selectedRows.lowerBound + 1
         let estimatedBytesPerRow = (UInt64(metrics.columns) * 4) + 1
         let maxEstimatedRows = UInt64(Self.keyboardCopyModeVisualLineFallbackMaxBytes) / estimatedBytesPerRow
@@ -4756,26 +4755,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard maxEstimatedRows > 0,
               selectedRowCount <= maxEstimatedRows else { return nil }
 
-        let topLeft = ghostty_point_s(
-            tag: GHOSTTY_POINT_SCREEN,
-            coord: GHOSTTY_POINT_COORD_EXACT,
-            x: 0,
-            y: lowerRow
-        )
-        let bottomRight = ghostty_point_s(
-            tag: GHOSTTY_POINT_SCREEN,
-            coord: GHOSTTY_POINT_COORD_EXACT,
-            x: lastColumn,
-            y: upperRow
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
         var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        guard ghostty_surface_read_screen_text(surface, lowerRow, upperRow, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
         guard text.text_len <= Self.keyboardCopyModeVisualLineFallbackMaxBytes,
               let byteCount = Int(exactly: text.text_len) else { return nil }
