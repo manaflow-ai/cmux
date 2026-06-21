@@ -12,13 +12,11 @@ struct CanvasCommandScrollHint: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            keycap("⌘")
+            textKeycap("⌘")
             Image(systemName: "plus")
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.secondary)
-            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+            symbolKeycap("arrow.up.and.down.and.arrow.left.and.right")
             Text(text)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
@@ -40,9 +38,22 @@ struct CanvasCommandScrollHint: View {
         .accessibilityLabel(text)
     }
 
-    private func keycap(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12, weight: .semibold))
+    private func textKeycap(_ text: String) -> some View {
+        keycapContainer {
+            Text(text)
+                .font(.system(size: 12, weight: .semibold))
+        }
+    }
+
+    private func symbolKeycap(_ systemName: String) -> some View {
+        keycapContainer {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .semibold))
+        }
+    }
+
+    private func keycapContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
             .foregroundStyle(.primary)
             .frame(minWidth: 18, minHeight: 18)
             .padding(.horizontal, 4)
