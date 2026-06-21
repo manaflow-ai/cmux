@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
 
 /// The pane-domain witnesses are the byte-faithful bodies of the former
@@ -179,7 +180,7 @@ extension TerminalController: ControlPaneContext {
             return .tabManagerUnavailable
         }
         guard let directionRaw = inputs.directionRaw,
-              let direction = parseSplitDirection(directionRaw) else {
+              let direction = SplitDirection(controlToken: directionRaw) else {
             return .invalidDirection
         }
 

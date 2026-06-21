@@ -5639,31 +5639,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
         }
     }
 
-    static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
-        var r = start
-        var hops = 0
-        while let cur = r, hops < 64 {
-            if cur === target { return true }
-            r = cur.nextResponder
-            hops += 1
-        }
-        return false
-    }
-
 #endif
 
-    #if !DEBUG
-    static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
-        var responder = start
-        var hops = 0
-        while let current = responder, hops < 64 {
-            if current === target { return true }
-            responder = current.nextResponder
-            hops += 1
-        }
-        return false
-    }
-    #endif
+    // `responderChainContains(_:target:)` relocated onto its owning type as
+    // ``CmuxFoundation/NSResponder/responderChain(contains:)``; the synthetic-input
+    // and browser-focus paths now walk the chain through that single helper
+    // (`start?.responderChain(contains:) ?? false`).
 
     // The v1 `set_app_focus` / `simulate_app_active` bodies moved onto
     // ControlCommandCoordinator: the token table + dispatch live in
@@ -5672,20 +5653,10 @@ class TerminalController: MobileViewportSurfaceLimiting {
     // ``ControlAppFocusContext`` witnesses
     // (`TerminalController+ControlAppFocusContext.swift`).
 
-    func parseSplitDirection(_ value: String) -> SplitDirection? {
-        switch value.lowercased() {
-        case "left", "l":
-            return .left
-        case "right", "r":
-            return .right
-        case "up", "u":
-            return .up
-        case "down", "d":
-            return .down
-        default:
-            return nil
-        }
-    }
+    // `parseSplitDirection` relocated onto its owning type as the failable
+    // initializer ``CmuxPanes/SplitDirection/init(controlToken:)``; the control
+    // socket, command palette, project, and move-tab paths now resolve a
+    // direction token through that single source of truth.
 
     // Relaxed from `private` to `internal`: relocated v1 debug/notify bodies
     // (`listSurfaces`, `notifyTarget`, `focusFromNotification`) in the
@@ -5858,24 +5829,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
     }
 #endif
 
-    private func viewDepth(of view: NSView, maxDepth: Int = 128) -> Int {
-        var depth = 0
-        var current: NSView? = view
-        while let v = current, depth < maxDepth {
-            current = v.superview
-            depth += 1
-        }
-        return depth
-    }
-
-    private func isPortalHosted(_ view: NSView) -> Bool {
-        var current: NSView? = view
-        while let v = current {
-            if v is WindowTerminalHostView { return true }
-            current = v.superview
-        }
-        return false
-    }
+    // The file-private `viewDepth(of:maxDepth:)` and `isPortalHosted(_:)`
+    // surface-health helpers were dead in this file: their only live use was the
+    // sidebar surface-health row, which already owns byte-faithful twins
+    // (`controlSidebarViewDepth` / `controlSidebarIsPortalHosted`) in
+    // `TerminalController+ControlSidebarContext3.swift`. Removed here as the
+    // last step of relocating the surface-health walk to that conformance.
 
     // MARK: - Mobile Host V2 Methods
 

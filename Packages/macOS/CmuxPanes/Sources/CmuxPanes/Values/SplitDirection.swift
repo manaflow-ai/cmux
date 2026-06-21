@@ -26,4 +26,25 @@ public enum SplitDirection: Sendable {
     public var insertFirst: Bool {
         self == .left || self == .up
     }
+
+    /// Parse a control-command split-direction token (`left`/`l`, `right`/`r`,
+    /// `up`/`u`, `down`/`d`, case-insensitive), returning `nil` for any other
+    /// value. This is the byte-faithful home of the legacy
+    /// `TerminalController.parseSplitDirection(_:)` token table: the control
+    /// socket, command palette, and move-tab paths all resolve a user-supplied
+    /// direction string through this single source of truth.
+    public init?(controlToken value: String) {
+        switch value.lowercased() {
+        case "left", "l":
+            self = .left
+        case "right", "r":
+            self = .right
+        case "up", "u":
+            self = .up
+        case "down", "d":
+            self = .down
+        default:
+            return nil
+        }
+    }
 }

@@ -911,7 +911,7 @@ extension TerminalController: ControlWorkspaceContext {
         let directionArg = parts[0]
         let panelArg = parts.count > 1 ? parts[1] : ""
 
-        guard let direction = parseSplitDirection(directionArg) else {
+        guard let direction = SplitDirection(controlToken: directionArg) else {
             return "ERROR: Invalid direction. Use left, right, up, or down."
         }
 

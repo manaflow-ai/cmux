@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
 
 /// The surface-domain lifecycle witnesses (`split` / `respawn` / `create` /
@@ -99,9 +100,10 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        // The coordinator pre-validates the same token set; if parseSplitDirection
-        // ever drifts this still surfaces as the legacy invalid_params error.
-        guard let direction = parseSplitDirection(inputs.directionRaw) else {
+        // The coordinator pre-validates the same token set; if the direction
+        // token table ever drifts this still surfaces as the legacy
+        // invalid_params error.
+        guard let direction = SplitDirection(controlToken: inputs.directionRaw) else {
             return .invalidDirection
         }
         let panelType = inputs.typeRaw.flatMap { surfacePanelType(forRawToken: $0) } ?? .terminal

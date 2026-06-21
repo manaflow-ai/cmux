@@ -1,5 +1,6 @@
 import Foundation
 import Bonsplit
+import CmuxPanes
 
 private enum SurfaceSplitOffMessage {
     static let missingSurfaceId = String(localized: "socket.surfaceSplitOff.error.missingSurfaceId", defaultValue: "Missing or invalid surface_id")
@@ -110,7 +111,7 @@ extension TerminalController {
             return .err(code: "invalid_params", message: SurfaceSplitOffMessage.missingSurfaceId, data: nil)
         }
         guard let directionStr = v2String(params, "direction"),
-              let direction = parseSplitDirection(directionStr) else {
+              let direction = SplitDirection(controlToken: directionStr) else {
             return .err(code: "invalid_params", message: SurfaceSplitOffMessage.invalidDirection, data: nil)
         }
 
