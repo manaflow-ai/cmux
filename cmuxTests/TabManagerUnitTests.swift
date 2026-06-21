@@ -340,8 +340,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
 
         XCTAssertTrue(workspace.closePanel(remotePanelId, force: true))
-        drainMainQueue()
-        drainMainQueue()
+        drainMainQueue(); drainMainQueue()
 
         let replacement = try XCTUnwrap(workspace.focusedTerminalPanel)
         XCTAssertEqual(manager.tabs.count, 1)
@@ -1841,7 +1840,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertTrue(secondWorkspace.panels.isEmpty)
     }
 
-    func testClosePanelButtonStillClosesWorkspaceWhenKeepWorkspaceOpenPreferenceIsEnabled() {
+    func testClosePanelButtonKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() {
         let defaults = UserDefaults.standard
         let originalSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
         defaults.set(false, forKey: lastSurfaceCloseShortcutDefaultsKey)
@@ -1868,15 +1867,16 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             return
         }
 
-        secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId)
-        XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
+        secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
+        XCTAssertTrue(secondWorkspace.closePanel(secondPanelId))
         drainMainQueue()
         drainMainQueue()
 
-        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
-        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id, secondWorkspace.id])
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
         XCTAssertNil(secondWorkspace.panels[secondPanelId])
-        XCTAssertTrue(secondWorkspace.panels.isEmpty)
+        XCTAssertEqual(secondWorkspace.panels.count, 1)
+        XCTAssertNotEqual(secondWorkspace.focusedPanelId, secondPanelId)
     }
 
     func testGenericClosePanelKeepsWorkspaceOpenWithoutExplicitCloseMarker() {

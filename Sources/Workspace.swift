@@ -3478,11 +3478,12 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(surfaceId: TabID, tabStripClose: Bool, tabCloseButton: Bool) -> Bool {
         let shouldClose = shouldCloseWorkspaceOnLastSurface(for: surfaceId, tabStripClose: tabStripClose)
+        let shouldKeepOpen = shouldKeepWorkspaceOpenOnLastSurface(for: surfaceId)
         remoteTmuxWorkspaceCloseButtonByTabId[surfaceId] = shouldClose ? Optional(tabCloseButton) : nil
         if shouldClose {
             remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false
             remoteTmuxKeepWorkspaceOpenTabIds.remove(surfaceId); clearCloseHistoryEligibility(tabId: surfaceId)
-        } else {
+        } else if shouldKeepOpen {
             remoteTmuxKeepWorkspaceOpenAfterSessionEnd = true; remoteTmuxKeepWorkspaceOpenTabIds.insert(surfaceId)
         }
         return shouldClose
@@ -11128,13 +11129,15 @@ extension Workspace: PaneTreeHosting {
 
 extension Workspace: BonsplitDelegate {
     @MainActor
-    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID, tabStripClose _: Bool) -> Bool {
+    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID, tabStripClose _: Bool) -> Bool { lastSurfaceClosePreference(for: tabId) == true }
+
+    private func shouldKeepWorkspaceOpenOnLastSurface(for tabId: TabID) -> Bool { lastSurfaceClosePreference(for: tabId) == false }
+
+    private func lastSurfaceClosePreference(for tabId: TabID) -> Bool? {
         let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
-        guard panels.count <= 1,
-              panelIdFromSurfaceId(tabId) != nil,
-              let manager,
+        guard panels.count <= 1, panelIdFromSurfaceId(tabId) != nil, let manager,
               manager.tabs.contains(where: { $0.id == id }) else {
-            return false
+            return nil
         }
         return manager.closeWorkspaceOnLastSurfacePreferenceEnabled()
     }
@@ -11943,6 +11946,8 @@ extension Workspace: BonsplitDelegate {
                     scheduleTerminalGeometryReconcile()
                     return
                 }
+                remoteTmuxKeepWorkspaceOpenAfterSessionEnd = true; isRemoteTmuxMirror = false
+                remoteTmuxWindowMirrors.removeAll()
             }
 
             #if DEBUG
