@@ -4409,11 +4409,11 @@ extension CMUXCLI {
         } else {
             selectedBranchBase = nil
         }
-        func branchPicker(forBase base: DiffBranchBase?) -> [String: Any]? {
+        func branchPicker(forBase base: DiffBranchBase?, repoRoot pickerRepoRoot: String = repoRoot) -> [String: Any]? {
             guard sessionPersisted, let base else { return nil }
             return diffViewerBranchPickerPayload(
                 base: base,
-                repoRoot: repoRoot,
+                repoRoot: pickerRepoRoot,
                 groupID: groupID,
                 origin: mapper.origin,
                 token: mapper.token
@@ -4535,12 +4535,39 @@ extension CMUXCLI {
                 } else {
                     viewerURL = try mapper.viewerURL(for: url)
                 }
+                // Compute THIS repo's own smart base so a repo-switched Branch page
+                // renders against (and surfaces a picker for) the cmuxBase/PR/
+                // upstream smart base, mirroring the selected repo page. Without
+                // this, the page fell back to the legacy origin/HEAD resolver and
+                // `deferredDiffViewerBranchPicker` returned nil (no picker). The
+                // base is resolved in `option.repoRoot`, and `smartBranchBase`
+                // caches per repoRoot so each repo's `gh` lookup runs at most once.
+                let repoSmartBase: DiffBranchBase? = source == .branch ? smartBranchBase(in: option.repoRoot) : nil
+                let repoBranchBaseRef: String?
+                if source == .branch {
+                    repoBranchBaseRef = repoSmartBase?.ref
+                        ?? (try? resolvedGitBranchDiffBaseRef(explicitBranchBaseRef, in: option.repoRoot))
+                } else {
+                    repoBranchBaseRef = selectedContext.branchBaseRef
+                }
+                // Advertise the picker only when the session was persisted (the
+                // refs/regenerate endpoints read it) AND a base resolved, matching
+                // the selected/base-candidate pages. The session allow-lists every
+                // repo candidate, so its endpoints authorize this repo too.
+                let repoPickerBase: DiffBranchBase?
+                if source == .branch, sessionPersisted, let resolvedRef = repoBranchBaseRef {
+                    repoPickerBase = repoSmartBase?.ref == resolvedRef
+                        ? repoSmartBase
+                        : DiffBranchBase(ref: resolvedRef, reason: DiffBranchBaseReason.manual, confidence: "high")
+                } else {
+                    repoPickerBase = nil
+                }
                 let pageContext = DiffSourceContext(
                     workspaceId: selectedContext.workspaceId,
                     surfaceId: selectedContext.surfaceId,
                     sessionId: selectedContext.sessionId,
                     repoRoot: option.repoRoot,
-                    branchBaseRef: source == .branch ? explicitBranchBaseRef : selectedContext.branchBaseRef
+                    branchBaseRef: source == .branch ? repoBranchBaseRef : selectedContext.branchBaseRef
                 )
                 try writeDiffViewerStatusHTML(
                     to: url,
@@ -4556,7 +4583,8 @@ extension CMUXCLI {
                     repoOptions: repoOptionsForSource(source, selectedRepoRoot: option.repoRoot),
                     baseOptions: [],
                     repoRoot: option.repoRoot,
-                    branchBaseRef: source == .branch ? explicitBranchBaseRef : nil,
+                    branchBaseRef: source == .branch ? repoBranchBaseRef : nil,
+                    branchPicker: source == .branch ? branchPicker(forBase: repoPickerBase, repoRoot: option.repoRoot) : nil,
                     runtime: target.runtime
                 )
                 deferredPages.append(
@@ -4568,7 +4596,8 @@ extension CMUXCLI {
                         context: pageContext,
                         sourceOptions: sourceOptionsForRepo(selected: source, selectedRepoRoot: option.repoRoot),
                         repoOptions: repoOptionsForSource(source, selectedRepoRoot: option.repoRoot),
-                        baseOptions: []
+                        baseOptions: [],
+                        branchPickerBase: repoPickerBase
                     )
                 )
             }
@@ -5116,7 +5145,17 @@ extension CMUXCLI {
         token: String
     ) -> [String: Any] {
         let aheadBehind = diffBranchAheadBehind(base: base.ref, in: repoRoot)
-        let refsURL = diffViewerBranchRefsURL(origin: origin, repoRoot: repoRoot, token: token)
+        // Thread the active base into the refs URL so reopening the picker fetches
+        // refs with `selectedBaseRef == base.ref`. Without this, a manually-typed
+        // or raw-SHA base (one that is not a smart suggestion) never re-appears as
+        // the "manual" Suggested row, so the user cannot see what they are
+        // comparing against without retyping it.
+        let refsURL = diffViewerBranchRefsURL(
+            origin: origin,
+            repoRoot: repoRoot,
+            token: token,
+            base: base.ref
+        )
         let regenerateTemplate = diffViewerBranchRegenerateURLTemplate(
             origin: origin,
             repoRoot: repoRoot,
@@ -5170,14 +5209,23 @@ extension CMUXCLI {
         return components.url?.absoluteString ?? ""
     }
 
-    private func diffViewerBranchRefsURL(origin: URL, repoRoot: String, token: String) -> String {
-        diffViewerBranchEndpointURL(
+    /// `base` (the active comparison ref) is forwarded as a query item so both the
+    /// HTTP refs route (`sendDiffViewerHTTPRefs`) and the custom-scheme refs route
+    /// (`handleDiffViewerRefsRoute` -> `runDiffViewerRefsCommand`) pass it through
+    /// to `diffBranchRefGroups(selectedBaseRef:)`, which surfaces it as the manual
+    /// Suggested row. A nil/empty base is omitted (legacy behavior, no row).
+    private func diffViewerBranchRefsURL(origin: URL, repoRoot: String, token: String, base: String?) -> String {
+        var queryItems = [
+            URLQueryItem(name: "repo", value: repoRoot),
+            URLQueryItem(name: "token", value: token)
+        ]
+        if let base, !base.isEmpty {
+            queryItems.append(URLQueryItem(name: "base", value: base))
+        }
+        return diffViewerBranchEndpointURL(
             origin: origin,
             path: "/__cmux_diff_viewer_refs",
-            queryItems: [
-                URLQueryItem(name: "repo", value: repoRoot),
-                URLQueryItem(name: "token", value: token)
-            ]
+            queryItems: queryItems
         )
     }
 
