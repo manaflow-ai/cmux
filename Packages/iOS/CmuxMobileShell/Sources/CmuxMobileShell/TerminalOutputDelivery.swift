@@ -22,6 +22,15 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replaceable = replaceable
     }
 
+    var renderGridStateSeq: UInt64? {
+        switch payload {
+        case .bytes:
+            nil
+        case .renderGrid(let envelope):
+            envelope.frame.stateSeq
+        }
+    }
+
     func chunk(streamToken: UUID) -> MobileTerminalOutputChunk {
         switch payload {
         case .bytes(let data):
@@ -34,13 +43,19 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 
 /// Backpressure queue for one mounted mobile terminal output stream.
 ///
-/// Raw byte chunks are nonreplaceable barriers. Render-grid chunks that repaint
-/// the whole viewport are replaceable while the iOS surface is still applying a
-/// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
+/// Raw byte chunks are nonreplaceable barriers by default, though callers may
+/// mark display-only raw frames as replaceable. Render-grid chunks stay
+/// nonreplaceable because the iOS semantic mirror uses every delta to build
+/// scrollback history. If ordered render-grid delivery falls too far behind, the
+/// queue drops its pending backlog and asks the owner to repair with a fresh
+/// render-grid snapshot instead of growing without bound.
 struct TerminalOutputDeliveryQueue: Sendable {
+    private static let maxPendingRenderGridDeliveries = 128
+
     private var inFlight = false
     private var pending: [TerminalOutputDelivery] = []
     private var pendingHeadIndex = 0
+    private var renderGridOverflowStateSeq: UInt64?
 
     var isIdle: Bool {
         !inFlight && pendingCount == 0
@@ -81,6 +96,12 @@ struct TerminalOutputDeliveryQueue: Sendable {
         inFlight = false
         pending.removeAll(keepingCapacity: false)
         pendingHeadIndex = 0
+        renderGridOverflowStateSeq = nil
+    }
+
+    mutating func consumeRenderGridOverflowStateSeq() -> UInt64? {
+        defer { renderGridOverflowStateSeq = nil }
+        return renderGridOverflowStateSeq
     }
 
     private mutating func appendPending(_ delivery: TerminalOutputDelivery) {
@@ -92,6 +113,13 @@ struct TerminalOutputDeliveryQueue: Sendable {
         } else {
             pending.append(delivery)
         }
+        guard delivery.renderGridStateSeq != nil,
+              pendingCount > Self.maxPendingRenderGridDeliveries else {
+            return
+        }
+        renderGridOverflowStateSeq = delivery.renderGridStateSeq
+        pending.removeAll(keepingCapacity: true)
+        pendingHeadIndex = 0
     }
 
     private mutating func compactPendingStorageIfNeeded() {

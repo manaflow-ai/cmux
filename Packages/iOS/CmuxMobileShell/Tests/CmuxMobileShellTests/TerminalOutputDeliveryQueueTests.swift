@@ -236,7 +236,34 @@ import Testing
     #expect(session.needsSnapshotReplay)
 }
 
-@Test func terminalRenderSessionCoalescesReplaceableLiveDeltaWhileAwaitingSnapshot() throws {
+@Test func terminalRenderSessionInvalidationDropsLiveUntilSnapshotBegins() throws {
+    let surfaceID = "terminal"
+    var session = TerminalRenderSession()
+    let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 10,
+        columns: 16,
+        rows: 2,
+        text: "snapshot"
+    )
+    let liveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 11,
+        columns: 16,
+        rows: 2,
+        text: "live",
+        full: false,
+        changedRows: [0]
+    )
+
+    _ = session.receiveSnapshot(try .snapshot(snapshotFrame))
+    session.invalidateSnapshot()
+
+    #expect(session.receiveLive(try .viewportDelta(liveFrame)).isEmpty)
+    #expect(session.needsSnapshotReplay)
+}
+
+@Test func terminalRenderSessionPreservesFullViewportLiveDeltaWhileAwaitingSnapshot() throws {
     let surfaceID = "terminal"
     var session = TerminalRenderSession()
     session.beginSnapshot()
@@ -250,7 +277,7 @@ import Testing
         full: false,
         changedRows: [0]
     )
-    var replaceable = try MobileTerminalRenderGridFrame.fromPlainRows(
+    var fullViewport = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: surfaceID,
         stateSeq: 20,
         columns: 16,
@@ -259,22 +286,22 @@ import Testing
         full: false,
         changedRows: [0, 1]
     )
-    replaceable.clearedRows = [0, 1]
+    fullViewport.clearedRows = [0, 1]
 
     #expect(session.receiveLive(try .viewportDelta(partial)).isEmpty)
-    #expect(session.receiveLive(try .viewportDelta(replaceable)).isEmpty)
-    #expect(session.bufferedLiveCount == 1)
+    #expect(session.receiveLive(try .viewportDelta(fullViewport)).isEmpty)
+    #expect(session.bufferedLiveCount == 2)
 
     let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: surfaceID,
-        stateSeq: 15,
+        stateSeq: 5,
         columns: 16,
         rows: 2,
         text: "snapshot"
     )
     let delivered = session.receiveSnapshot(try .snapshot(snapshotFrame))
 
-    #expect(delivered.map(\.frame.stateSeq) == [15, 20])
+    #expect(delivered.map(\.frame.stateSeq) == [5, 10, 20])
 }
 
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
@@ -293,7 +320,7 @@ import Testing
     #expect(queue.isIdle)
 }
 
-@Test func terminalOutputQueueCoalescesRenderGridFramesBeforeSynthesizingBytes() throws {
+@Test func terminalOutputQueuePreservesRenderGridFramesBehindBackpressure() throws {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
     let oldFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
@@ -319,14 +346,20 @@ import Testing
     let oldEnvelope = try MobileTerminalRenderGridEnvelope.viewportDelta(oldFrame)
     let latestEnvelope = try MobileTerminalRenderGridEnvelope.viewportDelta(latestFrame)
 
-    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: oldEnvelope, replaceable: true)) == nil)
-    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: latestEnvelope, replaceable: true)) == nil)
+    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: oldEnvelope, replaceable: false)) == nil)
+    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: latestEnvelope, replaceable: false)) == nil)
 
-    let maybeDelivered = queue.completeInFlight()
-    let delivered = try #require(maybeDelivered)
-    let vt = try #require(String(data: delivered.chunk(streamToken: UUID()).data, encoding: .utf8))
-    #expect(vt.contains("latest"))
-    #expect(!vt.contains("old"))
+    #expect(queue.pendingCount == 2)
+    let firstPending = queue.completeInFlight()
+    let firstDelivered = try #require(firstPending)
+    let firstVT = try #require(String(data: firstDelivered.chunk(streamToken: UUID()).data, encoding: .utf8))
+    #expect(firstVT.contains("old"))
+
+    let secondPending = queue.completeInFlight()
+    let secondDelivered = try #require(secondPending)
+    let secondVT = try #require(String(data: secondDelivered.chunk(streamToken: UUID()).data, encoding: .utf8))
+    #expect(secondVT.contains("latest"))
+    #expect(queue.completeInFlight() == nil)
 }
 
 @Test func terminalOutputDeliveryCarriesRenderGridMetadata() throws {
@@ -406,6 +439,32 @@ import Testing
         let expected = TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
         #expect(queue.completeInFlight() == expected)
     }
+    #expect(queue.completeInFlight() == nil)
+    #expect(queue.isIdle)
+}
+
+@Test func terminalOutputQueueBoundsRenderGridBacklogAndSignalsReplayRepair() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    for seq in 1...129 {
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "terminal",
+            stateSeq: UInt64(seq),
+            columns: 12,
+            rows: 2,
+            text: "delta-\(seq)",
+            full: false,
+            changedRows: [0]
+        )
+        let envelope = try MobileTerminalRenderGridEnvelope.viewportDelta(frame)
+        #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: envelope, replaceable: false)) == nil)
+    }
+
+    #expect(queue.pendingCount == 0)
+    #expect(queue.consumeRenderGridOverflowStateSeq() == 129)
+    #expect(queue.consumeRenderGridOverflowStateSeq() == nil)
     #expect(queue.completeInFlight() == nil)
     #expect(queue.isIdle)
 }

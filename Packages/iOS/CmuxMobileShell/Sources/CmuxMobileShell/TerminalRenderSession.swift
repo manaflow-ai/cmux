@@ -30,6 +30,11 @@ struct TerminalRenderSession: Sendable {
         bufferedLiveEnvelopes.removeAll(keepingCapacity: false)
     }
 
+    mutating func invalidateSnapshot() {
+        phase = .awaitingSnapshot(bufferValid: false)
+        bufferedLiveEnvelopes.removeAll(keepingCapacity: false)
+    }
+
     mutating func receiveSnapshot(
         _ envelope: MobileTerminalRenderGridEnvelope
     ) -> [MobileTerminalRenderGridEnvelope] {
@@ -53,9 +58,6 @@ struct TerminalRenderSession: Sendable {
         case .awaitingSnapshot(bufferValid: false):
             return []
         case .awaitingSnapshot(bufferValid: true):
-            if envelope.isReplaceableViewportDelta {
-                bufferedLiveEnvelopes.removeAll(keepingCapacity: true)
-            }
             bufferedLiveEnvelopes.append(envelope)
             if bufferedLiveEnvelopes.count > Self.maxBufferedLiveEnvelopes {
                 bufferedLiveEnvelopes.removeAll(keepingCapacity: false)

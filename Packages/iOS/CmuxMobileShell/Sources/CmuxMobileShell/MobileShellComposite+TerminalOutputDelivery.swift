@@ -25,7 +25,7 @@ extension MobileShellComposite {
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: envelope,
-                replaceable: envelope.isReplaceableViewportDelta
+                replaceable: false
             ),
             surfaceID: surfaceID
         )
@@ -36,7 +36,14 @@ extension MobileShellComposite {
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return }
         var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
         let immediate = queue.enqueue(delivery)
+        let renderGridOverflowSeq = queue.consumeRenderGridOverflowStateSeq()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        if let renderGridOverflowSeq {
+            handleTerminalOutputQueueRenderGridOverflow(
+                surfaceID: surfaceID,
+                stateSeq: renderGridOverflowSeq
+            )
+        }
         if let immediate {
             continuation.yield(immediate.chunk(streamToken: streamToken))
         }

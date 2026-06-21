@@ -5229,6 +5229,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         requestTerminalReplay(surfaceID: surfaceID)
     }
 
+    func handleTerminalOutputQueueRenderGridOverflow(
+        surfaceID: String,
+        stateSeq: UInt64
+    ) {
+        var session = terminalRenderSessionsBySurfaceID[surfaceID] ?? TerminalRenderSession()
+        session.invalidateSnapshot()
+        terminalRenderSessionsBySurfaceID[surfaceID] = session
+        MobileDebugLog.anchormux(
+            "CMUX_REPLAY output_queue_overflow surface=\(surfaceID) seq=\(stateSeq) action=retry_replay"
+        )
+        scheduleTerminalReplayRetry(
+            surfaceID: surfaceID,
+            deliveredSeq: stateSeq,
+            replaySeq: stateSeq
+        )
+    }
+
     private func finishTerminalReplayRequest(surfaceID: String, streamToken: UUID?) {
         guard streamToken == nil || terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
             return
