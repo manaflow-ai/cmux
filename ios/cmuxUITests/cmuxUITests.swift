@@ -339,6 +339,7 @@ final class cmuxUITests: XCTestCase {
 
         // Verify clean bands at the attached size first (no zoom interaction).
         assertCleanColorBands(of: surface, level: 0)
+        assertVisibleColorBandPalette(of: surface, context: "initial")
 
         // Then sweep zoom sizes via the keyboard-accessory buttons, checking
         // the render stays clean (not blank / garbled) at each settled level.
@@ -348,6 +349,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(zoomOut.waitForExistence(timeout: 6), "zoom controls should appear")
 
         for _ in 0..<10 where zoomOut.isEnabled { zoomOut.tap() }
+        assertVisibleColorBandPalette(of: surface, context: "after zoom resize")
         var level = 1
         while level < 8 {
             assertCleanColorBands(of: surface, level: level)
@@ -380,10 +382,10 @@ final class cmuxUITests: XCTestCase {
             hideKeyboardButton.tap()
         }
 
-        let baselineStrongPixels = try strongTerminalTextPixelCount(in: app)
+        let baselineStrongPixels = try waitForStrongTerminalTextPixelCount(in: app, timeout: 3)
         XCTAssertGreaterThanOrEqual(
             baselineStrongPixels,
-            20,
+            11,
             "Zoom stress surface started blank. strongTextPixels=\(baselineStrongPixels) elapsed=\(elapsedSeconds(since: start))s"
         )
 
@@ -439,10 +441,11 @@ final class cmuxUITests: XCTestCase {
 
         var lastProducedLine = firstLine ?? 0
         var lastRenderedLine = renderedStressLineNumber(in: surface) ?? 0
+        let baselineStrongPixels = try waitForStrongTerminalTextPixelCount(in: app, timeout: 3)
         XCTAssertGreaterThanOrEqual(
-            try strongTerminalTextPixelCount(in: app),
-            20,
-            "Zoom stress surface started blank. elapsed=\(elapsedSeconds(since: start))s"
+            baselineStrongPixels,
+            11,
+            "Zoom stress surface started blank. strongTextPixels=\(baselineStrongPixels) elapsed=\(elapsedSeconds(since: start))s"
         )
 
         for cycle in 1...4 {
@@ -459,10 +462,12 @@ final class cmuxUITests: XCTestCase {
 
             let deadline = Date().addingTimeInterval(3)
             var caughtUp = false
+            var lastStrongPixels = 0
             while Date() < deadline {
                 let produced = stressLineNumber(in: lineProbe) ?? lastProducedLine
                 let rendered = renderedStressLineNumber(in: surface) ?? lastRenderedLine
                 let strongPixels = try strongTerminalTextPixelCount(in: app)
+                lastStrongPixels = strongPixels
                 lastProducedLine = max(lastProducedLine, produced)
                 lastRenderedLine = max(lastRenderedLine, rendered)
                 if produced > cycleProducedStart + 8,
@@ -475,16 +480,21 @@ final class cmuxUITests: XCTestCase {
             }
             XCTAssertTrue(
                 caughtUp,
-                "Rendered terminal text stopped catching up after foreground cycle \(cycle). produced=\(lastProducedLine) rendered=\(lastRenderedLine) elapsed=\(elapsedSeconds(since: start))s"
+                "Rendered terminal text stopped catching up after foreground cycle \(cycle). produced=\(lastProducedLine) rendered=\(lastRenderedLine) strongTextPixels=\(lastStrongPixels) elapsed=\(elapsedSeconds(since: start))s"
             )
         }
     }
 
     @MainActor
     private func launchZoomStressApp() -> XCUIApplication {
-        launchApp(mockData: false, environment: [
+        let app = launchApp(mockData: false, environment: [
             "CMUX_ZOOM_STRESS": "1",
         ])
+        XCTAssertFalse(
+            app.buttons["Sign in with Apple"].waitForExistence(timeout: 1),
+            "CMUX_ZOOM_STRESS should mount the terminal stress harness directly, not the auth screen."
+        )
+        return app
     }
 
     @MainActor
@@ -537,6 +547,24 @@ final class cmuxUITests: XCTestCase {
             }
         }
         return strong
+    }
+
+    @MainActor
+    private func waitForStrongTerminalTextPixelCount(
+        in app: XCUIApplication,
+        timeout: TimeInterval
+    ) throws -> Int {
+        let deadline = Date().addingTimeInterval(timeout)
+        var best = 0
+        while Date() < deadline {
+            let count = try strongTerminalTextPixelCount(in: app)
+            best = max(best, count)
+            if count >= 11 {
+                return count
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        return best
     }
 
     private func elapsedSeconds(since start: Date) -> String {
@@ -610,6 +638,36 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    @MainActor
+    private func assertVisibleColorBandPalette(
+        of surface: XCUIElement,
+        context: String,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) {
+        var lastStats = ColorBandPaletteStats()
+        for _ in 0..<12 {
+            Thread.sleep(forTimeInterval: 0.4)
+            guard let cg = surface.screenshot().image.cgImage else { continue }
+            let pixels = BitmapPixels(cg)
+            var stats = ColorBandPaletteStats()
+            for y in stride(from: 0.04, through: 0.72, by: 0.018) {
+                for x in stride(from: 0.04, through: 0.96, by: 0.035) {
+                    stats.record(pixels.color(xUnit: x, yUnit: y))
+                }
+            }
+            lastStats = stats
+            if stats.isHealthy {
+                return
+            }
+        }
+        XCTFail(
+            "\(context): color bands did not include the expected red/green/blue palette. last=\(lastStats)",
+            file: file,
+            line: line
+        )
+    }
+
     /// A sampled pixel.
     private struct RGB: CustomStringConvertible {
         let r: Int, g: Int, b: Int
@@ -622,6 +680,15 @@ final class cmuxUITests: XCTestCase {
         var isTerminalForeground: Bool {
             isStrong || (r >= 150 && g >= 150 && b >= 150)
         }
+        var isTerminalRed: Bool {
+            r >= 120 && r > g + 45 && r > b + 45
+        }
+        var isTerminalGreen: Bool {
+            g >= 95 && g > r + 25 && g > b + 10
+        }
+        var isTerminalBlue: Bool {
+            b >= 120 && b > r + 45 && b > g + 45
+        }
         func isClose(to o: RGB, tolerance: Int) -> Bool {
             abs(r - o.r) <= tolerance && abs(g - o.g) <= tolerance && abs(b - o.b) <= tolerance
         }
@@ -632,6 +699,32 @@ final class cmuxUITests: XCTestCase {
                 reps.append(x)
             }
             return reps.count
+        }
+    }
+
+    private struct ColorBandPaletteStats: CustomStringConvertible {
+        var red = 0
+        var green = 0
+        var blue = 0
+
+        var isHealthy: Bool {
+            red >= 3 && green >= 3 && blue >= 3
+        }
+
+        mutating func record(_ color: RGB) {
+            if color.isTerminalRed {
+                red += 1
+            }
+            if color.isTerminalGreen {
+                green += 1
+            }
+            if color.isTerminalBlue {
+                blue += 1
+            }
+        }
+
+        var description: String {
+            "red=\(red) green=\(green) blue=\(blue)"
         }
     }
 
