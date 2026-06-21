@@ -19657,12 +19657,23 @@ struct CMUXCLI {
                 responseTimeout: 10
             )
             let threadIds = loaded["data"] as? [String] ?? []
+            var retryableRolloutMissCount = 0
             for threadId in threadIds {
                 do {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
                 } catch {
-                    cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                    if isTransientThreadResumeError(error) {
+                        retryableRolloutMissCount += 1
+                        cliWriteStderr("cmux codex-teams watcher will retry thread \(threadId): rollout not ready\n")
+                    } else {
+                        cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                    }
                 }
+            }
+            if retryableRolloutMissCount > 0 {
+                throw CLIError(
+                    message: "Codex Teams rollout not ready for \(retryableRolloutMissCount) thread(s); reconnecting to retry"
+                )
             }
         }
 
