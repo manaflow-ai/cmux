@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — マルチタスクのために作られたターミナル",
-    "description": "Ghosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
-    "ogDescription": "AIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
+    "description": "無料・オープンソースのGhosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
+    "ogDescription": "無料・オープンソースのAIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
   },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
@@ -40,13 +40,14 @@
     "nightly": "ナイトリー",
     "copyright": "© {year} Manaflow",
     "language": "言語",
-    "assets": "アセット"
+    "assets": "アセット",
+    "openSource": "オープンソース"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
     "typingCodingAgents": "コーディングエージェント",
     "typingMultitasking": "マルチタスク",
-    "subtitle": "GhosttyベースのネイティブmacOSアプリ。縦タブ、エージェントが注意を必要とするときの通知リング、分割ペイン、プログラマビリティのための<cliLink>CLI</cliLink>を搭載。",
+    "subtitle": "無料・オープンソースのGhosttyベースのネイティブmacOSアプリ。縦タブ、エージェントが注意を必要とするときの通知リング、分割ペイン、プログラマビリティのための<cliLink>CLI</cliLink>を搭載。",
     "features": "機能",
     "faq": "FAQ",
     "communitySection": "コミュニティ",
