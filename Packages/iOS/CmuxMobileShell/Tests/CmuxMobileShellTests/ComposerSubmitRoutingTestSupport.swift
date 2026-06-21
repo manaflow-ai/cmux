@@ -40,9 +40,15 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
+    struct ScrollToBottomRecord: Sendable {
+        var workspaceID: String
+        var surfaceID: String
+        var clientID: String
+    }
 
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private(set) var scrollToBottomRequests: [ScrollToBottomRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
     private var holdFirstPasteImage = false
@@ -89,13 +95,16 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedScrollToBottomRequests() -> [ScrollToBottomRecord] { scrollToBottomRequests }
 
     /// Sendable extract of the request fields the router needs, pulled off the
     /// non-Sendable params dictionary before crossing the Task boundary.
     struct RequestInfo: Sendable {
         var method: String?
         var id: String?
+        var workspaceID: String?
         var surfaceID: String?
+        var clientID: String?
         var imageFormat: String?
         var text: String?
     }
@@ -162,6 +171,13 @@ actor RoutingHostRouter {
             let surfaceID = info.surfaceID ?? ""
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
+            return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.terminal.scroll_to_bottom":
+            scrollToBottomRequests.append(ScrollToBottomRecord(
+                workspaceID: info.workspaceID ?? "",
+                surfaceID: info.surfaceID ?? "",
+                clientID: info.clientID ?? ""
+            ))
             return try? Self.resultFrame(id: id, result: [:])
         case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
@@ -232,7 +248,9 @@ private actor RoutingTransport: CmxByteTransport {
             let info = RoutingHostRouter.RequestInfo(
                 method: parsed?["method"] as? String,
                 id: parsed?["id"] as? String,
+                workspaceID: params?["workspace_id"] as? String,
                 surfaceID: params?["surface_id"] as? String,
+                clientID: params?["client_id"] as? String,
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String
             )
