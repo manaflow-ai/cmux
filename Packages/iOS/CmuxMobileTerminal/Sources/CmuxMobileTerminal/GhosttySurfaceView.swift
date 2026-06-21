@@ -599,6 +599,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// symptom. Coalescing caps the backlog: while a render is in flight, mark
     /// `needsAnotherRender` and re-enqueue exactly one when it completes.
     private var renderInFlight: Bool = false
+    private var renderInFlightStartedAt: CFTimeInterval?
     private var needsAnotherRender: Bool = false
     /// True while the app is inactive/backgrounded. On iOS `render_now`
     /// produces a frame synchronously on `outputQueue` and acquires a
@@ -628,6 +629,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// rendering) and saturated the renderer.
     private var needsGeometrySync: Bool = false
     private var pendingGeometryReassert: Bool = false
+    private var geometrySyncInFlight: Bool = false
+    private var geometrySyncStartedAt: CFTimeInterval?
     /// Last content scale pushed to libghostty; used to skip redundant
     /// per-frame `set_content_scale` pushes (the screen scale is constant).
     private var lastAppliedContentScale: CGFloat = 0
@@ -2595,9 +2598,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let sinceOutputMs = lastOutputAppliedTime > 0
                 ? Int((nowHeartbeat - lastOutputAppliedTime) * 1000)
                 : -1
+            let renderBusyMs = renderInFlightStartedAt.map { Int((nowHeartbeat - $0) * 1000) } ?? 0
+            let geometryBusyMs = geometrySyncStartedAt.map { Int((nowHeartbeat - $0) * 1000) } ?? 0
             MobileDebugLog.anchormux(
                 "tick.alive win=\(window != nil) suspended=\(renderingSuspended) "
-                + "renderInFlight=\(renderInFlight) "
+                + "renderInFlight=\(renderInFlight) renderBusy=\(renderBusyMs)ms "
+                + "geometryInFlight=\(geometrySyncInFlight) geometryBusy=\(geometryBusyMs)ms "
                 + "needsDraw=\(needsDraw) contents=\(renderLayer?.contents != nil) "
                 + "surf=\(Int(renderSize.width))x\(Int(renderSize.height)) "
                 + "sinceOutput=\(sinceOutputMs)ms"
@@ -2717,6 +2723,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
         guard !renderingSuspended, let surface, !isDismantled else { return }
+        guard !geometrySyncInFlight else {
+            needsDraw = true
+            needsAnotherRender = true
+            return
+        }
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
@@ -2724,6 +2735,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
         renderInFlight = true
+        renderInFlightStartedAt = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
         Self.outputQueue.async { [weak self] in
             // Queue LAG = how long this render waited behind other ops. If this
@@ -2734,6 +2746,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.renderInFlight = false
+                self.renderInFlightStartedAt = nil
                 guard !self.isDismantled else {
                     self.needsAnotherRender = false
                     return
@@ -2960,6 +2973,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func syncSurfaceGeometry(shouldReassertNaturalSize: Bool = true) {
         guard let surface else { return }
+        if geometrySyncInFlight {
+            needsGeometrySync = true
+            if shouldReassertNaturalSize { pendingGeometryReassert = true }
+            return
+        }
 
         // Capture all main-actor inputs as values, then do every libghostty
         // WRITE (set_content_scale / set_size / fit) and its readback on the
@@ -3005,8 +3023,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let eff = effectiveGrid
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
+        geometrySyncInFlight = true
+        geometrySyncStartedAt = CACurrentMediaTime()
+        let enqueuedAt = CACurrentMediaTime()
 
         Self.outputQueue.async { [weak self] in
+            let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
+            if lagMs > 150 { MobileDebugLog.anchormux("oq.geom.LAG \(Int(lagMs))ms") }
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
@@ -3046,7 +3069,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
             let result = GeometryResult(cellPixelSize: cell, naturalSize: natural, pinnedSize: pinnedSize)
             DispatchQueue.main.async {
-                self?.applyGeometryResult(
+                guard let self else { return }
+                self.geometrySyncInFlight = false
+                self.geometrySyncStartedAt = nil
+                self.applyGeometryResult(
                     result,
                     scale: scale,
                     containerW: containerW,
