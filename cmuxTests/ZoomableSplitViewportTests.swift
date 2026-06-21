@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import SwiftUI
 import Testing
 
@@ -35,6 +36,49 @@ struct ZoomableSplitViewportTests {
         root.zoom(by: 1.25)
 
         #expect(abs(root.currentMagnification - 1.25) < 0.0001)
+    }
+
+    @Test func pointerFocusResolvesPanelFromSplitSnapshot() {
+        let leftTab = UUID()
+        let rightTab = UUID()
+        let leftPanel = UUID()
+        let rightPanel = UUID()
+        let snapshot = LayoutSnapshot(
+            containerFrame: PixelRect(x: 20, y: 40, width: 300, height: 120),
+            panes: [
+                PaneGeometry(
+                    paneId: UUID().uuidString,
+                    frame: PixelRect(x: 20, y: 40, width: 100, height: 120),
+                    selectedTabId: leftTab.uuidString,
+                    tabIds: [leftTab.uuidString]
+                ),
+                PaneGeometry(
+                    paneId: UUID().uuidString,
+                    frame: PixelRect(x: 120, y: 40, width: 200, height: 120),
+                    selectedTabId: rightTab.uuidString,
+                    tabIds: [rightTab.uuidString]
+                ),
+            ],
+            focusedPaneId: nil,
+            timestamp: 0
+        )
+        let panelsByTab = [
+            TabID(uuid: leftTab): leftPanel,
+            TabID(uuid: rightTab): rightPanel,
+        ]
+
+        let resolved = ZoomableSplitRootView.selectedPanelId(
+            atDocumentPoint: CGPoint(x: 140, y: 60),
+            in: snapshot,
+            panelIdFromSurfaceId: { panelsByTab[$0] }
+        )
+
+        #expect(resolved == rightPanel)
+        #expect(ZoomableSplitRootView.selectedPanelId(
+            atDocumentPoint: CGPoint(x: 310, y: 60),
+            in: snapshot,
+            panelIdFromSurfaceId: { panelsByTab[$0] }
+        ) == nil)
     }
 
     private func makeRoot() -> ZoomableSplitRootView {

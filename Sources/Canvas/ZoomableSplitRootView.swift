@@ -13,6 +13,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private let documentView = ZoomableSplitDocumentView()
     private let hostingView: NSHostingView<AnyView>
     private var commandScrollEventRouter: CanvasCommandScrollEventRouter?
+    private var panePointerFocusMonitor: Any?
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
     private var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
@@ -44,12 +45,14 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         hostingView.rootView = content
         workspace?.zoomableSplitViewport = self
         updateCommandScrollMonitor()
+        updatePanePointerFocusMonitor()
         updateDocumentSize()
         synchronizeViewportGeometry()
     }
 
     func teardown() {
         removeCommandScrollMonitor()
+        removePanePointerFocusMonitor()
         if let clipBoundsObserver {
             NotificationCenter.default.removeObserver(clipBoundsObserver)
         }
@@ -65,8 +68,10 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         super.viewDidMoveToWindow()
         if window == nil {
             removeCommandScrollMonitor()
+            removePanePointerFocusMonitor()
         } else {
             updateCommandScrollMonitor()
+            updatePanePointerFocusMonitor()
             synchronizeViewportGeometry()
         }
     }
@@ -272,6 +277,35 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         commandScrollEventRouter = nil
     }
 
+    private func updatePanePointerFocusMonitor() {
+        guard window != nil, isWorkspaceInputActive else {
+            removePanePointerFocusMonitor()
+            return
+        }
+        installPanePointerFocusMonitor()
+    }
+
+    private func installPanePointerFocusMonitor() {
+        guard panePointerFocusMonitor == nil else { return }
+        panePointerFocusMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+            guard let self,
+                  let window = self.window,
+                  event.window === window else {
+                return event
+            }
+
+            _ = self.focusPaneForPointerDown(event, in: window)
+            return event
+        }
+    }
+
+    private func removePanePointerFocusMonitor() {
+        if let panePointerFocusMonitor {
+            NSEvent.removeMonitor(panePointerFocusMonitor)
+        }
+        panePointerFocusMonitor = nil
+    }
+
     // MARK: Viewport Math
 
     private func updateDocumentSize() {
@@ -399,6 +433,67 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private func paneView(atRootPoint point: CGPoint) -> NSView? {
         let documentPoint = documentView.convert(point, from: self)
         return documentView.bounds.contains(documentPoint) ? hostingView : nil
+    }
+
+    @discardableResult
+    private func focusPaneForPointerDown(_ event: NSEvent, in window: NSWindow) -> Bool {
+        let rootPoint = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(rootPoint),
+              pointerHitTargetsDocumentContent(event, in: window) else {
+            return false
+        }
+        let documentPoint = documentView.convert(rootPoint, from: self)
+        return focusPane(atDocumentPoint: documentPoint)
+    }
+
+    private func pointerHitTargetsDocumentContent(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard let contentView = window.contentView else { return false }
+        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+        guard let hitView = contentView.hitTest(contentPoint) else { return false }
+        return hitView === documentView || hitView.isDescendant(of: documentView)
+    }
+
+    @discardableResult
+    private func focusPane(atDocumentPoint point: CGPoint) -> Bool {
+        guard let workspace,
+              let panelId = Self.selectedPanelId(
+                atDocumentPoint: point,
+                in: workspace.bonsplitController.layoutSnapshot(),
+                panelIdFromSurfaceId: { workspace.panelIdFromSurfaceId($0) }
+              ) else {
+            return false
+        }
+
+        AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            in: window
+        )
+        workspace.focusPanel(panelId)
+        synchronizeViewportGeometry()
+        return true
+    }
+
+    static func selectedPanelId(
+        atDocumentPoint point: CGPoint,
+        in snapshot: LayoutSnapshot,
+        panelIdFromSurfaceId: (TabID) -> UUID?
+    ) -> UUID? {
+        for pane in snapshot.panes.reversed() {
+            let paneFrame = CGRect(
+                x: pane.frame.x - snapshot.containerFrame.x,
+                y: pane.frame.y - snapshot.containerFrame.y,
+                width: pane.frame.width,
+                height: pane.frame.height
+            )
+            guard paneFrame.contains(point) else { continue }
+            guard let tabIdString = pane.selectedTabId ?? pane.tabIds.first,
+                  let tabUUID = UUID(uuidString: tabIdString) else {
+                return nil
+            }
+            return panelIdFromSurfaceId(TabID(uuid: tabUUID))
+        }
+        return nil
     }
 
     private func paneFrame(containing panelId: UUID) -> CGRect? {
