@@ -38,6 +38,7 @@ import Testing
     #expect(decision.appliesLocally)
     #expect(decision.forwardsToHost)
     #expect(decision.requestsScrollbackHydration)
+    #expect(decision.hostScrollLines(forGestureLines: 4.5) == 0)
 }
 
 @Test func alternateScreenScrollAlwaysForwardsWithoutHistoryHydration() {
@@ -51,4 +52,19 @@ import Testing
     #expect(decision.appliesLocally == false)
     #expect(decision.forwardsToHost)
     #expect(decision.requestsScrollbackHydration == false)
+    #expect(decision.hostScrollLines(forGestureLines: -2) == -2)
+}
+
+@Test func unhydratedPrimaryScrollForwardsGestureDeltaWhileRequestingHydration() {
+    let decision = MobileTerminalScrollForwardingPolicy().decision(
+        activeScreen: .primary,
+        decouplePrimaryScreenScroll: true,
+        localMirrorCanServePrimaryScroll: false,
+        localMirrorRequiresHydration: true
+    )
+
+    #expect(decision.appliesLocally == false)
+    #expect(decision.forwardsToHost)
+    #expect(decision.requestsScrollbackHydration)
+    #expect(decision.hostScrollLines(forGestureLines: 3) == 3)
 }

@@ -1951,10 +1951,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard scrollDecision.forwardsToHost else {
             return
         }
-        guard lines != 0 else { return }
+        guard let hostLines = scrollDecision.hostScrollLines(forGestureLines: lines) else { return }
         delegate?.ghosttySurfaceView(
             self,
-            didScrollLines: lines,
+            didScrollLines: hostLines,
             atCol: cell.col,
             row: cell.row,
             requestingScrollbackHydration: scrollDecision.requestsScrollbackHydration

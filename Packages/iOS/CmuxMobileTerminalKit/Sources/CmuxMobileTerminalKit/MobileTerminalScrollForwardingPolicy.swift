@@ -16,6 +16,15 @@ public struct MobileTerminalScrollForwardingPolicy: Sendable {
             self.forwardsToHost = forwardsToHost
             self.requestsScrollbackHydration = requestsScrollbackHydration
         }
+
+        public func hostScrollLines(forGestureLines lines: Double) -> Double? {
+            guard forwardsToHost else { return nil }
+            if appliesLocally && requestsScrollbackHydration {
+                return 0
+            }
+            guard lines != 0 || requestsScrollbackHydration else { return nil }
+            return lines
+        }
     }
 
     /// Creates the forwarding policy.
