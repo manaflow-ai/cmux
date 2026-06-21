@@ -4555,16 +4555,16 @@ final class BrowserPanel: Panel, ObservableObject {
             usesTransparentWindow: usesTransparentWindow
         )
     }
-
     private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
+        guard terminatedWebView === webView else { return }
         replaceWebViewPreservingState(
             from: terminatedWebView,
             websiteDataStore: websiteDataStore,
             reason: "webcontent_process_terminated",
             waitForManualRecovery: true
         )
+        hiddenWebViewDiscardManager.noteWebContentProcessRecovery()
     }
-
     private func replaceWebViewPreservingState(
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,
