@@ -1142,10 +1142,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// separately above the keyboard edge, never by reparenting the toolbar into a
     /// second layout system.
     private var composerActive = false
-    /// Whether the hosted composer text field owns first responder. While true, the
-    /// terminal shortcut toolbar is hidden and does not reserve grid height; the user
-    /// is composing a message, so the keyboard-pinned message field gets the whole
-    /// bottom dock instead of being squeezed by terminal shortcuts.
+    /// Whether the hosted composer text field owns first responder. The SwiftUI host
+    /// reports this for diagnostics and for the close/reveal reducer, but toolbar
+    /// reservation keys on the broader `composerActive && keyboardHeight > 0` state:
+    /// the screenshot repro had the keyboard owned by the terminal proxy while the
+    /// composer was visible, so a focus-only rule missed the bad layout.
     private var composerFieldFocused = false
     /// The composer band: a surface-owned container the host installs the SwiftUI
     /// compose field into (via a `UIHostingController` in
@@ -1200,6 +1201,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // keyboard comes up. Done before the frame animation so it animates in
         // with the keyboard instead of popping after.
         if wasDown { updateDockedToolbarVisibility() }
+        if composerActive {
+            focusMountedComposerField()
+            updateDockedToolbarVisibility()
+        }
         animateDockedToolbar(with: notification)
         setNeedsGeometrySync()
     }
@@ -1330,12 +1335,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Whether the terminal shortcut toolbar is currently on screen.
     ///
-    /// The explicit HIDE button suppresses all bottom chrome. Composer focus hides
-    /// only the terminal shortcut toolbar: the composer remains visible and pinned to
-    /// the keyboard, but the terminal-only shortcuts stop consuming vertical space
-    /// while the user is writing a message.
+    /// The explicit HIDE button suppresses all bottom chrome. Composer plus keyboard
+    /// hides only the terminal shortcut toolbar: the composer remains visible and
+    /// pinned to the keyboard, but terminal-only shortcuts stop consuming vertical
+    /// space while the user is writing a message. This intentionally uses keyboard
+    /// state, not only text-field focus, because the terminal proxy can briefly own
+    /// first responder while the message field is visible.
     private var dockedToolbarShouldBeVisible: Bool {
-        !chromeHidden && !(composerActive && composerFieldFocused)
+        !chromeHidden && !(composerActive && keyboardHeight > 0)
     }
 
     /// True while the HIDE button has temporarily suppressed the bottom chrome
@@ -1527,8 +1534,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Update whether the hosted composer field owns first responder. The SwiftUI
     /// host reports this explicitly because the surface cannot observe `@FocusState`
-    /// directly. Focused composer input hides the terminal shortcut toolbar, leaving
-    /// the message field pinned to the keyboard with no competing control strip.
+    /// directly. Focus changes still trigger a dock refresh so the reducer probe and
+    /// frame state converge as soon as SwiftUI focus catches up with UIKit.
     public func setComposerFieldFocused(_ focused: Bool) {
         guard composerFieldFocused != focused else { return }
         composerFieldFocused = focused
