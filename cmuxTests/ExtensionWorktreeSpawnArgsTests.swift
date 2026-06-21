@@ -108,29 +108,25 @@ struct ExtensionWorktreeManagementTests {
         ) == nil)
     }
 
-    // MARK: - Removal confirmation / force decisions
+    // MARK: - Removal safety / force decisions
 
-    @Test("clean removals respect the suppression flag")
-    func cleanRemovalRespectsSuppression() {
+    @Test("clean removals do not require force")
+    func cleanRemovalDoesNotRequireForce() {
         let clean = CmuxExtensionWorktreeRemovalSafety(
             hasUncommittedChanges: false,
             unpushedCommitCount: 0
         )
         #expect(clean.isClean)
         #expect(clean.requiresForce == false)
-        #expect(CmuxExtensionWorktreePrototype.removalRequiresConfirmation(safety: clean, suppressionEnabled: false))
-        #expect(!CmuxExtensionWorktreePrototype.removalRequiresConfirmation(safety: clean, suppressionEnabled: true))
     }
 
-    @Test("dirty or unpushed removals always confirm, ignoring suppression")
-    func unsafeRemovalAlwaysConfirms() {
+    @Test("dirty worktrees require force; unpushed commits keep the branch warning-only")
+    func unsafeRemovalSafetyFlags() {
         let dirty = CmuxExtensionWorktreeRemovalSafety(
             hasUncommittedChanges: true,
             unpushedCommitCount: 0
         )
         #expect(dirty.requiresForce)
-        // Suppression must never bypass a data-loss prompt.
-        #expect(CmuxExtensionWorktreePrototype.removalRequiresConfirmation(safety: dirty, suppressionEnabled: true))
 
         let unpushed = CmuxExtensionWorktreeRemovalSafety(
             hasUncommittedChanges: false,
@@ -138,11 +134,10 @@ struct ExtensionWorktreeManagementTests {
         )
         #expect(unpushed.hasUnpushedCommits)
         #expect(unpushed.requiresForce == false)
-        #expect(CmuxExtensionWorktreePrototype.removalRequiresConfirmation(safety: unpushed, suppressionEnabled: true))
     }
 
-    @Test("an un-inspectable worktree always confirms and is never suppressible")
-    func inspectionFailureForcesConfirmation() {
+    @Test("an un-inspectable worktree is not clean and never force-removes")
+    func inspectionFailureUsesWarningPathWithoutForce() {
         let unknown = CmuxExtensionWorktreeRemovalSafety(
             hasUncommittedChanges: false,
             unpushedCommitCount: 0,
@@ -151,8 +146,40 @@ struct ExtensionWorktreeManagementTests {
         #expect(!unknown.isClean)
         // Unknown state must never force-remove (git still refuses a dirty tree).
         #expect(unknown.requiresForce == false)
-        // Even with "don't ask again" set, an unknown state still prompts.
-        #expect(CmuxExtensionWorktreePrototype.removalRequiresConfirmation(safety: unknown, suppressionEnabled: true))
+    }
+
+    @Test("detached commits not on a local ref make removal unsafe")
+    func detachedUnreferencedHeadIsUnsafe() async throws {
+        let repo = try GitFixture.makeRepo()
+        defer { GitFixture.cleanUp(repo) }
+
+        try FileManager.default.createDirectory(
+            atPath: repo + "/.cmux/worktrees",
+            withIntermediateDirectories: true
+        )
+        let worktree = repo + "/.cmux/worktrees/detached-wt"
+        GitFixture.run(["worktree", "add", "-b", "detached-wt", worktree, "HEAD"], in: repo)
+        GitFixture.run(["checkout", "-q", "--detach", "HEAD"], in: worktree)
+        try "detached\n".write(
+            toFile: worktree + "/detached.txt",
+            atomically: true,
+            encoding: .utf8
+        )
+        GitFixture.run(["add", "detached.txt"], in: worktree)
+        GitFixture.run(
+            [
+                "-c", "user.email=test@cmux.dev",
+                "-c", "user.name=cmux test",
+                "-c", "commit.gpgsign=false",
+                "commit", "-q", "-m", "detached work",
+            ],
+            in: worktree
+        )
+
+        let safety = try await CmuxExtensionWorktreePrototype.inspectRemovalSafety(worktreePath: worktree)
+        #expect(safety.hasUnreferencedDetachedHead)
+        #expect(!safety.isClean)
+        #expect(safety.requiresForce == false)
     }
 
     // MARK: - Replacement workspace before closing the last tab
@@ -170,26 +197,32 @@ struct ExtensionWorktreeManagementTests {
 
     // MARK: - Which tabs close on removal
 
-    @Test("workspaces whose cwd is inside the removed worktree are selected to close")
-    func workspaceSelectionMatchesWorktreeContainment() {
+    @Test("workspaces with any directory inside the removed worktree are selected to close")
+    func workspaceSelectionMatchesAnyWorktreeDirectory() {
         let worktree = "/Users/me/repo/.cmux/worktrees/wt-a"
         let atRoot = UUID()
         let inSubdir = UUID()
+        let nonFocusedPane = UUID()
         let elsewhere = UUID()
         let siblingPrefix = UUID()
-        let workspaces: [(id: UUID, currentDirectory: String?)] = [
-            (id: atRoot, currentDirectory: worktree),                 // exactly the worktree
-            (id: elsewhere, currentDirectory: "/Users/me/repo"),      // parent repo, not inside
-            (id: inSubdir, currentDirectory: worktree + "/packages/app"), // nested cwd
+        let workspaces: [(id: UUID, candidateDirectories: [String?])] = [
+            // Exactly the worktree.
+            (id: atRoot, candidateDirectories: [worktree]),
+            // Parent repo, not inside.
+            (id: elsewhere, candidateDirectories: ["/Users/me/repo"]),
+            // Nested workspace cwd.
+            (id: inSubdir, candidateDirectories: [worktree + "/packages/app"]),
+            // Workspace cwd is elsewhere, but a non-focused pane is inside.
+            (id: nonFocusedPane, candidateDirectories: ["/Users/me/repo", worktree + "/tools"]),
             // A sibling whose path merely starts with the name must NOT match.
-            (id: siblingPrefix, currentDirectory: worktree + "-backup"),
-            (id: UUID(), currentDirectory: nil),
+            (id: siblingPrefix, candidateDirectories: [worktree + "-backup"]),
+            (id: UUID(), candidateDirectories: [nil, "   "]),
         ]
         let ids = CmuxExtensionWorktreePrototype.workspaceIdsRooted(
             inWorktreePath: worktree,
             workspaces: workspaces
         )
-        #expect(ids == [atRoot, inSubdir])
+        #expect(ids == [atRoot, inSubdir, nonFocusedPane])
     }
 
     // MARK: - On-disk removal (real git)
@@ -249,6 +282,56 @@ struct ExtensionWorktreeManagementTests {
         #expect(FileManager.default.fileExists(atPath: worktree))
 
         // With force (i.e. after the user confirmed the data-loss prompt) it goes.
+        try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktree, force: true)
+        #expect(!FileManager.default.fileExists(atPath: worktree))
+    }
+
+    @Test("a clean worktree with an initialized submodule can be removed after explicit force")
+    func initializedSubmoduleNeedsExplicitForceRetry() async throws {
+        let repo = try GitFixture.makeRepo()
+        defer { GitFixture.cleanUp(repo) }
+        let submoduleRepo = try GitFixture.makeRepo()
+        defer { GitFixture.cleanUp(submoduleRepo) }
+
+        GitFixture.run(
+            ["-c", "protocol.file.allow=always", "submodule", "add", "-q", submoduleRepo, "deps/lib"],
+            in: repo
+        )
+        GitFixture.run(
+            [
+                "-c", "user.email=test@cmux.dev",
+                "-c", "user.name=cmux test",
+                "-c", "commit.gpgsign=false",
+                "commit", "-q", "-m", "add submodule",
+            ],
+            in: repo
+        )
+
+        try FileManager.default.createDirectory(
+            atPath: repo + "/.cmux/worktrees",
+            withIntermediateDirectories: true
+        )
+        let worktree = repo + "/.cmux/worktrees/submodule-wt"
+        GitFixture.run(["worktree", "add", "-b", "submodule-wt", worktree, "HEAD"], in: repo)
+        GitFixture.run(
+            ["-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive"],
+            in: worktree
+        )
+        #expect(FileManager.default.fileExists(atPath: worktree + "/deps/lib/.git"))
+
+        let safety = try await CmuxExtensionWorktreePrototype.inspectRemovalSafety(worktreePath: worktree)
+        #expect(safety.isClean)
+        #expect(safety.requiresForce == false)
+
+        var refusedWithoutForce = false
+        do {
+            try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktree, force: false)
+        } catch {
+            refusedWithoutForce = true
+        }
+        #expect(refusedWithoutForce)
+        #expect(FileManager.default.fileExists(atPath: worktree))
+
         try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktree, force: true)
         #expect(!FileManager.default.fileExists(atPath: worktree))
     }

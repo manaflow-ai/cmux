@@ -80,58 +80,25 @@ struct CmuxExtensionWorktreeIdentity: Sendable, Equatable {
 struct CmuxExtensionWorktreeRemovalSafety: Sendable, Equatable {
     var hasUncommittedChanges: Bool
     var unpushedCommitCount: Int
+    var hasUnreferencedDetachedHead: Bool = false
     /// True when the safety probe itself failed (git error / not a worktree).
-    /// An unknown state is treated as *not* clean: removal always confirms and
-    /// the confirmation can't be suppressed, so a stale "don't ask again"
-    /// preference can never skip the prompt for an un-inspected worktree.
+    /// An unknown state is treated as *not* clean so the prompt uses the
+    /// stronger warning copy and git still gets the final say on removal.
     var inspectionFailed: Bool = false
 
     var hasUnpushedCommits: Bool { unpushedCommitCount > 0 }
 
     /// Whether the worktree is known to have no unsaved or unpushed work.
-    var isClean: Bool { !inspectionFailed && !hasUncommittedChanges && !hasUnpushedCommits }
+    var isClean: Bool {
+        !inspectionFailed
+            && !hasUncommittedChanges
+            && !hasUnpushedCommits
+            && !hasUnreferencedDetachedHead
+    }
 
     /// `git worktree remove` refuses a dirty working tree without `--force`.
     /// An unknown state does *not* force: git is left to refuse a dirty tree.
     var requiresForce: Bool { hasUncommittedChanges }
-}
-
-final class CmuxExtensionProcessTermination: @unchecked Sendable {
-    private let lock = NSLock()
-    private var status: Int32?
-    private var continuation: CheckedContinuation<Int32, Never>?
-
-    func complete(_ status: Int32) {
-        let continuation: CheckedContinuation<Int32, Never>?
-        lock.lock()
-        if let pendingContinuation = self.continuation {
-            self.continuation = nil
-            continuation = pendingContinuation
-        } else {
-            self.status = status
-            continuation = nil
-        }
-        lock.unlock()
-        continuation?.resume(returning: status)
-    }
-
-    func wait() async -> Int32 {
-        await withCheckedContinuation { continuation in
-            let completedStatus: Int32?
-            lock.lock()
-            if let status {
-                completedStatus = status
-            } else {
-                self.continuation = continuation
-                completedStatus = nil
-            }
-            lock.unlock()
-
-            if let completedStatus {
-                continuation.resume(returning: completedStatus)
-            }
-        }
-    }
 }
 
 enum CmuxExtensionWorktreePrototype {
@@ -197,40 +164,31 @@ enum CmuxExtensionWorktreePrototype {
         return CmuxExtensionWorktreeIdentity(worktreePath: standardized, parentRepoPath: parent)
     }
 
-    /// Pure decision: whether removing a worktree should prompt for
-    /// confirmation. A worktree with unsaved or unpushed work *always* prompts,
-    /// regardless of the "don't ask again" suppression flag, so suppression can
-    /// never silently destroy work.
-    static func removalRequiresConfirmation(
-        safety: CmuxExtensionWorktreeRemovalSafety,
-        suppressionEnabled: Bool
-    ) -> Bool {
-        if !safety.isClean { return true }
-        return !suppressionEnabled
-    }
-
     /// Pure selection of the workspace ids physically inside the given worktree
     /// path. Used to close every workspace tab rooted in a worktree when it is
     /// removed (the original "+" tab plus any "Open terminal inside" tabs).
     ///
-    /// Matching is by containment of each workspace's *live current directory*
-    /// (its actual reported cwd) rather than the asynchronously-derived,
-    /// possibly-stale `extensionSidebarProjectRootPath`, so a destructive
-    /// removal operates on authoritative state. Input order is preserved so
-    /// callers close tabs deterministically.
+    /// Matching is by containment of each workspace's live directory candidates
+    /// (workspace cwd plus panel-local directories) rather than the
+    /// asynchronously-derived, possibly-stale `extensionSidebarProjectRootPath`,
+    /// so a destructive removal operates on authoritative state. Input order is
+    /// preserved so callers close tabs deterministically.
     static func workspaceIdsRooted(
         inWorktreePath worktreePath: String,
-        workspaces: [(id: UUID, currentDirectory: String?)]
+        workspaces: [(id: UUID, candidateDirectories: [String?])]
     ) -> [UUID] {
         let target = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL.path
         let prefix = target + "/"
         return workspaces.compactMap { entry in
-            guard let directory = entry.currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !directory.isEmpty else {
-                return nil
+            let isRooted = entry.candidateDirectories.contains { candidate in
+                guard let directory = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !directory.isEmpty else {
+                    return false
+                }
+                let standardized = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL.path
+                return standardized == target || standardized.hasPrefix(prefix)
             }
-            let standardized = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL.path
-            return (standardized == target || standardized.hasPrefix(prefix)) ? entry.id : nil
+            return isRooted ? entry.id : nil
         }
     }
 
@@ -248,22 +206,28 @@ enum CmuxExtensionWorktreePrototype {
         try await Task.detached(priority: .userInitiated) {
             let worktree = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL.path
 
-            let statusOutput = try await runGitTrimmed(
-                ["-C", worktree, "status", "--porcelain"],
-                failureDescription: "Could not inspect the worktree status."
-            )
-            let hasUncommittedChanges = !statusOutput.isEmpty
+            let hasUncommittedChanges = try await hasWorktreeChanges(worktree: worktree)
+
+            var hasUnreferencedDetachedHead = false
+            let headBranch = await runAllowingFailure(["-C", worktree, "symbolic-ref", "--quiet", "--short", "HEAD"])
+            if headBranch.status != 0 {
+                let localRefsContainingHead = try await runGitTrimmed(
+                    ["-C", worktree, "for-each-ref", "--contains", "HEAD", "--format=%(refname)", "refs/heads", "refs/tags"],
+                    failureDescription: "Could not inspect local refs containing HEAD."
+                )
+                hasUnreferencedDetachedHead = localRefsContainingHead.isEmpty
+            }
 
             // Unpushed = commits on HEAD not reachable from any remote-tracking
-            // branch. Skip when the repo has no remotes at all, since
-            // `rev-list --not --remotes` would otherwise count the entire
-            // history and over-report a local-only repo as "unpushed".
-            let remotes = try await runGitTrimmed(
-                ["-C", worktree, "remote"],
-                failureDescription: "Could not list git remotes."
+            // branch. Skip when the repo has no remote-tracking refs, since a
+            // template/global-configured remote with no fetched refs makes
+            // `rev-list --not --remotes` count the entire local history.
+            let remoteRefs = try await runGitTrimmed(
+                ["-C", worktree, "for-each-ref", "--format=%(refname)", "refs/remotes"],
+                failureDescription: "Could not list git remote refs."
             )
             var unpushedCommitCount = 0
-            if !remotes.isEmpty {
+            if !remoteRefs.isEmpty {
                 let revOutput = try await runGitTrimmed(
                     ["-C", worktree, "rev-list", "--count", "HEAD", "--not", "--remotes"],
                     failureDescription: "Could not count unpushed commits."
@@ -273,7 +237,8 @@ enum CmuxExtensionWorktreePrototype {
 
             return CmuxExtensionWorktreeRemovalSafety(
                 hasUncommittedChanges: hasUncommittedChanges,
-                unpushedCommitCount: unpushedCommitCount
+                unpushedCommitCount: unpushedCommitCount,
+                hasUnreferencedDetachedHead: hasUnreferencedDetachedHead
             )
         }.value
     }
@@ -390,6 +355,33 @@ enum CmuxExtensionWorktreePrototype {
         _ = try await runCapturingOutput(executable, arguments)
     }
 
+    /// Bounded dirty check: use git exit statuses and discard command output so
+    /// the removal confirmation path cannot allocate for every changed file.
+    private static func hasWorktreeChanges(worktree: String) async throws -> Bool {
+        let trackedStatus = await runGitExitStatusDiscardingOutput(
+            ["-C", worktree, "diff-index", "--quiet", "HEAD", "--"]
+        )
+        if trackedStatus == 1 { return true }
+        if trackedStatus != 0 {
+            throw NSError(
+                domain: "CmuxExtensionWorktreePrototype",
+                code: Int(trackedStatus),
+                userInfo: [NSLocalizedDescriptionKey: "Could not inspect tracked changes."]
+            )
+        }
+
+        let untrackedStatus = await runGitExitStatusDiscardingOutput(
+            ["-C", worktree, "ls-files", "--others", "--exclude-standard", "--directory", "--no-empty-directory", "--error-unmatch", "."]
+        )
+        if untrackedStatus == 0 { return true }
+        if untrackedStatus == 1 { return false }
+        throw NSError(
+            domain: "CmuxExtensionWorktreePrototype",
+            code: Int(untrackedStatus),
+            userInfo: [NSLocalizedDescriptionKey: "Could not inspect untracked files."]
+        )
+    }
+
     private static func runCapturingOutput(
         _ executable: String,
         _ arguments: [String],
@@ -397,7 +389,9 @@ enum CmuxExtensionWorktreePrototype {
     ) async throws -> Data {
         let result = await runProcess(executable, arguments)
         guard result.status == 0 else {
-            let details = String(data: result.output, encoding: .utf8) ?? "command failed"
+            var output = result.stdout
+            output.append(result.stderr)
+            let details = String(data: output, encoding: .utf8) ?? "command failed"
             throw NSError(
                 domain: "CmuxExtensionWorktreePrototype",
                 code: Int(result.status),
@@ -409,11 +403,11 @@ enum CmuxExtensionWorktreePrototype {
                 ]
             )
         }
-        return result.output
+        return result.stdout
     }
 
-    /// Runs `git` and returns its trimmed stdout/stderr, throwing on a non-zero
-    /// exit with `failureDescription` as the user-facing message.
+    /// Runs `git` and returns its trimmed stdout, throwing on a non-zero exit
+    /// with `failureDescription` as the user-facing message.
     @discardableResult
     private static func runGitTrimmed(
         _ arguments: [String],
@@ -423,26 +417,30 @@ enum CmuxExtensionWorktreePrototype {
         return (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Runs `git` without throwing, returning the exit status and trimmed
-    /// output. Used for best-effort cleanup (prune, branch -d) and optional
-    /// probes (current branch) where a non-zero exit is expected and benign.
+    /// Runs `git` without throwing, returning the exit status and trimmed stdout.
+    /// Used for best-effort cleanup (prune, branch -d) and optional probes
+    /// (current branch) where a non-zero exit is expected and benign.
     private static func runAllowingFailure(_ arguments: [String]) async -> (status: Int32, stdout: String) {
         let result = await runProcess("git", arguments)
-        let text = (String(data: result.output, encoding: .utf8) ?? "")
+        let text = (String(data: result.stdout, encoding: .utf8) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (result.status, text)
     }
 
-    private static func runProcess(
-        _ executable: String,
-        _ arguments: [String]
-    ) async -> (status: Int32, output: Data) {
+    private static func runGitExitStatusDiscardingOutput(_ arguments: [String]) async -> Int32 {
+        await runProcessDiscardingOutput("git", arguments)
+    }
+
+    private static func runProcessDiscardingOutput(_ executable: String, _ arguments: [String]) async -> Int32 {
+        guard let stdout = FileHandle(forWritingAtPath: "/dev/null"),
+              let stderr = FileHandle(forWritingAtPath: "/dev/null") else {
+            return -1
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [executable] + arguments
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        process.standardOutput = stdout
+        process.standardError = stderr
         let termination = CmuxExtensionProcessTermination()
         process.terminationHandler = { process in
             termination.complete(process.terminationStatus)
@@ -450,37 +448,47 @@ enum CmuxExtensionWorktreePrototype {
         do {
             try process.run()
         } catch {
-            try? pipe.fileHandleForReading.close()
-            return (-1, Data((error.localizedDescription).utf8))
+            try? stdout.close()
+            try? stderr.close()
+            return -1
         }
-        let outputCollector = CmuxExtensionPipeOutputCollector(fileHandle: pipe.fileHandleForReading)
         let terminationStatus = await termination.wait()
-        let outputData = await outputCollector.finish()
-        return (terminationStatus, outputData)
+        try? stdout.close()
+        try? stderr.close()
+        return terminationStatus
+    }
+
+    private static func runProcess(
+        _ executable: String,
+        _ arguments: [String]
+    ) async -> (status: Int32, stdout: Data, stderr: Data) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [executable] + arguments
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        let termination = CmuxExtensionProcessTermination()
+        process.terminationHandler = { process in
+            termination.complete(process.terminationStatus)
+        }
+        do {
+            try process.run()
+        } catch {
+            try? stdoutPipe.fileHandleForReading.close()
+            try? stderrPipe.fileHandleForReading.close()
+            return (-1, Data(), Data((error.localizedDescription).utf8))
+        }
+        let stdoutCollector = CmuxExtensionPipeOutputCollector(fileHandle: stdoutPipe.fileHandleForReading)
+        let stderrCollector = CmuxExtensionPipeOutputCollector(fileHandle: stderrPipe.fileHandleForReading)
+        let terminationStatus = await termination.wait()
+        let stdoutData = await stdoutCollector.finish()
+        let stderrData = await stderrCollector.finish()
+        return (terminationStatus, stdoutData, stderrData)
     }
 
     private static func shellEscaped(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-}
-
-final class CmuxExtensionPipeOutputCollector: @unchecked Sendable {
-    private struct ReadHandle: @unchecked Sendable {
-        let fileHandle: FileHandle
-    }
-
-    private let readTask: Task<Data, Never>
-
-    init(fileHandle: FileHandle) {
-        let readHandle = ReadHandle(fileHandle: fileHandle)
-        readTask = Task.detached(priority: .utility) {
-            let data = readHandle.fileHandle.readDataToEndOfFileOrEmpty()
-            try? readHandle.fileHandle.close()
-            return data
-        }
-    }
-
-    func finish() async -> Data {
-        await readTask.value
     }
 }

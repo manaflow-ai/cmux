@@ -146,16 +146,5 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarNotificationBadgeColorHex"
     )
 
-    /// "Don't ask again" suppression flag for the Project Worktrees sidebar
-    /// worktree-removal confirmation. Defaults to `false` (the dialog is
-    /// shown). Mirrors `workspaceGroups.anchorCloseSuppressed`: the flag is
-    /// only ever set from the in-dialog checkbox, and removals that would
-    /// lose uncommitted or unpushed work always prompt regardless of it.
-    public let worktreeRemovalSuppressed = DefaultsKey<Bool>(
-        id: "sidebar.worktreeRemovalSuppressed",
-        defaultValue: false,
-        userDefaultsKey: "sidebarWorktreeRemovalSuppressed"
-    )
-
     public init() {}
 }

@@ -1,6 +1,5 @@
 import AppKit
 import CmuxFoundation
-import CmuxSettings
 import CmuxSidebarProviderKit
 import Foundation
 
@@ -47,7 +46,7 @@ extension VerticalTabsSidebar {
         )
     }
 
-    /// Inspects safety state, confirms if needed, removes the worktree, and closes rooted tabs.
+    /// Inspects safety state, confirms removal, removes the worktree, and closes rooted tabs.
     func requestRemoveExtensionWorktree(worktreePath: String) {
         Task { @MainActor in
             let safety: CmuxExtensionWorktreeRemovalSafety
@@ -62,54 +61,61 @@ extension VerticalTabsSidebar {
                 )
             }
 
-            let settings = UserDefaultsSettingsClient(defaults: .standard)
-            let catalog = SettingCatalog()
-            let suppressed = settings.value(for: catalog.sidebar.worktreeRemovalSuppressed)
             let worktreeName = URL(fileURLWithPath: worktreePath, isDirectory: true).lastPathComponent
 
-            if CmuxExtensionWorktreePrototype.removalRequiresConfirmation(
-                safety: safety,
-                suppressionEnabled: suppressed
-            ) {
-                let decision = confirmRemoveExtensionWorktree(worktreeName: worktreeName, safety: safety)
-                guard decision.confirmed else { return }
-                if decision.suppressFuturePrompts {
-                    settings.set(true, for: catalog.sidebar.worktreeRemovalSuppressed)
-                }
-            }
+            guard confirmRemoveExtensionWorktree(worktreeName: worktreeName, safety: safety) else { return }
 
             await performRemoveExtensionWorktree(
                 worktreePath: worktreePath,
-                worktreeName: worktreeName,
-                force: safety.requiresForce
+                worktreeName: worktreeName
             )
         }
     }
 
     func performRemoveExtensionWorktree(
         worktreePath: String,
-        worktreeName: String,
-        force: Bool
+        worktreeName: String
     ) async {
         let idsToClose = Set(CmuxExtensionWorktreePrototype.workspaceIdsRooted(
             inWorktreePath: worktreePath,
-            workspaces: tabManager.tabs.map { (id: $0.id, currentDirectory: $0.currentDirectory) }
+            workspaces: tabManager.tabs.map {
+                (
+                    id: $0.id,
+                    candidateDirectories: $0.extensionWorktreeRemovalCandidateDirectories()
+                )
+            }
         ))
         let workspacesToClose = tabManager.tabs.filter { idsToClose.contains($0.id) }
 
         do {
-            try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktreePath, force: force)
+            try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktreePath, force: false)
         } catch {
-            NSSound.beep()
+            let details = (error as NSError).userInfo["CmuxExtensionWorktreePrototypeDetails"] as? String
+            let message = details?.nilIfEmpty ?? error.localizedDescription
 #if DEBUG
             cmuxDebugLog("extensionSidebar.worktree.remove.failed path=\(worktreePath) error=\(error.localizedDescription)")
 #endif
-            let details = (error as NSError).userInfo["CmuxExtensionWorktreePrototypeDetails"] as? String
-            presentExtensionWorktreeRemovalFailure(
+            if confirmForceRemoveExtensionWorktreeAfterFailure(
                 worktreeName: worktreeName,
-                message: details?.nilIfEmpty ?? error.localizedDescription
-            )
-            return
+                message: message
+            ) {
+                do {
+                    try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktreePath, force: true)
+                } catch {
+                    NSSound.beep()
+#if DEBUG
+                    cmuxDebugLog("extensionSidebar.worktree.forceRemove.failed path=\(worktreePath) error=\(error.localizedDescription)")
+#endif
+                    let forceDetails = (error as NSError).userInfo["CmuxExtensionWorktreePrototypeDetails"] as? String
+                    presentExtensionWorktreeRemovalFailure(
+                        worktreeName: worktreeName,
+                        message: forceDetails?.nilIfEmpty ?? error.localizedDescription
+                    )
+                    return
+                }
+            } else {
+                return
+            }
         }
 
         if CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(
@@ -130,5 +136,23 @@ extension VerticalTabsSidebar {
             tabManager.closeWorkspace(workspace, recordHistory: false)
         }
         refreshExtensionSidebarSnapshot()
+    }
+}
+
+private extension Workspace {
+    func extensionWorktreeRemovalCandidateDirectories() -> [String?] {
+        var directories: [String?] = [currentDirectory]
+        directories.append(contentsOf: panelDirectories.values.map(Optional.some))
+
+        for panel in panels.values {
+            if let terminalPanel = panel as? TerminalPanel {
+                directories.append(terminalPanel.requestedWorkingDirectory)
+            }
+            if let agentPanel = panel as? AgentSessionPanel {
+                directories.append(agentPanel.workingDirectory)
+            }
+        }
+
+        return directories
     }
 }
