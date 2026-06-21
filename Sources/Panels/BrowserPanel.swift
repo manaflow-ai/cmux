@@ -2111,15 +2111,19 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             drainDone.signal()
         }
 
+        // Install the termination handler BEFORE run(): a cached refs request can
+        // exit almost immediately, and if the process terminated before the
+        // handler were attached the semaphore would never signal, leaving the
+        // timeout path waiting forever (hung request + leaked GCD worker).
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         do {
             try process.run()
         } catch {
             readHandle.closeFile()
             return nil
         }
-
-        let exited = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exited.signal() }
 
         if exited.wait(timeout: .now() + pickerCommandTimeout) == .timedOut {
             // Bounded wait elapsed: terminate, then hard-kill if it ignores SIGTERM.
