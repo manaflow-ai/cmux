@@ -8,6 +8,8 @@ import { describe, expect, it } from "bun:test";
 import {
   applyBackupOps,
   listLiveBackup,
+  MAX_BACKUP_OPS,
+  MAX_PAIRED_MAC_RECORDS_PER_USER,
   MAX_PAIRED_MACS_PER_USER,
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
@@ -244,6 +246,40 @@ describe("applyBackupOps", () => {
     expect(afterClear?.customName).toBeUndefined();
     expect(afterClear?.customColor).toBeUndefined();
     expect(afterClear?.customIcon).toBeUndefined();
+  });
+
+  it("caps cumulative live+tombstone records so create/delete churn can't grow storage", async () => {
+    const storage = new FakeStorage();
+    const account = "user-churn";
+    // Churn distinct ids (create then delete → tombstone) up to the cumulative cap.
+    const cap = MAX_PAIRED_MAC_RECORDS_PER_USER;
+    let created = 0;
+    while (created < cap) {
+      const batch = Math.min(MAX_BACKUP_OPS, cap - created);
+      const upserts = Array.from({ length: batch }, (_, i) => ({
+        kind: "upsert" as const,
+        id: `mac-${created + i}`,
+        record: record(`mac-${created + i}`, "10.0.0.1", 22),
+      }));
+      await applyBackupOps(storage, account, upserts, T0);
+      await applyBackupOps(
+        storage, account, upserts.map((o) => ({ kind: "delete" as const, id: o.id })), T0 + 1);
+      created += batch;
+    }
+
+    // At the cumulative cap (all tombstoned), a BRAND-NEW id is refused...
+    await applyBackupOps(storage, account, [
+      { kind: "upsert", id: "mac-overflow", record: record("mac-overflow", "10.0.0.9", 22) },
+    ], T0 + 2);
+    const afterOverflow = await listLiveBackup(storage, account);
+    expect(afterOverflow.some((r) => r.macDeviceID === "mac-overflow")).toBe(false);
+
+    // ...but REVIVING an existing tombstoned id is allowed (reuses its slot, no growth).
+    await applyBackupOps(storage, account, [
+      { kind: "upsert", id: "mac-0", record: record("mac-0", "10.0.0.1", 22) },
+    ], T0 + 3);
+    const afterRevive = await listLiveBackup(storage, account);
+    expect(afterRevive.some((r) => r.macDeviceID === "mac-0")).toBe(true);
   });
 
   it("per-user paired-Mac tombstones are discoverable and GC-able (no unbounded growth)", async () => {

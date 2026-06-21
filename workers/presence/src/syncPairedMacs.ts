@@ -37,6 +37,13 @@ export const PAIRED_MACS_COLLECTION = "pairedMacs";
  * can create, mirroring MAX_DEVICES_PER_TEAM for the device registry. */
 export const MAX_PAIRED_MACS_PER_USER = 200;
 
+/** Max TOTAL records (live + retained tombstones) a single user's collection may
+ * hold. Bounds storage against create/delete churn within the GC retention
+ * window: a delete leaves a tombstone, so a live-only cap lets a client cycle new
+ * ids → delete → repeat unbounded. 5× the live cap leaves generous headroom for
+ * legitimate forget/re-pair while capping the abuse vector. */
+export const MAX_PAIRED_MAC_RECORDS_PER_USER = MAX_PAIRED_MACS_PER_USER * 5;
+
 /** Max ops accepted in one backup request. A full reconcile pushes at most the
  * whole list, so the per-user cap is the natural bound. */
 export const MAX_BACKUP_OPS = MAX_PAIRED_MACS_PER_USER;
@@ -248,11 +255,6 @@ export function relabelSnapshot<P>(page: SyncSnapshotFrame<P>): SyncSnapshotFram
 
 /** Count the live (non-tombstone) backup records a user currently has, to
  * enforce the per-user cap on NEW ids. */
-async function liveRecordCount(storage: SyncStorage, collection: string): Promise<number> {
-  const all = await listRecords<PairedMacBackupRecord>(storage, collection);
-  return all.filter((r) => !r.deleted).length;
-}
-
 /** Apply a batch of backup ops for one user against their physical collection,
  * returning the deltas (relabeled to the logical name) the DO should broadcast
  * to that user's subscribed sockets. An unchanged payload is a no-op (no rev
@@ -265,7 +267,16 @@ export async function applyBackupOps(
   nowMs: number,
 ): Promise<SyncDeltaFrame<unknown>[]> {
   const collection = pairedMacsCollection(userId);
-  let liveCount = await liveRecordCount(storage, collection);
+  // One listing gives both the live count (cap on visible Macs) AND the total
+  // record count (live + RETAINED tombstones). Capping the total bounds storage
+  // against create/delete churn: a delete keeps a tombstone for the GC retention
+  // window, so live-only capping lets a client cycle 200 new ids → delete → repeat
+  // and grow the DO without bound. A brand-new id consumes a new storage slot, so
+  // it is gated on the total cap; reviving a tombstoned id reuses its slot (no
+  // total growth) and is gated only on the live cap.
+  const existingRecords = await listRecords<PairedMacBackupRecord>(storage, collection);
+  let liveCount = existingRecords.filter((r) => !r.deleted).length;
+  let totalCount = existingRecords.length;
   // Upsert and tombstone deltas carry different payload shapes (the record vs.
   // `{}`); both serialize the same on the wire, so collect them as unknown.
   const deltas: SyncDeltaFrame<unknown>[] = [];
@@ -275,15 +286,24 @@ export async function applyBackupOps(
       const res = await tombstoneRecord(storage, collection, op.id, nowMs);
       if (res.delta !== null) {
         liveCount = Math.max(0, liveCount - 1);
+        // `totalCount` is unchanged: tombstoning replaces the live record in place
+        // (same storage key), it does not add a slot.
         deltas.push(relabelDelta(res.delta));
       }
       continue;
     }
     const existing = await readRecord<PairedMacBackupRecord>(storage, collection, op.id);
-    const isNew = existing === undefined || existing.deleted;
-    if (isNew && liveCount >= MAX_PAIRED_MACS_PER_USER) {
-      // At cap: drop new entries rather than fail the whole batch, mirroring the
-      // preferred-first leniency elsewhere. Existing records still update.
+    const isBrandNew = existing === undefined;
+    const isReviving = existing !== undefined && existing.deleted;
+    const addsLive = isBrandNew || isReviving;
+    if (addsLive && liveCount >= MAX_PAIRED_MACS_PER_USER) {
+      // At the live cap: drop new entries rather than fail the whole batch,
+      // mirroring the preferred-first leniency elsewhere. Existing records update.
+      continue;
+    }
+    if (isBrandNew && totalCount >= MAX_PAIRED_MAC_RECORDS_PER_USER) {
+      // At the cumulative (live + retained-tombstone) cap: refuse a truly-new id
+      // until GC frees tombstones, so create/delete churn cannot amplify storage.
       continue;
     }
     // Preserve stored customizations for any custom key this upload did NOT carry.
@@ -313,7 +333,8 @@ export async function applyBackupOps(
       (record) => record.lastSeenAt,
     );
     if (res.delta !== null) {
-      if (isNew) liveCount += 1;
+      if (addsLive) liveCount += 1;
+      if (isBrandNew) totalCount += 1;
       deltas.push(relabelDelta(res.delta));
     }
   }

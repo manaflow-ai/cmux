@@ -926,6 +926,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
+        // Reset foreground identity to anonymous BEFORE seeding the anonymous
+        // preview entry below: otherwise `foregroundMacKey` stays the old real Mac
+        // id, the seeded entry lands under the anonymous key, and the next
+        // `connect()` captures the stale real id as `previousForegroundKey` — so
+        // `dropStalePreviousForeground` drops the wrong key and the preview rows
+        // survive alongside the newly-connected Mac. Also drop the foreground
+        // connection-pool entry so a stale per-Mac connection can't be reused.
+        foregroundMacDeviceID = nil
+        connections = [:]
         // Local preview / disconnected placeholder: seed the foreground (anonymous)
         // entry as the source of truth; `workspaces`/`workspaceGroups` derive from
         // it. Group sections are account-scoped like `pairedMacs`/`registryDevices`

@@ -36,7 +36,9 @@ struct MobileNavDrawerView: View {
                 if teams.count > 1 {
                     Section {
                         ForEach(teams) { team in
-                            teamRow(team, isCurrent: team.id == resolvedTeamID)
+                            teamRow(
+                                id: team.id, displayName: team.displayName,
+                                isCurrent: team.id == resolvedTeamID)
                         }
                     } header: {
                         Text(L10n.string("mobile.drawer.teams", defaultValue: "Teams"))
@@ -69,17 +71,17 @@ struct MobileNavDrawerView: View {
         .accessibilityIdentifier("MobileNavDrawer")
     }
 
-    private func teamRow(_ team: CMUXAuthTeam, isCurrent: Bool) -> some View {
+    private func teamRow(id: String, displayName: String, isCurrent: Bool) -> some View {
         Button {
             // Single shared mutation path: just select the team; the root view's
             // onChange does the lazy re-scope. No-op when it's already current.
             if !isCurrent {
-                authManager.selectedTeamID = team.id
+                authManager.selectedTeamID = id
             }
             onClose()
         } label: {
             HStack {
-                Text(team.displayName)
+                Text(displayName)
                     .foregroundStyle(.primary)
                 Spacer()
                 if isCurrent {
