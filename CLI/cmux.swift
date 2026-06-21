@@ -19378,6 +19378,17 @@ struct CMUXCLI {
         func receiveObject(timeout: TimeInterval?) throws -> [String: Any]
     }
 
+    struct CodexTeamsAppServerRequestError: Error, CustomStringConvertible {
+        let code: Int?
+        let message: String
+
+        var description: String { message }
+
+        var isMissingRollout: Bool {
+            message.localizedCaseInsensitiveContains("no rollout found for thread id")
+        }
+    }
+
     private final class CodexTeamsAppServerConnection: CodexTeamsAppServerConnecting {
         private let session: URLSession
         private let task: URLSessionWebSocketTask
@@ -19477,7 +19488,15 @@ struct CMUXCLI {
                 if CodexTeamsAppServerConnection.message(message, hasId: requestId) {
                     if let error = message["error"] as? [String: Any] {
                         let message = (error["message"] as? String) ?? "Codex app-server request failed"
-                        throw CLIError(message: message)
+                        let code: Int?
+                        if let intCode = error["code"] as? Int {
+                            code = intCode
+                        } else if let numberCode = error["code"] as? NSNumber {
+                            code = numberCode.intValue
+                        } else {
+                            code = nil
+                        }
+                        throw CodexTeamsAppServerRequestError(code: code, message: message)
                     }
                     if let result = message["result"] as? [String: Any] {
                         return result
@@ -19606,7 +19625,7 @@ struct CMUXCLI {
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
         private var suppressedApprovalOrder: [String] = []
-        private let transientThreadResumeRetryDelays: [TimeInterval] = [0, 0.15, 0.35]
+        private let transientThreadResumeRetryLimit = 3
 
         init(
             appServerURL: String,
@@ -19716,7 +19735,7 @@ struct CMUXCLI {
             _ threadId: String,
             connection: CodexTeamsAppServerConnecting
         ) throws {
-            var retryIndex = 0
+            var retryCount = 0
 
             while true {
                 guard claimThreadSubscription(threadId) else { return }
@@ -19741,12 +19760,10 @@ struct CMUXCLI {
                 } catch {
                     finishThreadSubscription(threadId, succeeded: false)
                     guard isTransientThreadResumeError(error),
-                          retryIndex < transientThreadResumeRetryDelays.count else {
+                          retryCount < transientThreadResumeRetryLimit else {
                         throw error
                     }
-                    let delay = transientThreadResumeRetryDelays[retryIndex]
-                    retryIndex += 1
-                    sleepBeforeThreadResumeRetry(delay)
+                    retryCount += 1
                     continue
                 }
 
@@ -19787,13 +19804,13 @@ struct CMUXCLI {
         }
 
         private func isTransientThreadResumeError(_ error: Error) -> Bool {
-            String(describing: error)
-                .localizedCaseInsensitiveContains("no rollout found for thread id")
-        }
-
-        private func sleepBeforeThreadResumeRetry(_ delay: TimeInterval) {
-            guard delay > 0 else { return }
-            usleep(useconds_t(delay * 1_000_000))
+            if let appServerError = error as? CodexTeamsAppServerRequestError {
+                return appServerError.isMissingRollout
+            }
+            if let cliError = error as? CLIError {
+                return cliError.message.localizedCaseInsensitiveContains("no rollout found for thread id")
+            }
+            return false
         }
 
         private func cacheApprovalItemIfPresent(_ message: [String: Any], method: String) {

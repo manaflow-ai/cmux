@@ -615,7 +615,10 @@ struct FeedCoordinatorTests {
     @Test func codexTeamsWatcherBackfillRetriesTransientRolloutMiss() throws {
         let connection = CodexTeamsBackfillConnectionMock(
             resumeResults: [
-                .failure(CLIError(message: "no rollout found for thread id thread-1")),
+                .failure(CMUXCLI.CodexTeamsAppServerRequestError(
+                    code: nil,
+                    message: "no rollout found for thread id thread-1"
+                )),
                 .success(["thread": ["id": "thread-1"]])
             ]
         )
