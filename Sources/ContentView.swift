@@ -13004,7 +13004,6 @@ struct TabItemView: View, Equatable {
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var metadataRowsExpanded = false
     @State private var metadataBlocksExpanded = false
-    @State private var dropTargetHeight = SidebarWorkspaceRowDropMetrics.minimumTargetHeight
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     private static let maxDisplayedTitleCharacters = 2048
@@ -13334,6 +13333,13 @@ struct TabItemView: View, Equatable {
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
+        )
+        let dropTargetHeight = SidebarWorkspaceRowDropMetrics.dropTargetHeight(
+            snapshot: workspaceSnapshot,
+            settings: settings,
+            effectiveSubtitle: effectiveSubtitle,
+            metadataEntryIsExpanded: metadataRowsExpanded,
+            metadataBlocksAreExpanded: metadataBlocksExpanded
         )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
@@ -13683,7 +13689,6 @@ struct TabItemView: View, Equatable {
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .sidebarWorkspaceRowDropHeight($dropTargetHeight)
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
