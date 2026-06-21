@@ -1,10 +1,17 @@
 import CMUXMobileCore
+import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 public import Foundation
 
 extension MobileShellComposite {
     /// Yield a raw PTY byte chunk to the surface stream, if one is attached.
     func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
+        guard !expectsRenderGridTerminalOutput else {
+            MobileDebugLog.anchormux(
+                "sync.raw_bytes.dropped surface=\(surfaceID) reason=render_grid_transport bytes=\(bytes.count)"
+            )
+            return
+        }
         deliverTerminalOutput(
             TerminalOutputDelivery(bytes: bytes, replaceable: false),
             surfaceID: surfaceID

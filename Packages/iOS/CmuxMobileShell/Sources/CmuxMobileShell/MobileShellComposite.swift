@@ -4497,6 +4497,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputTransport.eventTopics
     }
 
+    var expectsRenderGridTerminalOutput: Bool {
+        terminalOutputTransport == .renderGrid ||
+            supportedHostCapabilities.contains(Self.terminalRenderGridCapability)
+    }
+
     private func resolveTerminalOutputTransport(client: MobileCoreRPCClient) async -> TerminalOutputTransport {
         let fallback = terminalOutputTransport
         let request: Data
@@ -5238,6 +5243,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     #if DEBUG
+    func debugSetRenderGridTransportForTesting(_ enabled: Bool) {
+        terminalOutputTransport = enabled ? .renderGrid : .rawBytes
+        if enabled {
+            supportedHostCapabilities.insert(Self.terminalRenderGridCapability)
+        } else {
+            supportedHostCapabilities.remove(Self.terminalRenderGridCapability)
+        }
+    }
+
     func debugBeginInitialTerminalReplayForTesting(surfaceID: String) {
         beginTerminalRenderSnapshot(surfaceID: surfaceID)
     }
@@ -5335,6 +5349,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                     return
                 }
+                let requiresRenderGrid = self.expectsRenderGridTerminalOutput
+                if requiresRenderGrid, envelope == nil {
+                    MobileDebugLog.anchormux(
+                        "CMUX_REPLAY render_grid_missing surface=\(surfaceID) "
+                        + "snapshotBytes=\(snapshotBytes?.count ?? -1) rawBytes=\(bytes?.count ?? -1) "
+                        + "seq=\(replaySeq ?? 0) action=drop_raw"
+                    )
+                    self.cancelTerminalRenderSnapshot(surfaceID: surfaceID, baseSeq: replaySeq)
+                    return
+                }
                 let deliverBytes: Data?
                 if let renderGrid {
                     deliverBytes = nil
@@ -5404,6 +5428,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let surfaceID = payload.surfaceID
         let bytes = payload.bytes
+        guard !expectsRenderGridTerminalOutput else {
+            MobileDebugLog.anchormux(
+                "sync.byte_event.dropped surface=\(surfaceID) reason=render_grid_transport bytes=\(bytes.count)"
+            )
+            return
+        }
         #if DEBUG
         let debugSeq = payload.sequence ?? 0
         mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(debugSeq, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")

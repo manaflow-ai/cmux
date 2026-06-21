@@ -20,6 +20,18 @@ import Testing
 }
 
 @MainActor
+@Test func renderGridTransportDropsRawBytesBeforeSurfaceDelivery() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    _ = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.debugSetRenderGridTransportForTesting(true)
+    store.deliverTerminalBytes(Data("raw fallback must not clear semantic snapshot".utf8), surfaceID: surfaceID)
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+}
+
+@MainActor
 @Test func staleStreamAckDoesNotAdvanceReplacementOutputQueue() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
