@@ -37,6 +37,7 @@ extension CanvasRootView: CanvasViewportControlling {
     }
 
     public func revealPane(_ panelId: UUID, animated: Bool) {
+        cancelDiscreteZoomAnimation(commitPending: true)
         guard let frame = model.frame(of: panelId) else { return }
         let docFrame = documentRect(fromCanvas: frame)
         let visible = scrollView.contentView.documentVisibleRect
@@ -252,6 +253,7 @@ extension CanvasRootView: CanvasViewportControlling {
     }
 
     public func toggleOverview() {
+        cancelDiscreteZoomAnimation(commitPending: true)
         if let restore = overviewRestore {
             overviewRestore = nil
             NSAnimationContext.runAnimationGroup { context in
