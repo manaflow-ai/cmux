@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { BranchBasePicker, buildFlatRows, type BranchPickerPayload } from "../src/BranchBasePicker";
+import { BranchBasePicker, buildFlatRows, toCurrentOriginRelative, type BranchPickerPayload } from "../src/BranchBasePicker";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
 // Behavior coverage for the render cap (huge refs lists must not render every
@@ -141,6 +141,65 @@ test("a query matching nothing offers the raw typed ref", () => {
   const flat = buildFlatRows(groups, "zzz-nope", label);
   expect(flat[0]?.raw).toBe(true);
   expect(flat[0]?.row.ref).toBe("zzz-nope");
+});
+
+test("toCurrentOriginRelative strips an http origin so a restored page re-resolves it", () => {
+  // The persisted HTML embeds the HTTP origin live at generation time; after a
+  // restart the port changes and the page is served via the custom scheme, so
+  // the picker must rebase the embedded absolute URL to a root-relative path.
+  expect(
+    toCurrentOriginRelative("http://127.0.0.1:51234/__cmux_diff_viewer_refs?repo=%2Ftmp%2Fr&token=abc"),
+  ).toBe("/__cmux_diff_viewer_refs?repo=%2Ftmp%2Fr&token=abc");
+  expect(
+    toCurrentOriginRelative("cmux-diff-viewer://tok/__cmux_diff_viewer_branch?group=g&token=abc&base={ref}"),
+  ).toBe("/__cmux_diff_viewer_branch?group=g&token=abc&base={ref}");
+});
+
+test("toCurrentOriginRelative preserves a literal {ref} placeholder (no URL parsing)", () => {
+  // String strip, not new URL(...): URL parsing would percent-encode the braces.
+  expect(toCurrentOriginRelative("http://127.0.0.1:9/x?base={ref}")).toBe("/x?base={ref}");
+});
+
+test("toCurrentOriginRelative leaves a data: URL and an already-relative path untouched", () => {
+  const dataURL = "data:application/json,%7B%22groups%22%3A%5B%5D%7D";
+  expect(toCurrentOriginRelative(dataURL)).toBe(dataURL);
+  expect(toCurrentOriginRelative("/__cmux_diff_viewer_refs?token=abc")).toBe("/__cmux_diff_viewer_refs?token=abc");
+});
+
+test("selecting a ref navigates to a root-relative regenerate URL", async () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  const navigated: string[] = [];
+  const picker: BranchPickerPayload = {
+    repoRoot: "/tmp/mock",
+    headRef: "feat-x",
+    currentRef: "origin/main",
+    currentReason: "fork point",
+    confidence: "high",
+    aheadBehind: { ahead: 1, behind: 1 },
+    refsURL: "data:application/json," + encodeURIComponent(JSON.stringify({
+      groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "develop", label: "develop" }] }],
+    })),
+    // Absolute HTTP origin as embedded in a freshly generated page.
+    regenerateURLTemplate: "http://127.0.0.1:51234/__cmux_diff_viewer_branch?group=g&repo=%2Ftmp%2Fmock&token=abc&base={ref}",
+  };
+  const container = document.getElementById("root");
+  root = createRoot(container!);
+  flushSync(() => {
+    root?.render(<BranchBasePicker label={label} onNavigate={(url) => navigated.push(url)} picker={picker} />);
+  });
+
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => rowCount() > 0);
+  flushSync(() => {
+    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
+      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
+  });
+
+  expect(navigated.length).toBe(1);
+  // Origin stripped, token/repo/group survive in the query, ref substituted.
+  expect(navigated[0]).toBe("/__cmux_diff_viewer_branch?group=g&repo=%2Ftmp%2Fmock&token=abc&base=develop");
 });
 
 function createDom(): JSDOM {

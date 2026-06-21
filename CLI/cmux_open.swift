@@ -7836,6 +7836,30 @@ extension CMUXCLI {
             }
             try? FileManager.default.removeItem(at: manifestURL)
         }
+
+        // Branch-picker sidecars and transient locks accumulate unbounded in this
+        // shared per-uid dir, and the refs authorization path scans ALL
+        // `.branch-session-*.json` on every request, so stale sessions also grow
+        // request latency. Age-prune them on the SAME 24h staleness rule the diff
+        // files above use: a `.branch-session-*.json` older than 24h backs no live
+        // page (its HTML/patch/manifest siblings are already past the prune
+        // threshold too), a `.refs-cache-*.json` is a pure recomputable cache, and
+        // a `.lock` is a transient append guard that is only ever held briefly.
+        for entry in entries {
+            let name = entry.lastPathComponent
+            let isBranchSession = name.hasPrefix(".branch-session-") && entry.pathExtension == "json"
+            let isRefsCache = name.hasPrefix(".refs-cache-") && entry.pathExtension == "json"
+            let isLock = entry.pathExtension == "lock"
+            guard isBranchSession || isRefsCache || isLock else {
+                continue
+            }
+            guard let values = try? entry.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  now.timeIntervalSince(values.contentModificationDate ?? values.creationDate ?? .distantPast) > 24 * 60 * 60 else {
+                continue
+            }
+            try? FileManager.default.removeItem(at: entry)
+        }
     }
 
     func openSubcommandUsage() -> String {

@@ -39,6 +39,26 @@ type BranchPickerGroup = {
 
 type RefsResponse = { groups: BranchPickerGroup[] };
 
+// Strip a leading `scheme://host[:port]` so the URL becomes root-relative and
+// resolves against the CURRENT document origin. The persisted diff HTML embeds
+// `refsURL`/`regenerateURLTemplate` as ABSOLUTE URLs with the HTTP origin
+// (`http://127.0.0.1:<port>/...`) that was live when the page was generated.
+// After session-restore/app-restart the page is served through the custom
+// scheme (`cmux-diff-viewer://<token>/...`) and the HTTP port changes, so the
+// embedded absolute URL points at a dead origin. Rebasing to a root-relative
+// path makes it resolve correctly under BOTH origins: the HTTP server routes
+// `/__cmux_diff_viewer_*` specially regardless of the token path segment, and
+// the custom-scheme handler intercepts the same path under the token host.
+//
+// Uses a string strip rather than `new URL(...)`: the regenerate template
+// carries a literal `{ref}` placeholder that URL parsing would percent-encode.
+// Only a real `scheme://host` origin is stripped, so an already-relative path
+// or a non-origin URL (e.g. the dev mock's `data:` refsURL) passes through
+// unchanged.
+export function toCurrentOriginRelative(url: string): string {
+  return url.replace(/^[a-zA-Z][\w+.-]*:\/\/[^/]*/, "");
+}
+
 // A flattened, filtered row paired with its rendered group header. `match`
 // carries the fuzzy-match span for bolding while filtering. `raw` marks the
 // synthetic "Use <query> (raw)" row.
@@ -111,7 +131,7 @@ export function BranchBasePicker({
     setHighlight(0);
     if (groups == null && loadState !== "loading") {
       setLoadState("loading");
-      fetchRefs(picker.refsURL)
+      fetchRefs(toCurrentOriginRelative(picker.refsURL))
         .then((response) => {
           setGroups(response.groups);
           setLoadState("idle");
@@ -135,7 +155,9 @@ export function BranchBasePicker({
     }
     setGeneratingRef(trimmed);
     setOpen(false);
-    onNavigate(picker.regenerateURLTemplate.replace("{ref}", encodeURIComponent(trimmed)));
+    onNavigate(
+      toCurrentOriginRelative(picker.regenerateURLTemplate).replace("{ref}", encodeURIComponent(trimmed)),
+    );
   };
 
   // Outside-click + Escape dismissal while open. Isolated to one effect with a
