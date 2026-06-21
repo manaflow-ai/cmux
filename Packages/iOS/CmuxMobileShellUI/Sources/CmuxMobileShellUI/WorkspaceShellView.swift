@@ -104,6 +104,7 @@ struct WorkspaceShellView: View {
                         ToolbarItem(placement: .topBarLeading) {
                             WorkspaceBackButton(
                                 unreadCount: unreadWorkspaceCount(excluding: workspaceID),
+                                badgeContrast: .darkBackground,
                                 action: popCompactStack
                             )
                         }
