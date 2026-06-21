@@ -108,6 +108,7 @@ extension CanvasRootView {
     /// (no banned asyncAfter); re-entry restarts the debounce.
     func noteInPaneScrollForHint() {
         guard !Self.didShowCommandScrollHintThisSession else { return }
+        guard commandScrollHintHost == nil else { return }
         commandScrollHintTask?.cancel()
         commandScrollHintTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)

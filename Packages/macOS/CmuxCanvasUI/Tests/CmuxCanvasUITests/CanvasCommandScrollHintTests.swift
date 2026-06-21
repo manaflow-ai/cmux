@@ -39,6 +39,30 @@ struct CanvasCommandScrollHintTests {
         #expect(CanvasRootView.didShowCommandScrollHintThisSession)
     }
 
+    @Test func inPaneScrollDoesNotCancelVisibleDebugHintDismissal() {
+        let panelID = UUID()
+        let root = makeRoot(panelID: panelID)
+        defer {
+            root.teardown()
+            CanvasRootView.didShowCommandScrollHintThisSession = false
+        }
+        CanvasRootView.didShowCommandScrollHintThisSession = false
+
+        root.debugShowCommandScrollHint()
+        #expect(root.commandScrollHintHost != nil)
+
+        root.commandScrollHintTask?.cancel()
+        let dismissalTask = Task<Void, Never> {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+        }
+        root.commandScrollHintTask = dismissalTask
+
+        root.noteInPaneScrollForHint()
+
+        #expect(!dismissalTask.isCancelled)
+        dismissalTask.cancel()
+    }
+
     private func makeRoot(panelID: UUID) -> CanvasRootView {
         let model = CanvasModel(metricsProvider: {
             CanvasMetrics(gap: 16, snapThreshold: 8, minPaneSize: CanvasSize(width: 120, height: 80))
