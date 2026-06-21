@@ -116,7 +116,7 @@ public final class ScrollLagProbe {
             // task body does not trip Swift 6.1's region-isolation check; the
             // contract guarantees the access stays on main, and the body re-reads
             // the per-arm `generation` so a stale fire is an idempotent no-op.
-            nonisolated(unsafe) weak let weakSelf = self
+            nonisolated(unsafe) weak var weakSelf = self
             scrollEndTask = Task { @MainActor in
                 try? await clock.sleep(for: debounce)
                 guard !Task.isCancelled else { return }
