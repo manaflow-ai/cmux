@@ -808,6 +808,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// 120Hz / 0.13s at 60Hz.
     private static let viewportReportSettleThreshold = 8
     private static let snapshotFallbackZPosition: CGFloat = 900
+    /// Throttle stamp for snapshot fallback text reads in `processOutput`.
+    /// Accessed only on the serial `outputQueue`, so the unchecked mutation is
+    /// safe.
+    nonisolated(unsafe) fileprivate static var lastSnapshotFallbackTextTime: CFTimeInterval = 0
     /// Daemon-authoritative effective grid (min across attached devices). When
     /// set, the Ghostty surface is pinned to this cols×rows inside the
     /// container so every attached device renders at the same grid. When
@@ -2448,10 +2452,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `processOutput`. Accessed only on the serial `outputQueue`, so the
     /// unchecked mutation is safe.
     nonisolated(unsafe) fileprivate static var lastAccessibilityTextTime: CFTimeInterval = 0
-    /// Throttle stamp for snapshot fallback text reads in `processOutput`.
-    /// Accessed only on the serial `outputQueue`, so the unchecked mutation is
-    /// safe.
-    nonisolated(unsafe) fileprivate static var lastSnapshotFallbackTextTime: CFTimeInterval = 0
 
     /// Off-main equivalent of ``accessibilityRenderedTextForTesting()`` that
     /// reads via the raw surface handle so it can run on the serial output queue
