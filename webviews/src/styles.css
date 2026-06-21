@@ -421,13 +421,17 @@ body {
   }
 }
 .base-picker-popover {
-  /* Viewport-anchored so it escapes `.toolbar-left`'s `overflow-x: clip` (the
-     toolbar controls' no-overlap guarantee) and renders fully over the diff
-     content. `top` / `bottom` / `left` / `max-height` are set inline by JS from
-     the Base button's rect, clamped to the viewport (see computePopoverStyle).
-     `#app` is `contain: strict` but spans the full viewport, so fixed
-     positioning resolves against it == the viewport, and the clamped popover is
-     never clipped. */
+  /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
+     `.toolbar-left`'s `overflow-x: clip` AND its `container-type: inline-size`:
+     a container-query container is the containing block for `position: fixed`
+     descendants and still clips them, so a fixed popover left inside the cell
+     would be positioned against (and clipped by) the cell, not the viewport.
+     `#app` likewise has `contain: strict`, which is also a fixed-positioning
+     containing block, so the popover is mounted on `document.body` (outside both)
+     in `BranchBasePicker`. `top` / `bottom` / `left` / `max-height` are set
+     inline by JS from the Base button's rect, clamped to the viewport (see
+     computePopoverStyle); `body` spans the full viewport and does not clip the
+     clamped fixed element. */
   position: fixed;
   width: 320px;
   max-width: min(86vw, 360px);

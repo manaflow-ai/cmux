@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
 
@@ -115,8 +116,9 @@ const POPOVER_MIN_HEIGHT = 160;
 // 320px popover never overruns the right edge. Vertical: prefer below the
 // button; flip above when there is more room there, and cap max-height to the
 // space available on the chosen side so the list scrolls instead of overflowing
-// the viewport. A `position: fixed` element resolves against the viewport (the
-// full-viewport `#app` containing block), escaping the toolbar cell's clip.
+// the viewport. The popover is portaled to `document.body`, so this fixed
+// element resolves against the viewport, escaping the toolbar cell's
+// container-query containing block and its `overflow-x: clip`.
 function computePopoverStyle(rect: DOMRect): PopoverStyle {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
@@ -168,6 +170,10 @@ export function BranchBasePicker({
   const [popoverStyle, setPopoverStyle] = useState<PopoverStyle | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // The popover is portaled to `document.body`, so it is NOT a descendant of
+  // `containerRef`. Track its root separately so the outside-click handler keeps
+  // the popover open when a click lands inside it (search input, a row).
+  const popoverRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const listboxId = useId();
 
@@ -217,14 +223,21 @@ export function BranchBasePicker({
     );
   };
 
-  // Outside-click + Escape dismissal while open. Isolated to one effect with a
-  // narrow contract; keyboard nav inside the popover is handled on the input.
+  // Outside-click dismissal while open. Isolated to one effect with a narrow
+  // contract; keyboard nav inside the popover is handled on the input. Because
+  // the popover is portaled to `document.body` it is not inside `containerRef`,
+  // so a click inside it would otherwise read as "outside" and close it; keep it
+  // open when the target is inside EITHER the picker cell or the portaled popover.
   useEffect(() => {
     if (!open) {
       return;
     }
     const onPointerDown = (event: MouseEvent) => {
-      if (event.target instanceof Node && containerRef.current?.contains(event.target)) {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      const target = event.target;
+      if (containerRef.current?.contains(target) || popoverRef.current?.contains(target)) {
         return;
       }
       setOpen(false);
@@ -233,9 +246,10 @@ export function BranchBasePicker({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [open]);
 
-  // Viewport-anchor the popover while open. The popover is `position: fixed` so
-  // it escapes `.toolbar-left`'s `overflow-x: clip` (the controls' no-overlap
-  // guarantee) and renders fully over the diff content. One effect gated on
+  // Viewport-anchor the popover while open. The popover is `position: fixed` and
+  // portaled to `document.body`, so it escapes `.toolbar-left`'s container-query
+  // containing block and `overflow-x: clip` and renders fully over the diff
+  // content. One effect gated on
   // `open`: it positions under the Base button, clamped to the viewport (shift
   // left if it would overrun the right edge, flip above if there is more room
   // there, cap max-height to the chosen side), and recomputes on resize and
@@ -331,8 +345,9 @@ export function BranchBasePicker({
           <BranchBaseButtonLabel picker={picker} />
         )}
       </button>
-      {open && popoverStyle ? (
+      {open && popoverStyle ? createPortal(
         <div
+          ref={popoverRef}
           className="base-picker-popover"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
           role="dialog"
@@ -385,7 +400,8 @@ export function BranchBasePicker({
               ))
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );
