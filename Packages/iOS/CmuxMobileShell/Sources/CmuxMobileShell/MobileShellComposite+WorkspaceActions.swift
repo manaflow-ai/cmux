@@ -93,7 +93,20 @@ extension MobileShellComposite {
         id: MobileWorkspacePreview.ID,
         actionName: String
     ) async {
-        guard let client = remoteClient else { return }
+        // Route the mutation to the Mac that actually OWNS this workspace. The
+        // aggregated list can include rows from secondary Macs, whose connection is
+        // not `remoteClient`; sending every mutation to the foreground client would
+        // silently hit the wrong Mac (fail, or — with a colliding workspace id —
+        // mutate a foreground workspace). The foreground path is unchanged for
+        // foreground-owned (or single-Mac / anonymous) rows.
+        let target = workspaceMutationTarget(for: id)
+        guard let client = target.client else {
+            // Owner is a known non-foreground Mac with no live connection: can't
+            // deliver. Snap the row back to the authoritative state instead of
+            // misrouting to the foreground Mac.
+            await refreshWorkspaces()
+            return
+        }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: method,
@@ -102,10 +115,16 @@ extension MobileShellComposite {
             _ = try await client.sendRequest(request)
         } catch {
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            // Only the foreground connection's health drives the foreground
+            // unavailable/reconnect UI; a failed write to a secondary Mac must not
+            // tear the foreground session down.
+            if target.isForeground {
+                markMacConnectionUnavailableIfNeeded(after: error)
+            }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
-        await refreshWorkspaces()
+        // Re-sync the authoritative list for the Mac we actually mutated.
+        await refreshAfterWorkspaceMutation(target)
     }
 
     private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {

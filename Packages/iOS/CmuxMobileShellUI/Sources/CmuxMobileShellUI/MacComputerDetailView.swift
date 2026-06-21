@@ -304,7 +304,12 @@ struct MacComputerDetailView: View {
     private var actionsSection: some View {
         Section {
             Button {
-                Task { await store.reconnectOrRefresh() }
+                // Reconnect THIS computer, not whichever Mac is currently active:
+                // `switchToMac` promotes a live secondary connection to this Mac or
+                // re-dials it specifically. `reconnectOrRefresh()` would instead
+                // refresh/redial the foreground/active Mac and leave the computer
+                // shown here untouched.
+                Task { await store.switchToMac(macDeviceID: macDeviceID) }
             } label: {
                 Label(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"), systemImage: "arrow.clockwise")
             }

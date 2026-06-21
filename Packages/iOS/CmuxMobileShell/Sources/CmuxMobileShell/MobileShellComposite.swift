@@ -2026,6 +2026,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         connectionState = .connected
         markMacConnectionHealthy()
+        // Tear down the OLD foreground's terminal event listener before starting a
+        // fresh one. `cancelRemoteOperationTasks()` above does NOT clear
+        // `terminalEventListenerTask`/`terminalEventListenerID`, and
+        // `startTerminalRefreshPolling()` no-ops while a listener task is still
+        // installed — so without this the promoted client would never get its
+        // terminal/workspace/notification push stream and output would stall until
+        // some other path restarted it. The stop+start mirrors `restartEventStream`;
+        // the old listener's `== listenerID` defer guard keeps its async teardown
+        // from clobbering the new listener/watchdog.
+        stopTerminalRefreshPolling()
         startTerminalRefreshPolling()
         syncSelectedTerminalForWorkspace()
         if let pairedMacStore {
@@ -2939,6 +2949,45 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
             self.secondaryMacSubscriptions[macID]?.refreshTask = nil
+        }
+    }
+
+    /// Routing target for a workspace mutation (rename / pin / unread / close): the
+    /// connection that owns `id` in the aggregated multi-Mac list.
+    ///
+    /// - `client == remoteClient`, `isForeground == true` for a foreground-owned
+    ///   row, a single-Mac session, or an anonymous/manual host (owner unknown).
+    /// - the live secondary connection for a row owned by another aggregated Mac.
+    /// - `client == nil` when the owner is a known non-foreground Mac that has no
+    ///   live connection right now, so the caller must NOT fall back to the
+    ///   foreground client (that is exactly the wrong-Mac bug this avoids).
+    struct WorkspaceMutationTarget {
+        let client: MobileCoreRPCClient?
+        let isForeground: Bool
+        let macDeviceID: String?
+    }
+
+    func workspaceMutationTarget(for id: MobileWorkspacePreview.ID) -> WorkspaceMutationTarget {
+        let owner = workspaces.first(where: { $0.id == id })?.macDeviceID
+        if owner == nil || owner == foregroundMacDeviceID || owner == Self.foregroundAnonymousKey {
+            return WorkspaceMutationTarget(
+                client: remoteClient, isForeground: true, macDeviceID: foregroundMacDeviceID)
+        }
+        if let owner, let sub = secondaryMacSubscriptions[owner] {
+            return WorkspaceMutationTarget(client: sub.client, isForeground: false, macDeviceID: owner)
+        }
+        return WorkspaceMutationTarget(client: nil, isForeground: false, macDeviceID: owner)
+    }
+
+    /// Re-sync the authoritative workspace list for the Mac a mutation actually hit:
+    /// the foreground's coalesced refresh, or the owning secondary's coalesced
+    /// re-fetch (so a pin/close on a secondary row snaps to the Mac's real state).
+    func refreshAfterWorkspaceMutation(_ target: WorkspaceMutationTarget) async {
+        if target.isForeground {
+            await refreshWorkspaces()
+        } else if let macID = target.macDeviceID, let sub = secondaryMacSubscriptions[macID] {
+            scheduleSecondaryRefresh(
+                macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)
         }
     }
 
