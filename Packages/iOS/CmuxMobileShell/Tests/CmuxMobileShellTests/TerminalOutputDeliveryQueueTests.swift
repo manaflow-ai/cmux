@@ -191,7 +191,7 @@ import Testing
     #expect(delivered.map(\.frame.stateSeq) == [30, 40])
 }
 
-@Test func terminalRenderSessionDeliversBufferedViewportDeltaAtSnapshotSequence() throws {
+@Test func terminalRenderSessionDropsBufferedViewportDeltaAtSnapshotSequence() throws {
     let surfaceID = "terminal"
     var session = TerminalRenderSession()
     session.beginSnapshot()
@@ -217,11 +217,11 @@ import Testing
 
     let delivered = session.receiveSnapshot(try .snapshot(snapshotFrame))
 
-    #expect(delivered.map(\.frame.stateSeq) == [30, 30])
-    #expect(delivered.last?.frame.full == false)
+    #expect(delivered.map(\.frame.stateSeq) == [30])
+    #expect(delivered.first?.frame.full == true)
 }
 
-@Test func terminalRenderSessionDeliversLiveViewportDeltaAtCurrentSequence() throws {
+@Test func terminalRenderSessionDropsLiveViewportDeltaAtCurrentSequence() throws {
     let surfaceID = "terminal"
     var session = TerminalRenderSession()
     let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
@@ -244,7 +244,7 @@ import Testing
     _ = session.receiveSnapshot(try .snapshot(snapshotFrame))
     let delivered = session.receiveLive(try .viewportDelta(liveFrame))
 
-    #expect(delivered.map(\.frame.stateSeq) == [30])
+    #expect(delivered.isEmpty)
 }
 
 @Test func terminalRenderSessionInvalidatesSnapshotWhenLiveBufferOverflows() throws {

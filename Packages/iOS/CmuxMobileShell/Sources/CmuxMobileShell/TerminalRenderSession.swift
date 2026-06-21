@@ -44,7 +44,7 @@ struct TerminalRenderSession: Sendable {
         }
         let baseSeq = envelope.frame.stateSeq
         let buffered = bufferedLiveEnvelopes.filter { liveEnvelope in
-            liveEnvelope.frame.stateSeq >= baseSeq
+            liveEnvelope.frame.stateSeq > baseSeq
         }
         bufferedLiveEnvelopes.removeAll(keepingCapacity: false)
         phase = .live(baseSeq: baseSeq)
@@ -65,7 +65,7 @@ struct TerminalRenderSession: Sendable {
             }
             return []
         case .live(let baseSeq):
-            guard envelope.frame.stateSeq >= baseSeq else { return [] }
+            guard envelope.frame.stateSeq > baseSeq else { return [] }
             phase = .live(baseSeq: max(baseSeq, envelope.frame.stateSeq))
             return [envelope]
         }
