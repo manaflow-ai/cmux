@@ -19592,6 +19592,7 @@ struct CMUXCLI {
         private var subscribingThreadIds = Set<String>()
         private var subscribedThreadIds = Set<String>()
         private var pendingThreadSubscriptionRetryIds = Set<String>()
+        private var pendingThreadSubscriptionRetryDeadline: DispatchTime?
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
@@ -19675,14 +19676,15 @@ struct CMUXCLI {
 
         private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
             while true {
-                let retryPending = hasPendingThreadSubscriptionRetries()
+                let retryTimeout = pendingThreadSubscriptionRetryTimeout()
+                if let retryTimeout, retryTimeout <= 0 {
+                    throw CLIError(message: "Codex Teams rollout retry pending; reconnecting")
+                }
                 let message: [String: Any]
                 do {
-                    message = try connection.receiveObject(
-                        timeout: retryPending ? CMUXCLI.codexTeamsReconcileInterval : nil
-                    )
+                    message = try connection.receiveObject(timeout: retryTimeout)
                 } catch let error as CLIError
-                    where retryPending && error.message == "Timed out waiting for Codex app-server response" {
+                    where retryTimeout != nil && error.message == "Timed out waiting for Codex app-server response" {
                     throw CLIError(message: "Codex Teams rollout retry pending; reconnecting")
                 }
                 try handleAppServerMessage(message, connection: connection)
@@ -19769,6 +19771,7 @@ struct CMUXCLI {
             subscribingThreadIds.removeAll(keepingCapacity: true)
             subscribedThreadIds.removeAll(keepingCapacity: true)
             pendingThreadSubscriptionRetryIds.removeAll(keepingCapacity: true)
+            pendingThreadSubscriptionRetryDeadline = nil
             stateLock.unlock()
         }
 
@@ -19795,20 +19798,33 @@ struct CMUXCLI {
         private func markPendingThreadSubscriptionRetry(_ threadId: String) {
             stateLock.lock()
             pendingThreadSubscriptionRetryIds.insert(threadId)
+            if pendingThreadSubscriptionRetryDeadline == nil {
+                pendingThreadSubscriptionRetryDeadline = .now() + CMUXCLI.codexTeamsReconcileInterval
+            }
             stateLock.unlock()
         }
 
         private func clearPendingThreadSubscriptionRetry(_ threadId: String) {
             stateLock.lock()
             pendingThreadSubscriptionRetryIds.remove(threadId)
+            if pendingThreadSubscriptionRetryIds.isEmpty {
+                pendingThreadSubscriptionRetryDeadline = nil
+            }
             stateLock.unlock()
         }
 
-        private func hasPendingThreadSubscriptionRetries() -> Bool {
+        private func pendingThreadSubscriptionRetryTimeout() -> TimeInterval? {
             stateLock.lock()
-            let hasPending = !pendingThreadSubscriptionRetryIds.isEmpty
-            stateLock.unlock()
-            return hasPending
+            defer { stateLock.unlock() }
+            guard !pendingThreadSubscriptionRetryIds.isEmpty,
+                  let deadline = pendingThreadSubscriptionRetryDeadline else {
+                return nil
+            }
+            let now = DispatchTime.now().uptimeNanoseconds
+            if deadline.uptimeNanoseconds <= now {
+                return 0
+            }
+            return TimeInterval(deadline.uptimeNanoseconds - now) / 1_000_000_000
         }
 
         private func isTransientThreadResumeError(_ error: Error) -> Bool {
