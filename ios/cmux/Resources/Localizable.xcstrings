@@ -1004,6 +1004,23 @@
         }
       }
     },
+    "mobile.computers.buildLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルド: %@"
+          }
+        }
+      }
+    },
     "mobile.computers.diagnosticFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -1034,6 +1051,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータがありません。追加するとワークスペースがここに表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.computers.field.build": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルド"
           }
         }
       }

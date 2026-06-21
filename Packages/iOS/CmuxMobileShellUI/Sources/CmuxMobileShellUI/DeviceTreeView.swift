@@ -44,7 +44,8 @@ struct DeviceTreeView: View {
         // source of truth for the dot, distinct from presence.
         let connectionStatuses = store.macConnectionStatuses
         return store.pairedMacs.map { mac in
-            let presence: DeviceTreePresence? = store.presenceMap.deviceSummary(deviceId: mac.macDeviceID)
+            let summary = store.presenceMap.deviceSummary(deviceId: mac.macDeviceID)
+            let presence: DeviceTreePresence? = summary
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
             return MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
@@ -55,6 +56,7 @@ struct DeviceTreeView: View {
                 customIcon: mac.customIcon,
                 connectionStatus: connectionStatuses[mac.macDeviceID],
                 presence: presence,
+                buildLabel: summary?.buildLabel,
                 routeDescription: Self.routeDescription(for: mac.routes),
                 lastSeenAt: mac.lastSeenAt,
                 workspaceCount: workspaces.filter { $0.macDeviceID == mac.macDeviceID }.count

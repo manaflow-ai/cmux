@@ -31,6 +31,9 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// Presence from the Durable Object presence worker (the Mac's own heartbeat),
     /// shown as diagnostic context, never as the connection dot.
     let presence: DeviceTreePresence?
+    /// The host's build channel (`"DEV · tag"`, `"Nightly"`, `"Stable"`, …) from
+    /// its heartbeat, shown as a small badge. `nil` when not identifiable.
+    var buildLabel: String?
     /// The reachable route the phone would dial (host:port), for diagnostics.
     let routeDescription: String?
     /// When the Mac was last seen (paired-store timestamp), for the offline line.
@@ -65,10 +68,15 @@ struct MacComputerRow: View {
                 }
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(computer.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(computer.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if let buildLabel = computer.buildLabel {
+                        buildBadge(buildLabel)
+                    }
+                }
                 Text(connectionLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -97,6 +105,27 @@ struct MacComputerRow: View {
             .foregroundStyle(dotColor)
             .accessibilityLabel(connectionPhrase)
             .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(isConnected ? "connected" : "disconnected")")
+    }
+
+    /// A small build-channel pill (e.g. "DEV · teams", "Nightly"). DEV/RC/Staging
+    /// are tinted orange (pre-release), Nightly blue, Stable secondary, so a glance
+    /// tells you what kind of build a host runs.
+    private func buildBadge(_ label: String) -> some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(buildBadgeTint(label).opacity(0.18), in: Capsule())
+            .foregroundStyle(buildBadgeTint(label))
+            .accessibilityLabel(
+                String(format: L10n.string("mobile.computers.buildLabel", defaultValue: "Build: %@"), label))
+    }
+
+    private func buildBadgeTint(_ label: String) -> Color {
+        if label.hasPrefix("DEV") || label == "RC" || label == "Staging" { return .orange }
+        if label == "Nightly" { return .blue }
+        return .secondary
     }
 
     private var dotColor: Color {

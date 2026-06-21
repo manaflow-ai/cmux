@@ -59,6 +59,13 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
     return { ok: false, error: "invalid_display_name" };
   }
 
+  // The app's bundle id, so the phone can label the build channel (Stable /
+  // Nightly / RC / DEV) on the Computers screen. Opaque, bounded like a name.
+  const bundleId = trimmedString(body.bundleId);
+  if (bundleId.length > MAX_DISPLAY_NAME_LENGTH) {
+    return { ok: false, error: "invalid_bundle_id" };
+  }
+
   let capabilities: string[] | undefined;
   if (body.capabilities !== undefined) {
     if (!Array.isArray(body.capabilities)) return { ok: false, error: "invalid_capabilities" };
@@ -111,6 +118,7 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       tag,
       platform,
       displayName: displayName || undefined,
+      bundleId: bundleId || undefined,
       capabilities,
       stopping: stopping || undefined,
       routes,

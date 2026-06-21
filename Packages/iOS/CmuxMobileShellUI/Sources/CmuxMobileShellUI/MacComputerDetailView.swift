@@ -246,6 +246,11 @@ struct MacComputerDetailView: View {
                                value: presence.online
                                 ? L10n.string("mobile.deviceTree.online", defaultValue: "Online")
                                 : L10n.string("mobile.deviceTree.offline", defaultValue: "Offline"))
+                if let buildLabel = presence.buildLabel {
+                    LabeledContent(
+                        L10n.string("mobile.computers.field.build", defaultValue: "Build"),
+                        value: buildLabel)
+                }
                 LabeledContent(L10n.string("mobile.computers.field.lastSeen", defaultValue: "Last seen"),
                                value: presence.lastSeenAt.formatted(.relative(presentation: .named)))
             } else {

@@ -196,6 +196,7 @@ export class TeamPresence extends DurableObject {
         tag: beat.tag,
         platform: beat.platform,
         displayName: beat.displayName,
+        bundleId: beat.bundleId,
         capabilities: beat.capabilities ?? [],
         online: false,
         lastSeenAt: now,
@@ -270,6 +271,7 @@ export class TeamPresence extends DurableObject {
     if (ownerPinned) return true;                 // owner pin is list-shape (display/trust)
     if (existing.platform !== instance.platform) return true;
     if (existing.displayName !== instance.displayName) return true;
+    if (existing.bundleId !== instance.bundleId) return true;
     if (!routesEqual(existing.routes, instance.routes)) return true; // covers goodbye-with-routes
     // `online` means the instance came back (a re-add into the list). A pure
     // `seen` event with unchanged identity and routes is the no-op case.
