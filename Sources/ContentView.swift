@@ -108,7 +108,7 @@ private final class CommandPaletteFocusRestoreHost: CommandPaletteFocusGuard {
 struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPaletteForkableAgentProbeHost {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager
     // ContentView observes the coalesced unread projection, NOT the notification
     // store. Reading `notificationStore` directly here would re-render the entire
     // content view + sidebar on every notification publish (terminal/agent
@@ -6394,7 +6394,7 @@ struct VerticalTabsSidebar: View {
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindow: NSWindow?
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager
     // Observe the coalesced unread projection instead of the notification store
     // so notification churn (terminal/agent activity) no longer reconstructs
     // every workspace row. The store stays available as an unobserved singleton
@@ -9006,7 +9006,7 @@ private struct SidebarDevFooter: View {
 #endif
 
 private struct SidebarEmptyArea: View {
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager
     let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>

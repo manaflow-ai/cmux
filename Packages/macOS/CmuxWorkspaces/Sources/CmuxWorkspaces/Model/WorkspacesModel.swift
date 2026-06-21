@@ -21,17 +21,17 @@ public import Observation
 @MainActor
 @Observable
 public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
-    /// The window's workspaces in sidebar order.
-    public var tabs: [Tab] = [] {
-        willSet { host?.workspaceTabsWillChange(to: newValue) }
-    }
+    /// The window's workspaces in sidebar order. Pure `@Observable` storage:
+    /// the host's legacy `objectWillChange`-re-emission willSet hook was retired
+    /// when `TabManager` became `@Observable` (observers track this model
+    /// directly through the `@Observable` chain).
+    public var tabs: [Tab] = []
 
     /// Named groupings of workspaces shown as collapsible sections in the
     /// sidebar. Group order in this array defines section order. Each member
-    /// workspace stores its `groupId` on the workspace itself.
-    public var workspaceGroups: [WorkspaceGroup] = [] {
-        willSet { host?.workspaceGroupsWillChange(to: newValue) }
-    }
+    /// workspace stores its `groupId` on the workspace itself. Pure
+    /// `@Observable` storage (see ``tabs``).
+    public var workspaceGroups: [WorkspaceGroup] = []
 
     /// The selected workspace's id, if any.
     public var selectedTabId: UUID? {
