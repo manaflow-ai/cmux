@@ -224,12 +224,16 @@ extension AppDelegate {
 
     @discardableResult
     func handleCmuxExternalURLs(from urls: [URL]) -> Bool {
-        let intentCounts = cmuxExternalURLIntentCounts(in: urls)
+        let intentCounts = CmuxExternalURLIntentCounts.classify(
+            urls: urls,
+            supportedSchemes: CmuxSSHURLRequest.activeSupportedSchemes
+        )
         guard intentCounts.total > 0 else { return false }
         guard intentCounts.total == 1 else {
-            if intentCounts.ssh > 1 && intentCounts.navigation == 0 && intentCounts.text == 0 {
+            switch intentCounts.multipleLinksError {
+            case .ssh:
                 showCmuxSSHURLParseError(.multipleLinks)
-            } else {
+            case .text, nil:
                 showCmuxTextURLParseError(.multipleLinks)
             }
             return true
@@ -245,41 +249,6 @@ extension AppDelegate {
             return true
         }
         return false
-    }
-
-    private struct CmuxExternalURLIntentCounts {
-        var ssh = 0
-        var navigation = 0
-        var text = 0
-
-        var total: Int {
-            ssh + navigation + text
-        }
-    }
-
-    private func cmuxExternalURLIntentCounts(in urls: [URL]) -> CmuxExternalURLIntentCounts {
-        urls.reduce(CmuxExternalURLIntentCounts()) { counts, url in
-            var nextCounts = counts
-            switch CmuxSSHURLRequest.parse(url) {
-            case .success(.some), .failure:
-                nextCounts.ssh += 1
-            case .success(nil):
-                break
-            }
-            switch CmuxNavigationURLRequest.parse(url) {
-            case .success(.some), .failure:
-                nextCounts.navigation += 1
-            case .success(nil):
-                break
-            }
-            switch CmuxTextURLRequest.parse(url) {
-            case .success(.some), .failure:
-                nextCounts.text += 1
-            case .success(nil):
-                break
-            }
-            return nextCounts
-        }
     }
 
     @discardableResult
