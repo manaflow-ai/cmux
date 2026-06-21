@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCommandPalette
 import Foundation
 
 extension AppDelegate {
@@ -212,16 +213,14 @@ enum GlobalSearchInlineSearch {
     }
 
     static func needle(for query: String, hit: SearchIndexHit) -> String? {
-        let tokens = SearchIndex.queryTokens(for: query)
-        guard !tokens.isEmpty else { return nil }
-
-        let hitText = [
-            hit.snippet,
-            hit.title,
-            hit.location,
-            hit.anchor
-        ].joined(separator: "\n").lowercased()
-
-        return tokens.first { hitText.contains($0) } ?? tokens[0]
+        GlobalSearchNeedleResolver().needle(
+            tokens: SearchIndex.queryTokens(for: query),
+            hitText: GlobalSearchNeedleResolver.HitText(
+                snippet: hit.snippet,
+                title: hit.title,
+                location: hit.location,
+                anchor: hit.anchor
+            )
+        )
     }
 }
