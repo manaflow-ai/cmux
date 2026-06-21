@@ -9746,7 +9746,7 @@ struct TabItemView: View, Equatable {
 
             if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
                 HStack(spacing: 4) {
-                    Image(systemName: logLevelIcon(latestLog.level))
+                    Image(systemName: latestLog.level.iconSystemName)
                         .font(.system(size: scaledFontSize(8)))
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
@@ -10921,16 +10921,6 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private func logLevelIcon(_ level: SidebarLogLevel) -> String {
-        switch level {
-        case .info: return "circle.fill"
-        case .progress: return "arrowtriangle.right.fill"
-        case .success: return "checkmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .error: return "xmark.circle.fill"
-        }
-    }
-
     private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
         if isActive {
             switch level {
@@ -10946,13 +10936,7 @@ struct TabItemView: View, Equatable {
                 return activeSecondaryColor(0.9)
             }
         }
-        switch level {
-        case .info: return .secondary
-        case .progress: return .blue
-        case .success: return .green
-        case .warning: return .orange
-        case .error: return .red
-        }
+        return level.inactiveSidebarColor
     }
 
     private func shortenPath(_ path: String, home: String) -> String {
