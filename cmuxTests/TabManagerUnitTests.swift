@@ -845,6 +845,87 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertNil(workspace.customTitle)
         XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
     }
+
+    func testTitleCoalescingDelayUsesCurrentSettingsAtNotificationTime() throws {
+        let suiteName = "TabManagerTitleCoalescingSettings.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        let manager = TabManager(settings: settings)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(300, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "Runtime Delay - grok"
+            ]
+        )
+
+        let earlyFlush = XCTestExpectation(description: "wait before configured coalescing delay")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            earlyFlush.fulfill()
+        }
+        XCTAssertEqual(XCTWaiter().wait(for: [earlyFlush], timeout: 1.0), .completed)
+        XCTAssertNotEqual(workspace.panelTitles[focusedPanelId], "Runtime Delay - grok")
+        XCTAssertNotEqual(workspace.title, "Runtime Delay - grok")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 1.0) {
+                workspace.panelTitles[focusedPanelId] == "Runtime Delay - grok" &&
+                    workspace.title == "Runtime Delay - grok"
+            }
+        )
+    }
+
+    func testTitleNotificationIgnoredWhenWorkspaceIsNotOwnedByManager() throws {
+        let suiteName = "TabManagerTitleOwnership.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(100, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let manager = TabManager(settings: settings)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let originalPanelTitle = workspace.panelTitles[focusedPanelId]
+
+        XCTAssertTrue(workspace.owningTabManager === manager)
+        workspace.owningTabManager = nil
+        defer { workspace.owningTabManager = manager }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "Ignored Non Owner - grok"
+            ]
+        )
+
+        let delayedFlush = XCTestExpectation(description: "wait past configured title coalescing delay")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            delayedFlush.fulfill()
+        }
+        XCTAssertEqual(XCTWaiter().wait(for: [delayedFlush], timeout: 1.0), .completed)
+        XCTAssertEqual(workspace.panelTitles[focusedPanelId], originalPanelTitle)
+        XCTAssertNotEqual(workspace.panelTitles[focusedPanelId], "Ignored Non Owner - grok")
+        XCTAssertNotEqual(workspace.title, "Ignored Non Owner - grok")
+    }
 }
 
 @MainActor

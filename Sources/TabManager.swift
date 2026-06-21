@@ -25,6 +25,32 @@ typealias Tab = Workspace
 
 private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
+private enum PanelTitleUpdateCoalescingSettings {
+    private static let terminalSettings = SettingCatalog().terminal
+    static let defaultDelay: TimeInterval = 1.0 / 30.0
+    static let minimumDelayMilliseconds = 33
+    static let maximumDelayMilliseconds = 5_000
+
+    static func isEnabled(settings: any SettingsReading) -> Bool {
+        settings.value(for: terminalSettings.titleUpdateCoalescingEnabled)
+    }
+
+    static func diagnosticsEnabled(settings: any SettingsReading) -> Bool {
+        settings.value(for: terminalSettings.titleUpdateDiagnostics)
+    }
+
+    static func delay(settings: any SettingsReading) -> TimeInterval {
+        guard isEnabled(settings: settings) else { return defaultDelay }
+        let rawMilliseconds = settings.value(for: terminalSettings.titleUpdateCoalescingMilliseconds)
+        let clampedMilliseconds = min(max(rawMilliseconds, minimumDelayMilliseconds), maximumDelayMilliseconds)
+        return TimeInterval(clampedMilliseconds) / 1_000.0
+    }
+
+    static func configuredDelayMilliseconds(settings: any SettingsReading) -> Int {
+        Int((delay(settings: settings) * 1_000).rounded())
+    }
+}
+
 enum WorkspaceOrderChangeNotificationKey {
     static let movedWorkspaceIds = "movedWorkspaceIds"
 }
@@ -32,7 +58,7 @@ enum WorkspaceOrderChangeNotificationKey {
 /// Coalesces repeated main-thread signals into one callback after a short delay.
 /// Useful for notification storms where only the latest update matters.
 final class NotificationBurstCoalescer {
-    private let delay: TimeInterval
+    private var delay: TimeInterval
     private var isFlushScheduled = false
     private var pendingAction: (() -> Void)?
 
@@ -40,8 +66,11 @@ final class NotificationBurstCoalescer {
         self.delay = max(0, delay)
     }
 
-    func signal(_ action: @escaping () -> Void) {
+    func signal(delay newDelay: TimeInterval? = nil, _ action: @escaping () -> Void) {
         precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
+        if let newDelay {
+            delay = max(0, newDelay)
+        }
         pendingAction = action
         scheduleFlushIfNeeded()
     }
@@ -411,7 +440,7 @@ class TabManager: ObservableObject {
         let panelId: UUID
     }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
-    private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    private let panelTitleUpdateCoalescer = NotificationBurstCoalescer()
 
     // Wave-3 sub-models (TabManager decomposition): TabManager is the
     // per-window composition point. It owns the concrete sub-models, hosts
@@ -509,6 +538,17 @@ class TabManager: ObservableObject {
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
 #if DEBUG
+        let isTitleUpdateCoalescingEnabled = PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings)
+        let areTitleUpdateDiagnosticsEnabled = PanelTitleUpdateCoalescingSettings.diagnosticsEnabled(settings: settings)
+        if isTitleUpdateCoalescingEnabled || areTitleUpdateDiagnosticsEnabled {
+            cmuxDebugLog(
+                "workspace.title.coalescing.config enabled=\(isTitleUpdateCoalescingEnabled ? 1 : 0) " +
+                "delayMs=\(PanelTitleUpdateCoalescingSettings.configuredDelayMilliseconds(settings: settings)) " +
+                "diagnostics=\(areTitleUpdateDiagnosticsEnabled ? 1 : 0)"
+            )
+        }
+#endif
+#if DEBUG
         let sidebarGitDebugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
 #else
         let sidebarGitDebugLog: @Sendable (String) -> Void = { _ in }
@@ -560,6 +600,8 @@ class TabManager: ObservableObject {
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 guard let change = GhosttyTitleChange(notification: notification) else { return }
+                guard let workspace = tabs.first(where: { $0.id == change.tabId }),
+                      workspace.owningTabManager === self else { return }
                 enqueuePanelTitleUpdate(tabId: change.tabId, panelId: change.surfaceId, title: change.title)
             }
         })
@@ -3295,14 +3337,18 @@ class TabManager: ObservableObject {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 #if DEBUG
-        cmuxDebugLog(
-            "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
-            "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
-        )
+        if PanelTitleUpdateCoalescingSettings.diagnosticsEnabled(settings: settings) {
+            cmuxDebugLog(
+                "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
+                "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
+            )
+        }
 #endif
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
-        panelTitleUpdateCoalescer.signal { [weak self] in
+        panelTitleUpdateCoalescer.signal(
+            delay: PanelTitleUpdateCoalescingSettings.delay(settings: settings)
+        ) { [weak self] in
             self?.flushPendingPanelTitleUpdates()
         }
     }
@@ -3311,6 +3357,11 @@ class TabManager: ObservableObject {
         guard !pendingPanelTitleUpdates.isEmpty else { return }
         let updates = pendingPanelTitleUpdates
         pendingPanelTitleUpdates.removeAll(keepingCapacity: true)
+#if DEBUG
+        if PanelTitleUpdateCoalescingSettings.diagnosticsEnabled(settings: settings) {
+            cmuxDebugLog("workspace.title.flush pending=\(updates.count)")
+        }
+#endif
         for (key, title) in updates {
             updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: title)
         }
