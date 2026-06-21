@@ -21,4 +21,20 @@ public struct CommandPaletteInputFocusPolicy: Sendable {
         focusTarget: .search,
         selectionBehavior: .caretAtEnd
     )
+
+    /// Focus the rename editor, selecting the existing name or placing the caret
+    /// at the end depending on the user's preference.
+    ///
+    /// - Parameter selectsAllOnFocus: the
+    ///   ``CmuxSettings/CommandPaletteSettingsReading/renameSelectsAllOnFocus``
+    ///   preference. When `true` the existing name is selected so typing replaces
+    ///   it; when `false` the caret sits at the end so typing appends. The host
+    ///   reads the preference from its settings store and passes the bool here,
+    ///   keeping this factory a pure value transform.
+    public static func renameInput(selectsAllOnFocus: Bool) -> CommandPaletteInputFocusPolicy {
+        CommandPaletteInputFocusPolicy(
+            focusTarget: .rename,
+            selectionBehavior: selectsAllOnFocus ? .selectAll : .caretAtEnd
+        )
+    }
 }
