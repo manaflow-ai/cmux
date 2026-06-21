@@ -72,10 +72,8 @@ extension TerminalSurface {
     /// Test-only helper to drive Ghostty scrollback by fractional row offset.
     @MainActor
     public func debugScrollToRowOffsetForTesting(_ rowOffset: Double) -> Bool {
-        guard let surface else { return false }
-        ghostty_surface_scroll_to_offset(surface, rowOffset)
-        forceRefresh(reason: "debugScrollToRowOffsetForTesting")
-        return true
+        _ = rowOffset
+        return false
     }
 
     /// How many force refreshes ran since the last reset.

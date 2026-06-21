@@ -67,7 +67,7 @@ The corresponding prebuilt archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
-### 0) macOS fractional row-offset scroll forwarding
+### 0) Historical macOS fractional row-offset scroll forwarding
 
 - Commits:
   - `b61a016d` (Forward macOS live scroll as precision input)
@@ -83,8 +83,8 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - `macos/Sources/Ghostty/Ghostty.Surface.swift`
   - `macos/Sources/Ghostty/Surface View/SurfaceScrollView.swift`
 - Summary:
-  - Adds `ghostty_surface_scroll_to_offset`, a C API that takes a fractional
-    row offset from the top of primary-screen scrollback.
+  - Previously added `ghostty_surface_scroll_to_offset`, a C API that takes a
+    fractional row offset from the top of primary-screen scrollback.
   - Ghostty clamps the offset, scrolls the terminal viewport to the integer row,
     and writes the fractional remainder into renderer state as a pixel offset.
   - `SurfaceScrollView` keeps AppKit as the native gesture and scrollbar owner:
@@ -98,8 +98,9 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
     made AppKit and Ghostty both interpret the same scroll gesture, so desktop
     still felt row-stepped instead of continuously position-driven.
 - Conflict notes:
-  - Preserve `ghostty_surface_scroll_to_offset` and the invariant that terminal
-    viewport row and renderer pixel remainder are updated together.
+  - Do not reintroduce `ghostty_surface_scroll_to_offset` for iOS local
+    scrollback. iOS now renders retained render-grid snapshots directly, so
+    scrollback ownership stays outside the host Ghostty viewport.
   - Preserve the renderer-space sign invariant: positive `pixel_scroll_offset_y`
     moves rendered cells upward, so fractional offsets and wheel residuals keep
     moving in the same direction as committed whole-row viewport changes.

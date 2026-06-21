@@ -59,11 +59,10 @@ extension GhosttySurfaceView {
         if renderGridSnapshot != nil {
             renderSemanticRenderGridSnapshot()
             debugLogLocalScrollViewport(requestedOffset: result.rowOffset)
-        } else if let surface {
-            ghostty_surface_scroll_to_offset(surface, result.rowOffset)
-            updateCursorOverlay()
-            debugLogLocalScrollViewport(surface: surface, requestedOffset: result.rowOffset)
-            drawForWakeup()
+        } else {
+            MobileDebugLog.anchormux(
+                "local.scroll.viewport_unavailable requested=\(String(format: "%.2f", result.rowOffset))"
+            )
         }
     }
 
