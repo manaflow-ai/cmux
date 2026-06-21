@@ -1603,7 +1603,8 @@
       "ohMyClaudeCode": "oh-my-claudecode",
       "changelog": "変更履歴",
       "dock": "Dock",
-      "textBox": "TextBox（ベータ）"
+      "textBox": "TextBox（ベータ）",
+      "ios": "iOSアプリ"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1707,6 +1708,42 @@
       "configTitle": "cmux.json",
       "configDesc": "同じ既定値は ~/.config/cmux/cmux.json の terminal で設定できます：",
       "focusNote": "復元されたセッションは保存済みの TextBox 表示状態とフォーカス状態を保ちます。これらの既定値は新しく作成されたターミナル面にのみ適用されます。"
+    },
+    "ios": {
+      "metaTitle": "iOSアプリ",
+      "metaDescription": "cmux iOSコンパニオンアプリのセットアップ：TestFlightでの入手、TailscaleまたはWireGuardによる持ち込みネットワーク、ペアリング、通知、cmuxが保存するデータについて。",
+      "title": "iOSアプリ",
+      "intro": "cmux iOSアプリはMacのコンパニオンです。cmuxを実行しているMacとiPhoneまたはiPadをペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。",
+      "betaNote": "iOSアプリはベータ版です。TestFlightで「cmux BETA」として提供されています。",
+      "accessTitle": "入手方法",
+      "accessDesc": "アプリはTestFlightで配布されています。早期アクセスは<foundersLink>cmux Founders Edition</foundersLink>に含まれ、他の早期機能も利用できます。",
+      "prereqTitle": "前提条件",
+      "prereqIntro": "始める前に、次のものが必要です：",
+      "prereq1": "cmuxを実行し、サインイン済みのMac。",
+      "prereq2": "TestFlightからcmux BETAアプリをインストールしたiPhoneまたはiPad。",
+      "prereq3": "スマートフォンからMacへのネットワーク経路（下記の「持ち込みネットワーク」を参照）。",
+      "networkingTitle": "持ち込みネットワーク",
+      "networkingDesc": "cmuxはネットワーク機能を標準では提供しません。ターミナルのストリームはスマートフォンとMacの間を直接流れるため、スマートフォンがネットワーク上でMacに到達できる必要があります。最も簡単なのはプライベートなオーバーレイネットワークです。",
+      "tailscaleTitle": "Tailscale（推奨）",
+      "tailscaleDesc": "Macとスマートフォンの両方に<link>Tailscale</link>をインストールし、同じtailnetにサインインします。これでスマートフォンはどこからでも、ポート転送なしでMacのtailnetアドレスに到達できます。",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "すでに<link>WireGuard</link>を運用している場合は、Macとスマートフォンを同じネットワークに置き、MacのWireGuardアドレスを使用します。",
+      "networkingNote": "どちらを選んでも、接続はあなた自身のものです。cmuxはデバイス間のターミナルトラフィックをプロキシしたり中継したりしません。",
+      "pairTitle": "ペアリングと接続",
+      "pairStep1": "Macで、cmuxのMobile Connectウィンドウを開きます。",
+      "pairStep2": "スマートフォンでcmux BETAアプリを開き、Mobile Connectに表示されるペアリングを確認します。",
+      "pairStep3": "ペアリングが完了すると、ワークスペースとターミナルがネットワーク経由でスマートフォンに表示されます。",
+      "pairNote": "ペアリングはデバイスごとです。新しいデバイスやアプリの再インストール時は再度ペアリングします。",
+      "notificationsTitle": "通知",
+      "notificationsDesc": "ターミナル通知をスマートフォンに転送するようにオプトインできます。注意が必要なペインがデバイスにプッシュされます。転送が有効な場合、通知のテキスト（ターミナル出力から取得したタイトルと本文）は、配信のためcmuxサーバーを経由してAppleのプッシュサービスに送信されます。通知設定で「コンテンツを隠す」を有効にすると、代わりに汎用的なメッセージが送信され、ターミナルのテキストはデバイスにとどまります。cmuxがどのように通知を発生させるかは<link>通知</link>をご覧ください。",
+      "dataTitle": "保存されるデータ",
+      "dataIntro": "cmuxは、ターミナルがあなたのデバイス間にとどまるように設計されています。cmuxサーバーには、サインインとデバイス接続に必要なものだけを保存します：",
+      "data1": "サインインで取得するアカウント（メールアドレス）。デバイス間であなたを識別するため。",
+      "data2": "デバイスのプッシュトークン。転送されたターミナル通知を配信するため。",
+      "data3": "ペアリングとデバイスのメタデータ。スマートフォンとMacを接続するため。",
+      "dataNot": "インタラクティブなターミナルセッション（その内容とキー入力）は、あなた自身のネットワークを通じてスマートフォンとMacの間を直接流れ、cmuxサーバーを経由したり保存されたりすることはありません。唯一の例外は転送される通知テキストで、これはスマートフォンに届くためにcmuxとAppleのプッシュサービスを経由します（「コンテンツを隠す」を有効にしている場合を除く。上記の「通知」を参照）。",
+      "enterpriseTitle": "エンタープライズとセルフホスト",
+      "enterpriseDesc": "セルフホストまたはエアギャップ環境での導入については、<link>founders@manaflow.com</link>までご連絡ください。"
     }
   },
   "legal": {
