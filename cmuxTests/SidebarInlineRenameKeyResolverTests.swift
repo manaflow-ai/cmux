@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,34 +12,34 @@ import XCTest
 final class SidebarInlineRenameKeyResolverTests: XCTestCase {
     private let resolver = SidebarInlineRenameKeyResolver()
 
-    func testEnterCommitsRegardlessOfSelection() {
+    func testEnterCommitsRegardlessOfCaretState() {
         XCTAssertEqual(
-            resolver.action(for: #selector(NSResponder.insertNewline(_:)), selectionIsCollapsed: false),
+            resolver.action(for: #selector(NSResponder.insertNewline(_:)), hasMovedCaretToStart: false),
             .commit
         )
         XCTAssertEqual(
-            resolver.action(for: #selector(NSResponder.insertNewline(_:)), selectionIsCollapsed: true),
+            resolver.action(for: #selector(NSResponder.insertNewline(_:)), hasMovedCaretToStart: true),
             .commit
         )
     }
 
-    func testFirstEscapeWithSelectionMovesCaretToStart() {
+    func testFirstEscapeMovesCaretToStart() {
         XCTAssertEqual(
-            resolver.action(for: #selector(NSResponder.cancelOperation(_:)), selectionIsCollapsed: false),
+            resolver.action(for: #selector(NSResponder.cancelOperation(_:)), hasMovedCaretToStart: false),
             .caretToStart
         )
     }
 
-    func testSecondEscapeWithCollapsedSelectionCancels() {
+    func testSecondEscapeCancels() {
         XCTAssertEqual(
-            resolver.action(for: #selector(NSResponder.cancelOperation(_:)), selectionIsCollapsed: true),
+            resolver.action(for: #selector(NSResponder.cancelOperation(_:)), hasMovedCaretToStart: true),
             .cancel
         )
     }
 
     func testUnrelatedSelectorPassesThrough() {
         XCTAssertEqual(
-            resolver.action(for: #selector(NSResponder.moveLeft(_:)), selectionIsCollapsed: true),
+            resolver.action(for: #selector(NSResponder.moveLeft(_:)), hasMovedCaretToStart: true),
             .passThrough
         )
     }
@@ -50,5 +51,27 @@ final class SidebarInlineRenameKeyResolverTests: XCTestCase {
     func testNormalizeReturnsNilForEmptyOrWhitespace() {
         XCTAssertNil(SidebarInlineRenameCommit.normalized(""))
         XCTAssertNil(SidebarInlineRenameCommit.normalized("   \n\t "))
+    }
+
+    func testTitleToCommitReturnsNilForEmptyDraft() {
+        XCTAssertNil(SidebarInlineRenameCommit.titleToCommit(draft: "   ", currentTitle: "zsh", hasCustomTitle: false))
+    }
+
+    func testTitleToCommitSkipsUnchangedAutoTitle() {
+        XCTAssertNil(SidebarInlineRenameCommit.titleToCommit(draft: "zsh", currentTitle: "zsh", hasCustomTitle: false))
+    }
+
+    func testTitleToCommitWritesChangedNameForAutoTitle() {
+        XCTAssertEqual(
+            SidebarInlineRenameCommit.titleToCommit(draft: "  My Work  ", currentTitle: "zsh", hasCustomTitle: false),
+            "My Work"
+        )
+    }
+
+    func testTitleToCommitWritesWhenCustomTitleAlreadyExists() {
+        XCTAssertEqual(
+            SidebarInlineRenameCommit.titleToCommit(draft: "Foo", currentTitle: "Foo", hasCustomTitle: true),
+            "Foo"
+        )
     }
 }

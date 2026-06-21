@@ -35,6 +35,12 @@ struct SidebarInlineRenameField: NSViewRepresentable {
     func updateNSView(_ nsView: InlineRenameTextField, context: Context) {
         context.coordinator.onCommit = onCommit
         context.coordinator.onCancel = onCancel
+        // Keep driven visual/accessibility state in sync (NSViewRepresentable
+        // convention). initialText/stringValue is intentionally NOT synced here:
+        // doing so would reset the cursor and clobber in-progress typing.
+        nsView.font = .systemFont(ofSize: fontSize, weight: .semibold)
+        nsView.placeholderString = placeholder
+        nsView.setAccessibilityLabel(accessibilityLabel)
     }
 
     /// Focuses and selects-all exactly when it enters a window — no async timing
@@ -54,6 +60,7 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         var onCancel: () -> Void
         private let resolver = SidebarInlineRenameKeyResolver()
         private var hasResolved = false
+        private var hasMovedCaretToStart = false
 
         init(onCommit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
             self.onCommit = onCommit
@@ -75,13 +82,13 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            let selectionIsCollapsed = textView.selectedRange().length == 0
-            switch resolver.action(for: commandSelector, selectionIsCollapsed: selectionIsCollapsed) {
+            switch resolver.action(for: commandSelector, hasMovedCaretToStart: hasMovedCaretToStart) {
             case .commit:
                 commitOnce(control)
                 return true
             case .caretToStart:
                 textView.setSelectedRange(NSRange(location: 0, length: 0))
+                hasMovedCaretToStart = true
                 return true
             case .cancel:
                 cancelOnce()

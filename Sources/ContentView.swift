@@ -13297,8 +13297,12 @@ struct TabItemView: View, Equatable {
                             defaultValue: "Workspace name"
                         ),
                         onCommit: { newName in
-                            if let normalized = SidebarInlineRenameCommit.normalized(newName) {
-                                tabManager.setCustomTitle(tabId: tab.id, title: normalized)
+                            if let title = SidebarInlineRenameCommit.titleToCommit(
+                                draft: newName,
+                                currentTitle: tab.title,
+                                hasCustomTitle: tab.hasCustomTitle
+                            ) {
+                                tabManager.setCustomTitle(tabId: tab.id, title: title)
                             }
                             isEditing = false
                         },
@@ -13682,7 +13686,7 @@ struct TabItemView: View, Equatable {
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
-        .onDrag { isEditing ? NSItemProvider() : onDragStart() }
+        .sidebarRowDragGate(isEditing: isEditing, onDragStart)
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
