@@ -15,6 +15,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
     private var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
+    private var zoomSettleTask: Task<Void, Never>?
 
     private static let revealMargin: CGFloat = 24
     private static let overviewPadding: CGFloat = 48
@@ -47,6 +48,8 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
 
     func teardown() {
         removeCommandScrollMonitor()
+        zoomSettleTask?.cancel()
+        zoomSettleTask = nil
         if let clipBoundsObserver {
             NotificationCenter.default.removeObserver(clipBoundsObserver)
         }
@@ -298,6 +301,18 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         guard delta != 0 else { return }
         let sensitivity: CGFloat = precise ? 0.005 : 0.10
         zoom(by: 1 + delta * sensitivity, towardWindowLocation: event.locationInWindow)
+        scheduleZoomSettle()
+    }
+
+    private func scheduleZoomSettle() {
+        zoomSettleTask?.cancel()
+        zoomSettleTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 160_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.synchronizeViewportSettled()
+            }
+        }
     }
 
     private func setClipOrigin(_ origin: CGPoint, animated: Bool) {
