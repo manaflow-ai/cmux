@@ -324,7 +324,7 @@ struct cmuxApp: App {
                     dispatchReloadConfigurationMenuCommand()
                 }
                 Button(String(localized: "menu.app.makeDefaultTerminal", defaultValue: "Make cmux the Default Terminal")) {
-                    DefaultTerminalUserAction.setAsDefault(debugSource: "menu.makeDefaultTerminal")
+                    AppDelegate.makeDefaultTerminal(debugSource: "menu.makeDefaultTerminal")
                 }
             }
 

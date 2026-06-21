@@ -2,97 +2,69 @@ import AppKit
 import CmuxRemoteWorkspace
 import CmuxSettings
 import CmuxWindowing
+import CmuxWorkspaces
 import Bonsplit
 import Foundation
-import UniformTypeIdentifiers
 
 extension Notification.Name {
     static let defaultTerminalRegistrationDidChange = Notification.Name("DefaultTerminalRegistration.didChange")
 }
 
-@MainActor
-enum DefaultTerminalUserAction {
-    private struct RegistrationOperation {
-        let id: UUID
-        let task: Task<Void, Error>
-    }
+// MARK: - Default-terminal registration (forwards to CmuxWindowing)
 
-    private static var inFlightRegistration: RegistrationOperation?
-
-    /// Builds the composition-root ``DefaultTerminalRegistrar`` for this app
-    /// bundle. The registration logic moved into `CmuxWindowing`; this is the
-    /// single app-side construction site, injecting the live bundle URL and the
-    /// `.defaultTerminalRegistrationDidChange` post so the default-terminal
-    /// Settings/menu UI refreshes.
-    static func makeRegistrar() -> DefaultTerminalRegistrar {
-        DefaultTerminalRegistrar(
-            bundleURL: Bundle.main.bundleURL,
-            onRegistrationDidChange: {
-                NotificationCenter.default.post(name: .defaultTerminalRegistrationDidChange, object: nil)
-            }
+extension AppDelegate {
+    /// Builds the composition-root ``DefaultTerminalRegistrationCoordinator``.
+    /// The registration/dedup logic moved into `CmuxWindowing`; this is the
+    /// single app-side construction site, injecting the registrar factory (live
+    /// bundle URL + the `.defaultTerminalRegistrationDidChange` post so the
+    /// default-terminal Settings/menu UI refreshes), the NSAlert failure
+    /// presenter, and the DEBUG trace sink.
+    func makeDefaultTerminalRegistrationCoordinator() -> DefaultTerminalRegistrationCoordinator {
+#if DEBUG
+        let debugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
+#else
+        let debugLog: @Sendable (String) -> Void = { _ in }
+#endif
+        return DefaultTerminalRegistrationCoordinator(
+            makeRegistrar: {
+                DefaultTerminalRegistrar(
+                    bundleURL: Bundle.main.bundleURL,
+                    onRegistrationDidChange: {
+                        NotificationCenter.default.post(
+                            name: .defaultTerminalRegistrationDidChange,
+                            object: nil
+                        )
+                    }
+                )
+            },
+            onRegistrationFailure: { [weak self] error in
+                self?.presentDefaultTerminalRegistrationError(error)
+            },
+            debugLog: debugLog
         )
     }
 
-    /// The current default-terminal registration status read through a fresh
-    /// registrar. Reads do not fire the change notifier.
-    static func currentStatus() -> DefaultTerminalRegistrationStatus {
-        makeRegistrar().currentStatus()
+    /// The current default-terminal registration status, read through the
+    /// composition-root coordinator. Reads do not fire the change notifier.
+    static func defaultTerminalRegistrationStatus() -> DefaultTerminalRegistrationStatus {
+        shared?.defaultTerminalRegistrationCoordinator.currentStatus()
+            ?? DefaultTerminalRegistrationStatus(
+                matchedTargetCount: 0,
+                targetCount: DefaultTerminalRegistrar.targetCount
+            )
     }
 
-    @discardableResult
-    static func registerAsDefault() async throws -> Bool {
-        if let operation = inFlightRegistration {
-            do {
-                try await operation.task.value
-            } catch {
-                return false
-            }
-            return false
-        }
-
-        let operation = RegistrationOperation(
-            id: UUID(),
-            task: Task {
-                try await makeRegistrar().setAsDefault()
-            }
-        )
-        inFlightRegistration = operation
-
-        do {
-            try await operation.task.value
-            if inFlightRegistration?.id == operation.id {
-                inFlightRegistration = nil
-            }
-            return true
-        } catch {
-            if inFlightRegistration?.id == operation.id {
-                inFlightRegistration = nil
-            }
-            throw error
-        }
-    }
-
-    static func setAsDefault(debugSource: String) {
-#if DEBUG
-        cmuxDebugLog("defaultTerminal.setAsDefault source=\(debugSource)")
-#endif
-        Task {
-            do {
-                try await registerAsDefault()
-            } catch {
-#if DEBUG
-                cmuxDebugLog("defaultTerminal.setAsDefault.failed source=\(debugSource) error=\(error)")
-#endif
-                presentSetAsDefaultError(error)
-            }
-        }
+    /// Kicks off the "Make cmux the Default Terminal" flow through the
+    /// composition-root coordinator (shared dedup across menu/palette).
+    static func makeDefaultTerminal(debugSource: String) {
+        shared?.defaultTerminalRegistrationCoordinator.setAsDefault(debugSource: debugSource)
     }
 
     /// The user-facing message for a registration failure. `String(localized:)`
     /// must resolve in the app bundle (the `CmuxWindowing` error is plain data
     /// so the package never drops the Japanese translation), so the localized
     /// copy is produced here from the typed case.
-    private static func localizedErrorDescription(_ error: Error) -> String? {
+    private func localizedDefaultTerminalErrorDescription(_ error: any Error) -> String? {
         switch error as? DefaultTerminalRegistrationError {
         case .launchServicesRegistrationFailed:
             return String(
@@ -104,14 +76,14 @@ enum DefaultTerminalUserAction {
         }
     }
 
-    private static func presentSetAsDefaultError(_ error: Error) {
+    private func presentDefaultTerminalRegistrationError(_ error: any Error) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
             localized: "dialog.defaultTerminal.setFailed.title",
             defaultValue: "Could Not Set Default Terminal"
         )
-        alert.informativeText = localizedErrorDescription(error) ?? String(
+        alert.informativeText = localizedDefaultTerminalErrorDescription(error) ?? String(
             localized: "defaultTerminal.updateFailed.message",
             defaultValue: "macOS could not update every default terminal handler."
         )
@@ -121,102 +93,67 @@ enum DefaultTerminalUserAction {
     }
 }
 
-@MainActor
-final class CmuxSSHURLProcessLauncher {
-    static let shared = CmuxSSHURLProcessLauncher()
+// MARK: - SSH-URL launch presentation (forwards to CmuxWorkspaces)
 
-    private var processes: [Int32: Process] = [:]
-    private var isShuttingDown = false
-
-    private init() {}
-
-    func terminateAll() {
-        isShuttingDown = true
-        for process in processes.values where process.isRunning {
-            process.terminate()
-        }
-        processes.removeAll()
-    }
-
-    @discardableResult
-    func start(request: CmuxSSHURLRequest, preferredWindow: NSWindow?) -> Bool {
-        let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
-        guard let cliURL,
-              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            presentLaunchFailure(
-                summary: String(
-                    localized: "dialog.sshURL.launchFailed.missingCLI",
-                    defaultValue: "The bundled cmux CLI is missing from this app build."
-                ),
-                output: "",
-                preferredWindow: preferredWindow
-            )
-            return false
-        }
-
-        let socketPath = resolvedSocketPath()
-        let process = Process()
-        process.executableURL = cliURL
-        process.arguments = ["--socket", socketPath] + request.cliArguments
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
-        environment.removeValue(forKey: "CMUX_SOCKET")
-        process.environment = environment
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe)
-        outputCollector.start()
-        process.terminationHandler = { [weak preferredWindow] terminatedProcess in
-            let output = outputCollector.finish()
-            let processIdentifier = terminatedProcess.processIdentifier
-            let terminationStatus = terminatedProcess.terminationStatus
-            Task { @MainActor in
-                Self.shared.processes.removeValue(forKey: processIdentifier)
-                guard terminationStatus != 0, !Self.shared.isShuttingDown else { return }
-                let format = String(
-                    localized: "dialog.sshURL.launchFailed.exit",
-                    defaultValue: "cmux ssh exited with status %d."
-                )
-                Self.shared.presentLaunchFailure(
-                    summary: String(format: format, Int(terminationStatus)),
-                    output: output,
-                    preferredWindow: preferredWindow
-                )
-            }
-        }
-
-        do {
-            try process.run()
-            processes[process.processIdentifier] = process
-#if DEBUG
-            cmuxDebugLog("sshURL.launchCLI pid=\(process.processIdentifier) socket=\(socketPath) targetLength=\(request.destination.count)")
-#endif
-            return true
-        } catch {
-            outputCollector.cancel()
-            presentLaunchFailure(
-                summary: String(
-                    localized: "dialog.sshURL.launchFailed.launch",
-                    defaultValue: "cmux ssh could not be launched."
-                ),
-                output: error.localizedDescription,
-                preferredWindow: preferredWindow
-            )
-            return false
-        }
-    }
-
-    func resolvedSocketPath() -> String {
+extension AppDelegate {
+    /// Resolves the control socket the bundled `cmux ssh` CLI should target.
+    /// Stays app-side because it reaches the live `TerminalController` socket
+    /// state, which the package does not own.
+    func resolvedSSHURLSocketPath() -> String {
         TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
     }
 
-    private func presentLaunchFailure(summary: String, output: String, preferredWindow: NSWindow?) {
+    /// Launches `cmux ssh` for `request` through the composition-root
+    /// ``CmuxSSHURLLaunchService``, supplying the bundled CLI URL, the resolved
+    /// socket path, and an app-side failure presenter that binds the NSAlert to
+    /// `preferredWindow` with app-bundle localized copy.
+    @discardableResult
+    func startCmuxSSHURLLaunch(request: CmuxSSHURLRequest, preferredWindow: NSWindow?) -> Bool {
+        let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
+        return sshURLLaunchService.start(
+            request: request,
+            cliURL: cliURL,
+            socketPath: resolvedSSHURLSocketPath(),
+            onFailure: { [weak self, weak preferredWindow] failure in
+                self?.presentCmuxSSHURLLaunchFailure(failure, preferredWindow: preferredWindow)
+            }
+        )
+    }
+
+    /// Presents a typed ``CmuxSSHURLLaunchFailure`` as an NSAlert with app-bundle
+    /// localized copy. The localized `summary` strings stay here (resolving them
+    /// in the package would bind to the package bundle and drop the Japanese
+    /// translation).
+    private func presentCmuxSSHURLLaunchFailure(
+        _ failure: CmuxSSHURLLaunchFailure,
+        preferredWindow: NSWindow?
+    ) {
+        let summary: String
+        let output: String
+        switch failure {
+        case .missingCLI:
+            summary = String(
+                localized: "dialog.sshURL.launchFailed.missingCLI",
+                defaultValue: "The bundled cmux CLI is missing from this app build."
+            )
+            output = ""
+        case .nonzeroExit(let status, let exitOutput):
+            let format = String(
+                localized: "dialog.sshURL.launchFailed.exit",
+                defaultValue: "cmux ssh exited with status %d."
+            )
+            summary = String(format: format, Int(status))
+            output = exitOutput
+        case .launchThrew(let description):
+            summary = String(
+                localized: "dialog.sshURL.launchFailed.launch",
+                defaultValue: "cmux ssh could not be launched."
+            )
+            output = description
+        }
+
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let limitedOutput = String(trimmedOutput.prefix(2000))
         let informativeText = limitedOutput.isEmpty
@@ -534,7 +471,7 @@ extension AppDelegate {
         prepareForExplicitOpenIntentAtStartup()
         bootstrapInitialMainWindowAfterAcceptedExternalOpen(debugSource: "sshURL.confirmed")
         NSApp.activate(ignoringOtherApps: true)
-        _ = CmuxSSHURLProcessLauncher.shared.start(
+        _ = startCmuxSSHURLLaunch(
             request: request,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         )
@@ -675,7 +612,7 @@ extension AppDelegate {
         ))
         commandLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
 
-        let socketPath = CmuxSSHURLProcessLauncher.shared.resolvedSocketPath()
+        let socketPath = resolvedSSHURLSocketPath()
         let commandScrollView = cmuxSSHURLTextPreview(request.cliPreview(socketPath: socketPath), height: 80)
 
         stack.addArrangedSubview(targetLabel)

@@ -1130,6 +1130,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }()
 
+    /// `cmux ssh` deep-link launch capability (CmuxWorkspaces); composition-root
+    /// owned. It spawns the bundled `cmux ssh` CLI and owns the live-subprocess
+    /// registry (formerly the `CmuxSSHURLProcessLauncher.shared` singleton),
+    /// retained until each child exits. The app injects its shared bounded
+    /// `ProcessOutputCollector`, the process environment, and the DEBUG trace
+    /// sink; failure presentation (NSAlert + localized copy) is supplied per call
+    /// from the URL-handling shim (`AppDelegate+CmuxSSHURL`).
+    let sshURLLaunchService: CmuxSSHURLLaunchService = {
+#if DEBUG
+        let debugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
+#else
+        let debugLog: @Sendable (String) -> Void = { _ in }
+#endif
+        return CmuxSSHURLLaunchService(
+            makeOutputDrainer: { stdout, stderr in
+                ProcessOutputCollector(stdout: stdout, stderr: stderr)
+            },
+            environment: { ProcessInfo.processInfo.environment },
+            debugLog: debugLog
+        )
+    }()
+
+    /// Default-terminal registration orchestration (CmuxWindowing);
+    /// composition-root owned. It coalesces concurrent "Make Default Terminal"
+    /// attempts (formerly the `static var inFlightRegistration` on the
+    /// `DefaultTerminalUserAction` namespace) and drives the
+    /// `DefaultTerminalRegistrar`. The app injects the registrar factory (live
+    /// `Bundle.main.bundleURL` + the `.defaultTerminalRegistrationDidChange`
+    /// post), the NSAlert failure presenter, and the DEBUG trace sink so the
+    /// package names none of those app types.
+    lazy var defaultTerminalRegistrationCoordinator: DefaultTerminalRegistrationCoordinator =
+        makeDefaultTerminalRegistrationCoordinator()
+
 #if DEBUG
     private var jumpUnreadUITestRecorder: JumpUnreadUITestRecorder?
     private var terminalCmdClickUITestRecorder: TerminalCmdClickUITestRecorder?
@@ -2438,7 +2471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ClosedItemHistoryStore.shared.flushPendingSaves()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
-        CmuxSSHURLProcessLauncher.shared.terminateAll()
+        sshURLLaunchService.terminateAll()
         MobileHostService.shared.stop()
         TerminalController.shared.stop()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()

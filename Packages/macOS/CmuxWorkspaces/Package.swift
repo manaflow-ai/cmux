@@ -41,6 +41,10 @@ let package = Package(
         // SurfaceCreation/ coordinator promotes for wait-after-command) is owned
         // by CmuxTerminalCore.
         .package(path: "../CmuxTerminalCore"),
+        // CmuxSSHURLRequest (the validated `cmux ssh` deep link the SSHURL/
+        // launch service expands into a `cmux ssh` argument vector) is owned by
+        // CmuxRemoteWorkspace.
+        .package(path: "../CmuxRemoteWorkspace"),
     ],
     targets: [
         .target(
@@ -55,6 +59,7 @@ let package = Package(
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
                 .product(name: "CmuxWindowing", package: "CmuxWindowing"),
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
+                .product(name: "CmuxRemoteWorkspace", package: "CmuxRemoteWorkspace"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -83,6 +88,7 @@ let package = Package(
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
                 .product(name: "CmuxWindowing", package: "CmuxWindowing"),
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
+                .product(name: "CmuxRemoteWorkspace", package: "CmuxRemoteWorkspace"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
