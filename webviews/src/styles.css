@@ -177,19 +177,20 @@ body {
 }
 #source-select {
   /* Toolbar picker width strategy (source/repo/base):
-     - flex-basis auto => each picker sizes to its CONTENT, so when there is
-       free toolbar space it shows the full value instead of truncating at a
-       fixed basis (the old `flex: 0 1 76px` truncated "Last turn" / long repo
-       labels even with empty space to the right).
-     - max-width caps each so no single picker dominates.
-     - min-width floors keep label + chevron visible, never collapsing to zero.
+     - `field-sizing: content` sizes each select to its SELECTED value, not the
+       widest option, so the width tracks the current choice and the value is
+       never truncated when there is free space. (A native select otherwise
+       sizes to its widest option, and a fixed flex-basis truncated long values
+       like "Last turn" or long repo labels even with empty toolbar space.)
+     - No max-width: the picker is as wide as its value needs.
+     - min-width floor keeps the label + chevron legible.
      - flex-shrink encodes PRIORITY for the no-free-space case: the base picker
        (the comparison) shrinks last, the source select next, the repo select
        first. So under pressure the repo path ellipsizes before the source mode,
-       and the base comparison before either is ever crushed. */
+       and the base comparison before either is crushed. */
+  field-sizing: content;
   flex: 0 3 auto;
   min-width: 58px;
-  max-width: 124px;
 }
 #source-select:hover,
 #repo-select:hover,
@@ -208,12 +209,11 @@ body {
   width: 100%;
 }
 #repo-select {
-  /* Content-sized like #source-select, with a larger max-width (repo labels are
-     longer) and the HIGHEST shrink so it is the first to ellipsize when the
-     toolbar runs out of room. */
+  /* Sized to its selected value like #source-select, with the HIGHEST shrink so
+     it is the first to ellipsize when the toolbar runs out of room. */
+  field-sizing: content;
   flex: 0 5 auto;
   min-width: 56px;
-  max-width: 188px;
 }
 #base-select {
   flex: 0 1 120px;
