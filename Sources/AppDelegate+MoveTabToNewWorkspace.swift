@@ -2,15 +2,6 @@ import Foundation
 import CmuxSettings
 import CmuxWindowing
 
-struct SurfaceNewWorkspaceMoveResult {
-    let sourceWindowId: UUID
-    let sourceWorkspaceId: UUID
-    let destinationWindowId: UUID?
-    let destinationWorkspaceId: UUID
-    let surfaceId: UUID
-    let paneId: UUID?
-}
-
 @MainActor
 extension AppDelegate {
     func canMoveSurfaceToNewWorkspace(panelId: UUID) -> Bool {

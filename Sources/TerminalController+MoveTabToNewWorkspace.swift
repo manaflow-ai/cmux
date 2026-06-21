@@ -1,6 +1,7 @@
 import Foundation
 import Bonsplit
 import CmuxPanes
+import CmuxWindowing
 
 private enum SurfaceSplitOffMessage {
     static let missingSurfaceId = String(localized: "socket.surfaceSplitOff.error.missingSurfaceId", defaultValue: "Missing or invalid surface_id")
