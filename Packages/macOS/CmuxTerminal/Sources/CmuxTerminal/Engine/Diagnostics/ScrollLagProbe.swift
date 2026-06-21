@@ -104,19 +104,24 @@ public final class ScrollLagProbe {
             let debounce = scrollEndDebounce
             // SAFETY: this probe is main-thread-confined by contract (the legacy
             // `GhosttyApp` accessed all scroll-lag state only from main, and the
-            // legacy debounce used `DispatchQueue.main.asyncAfter`). The debounce
-            // task is `@MainActor`-isolated from the start, so the `[weak self]`
-            // capture and every access to `self` stay on the main actor: the
-            // non-`Sendable` probe is never sent across an isolation boundary
-            // (the body only suspends in `clock.sleep`). It re-reads the per-arm
-            // `generation`, so a stale fire is an idempotent no-op even if the
-            // cancel races. The only `Sendable` captures are `clock`, `debounce`,
-            // and `generation`.
-            scrollEndTask = Task { @MainActor [weak self] in
+            // legacy debounce used `DispatchQueue.main.asyncAfter`). The type is
+            // deliberately non-isolated and non-`Sendable` to mirror that, and
+            // its forwarders on the non-isolated `GhosttyApp` god type are also
+            // non-isolated, so it must NOT become `@MainActor`. The debounce
+            // `Task` is `@MainActor`-isolated so the self-mutating end runs on
+            // main synchronously before the task completes (matching the legacy
+            // timer, which fired on main, and keeping `awaitPendingScrollEnd`
+            // deterministic). `weakSelf` is captured as `nonisolated(unsafe)` so
+            // that bridging the non-isolated caller's `self` into the main-actor
+            // task body does not trip Swift 6.1's region-isolation check; the
+            // contract guarantees the access stays on main, and the body re-reads
+            // the per-arm `generation` so a stale fire is an idempotent no-op.
+            nonisolated(unsafe) weak let weakSelf = self
+            scrollEndTask = Task { @MainActor in
                 try? await clock.sleep(for: debounce)
                 guard !Task.isCancelled else { return }
-                guard let self, self.scrollEndGeneration == generation else { return }
-                self.endScrollSession()
+                guard let weakSelf, weakSelf.scrollEndGeneration == generation else { return }
+                weakSelf.endScrollSession()
             }
         }
     }
