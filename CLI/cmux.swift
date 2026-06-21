@@ -19359,37 +19359,7 @@ struct CMUXCLI {
         }
     }
 
-    protocol CodexTeamsAppServerConnecting: AnyObject {
-        func resume()
-        func close()
-        func initialize(
-            clientName: String,
-            version: String,
-            optOutNotificationMethods: [String],
-            responseTimeout: TimeInterval
-        ) throws
-        func respond(requestId: Any, result: [String: Any], timeout: TimeInterval) throws
-        func request(
-            method: String,
-            params: [String: Any]?,
-            notificationHandler: (([String: Any]) throws -> Void)?,
-            responseTimeout: TimeInterval
-        ) throws -> [String: Any]
-        func receiveObject(timeout: TimeInterval?) throws -> [String: Any]
-    }
-
-    struct CodexTeamsAppServerRequestError: Error, CustomStringConvertible {
-        let code: Int?
-        let message: String
-
-        var description: String { message }
-
-        var isMissingRollout: Bool {
-            message.localizedCaseInsensitiveContains("no rollout found for thread id")
-        }
-    }
-
-    private final class CodexTeamsAppServerConnection: CodexTeamsAppServerConnecting {
+    private final class CodexTeamsAppServerConnection {
         private let session: URLSession
         private let task: URLSessionWebSocketTask
         private var nextRequestId = 1
@@ -19597,7 +19567,7 @@ struct CMUXCLI {
         }
     }
 
-    final class CodexTeamsWatcher {
+    private final class CodexTeamsWatcher {
         private let appServerURL: String
         private let workspaceId: String
         private let rootSurfaceId: String
@@ -19673,7 +19643,7 @@ struct CMUXCLI {
             }
         }
 
-        func backfillLoadedThreads(connection: CodexTeamsAppServerConnecting) throws {
+        private func backfillLoadedThreads(connection: CodexTeamsAppServerConnection) throws {
             let loaded = try connection.request(
                 method: "thread/loaded/list",
                 params: ["limit": 200],
@@ -19696,7 +19666,7 @@ struct CMUXCLI {
             }
         }
 
-        private func listenForNotifications(connection: CodexTeamsAppServerConnecting) throws {
+        private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
             while true {
                 let message = try connection.receiveObject(timeout: nil)
                 try handleAppServerMessage(message, connection: connection)
@@ -19705,7 +19675,7 @@ struct CMUXCLI {
 
         private func handleAppServerMessage(
             _ message: [String: Any],
-            connection: CodexTeamsAppServerConnecting,
+            connection: CodexTeamsAppServerConnection,
             allowThreadSubscribe: Bool = true
         ) throws {
             guard let method = message["method"] as? String else { return }
@@ -19733,7 +19703,7 @@ struct CMUXCLI {
 
         private func subscribeToThreadIfNeeded(
             _ threadId: String,
-            connection: CodexTeamsAppServerConnecting
+            connection: CodexTeamsAppServerConnection
         ) throws {
             try threadSubscriptionRetry.subscribeIfNeeded(
                 threadId: threadId,
@@ -19856,7 +19826,7 @@ struct CMUXCLI {
             _ message: [String: Any],
             method: String,
             requestId: Any,
-            connection: CodexTeamsAppServerConnecting
+            connection: CodexTeamsAppServerConnection
         ) throws -> Bool {
             guard CMUXCLI.codexTeamsApprovalMethods.contains(method) else { return false }
             guard let params = message["params"] as? [String: Any] else {
