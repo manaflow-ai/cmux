@@ -2574,6 +2574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func configure(
         tabManager: TabManager,
         notificationStore: TerminalNotificationStore,
+        keyboardShortcutSettingsObserver: KeyboardShortcutSettingsObserver,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition
@@ -2586,6 +2587,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the transitional `TerminalNotificationStore.shared` accessor used by the
         // tail call sites resolves to this same injected instance.
         TerminalNotificationStore.installCompositionRootInstance(notificationStore)
+        // De-singletonization stage b76: the cmuxApp `@StateObject` owns the
+        // single `KeyboardShortcutSettingsObserver`; record composition-root
+        // ownership so the transitional `KeyboardShortcutSettingsObserver.shared`
+        // accessor read by the remaining SwiftUI view sites resolves to this same
+        // injected instance instead of a self-vivified eager singleton.
+        KeyboardShortcutSettingsObserver.installCompositionRootInstance(keyboardShortcutSettingsObserver)
         self.sidebarState = sidebarState
         self.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)

@@ -107,6 +107,11 @@ struct cmuxApp: App {
     // call sites read one store.
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
     @StateObject private var sidebarState = SidebarState()
+    // De-singletonization stage b76: this `@StateObject` is the composition-root
+    // owner of the single `KeyboardShortcutSettingsObserver`. `AppDelegate.configure`
+    // records it via `installCompositionRootInstance`, so the transitional
+    // `KeyboardShortcutSettingsObserver.shared` accessor read by the remaining view
+    // sites resolves to this same object instead of a self-vivified `static let shared`.
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -274,6 +279,7 @@ struct cmuxApp: App {
         appDelegate.configure(
             tabManager: tabManager,
             notificationStore: notificationStore,
+            keyboardShortcutSettingsObserver: keyboardShortcutSettingsObserver,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition
