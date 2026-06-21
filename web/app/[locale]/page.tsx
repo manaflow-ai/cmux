@@ -106,6 +106,7 @@ function HomeContent() {
                 ["scriptable", "scriptableDesc"],
                 ["gpuAccelerated", "gpuAcceleratedDesc"],
                 ["lightweight", "lightweightDesc"],
+                ["openSource", "openSourceDesc"],
               ] as const
             ).map(([title, desc]) => (
               <li key={title} className="flex gap-3">

@@ -27,10 +27,6 @@ const englishOnlyPages = [
   "/privacy-policy",
   "/terms-of-service",
   "/eula",
-  "/best-terminal-for-mac",
-  "/cmux-vs-tmux",
-  "/cmux-vs-iterm2",
-  "/cmux-vs-warp",
 ] as const;
 
 export const agentReadablePages = [
@@ -93,10 +89,6 @@ export const agentReadablePages = [
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
   { path: "/assets", title: "Brand Assets" },
-  { path: "/best-terminal-for-mac", title: "Best terminal for Mac" },
-  { path: "/cmux-vs-tmux", title: "cmux vs tmux" },
-  { path: "/cmux-vs-iterm2", title: "cmux vs iTerm2" },
-  { path: "/cmux-vs-warp", title: "cmux vs Warp" },
   { path: "/privacy-policy", title: "Privacy Policy" },
   { path: "/terms-of-service", title: "Terms of Service" },
   { path: "/eula", title: "EULA" },

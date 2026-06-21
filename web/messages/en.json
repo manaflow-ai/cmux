@@ -67,7 +67,9 @@
       "lightweight": "Lightweight",
       "lightweightDesc": ": native Swift + AppKit, no Electron",
       "keyboardShortcuts": "Keyboard shortcuts",
-      "keyboardShortcutsDesc": ": <link>extensive shortcuts</link> for workspaces, splits, browser, and more"
+      "keyboardShortcutsDesc": ": <link>extensive shortcuts</link> for workspaces, splits, browser, and more",
+      "openSource": "Open source",
+      "openSourceDesc": ": free and GPL-licensed, fork it on GitHub"
     },
     "faqGhosttyQ": "How does cmux relate to Ghostty?",
     "faqGhosttyA": "cmux is not a fork of Ghostty. It uses <link>libghostty</link> as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.",
