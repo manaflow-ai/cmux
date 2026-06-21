@@ -19591,6 +19591,7 @@ struct CMUXCLI {
         private var lastAgentSurfaceId: String?
         private var subscribingThreadIds = Set<String>()
         private var subscribedThreadIds = Set<String>()
+        private var pendingThreadSubscriptionRetryIds = Set<String>()
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
@@ -19657,29 +19658,33 @@ struct CMUXCLI {
                 responseTimeout: 10
             )
             let threadIds = loaded["data"] as? [String] ?? []
-            var retryableRolloutMissCount = 0
             for threadId in threadIds {
                 do {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
+                    clearPendingThreadSubscriptionRetry(threadId)
                 } catch {
                     if isTransientThreadResumeError(error) {
-                        retryableRolloutMissCount += 1
+                        markPendingThreadSubscriptionRetry(threadId)
                         cliWriteStderr("cmux codex-teams watcher will retry thread \(threadId): rollout not ready\n")
                     } else {
                         cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
                     }
                 }
             }
-            if retryableRolloutMissCount > 0 {
-                throw CLIError(
-                    message: "Codex Teams rollout not ready for \(retryableRolloutMissCount) thread(s); reconnecting to retry"
-                )
-            }
         }
 
         private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
             while true {
-                let message = try connection.receiveObject(timeout: nil)
+                let retryPending = hasPendingThreadSubscriptionRetries()
+                let message: [String: Any]
+                do {
+                    message = try connection.receiveObject(
+                        timeout: retryPending ? CMUXCLI.codexTeamsReconcileInterval : nil
+                    )
+                } catch let error as CLIError
+                    where retryPending && error.message == "Timed out waiting for Codex app-server response" {
+                    throw CLIError(message: "Codex Teams rollout retry pending; reconnecting")
+                }
                 try handleAppServerMessage(message, connection: connection)
             }
         }
@@ -19706,8 +19711,14 @@ struct CMUXCLI {
             if allowThreadSubscribe {
                 do {
                     try subscribeToThreadIfNeeded(thread.id, connection: connection)
+                    clearPendingThreadSubscriptionRetry(thread.id)
                 } catch {
-                    cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
+                    if isTransientThreadResumeError(error) {
+                        markPendingThreadSubscriptionRetry(thread.id)
+                        cliWriteStderr("cmux codex-teams watcher will retry thread \(thread.id): rollout not ready\n")
+                    } else {
+                        cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
+                    }
                 }
             }
         }
@@ -19757,6 +19768,7 @@ struct CMUXCLI {
             stateLock.lock()
             subscribingThreadIds.removeAll(keepingCapacity: true)
             subscribedThreadIds.removeAll(keepingCapacity: true)
+            pendingThreadSubscriptionRetryIds.removeAll(keepingCapacity: true)
             stateLock.unlock()
         }
 
@@ -19778,6 +19790,25 @@ struct CMUXCLI {
                 subscribedThreadIds.insert(threadId)
             }
             stateLock.unlock()
+        }
+
+        private func markPendingThreadSubscriptionRetry(_ threadId: String) {
+            stateLock.lock()
+            pendingThreadSubscriptionRetryIds.insert(threadId)
+            stateLock.unlock()
+        }
+
+        private func clearPendingThreadSubscriptionRetry(_ threadId: String) {
+            stateLock.lock()
+            pendingThreadSubscriptionRetryIds.remove(threadId)
+            stateLock.unlock()
+        }
+
+        private func hasPendingThreadSubscriptionRetries() -> Bool {
+            stateLock.lock()
+            let hasPending = !pendingThreadSubscriptionRetryIds.isEmpty
+            stateLock.unlock()
+            return hasPending
         }
 
         private func isTransientThreadResumeError(_ error: Error) -> Bool {
