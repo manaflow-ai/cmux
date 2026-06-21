@@ -38,18 +38,6 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 18, rowHeight: 20))
     }
 
-    func testWorkspaceGroupHeaderDropZoneIdentifiesBottomEdgeAtDefaultHeight() {
-        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 2, rowHeight: 24))
-        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 12, rowHeight: 24))
-        XCTAssertTrue(SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 22, rowHeight: 24))
-    }
-
-    func testWorkspaceGroupHeaderDropZoneIdentifiesBottomEdgeAtCompactHeight() {
-        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 2, rowHeight: 20))
-        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 10, rowHeight: 20))
-        XCTAssertTrue(SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 18, rowHeight: 20))
-    }
-
     func testWorkspaceGroupHeaderCenterDropConsumesSameGroupMember() {
         let workspaceId = UUID()
         let groupId = UUID()
