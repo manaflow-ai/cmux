@@ -82,14 +82,16 @@ extension ControlCommandCoordinator {
 
     // MARK: - set_mode
 
-    /// `canvas.set_mode` — switch the workspace between `canvas`, `splits`,
-    /// or `toggle`.
+    /// `canvas.set_mode` — switch the workspace between `canvas`,
+    /// `zoomableSplits`, `splits`, or `toggle`.
     func canvasSetMode(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let mode = string(params, "mode"),
-              ["canvas", "splits", "toggle"].contains(mode) else {
+        guard let mode = string(params, "mode").flatMap(Self.normalizedCanvasMode) else {
             return .err(
                 code: "invalid_params",
-                message: "mode must be canvas, splits, or toggle",
+                message: String(
+                    localized: "control.canvas.error.invalidMode",
+                    defaultValue: "mode must be canvas, zoomableSplits, splits, or toggle"
+                ),
                 data: nil
             )
         }
@@ -97,6 +99,21 @@ extension ControlCommandCoordinator {
         let resolution = context?.controlCanvasSetMode(routing: routing, mode: mode)
             ?? .tabManagerUnavailable
         return canvasActionResult(resolution)
+    }
+
+    private static func normalizedCanvasMode(_ raw: String) -> String? {
+        switch raw.lowercased().replacingOccurrences(of: "_", with: "-") {
+        case "canvas":
+            return "canvas"
+        case "zoomablesplits", "zoomable-splits", "zoomable":
+            return "zoomableSplits"
+        case "splits", "split":
+            return "splits"
+        case "toggle":
+            return "toggle"
+        default:
+            return nil
+        }
     }
 
     // MARK: - set_frame
@@ -295,7 +312,19 @@ extension ControlCommandCoordinator {
         case .notCanvasMode:
             return .err(
                 code: "invalid_state",
-                message: "Workspace is not in canvas layout (run canvas.set_mode first)",
+                message: String(
+                    localized: "control.canvas.error.notCanvasOrZoomable",
+                    defaultValue: "Workspace is not in canvas or zoomable split layout (run canvas.set_mode first)"
+                ),
+                data: nil
+            )
+        case .notFreeformCanvasMode:
+            return .err(
+                code: "invalid_state",
+                message: String(
+                    localized: "control.canvas.error.requiresFreeformCanvas",
+                    defaultValue: "Command requires freeform canvas layout (run canvas.set_mode with mode=canvas first)"
+                ),
                 data: nil
             )
         case .paneNotFound(let id):

@@ -15,6 +15,17 @@ extension Notification.Name {
 /// panels, focus, and bonsplit bookkeeping; canvas mode only changes how the
 /// same panel set is presented.
 extension Workspace {
+    func applySplitDividerThickness(_ rawThickness: CGFloat) {
+        let thickness = min(
+            max(rawThickness, CGFloat(CanvasLayoutSettings.splitDividerThicknessRange.lowerBound)),
+            CGFloat(CanvasLayoutSettings.splitDividerThicknessRange.upperBound)
+        )
+        var configuration = bonsplitController.configuration
+        guard abs(configuration.appearance.dividerThickness - thickness) > 0.0001 else { return }
+        configuration.appearance.dividerThickness = thickness
+        bonsplitController.configuration = configuration
+    }
+
     /// Switches the workspace between split, zoomable split, and canvas layout.
     ///
     /// Entering canvas mode seeds pane frames from the current bonsplit

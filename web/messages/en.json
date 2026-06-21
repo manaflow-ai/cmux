@@ -950,7 +950,8 @@
         },
         "canvas": {
           "paneGap": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
-          "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture."
+          "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
+          "splitDividerThickness": "Divider thickness, in points, for packed split panes and zoomable split panes."
         },
         "fileEditor": {
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
@@ -1107,7 +1108,7 @@
         "surfacesBlurb": "Surfaces are tabs inside a pane.",
         "splitPanes": "Split Panes",
         "canvas": "Canvas",
-        "canvasBlurb": "A freeform 2D layout mode where panes float on an infinite, pannable canvas. Alignment and distribution commands are available from the command palette.",
+        "canvasBlurb": "Canvas and zoomable split layout controls. Zoom, reveal, and overview also apply to packed zoomable split panes.",
         "browser": "Browser",
         "notifications": "Notifications",
         "find": "Find",

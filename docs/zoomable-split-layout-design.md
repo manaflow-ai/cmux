@@ -87,7 +87,7 @@ Bonsplit already supports `BonsplitConfiguration.Appearance.dividerThickness`.
 This PR adds a persisted cmux setting:
 
 - JSON path: `canvas.splitDividerThickness`
-- UserDefaults key: `splitDividerThickness`
+- UserDefaults key: `canvasSplitDividerThickness`
 - Default: `1`
 - Range: `1...12`
 
@@ -104,7 +104,7 @@ the settings-file runtime path.
   `canvas.splitDividerThickness` parsing into managed UserDefaults.
 - Shortcut drift tests already cover the app/package action mirror after adding
   `toggleZoomableSplitLayout`.
-- `plutil -lint Resources/Localizable.xcstrings web/data/cmux.schema.json`.
+- `jq empty Resources/Localizable.xcstrings web/data/cmux.schema.json`.
 - Tagged reload with a short tag, then preflight via the tagged debug CLI:
   enter `zoomableSplits`, run zoom/overview/reset/set-viewport, and capture a
   screenshot before dogfood handoff.

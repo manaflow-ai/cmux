@@ -77,6 +77,7 @@ extension ShortcutAction {
         case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
         case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
         case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)
+        case .toggleZoomableSplitLayout: return nil
         case .canvasRevealFocusedPane: return ShortcutStroke(key: "r", command: true, control: true)
         case .canvasOverview: return ShortcutStroke(key: "o", command: true, control: true)
         case .canvasZoomIn: return ShortcutStroke(key: "=", command: true, option: true)

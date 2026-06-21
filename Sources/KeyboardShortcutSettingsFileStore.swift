@@ -379,6 +379,9 @@ final class CmuxSettingsFileStore {
         if let markdownSection = root["markdown"] as? [String: Any] {
             parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let canvasSection = root["canvas"] as? [String: Any] {
+            parseCanvasSection(canvasSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let fileEditorSection = root["fileEditor"] as? [String: Any] {
             parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -488,6 +491,39 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
         }
         applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+    }
+
+    private func parseCanvasSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let catalog = CanvasCatalogSection()
+        if let paneGap = jsonInt(section["paneGap"]) {
+            guard Int(CanvasLayoutSettings.paneGapRange.lowerBound)...Int(CanvasLayoutSettings.paneGapRange.upperBound) ~= paneGap else {
+                logInvalid("canvas.paneGap", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[catalog.paneGap.userDefaultsKey] = .int(paneGap)
+        } else if section.keys.contains("paneGap") {
+            logInvalid("canvas.paneGap", sourcePath: sourcePath)
+        }
+
+        if let snappingEnabled = jsonBool(section["snappingEnabled"]) {
+            snapshot.managedUserDefaults[catalog.snappingEnabled.userDefaultsKey] = .bool(snappingEnabled)
+        } else if section.keys.contains("snappingEnabled") {
+            logInvalid("canvas.snappingEnabled", sourcePath: sourcePath)
+        }
+
+        if let thickness = jsonInt(section["splitDividerThickness"]) {
+            guard CanvasLayoutSettings.splitDividerThicknessRange ~= thickness else {
+                logInvalid("canvas.splitDividerThickness", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[catalog.splitDividerThickness.userDefaultsKey] = .int(thickness)
+        } else if section.keys.contains("splitDividerThickness") {
+            logInvalid("canvas.splitDividerThickness", sourcePath: sourcePath)
+        }
     }
 
     private func parseTerminalSection(

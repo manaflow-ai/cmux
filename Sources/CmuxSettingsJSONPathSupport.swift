@@ -430,6 +430,7 @@ extension CmuxSettingsFileStore {
         "markdown.maxWidth",
         "canvas.paneGap",
         "canvas.snappingEnabled",
+        "canvas.splitDividerThickness",
         "fileEditor.wordWrap",
         "fileExplorer.doubleClickAction",
         "shortcuts.bindings",

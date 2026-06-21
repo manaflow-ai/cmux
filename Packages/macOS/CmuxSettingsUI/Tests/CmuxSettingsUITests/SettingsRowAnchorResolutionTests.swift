@@ -77,6 +77,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.urlsToAlwaysOpenExternally",
         "canvas.paneGap",
         "canvas.snappingEnabled",
+        "canvas.splitDividerThickness",
         "customSidebars.renderer",
         "fileEditor.wordWrap",
         "notifications.command",

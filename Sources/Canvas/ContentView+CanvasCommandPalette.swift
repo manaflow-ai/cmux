@@ -7,6 +7,7 @@ import Foundation
 extension ContentView {
     private static let canvasPaletteCommands: [(id: String, action: KeyboardShortcutSettings.Action, keywords: [String])] = [
         ("palette.canvas.toggleLayout", .toggleCanvasLayout, ["canvas", "layout", "freeform", "splits", "spatial"]),
+        ("palette.canvas.toggleZoomableSplitLayout", .toggleZoomableSplitLayout, ["zoomable", "split", "layout", "pan", "zoom", "packed"]),
         ("palette.canvas.revealFocusedPane", .canvasRevealFocusedPane, ["canvas", "reveal", "scroll", "pane", "view"]),
         ("palette.canvas.overview", .canvasOverview, ["canvas", "overview", "zoom", "fit", "all"]),
         ("palette.canvas.zoomIn", .canvasZoomIn, ["canvas", "zoom", "in", "magnify", "bigger"]),
@@ -23,6 +24,14 @@ extension ContentView {
         ("palette.canvas.distributeVertically", .canvasDistributeVertically, ["canvas", "distribute", "vertical", "gap", "pack"]),
     ]
 
+    private static let viewportCanvasActions: Set<KeyboardShortcutSettings.Action> = [
+        .canvasRevealFocusedPane,
+        .canvasOverview,
+        .canvasZoomIn,
+        .canvasZoomOut,
+        .canvasZoomReset,
+    ]
+
     static func commandPaletteCanvasCommandContributions() -> [CommandPaletteCommandContribution] {
         let subtitle = String(localized: "command.canvas.subtitle", defaultValue: "Canvas")
         return canvasPaletteCommands.map { command in
@@ -33,10 +42,15 @@ extension ContentView {
                 keywords: command.keywords,
                 when: { snapshot in
                     guard snapshot.bool(CommandPaletteContextKeys.hasWorkspace) else { return false }
-                    // The mode toggle is always offered; everything else is
-                    // canvas-only.
-                    return command.action == .toggleCanvasLayout
-                        || snapshot.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
+                    if command.action == .toggleCanvasLayout ||
+                        command.action == .toggleZoomableSplitLayout {
+                        return true
+                    }
+                    if viewportCanvasActions.contains(command.action) {
+                        return snapshot.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
+                            || snapshot.bool(CommandPaletteContextKeys.workspaceZoomableSplitLayout)
+                    }
+                    return snapshot.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
                 }
             )
         }

@@ -31,6 +31,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let workspaceHasSplits = CommandPaletteContextKeys(rawValue: "workspace.hasSplits")
     /// Whether the workspace uses the canvas layout mode.
     public static let workspaceCanvasLayout = CommandPaletteContextKeys(rawValue: "workspace.canvasLayout")
+    /// Whether the workspace uses the packed zoomable split layout mode.
+    public static let workspaceZoomableSplitLayout = CommandPaletteContextKeys(rawValue: "workspace.zoomableSplitLayout")
     /// Whether the workspace has sibling workspaces.
     public static let workspaceHasPeers = CommandPaletteContextKeys(rawValue: "workspace.hasPeers")
     /// Whether a workspace exists above the selection.
