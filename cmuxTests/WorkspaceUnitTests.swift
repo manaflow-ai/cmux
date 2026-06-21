@@ -16,6 +16,7 @@ import UserNotifications
 import Combine
 import CmuxTerminal
 import CmuxBrowser
+import CMUXAgentLaunch
 import struct CmuxSettings.IntegrationsCatalogSection
 import enum CmuxSettings.KiroNotificationLevel
 
@@ -1232,7 +1233,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testInvalidForkConversationDefaultDoesNotAbortRemainingAppSettings() throws {
         let defaults = UserDefaults.standard
-        let forkKey = AgentConversationForkDefaultSettings.key
+        let forkKey = AgentConversationForkDestination.defaultDestinationDefaultsKey
         let inheritanceKey = SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
         let previousForkValue = defaults.object(forKey: forkKey)
         let previousInheritanceValue = defaults.object(forKey: inheritanceKey)
@@ -1281,7 +1282,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertEqual(AgentConversationForkDefaultSettings.current(), .right)
+        XCTAssertEqual(AgentConversationForkDestination.configuredDefault(), .right)
         XCTAssertFalse(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.workspaceInheritWorkingDirectory))
     }
 
@@ -6905,17 +6906,17 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertEqual(
-            AgentConversationForkDefaultSettings.current(defaults: defaults),
+            AgentConversationForkDestination.configuredDefault(defaults: defaults),
             .right,
             "Missing setting should use the product default"
         )
 
-        defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDefaultSettings.key)
-        XCTAssertEqual(AgentConversationForkDefaultSettings.current(defaults: defaults), .newTab)
+        defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
+        XCTAssertEqual(AgentConversationForkDestination.configuredDefault(defaults: defaults), .newTab)
 
-        defaults.set("unsupported", forKey: AgentConversationForkDefaultSettings.key)
+        defaults.set("unsupported", forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
         XCTAssertEqual(
-            AgentConversationForkDefaultSettings.current(defaults: defaults),
+            AgentConversationForkDestination.configuredDefault(defaults: defaults),
             .right,
             "Invalid settings file values should fall back to the product default"
         )
@@ -6925,15 +6926,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         // Parity coverage with the Claude path: Codex sessions are also `.supportedWithoutProbe`
         // and should reach the default right-split path through the context-menu dispatcher.
         let defaults = UserDefaults.standard
-        let previousValue = defaults.object(forKey: AgentConversationForkDefaultSettings.key)
+        let previousValue = defaults.object(forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
         defer {
             if let previousValue {
-                defaults.set(previousValue, forKey: AgentConversationForkDefaultSettings.key)
+                defaults.set(previousValue, forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentConversationForkDefaultSettings.key)
+                defaults.removeObject(forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
             }
         }
-        defaults.removeObject(forKey: AgentConversationForkDefaultSettings.key)
+        defaults.removeObject(forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
 
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -7005,15 +7006,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkConversationContextMenuPrimaryActionUsesConfiguredDefault() throws {
         let defaults = UserDefaults.standard
-        let previousValue = defaults.object(forKey: AgentConversationForkDefaultSettings.key)
+        let previousValue = defaults.object(forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
         defer {
             if let previousValue {
-                defaults.set(previousValue, forKey: AgentConversationForkDefaultSettings.key)
+                defaults.set(previousValue, forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentConversationForkDefaultSettings.key)
+                defaults.removeObject(forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
             }
         }
-        defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDefaultSettings.key)
+        defaults.set(AgentConversationForkDestination.newTab.rawValue, forKey: AgentConversationForkDestination.defaultDestinationDefaultsKey)
 
         let workspace = Workspace()
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)

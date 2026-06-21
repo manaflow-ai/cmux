@@ -14,12 +14,16 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxCore"),
+        .package(path: "../CmuxPanes"),
+        .package(path: "../../../vendor/bonsplit"),
     ],
     targets: [
         .target(
             name: "CMUXAgentLaunch",
             dependencies: [
                 .product(name: "CmuxCore", package: "CmuxCore"),
+                .product(name: "CmuxPanes", package: "CmuxPanes"),
+                .product(name: "Bonsplit", package: "bonsplit"),
             ]
         ),
         .testTarget(

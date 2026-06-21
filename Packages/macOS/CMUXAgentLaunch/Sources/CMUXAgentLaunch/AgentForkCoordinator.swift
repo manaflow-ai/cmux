@@ -217,9 +217,8 @@ public final class AgentForkCoordinator<Host: AgentForkHosting> {
     /// snapshot, re-applies the menu-visibility gate, resolves the configured
     /// destination, and dispatches, beeping on any failure. Faithful lift of
     /// `Workspace.handleForkConversationContextAction(...)`; the caller resolves
-    /// the panel id from the tab and the destination from the action so the
-    /// app-target `TabContextAction` / `AgentConversationForkDefaultSettings`
-    /// stay app-side.
+    /// the panel id from the tab and supplies the resolved destination closure so
+    /// the live tab/pane lookups stay app-side.
     public func handleForkConversationContextAction(
         panelId: UUID?,
         destination resolveDestination: () -> Destination,

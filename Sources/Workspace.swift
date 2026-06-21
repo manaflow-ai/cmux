@@ -3038,7 +3038,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             return self.canForkAgentConversationFromPanel(panelId)
         }
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
-            AgentConversationForkDefaultSettings.current().tabContextAction
+            AgentConversationForkDestination.configuredDefault().tabContextAction
         }
         bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
             switch source {
@@ -11281,13 +11281,13 @@ extension Workspace: BonsplitDelegate {
     /// Forwards to ``AgentForkCoordinator/handleForkConversationContextAction(panelId:destination:anchorTabId:paneId:)``.
     /// The panel-id resolution from the tab and the configured-destination
     /// resolution from the action stay app-side (the coordinator never imports
-    /// `TabContextAction` / `AgentConversationForkDefaultSettings`).
+    /// the app-target `TabContextAction` right-click vocabulary directly).
     private func handleForkConversationContextAction(_ action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
         agentForkCoordinator.handleForkConversationContextAction(
             panelId: panelIdFromSurfaceId(tab.id),
             destination: {
                 action == .forkConversation
-                    ? AgentConversationForkDefaultSettings.current()
+                    ? AgentConversationForkDestination.configuredDefault()
                     : AgentConversationForkDestination(tabContextAction: action)
             },
             anchorTabId: tab.id,

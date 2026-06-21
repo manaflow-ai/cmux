@@ -47,7 +47,7 @@
 2074	Sources/SessionPersistence.swift
 2047	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
-1942	Sources/KeyboardShortcutSettingsFileStore.swift
+1943	Sources/KeyboardShortcutSettingsFileStore.swift
 1880	Sources/RestorableAgentSession.swift
 1861	Sources/TerminalController+ControlDebugContext.swift
 1848	cmuxTests/NotificationAndMenuBarTests.swift

@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import CmuxPanes
 import Foundation
 
@@ -275,71 +276,11 @@ extension ContentView {
     }
 }
 
-enum AgentConversationForkDestination: String, CaseIterable, Identifiable, Sendable {
-    case right
-    case left
-    case top
-    case bottom
-    case newTab
-    case newWorkspace
-
-    var id: String { rawValue }
-
-    static let defaultDestination: AgentConversationForkDestination = .right
-
-    init(tabContextAction: TabContextAction) {
-        switch tabContextAction {
-        case .forkConversationLeft:
-            self = .left
-        case .forkConversationTop:
-            self = .top
-        case .forkConversationBottom:
-            self = .bottom
-        case .forkConversationNewTab:
-            self = .newTab
-        case .forkConversationNewWorkspace:
-            self = .newWorkspace
-        case .forkConversationRight:
-            self = .right
-        default:
-            self = .defaultDestination
-        }
-    }
-
-    var tabContextAction: TabContextAction {
-        switch self {
-        case .right:
-            return .forkConversationRight
-        case .left:
-            return .forkConversationLeft
-        case .top:
-            return .forkConversationTop
-        case .bottom:
-            return .forkConversationBottom
-        case .newTab:
-            return .forkConversationNewTab
-        case .newWorkspace:
-            return .forkConversationNewWorkspace
-        }
-    }
-
-    var commandPaletteCommandId: String {
-        switch self {
-        case .right:
-            return "palette.forkAgentConversationRight"
-        case .left:
-            return "palette.forkAgentConversationLeft"
-        case .top:
-            return "palette.forkAgentConversationTop"
-        case .bottom:
-            return "palette.forkAgentConversationBottom"
-        case .newTab:
-            return "palette.forkAgentConversationNewTab"
-        case .newWorkspace:
-            return "palette.forkAgentConversationNewWorkspace"
-        }
-    }
-
+// `AgentConversationForkDestination` and its configured-default reader now live
+// in `CMUXAgentLaunch` (the `AgentForkCoordinator` `Destination` vocabulary). The
+// localized display titles stay app-side here because `String(localized:)` must
+// resolve against the app bundle, not the package bundle.
+extension AgentConversationForkDestination {
     var title: String {
         switch self {
         case .right:
@@ -389,33 +330,5 @@ enum AgentConversationForkDestination: String, CaseIterable, Identifiable, Senda
         case .newWorkspace:
             return String(localized: "forkConversation.destination.newWorkspace.description", defaultValue: "Right-click Fork Conversation creates a new workspace.")
         }
-    }
-
-    var splitDirection: SplitDirection? {
-        switch self {
-        case .right:
-            return .right
-        case .left:
-            return .left
-        case .top:
-            return .up
-        case .bottom:
-            return .down
-        case .newTab, .newWorkspace:
-            return nil
-        }
-    }
-}
-
-enum AgentConversationForkDefaultSettings {
-    static let key = "agentConversationForkDefaultDestination"
-    static let defaultDestination = AgentConversationForkDestination.defaultDestination
-
-    static func current(defaults: UserDefaults = .standard) -> AgentConversationForkDestination {
-        guard let raw = defaults.string(forKey: key),
-              let destination = AgentConversationForkDestination(rawValue: raw) else {
-            return defaultDestination
-        }
-        return destination
     }
 }
