@@ -69,7 +69,7 @@
       "keyboardShortcuts": "キーボードショートカット",
       "keyboardShortcutsDesc": "：ワークスペース、分割、ブラウザなどの<link>豊富なショートカット</link>",
       "openSource": "オープンソース",
-      "openSourceDesc": "：無料・GPLライセンス、GitHubでフォーク可能"
+      "openSourceDesc": "：無料・GPLライセンス"
     },
     "faqGhosttyQ": "cmuxとGhosttyの関係は？",
     "faqGhosttyA": "cmuxはGhosttyのフォークではありません。アプリがWebKitをWebビューに使うのと同様に、ターミナルレンダリングのライブラリとして<link>libghostty</link>を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。",
