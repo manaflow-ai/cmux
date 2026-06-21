@@ -24,6 +24,7 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(decoded, .unknown)
     }
 
+    @MainActor
     func testSocketLifecycleRejectsUnsupportedStatusKey() {
         let response = TerminalController.shared.handleSocketLine("set_agent_lifecycle fake-agent idle")
 

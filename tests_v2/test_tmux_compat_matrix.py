@@ -162,7 +162,8 @@ def main() -> int:
 
         pipe_file = Path(tempfile.gettempdir()) / f"cmux_pipe_pane_{stamp}.log"
         _run_cli(cli, ["pipe-pane", "--workspace", ws, "--surface", s1, "--command", f"cat > {pipe_file}"])
-        piped = pipe_file.read_text() if pipe_file.exists() else ""
+        _wait_for(lambda: pipe_file.exists() and capture_token in pipe_file.read_text(), timeout_s=5.0)
+        piped = pipe_file.read_text()
         _must(capture_token in piped, f"pipe-pane output missing token: {piped!r}")
 
         wait_name = f"tmux_wait_{stamp}"

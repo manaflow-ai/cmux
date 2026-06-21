@@ -1305,20 +1305,19 @@ enum SurfaceResumeApprovalStore {
 nonisolated enum TerminalStartupReturnShellScript {
     private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
     private static let zshIntegrationReentryLines = [
-        #"if [[ "${_cmux_resume_shell:t}" == "zsh" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
-        #"  if [[ -n "${ZDOTDIR+X}" ]]; then"#,
-        #"    export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
+        #"if [[ "${_cmux_resume_shell:t}" == "zsh" ]]; then"#,
+        #"  _cmux_resume_zdotdir_is_integration() { [[ -n "${1:-}" && ( "$1" == "${CMUX_SHELL_INTEGRATION_DIR:-}" || "$1" == */Contents/Resources/shell-integration ) ]]; }"#,
+        #"  if [[ -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
+        #"    if [[ -n "${ZDOTDIR+X}" ]] && ! _cmux_resume_zdotdir_is_integration "$ZDOTDIR"; then export CMUX_ZSH_ZDOTDIR="$ZDOTDIR"; elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]] && _cmux_resume_zdotdir_is_integration "$CMUX_ZSH_ZDOTDIR"; then unset CMUX_ZSH_ZDOTDIR; fi; export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
         #"  else"#,
-        #"    unset CMUX_ZSH_ZDOTDIR"#,
-        #"  fi"#,
-        #"  export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
+        #"    if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"; unset GHOSTTY_ZSH_ZDOTDIR; elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]] && ! _cmux_resume_zdotdir_is_integration "$CMUX_ZSH_ZDOTDIR"; then export ZDOTDIR="$CMUX_ZSH_ZDOTDIR"; unset CMUX_ZSH_ZDOTDIR; elif [[ -n "${ZDOTDIR+X}" ]] && _cmux_resume_zdotdir_is_integration "$ZDOTDIR"; then unset ZDOTDIR; unset CMUX_ZSH_ZDOTDIR; fi"#,
+        #"  fi; unfunction _cmux_resume_zdotdir_is_integration 2>/dev/null || true"#,
         #"fi"#,
     ]
 
     static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
         let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
-        var lines = [
-            shellLine,
+        var lines = [shellLine] + zshIntegrationReentryLines + [
             #"case "${_cmux_resume_shell:t}" in"#,
             #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
             #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
