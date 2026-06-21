@@ -4,11 +4,18 @@ import Foundation
 /// Useful for notification storms where only the latest update matters.
 final class NotificationBurstCoalescer {
     private var delay: TimeInterval
+    private let sleep: @Sendable (UInt64) async throws -> Void
     private var flushTask: Task<Void, Never>?
     private var pendingAction: (() -> Void)?
 
-    init(delay: TimeInterval = 1.0 / 30.0) {
+    init(
+        delay: TimeInterval = 1.0 / 30.0,
+        sleep: @escaping @Sendable (UInt64) async throws -> Void = { nanoseconds in
+            try await Task.sleep(nanoseconds: nanoseconds)
+        }
+    ) {
         self.delay = max(0, delay)
+        self.sleep = sleep
     }
 
     deinit {
@@ -34,12 +41,13 @@ final class NotificationBurstCoalescer {
         let scheduledDelay = delay
         // The sleep is the intended bounded coalescing delay; storing the task
         // lets delay changes and deinit cancel it instead of leaving stale work.
-        flushTask = Task { @MainActor [weak self] in
+        flushTask = Task { @MainActor [weak self, sleep] in
             do {
-                try await Task.sleep(nanoseconds: Self.nanoseconds(for: scheduledDelay))
+                try await sleep(Self.nanoseconds(for: scheduledDelay))
             } catch {
                 return
             }
+            guard !Task.isCancelled else { return }
             self?.flush()
         }
     }

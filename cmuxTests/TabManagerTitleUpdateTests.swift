@@ -13,20 +13,30 @@ import CmuxSettings
 struct TabManagerTitleUpdateTests {
     @Test
     func coalescerReschedulesWhenDelayChangesMidBurst() async {
-        let coalescer = NotificationBurstCoalescer(delay: 0.02)
+        let sleeper = ManualCoalescerSleep()
+        let coalescer = NotificationBurstCoalescer(
+            delay: 0.02,
+            sleep: { try await sleeper.sleep(nanoseconds: $0) }
+        )
         var flushCount = 0
 
         coalescer.signal {
             flushCount += 1
         }
-        try? await Task.sleep(nanoseconds: nanoseconds(for: 0.005))
+        #expect(await yieldUntil { await sleeper.pendingCount() == 1 })
+
         coalescer.signal(delay: 0.25) {
             flushCount += 1
         }
+        #expect(await yieldUntil { await sleeper.pendingCount() == 2 })
+        #expect(await sleeper.requestedNanoseconds() == [20_000_000, 250_000_000])
 
-        try? await Task.sleep(nanoseconds: nanoseconds(for: 0.10))
+        await sleeper.releaseNext()
+        await Task.yield()
         #expect(flushCount == 0)
-        #expect(await waitForTitleCondition(timeout: 1.0) { flushCount == 1 })
+
+        await sleeper.releaseNext()
+        #expect(await yieldUntil { flushCount == 1 })
     }
 
     @Test
@@ -38,7 +48,13 @@ struct TabManagerTitleUpdateTests {
 
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let catalog = SettingCatalog()
-        let manager = TabManager(settings: settings)
+        let sleeper = ManualCoalescerSleep()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                sleep: { try await sleeper.sleep(nanoseconds: $0) }
+            ),
+            settings: settings
+        )
         let workspace = try #require(manager.selectedWorkspace)
         let focusedPanelId = try #require(workspace.focusedPanelId)
 
@@ -55,16 +71,16 @@ struct TabManagerTitleUpdateTests {
             ]
         )
 
-        try? await Task.sleep(nanoseconds: nanoseconds(for: 0.12))
+        #expect(await yieldUntil { await sleeper.pendingCount() == 1 })
+        #expect(await sleeper.requestedNanoseconds() == [300_000_000])
         #expect(workspace.panelTitles[focusedPanelId] != "Runtime Delay - grok")
         #expect(workspace.title != "Runtime Delay - grok")
 
-        #expect(
-            await waitForTitleCondition(timeout: 1.0) {
-                workspace.panelTitles[focusedPanelId] == "Runtime Delay - grok" &&
-                    workspace.title == "Runtime Delay - grok"
-            }
-        )
+        await sleeper.releaseNext()
+        #expect(await yieldUntil {
+            workspace.panelTitles[focusedPanelId] == "Runtime Delay - grok" &&
+                workspace.title == "Runtime Delay - grok"
+        })
     }
 
     @Test
@@ -79,7 +95,13 @@ struct TabManagerTitleUpdateTests {
         settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
         settings.set(100, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
 
-        let manager = TabManager(settings: settings)
+        let sleeper = ManualCoalescerSleep()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                sleep: { try await sleeper.sleep(nanoseconds: $0) }
+            ),
+            settings: settings
+        )
         let workspace = try #require(manager.selectedWorkspace)
         let focusedPanelId = try #require(workspace.focusedPanelId)
         let originalPanelTitle = workspace.panelTitles[focusedPanelId]
@@ -98,7 +120,9 @@ struct TabManagerTitleUpdateTests {
             ]
         )
 
-        try? await Task.sleep(nanoseconds: nanoseconds(for: 0.25))
+        await yieldMainActor()
+        #expect(await sleeper.pendingCount() == 0)
+        #expect(await sleeper.requestedNanoseconds().isEmpty)
         #expect(workspace.panelTitles[focusedPanelId] == originalPanelTitle)
         #expect(workspace.panelTitles[focusedPanelId] != "Ignored Non Owner - grok")
         #expect(workspace.title != "Ignored Non Owner - grok")
@@ -130,28 +154,47 @@ struct TabManagerTitleUpdateTests {
         #expect(abs(PanelTitleUpdateCoalescingSettings.delay(settings: settings) - 5.0) < 0.000_1)
     }
 
-    private func waitForTitleCondition(
-        timeout: TimeInterval = 3.0,
-        pollInterval: TimeInterval = 0.05,
-        _ condition: @escaping @MainActor () -> Bool
+    private func yieldUntil(
+        _ condition: @escaping @MainActor () async -> Bool
     ) async -> Bool {
-        if condition() {
-            return true
-        }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() {
+        for _ in 0..<1_000 {
+            if await condition() {
                 return true
             }
-            try? await Task.sleep(nanoseconds: nanoseconds(for: pollInterval))
+            await Task.yield()
         }
-        return condition()
+        return await condition()
     }
 
-    private func nanoseconds(for delay: TimeInterval) -> UInt64 {
-        let nanoseconds = delay * 1_000_000_000
-        guard nanoseconds.isFinite, nanoseconds > 0 else { return 0 }
-        return UInt64(min(nanoseconds.rounded(.up), Double(UInt64.max)))
+    private func yieldMainActor() async {
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+    }
+
+    private actor ManualCoalescerSleep {
+        private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
+        private var requested: [UInt64] = []
+
+        func sleep(nanoseconds: UInt64) async throws {
+            requested.append(nanoseconds)
+            await withCheckedContinuation { continuation in
+                pendingContinuations.append(continuation)
+            }
+        }
+
+        func pendingCount() -> Int {
+            pendingContinuations.count
+        }
+
+        func requestedNanoseconds() -> [UInt64] {
+            requested
+        }
+
+        func releaseNext() {
+            guard !pendingContinuations.isEmpty else { return }
+            let continuation = pendingContinuations.removeFirst()
+            continuation.resume()
+        }
     }
 }
