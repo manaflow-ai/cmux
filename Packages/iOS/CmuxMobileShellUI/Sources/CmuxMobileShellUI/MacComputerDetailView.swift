@@ -254,14 +254,20 @@ struct MacComputerDetailView: View {
                 LabeledContent(L10n.string("mobile.computers.field.lastSeen", defaultValue: "Last seen"),
                                value: presence.lastSeenAt.formatted(.relative(presentation: .named)))
             } else if connectionStatus == .connected {
-                // The phone is connected to this Mac directly, so the lack of a
-                // server heartbeat is not a problem — say so instead of a bare
-                // "unknown" that contradicts the green Connection section above.
+                // No server heartbeat, but the phone is connected to this Mac right
+                // now — so it IS online; the live connection is the liveness truth.
+                // Lead with that instead of a bare "unknown"/"no heartbeat" that
+                // contradicts the green Connection section. The clarifier explains
+                // why there's no server record (presence heartbeat is currently a
+                // dev-only feature; stable Macs don't announce it yet).
                 LabeledContent(
                     L10n.string("mobile.computers.field.reported", defaultValue: "Reports"),
+                    value: L10n.string("mobile.deviceTree.online", defaultValue: "Online"))
+                LabeledContent(
+                    L10n.string("mobile.computers.field.source", defaultValue: "Source"),
                     value: L10n.string(
-                        "mobile.computers.presenceConnectedNoHeartbeat",
-                        defaultValue: "no heartbeat (connected directly)"))
+                        "mobile.computers.presenceViaConnection",
+                        defaultValue: "this phone's connection (no server heartbeat)"))
             } else {
                 LabeledContent(L10n.string("mobile.computers.field.reported", defaultValue: "Reports"),
                                value: L10n.string("mobile.computers.presenceUnknown", defaultValue: "unknown"))
@@ -270,7 +276,7 @@ struct MacComputerDetailView: View {
             Text(L10n.string("mobile.computers.section.presence", defaultValue: "Presence (from server)"))
         } footer: {
             Text(L10n.string("mobile.computers.presenceFooter",
-                defaultValue: "Presence is the Mac's own heartbeat to the presence service, not your phone's connection. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone — usually a Tailscale or route problem."))
+                defaultValue: "Presence is the Mac's own heartbeat to the presence service, which is currently a DEV-only feature — stable cmux Macs don't announce it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone — usually a Tailscale or route problem."))
         }
     }
 

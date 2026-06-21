@@ -1259,6 +1259,23 @@
         }
       }
     },
+    "mobile.computers.field.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース"
+          }
+        }
+      }
+    },
     "mobile.computers.field.workspaces": {
       "extractionState": "manual",
       "localizations": {
@@ -1327,23 +1344,6 @@
         }
       }
     },
-    "mobile.computers.presenceConnectedNoHeartbeat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "no heartbeat (connected directly)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ハートビートなし（直接接続済み）"
-          }
-        }
-      }
-    },
     "mobile.computers.presenceFooter": {
       "extractionState": "manual",
       "localizations": {
@@ -1374,6 +1374,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明"
+          }
+        }
+      }
+    },
+    "mobile.computers.presenceViaConnection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this phone's connection (no server heartbeat)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この端末の接続（サーバーのハートビートなし）"
           }
         }
       }
