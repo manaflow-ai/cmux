@@ -75,21 +75,21 @@ struct OptionalDSLFont: ViewModifier {
 }
 
 /// Resolves a font token (or explicit size) to a magnification-aware font spec.
-func dslFontSpec(named token: String?, size: Double?, design: Font.Design = .default) -> DSLFontSpec? {
-    if let size { return DSLFontSpec(baseSize: CGFloat(size), weight: nil, design: design) }
+func dslFontSpec(named token: String?, size: Double?, weight: Font.Weight? = nil, design: Font.Design = .default) -> DSLFontSpec? {
+    if let size { return DSLFontSpec(baseSize: CGFloat(size), weight: weight, design: design) }
     guard let token else { return nil }
     switch token.lowercased() {
-    case "largetitle": return DSLFontSpec(baseSize: 26, weight: nil, design: design)
-    case "title": return DSLFontSpec(baseSize: 22, weight: nil, design: design)
-    case "title2": return DSLFontSpec(baseSize: 17, weight: nil, design: design)
-    case "title3": return DSLFontSpec(baseSize: 15, weight: nil, design: design)
-    case "headline": return DSLFontSpec(baseSize: 13, weight: .semibold, design: design)
-    case "subheadline": return DSLFontSpec(baseSize: 11, weight: nil, design: design)
-    case "body": return DSLFontSpec(baseSize: 13, weight: nil, design: design)
-    case "callout": return DSLFontSpec(baseSize: 12, weight: nil, design: design)
-    case "footnote": return DSLFontSpec(baseSize: 10, weight: nil, design: design)
-    case "caption": return DSLFontSpec(baseSize: 10, weight: nil, design: design)
-    case "caption2": return DSLFontSpec(baseSize: 9, weight: nil, design: design)
+    case "largetitle": return DSLFontSpec(baseSize: 26, weight: weight, design: design)
+    case "title": return DSLFontSpec(baseSize: 22, weight: weight, design: design)
+    case "title2": return DSLFontSpec(baseSize: 17, weight: weight, design: design)
+    case "title3": return DSLFontSpec(baseSize: 15, weight: weight, design: design)
+    case "headline": return DSLFontSpec(baseSize: 13, weight: weight ?? .semibold, design: design)
+    case "subheadline": return DSLFontSpec(baseSize: 11, weight: weight, design: design)
+    case "body": return DSLFontSpec(baseSize: 13, weight: weight, design: design)
+    case "callout": return DSLFontSpec(baseSize: 12, weight: weight, design: design)
+    case "footnote": return DSLFontSpec(baseSize: 10, weight: weight, design: design)
+    case "caption": return DSLFontSpec(baseSize: 10, weight: weight, design: design)
+    case "caption2": return DSLFontSpec(baseSize: 9, weight: weight, design: design)
     default: return nil
     }
 }

@@ -30,7 +30,8 @@ public struct SidebarWorkspaceShortcutHintMetrics {
 
     /// Cached rendered width of a hint `label`.
     public func hintWidth(for label: String) -> CGFloat {
-        let cacheKey = "\(GlobalFontMagnification.storedPercent)\u{0}\(label)"
+        let percent = GlobalFontMagnification.storedPercent
+        let cacheKey = "\(percent)\u{0}\(label)"
         Self.lock.lock()
         if let cached = Self.cachedHintWidths[cacheKey] {
             Self.lock.unlock()
@@ -38,7 +39,8 @@ public struct SidebarWorkspaceShortcutHintMetrics {
         }
         Self.lock.unlock()
 
-        let measurementFont = GlobalFontMagnification.systemFont(ofSize: 10, weight: .semibold)
+        let pointSize = max(1, 10 * CGFloat(percent) / CGFloat(GlobalFontMagnification.defaultPercent))
+        let measurementFont = NSFont.systemFont(ofSize: pointSize, weight: .semibold)
         let textWidth = (label as NSString).size(withAttributes: [.font: measurementFont]).width
         let measuredWidth = ceil(textWidth) + Self.horizontalPadding
 

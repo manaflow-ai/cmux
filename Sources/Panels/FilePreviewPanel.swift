@@ -2028,7 +2028,7 @@ struct FilePreviewPDFStandaloneChromeStyleModifier: ViewModifier {
 final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSource, NSCollectionViewDelegate, NSCollectionViewDelegateFlowLayout {
     private enum Metrics {
         static let thumbnailHeight = FilePreviewPDFSizing.thumbnailMaximumSize.height
-        static var labelHeight: CGFloat {
+        static func labelHeight() -> CGFloat {
             let font = GlobalFontMagnification.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
             return max(22, ceil(font.ascender - font.descender + font.leading) + 8)
         }
@@ -2040,6 +2040,7 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
     private let collectionView = FilePreviewPDFThumbnailCollectionView()
     private let flowLayout = NSCollectionViewFlowLayout()
     private var document: PDFDocument?
+    private var labelHeight = Metrics.labelHeight()
     private var isApplyingSelection = false
     private var selectedPageIndex: Int?
     private var selectionIsActive = false
@@ -2056,7 +2057,6 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
     required init?(coder: NSCoder) {
         nil
     }
-
     override func layout() {
         super.layout()
         updateItemSize()
@@ -2080,7 +2080,7 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
     }
 
     func reloadFontsForGlobalMagnification() {
-        flowLayout.invalidateLayout()
+        labelHeight = Metrics.labelHeight(); flowLayout.invalidateLayout()
         collectionView.reloadData()
         updateItemSize()
     }
@@ -2198,7 +2198,7 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
     private func thumbnailItemSize(width: CGFloat) -> NSSize {
         NSSize(
             width: max(1, width),
-            height: Metrics.thumbnailHeight + Metrics.labelHeight + 10
+            height: Metrics.thumbnailHeight + labelHeight + 10
         )
     }
 

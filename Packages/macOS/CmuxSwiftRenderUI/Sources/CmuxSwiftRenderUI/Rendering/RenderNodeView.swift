@@ -449,10 +449,11 @@ struct RenderNodeView: View {
         guard let token else { return nil }
         guard token.hasPrefix("system") else { return dslFontSpec(named: token, size: nil) }
         let design: Font.Design = token.contains("monospaced") ? .monospaced : .default
+        let weight = resolveFontWeight(in: token)
         if let range = token.range(of: "size:") {
             let digits = token[range.upperBound...].drop(while: { $0 == " " })
                 .prefix(while: { $0.isNumber || $0 == "." })
-            if let n = Double(digits) { return dslFontSpec(named: nil, size: n, design: design) }
+            if let n = Double(digits) { return dslFontSpec(named: nil, size: n, weight: weight, design: design) }
         }
         let styleNames = [
             "largeTitle", "title3", "title2", "title",
@@ -460,9 +461,16 @@ struct RenderNodeView: View {
             "footnote", "caption2", "caption",
         ]
         for name in styleNames where token.contains(name) {
-            return dslFontSpec(named: name, size: nil, design: design)
+            return dslFontSpec(named: name, size: nil, weight: weight, design: design)
         }
-        return dslFontSpec(named: nil, size: 13, design: design)
+        return dslFontSpec(named: nil, size: 13, weight: weight, design: design)
+    }
+
+    private func resolveFontWeight(in token: String) -> Font.Weight? {
+        guard let range = token.range(of: "weight:") else { return nil }
+        let rawWeight = token[range.upperBound...].drop(while: { $0 == " " || $0 == "." })
+            .prefix(while: { $0.isLetter })
+        return dslFontWeight(String(rawWeight))
     }
 
     /// Strips a leading `.` (member token) or surrounding quotes from a raw

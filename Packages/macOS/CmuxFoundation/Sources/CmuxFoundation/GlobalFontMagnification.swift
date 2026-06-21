@@ -118,8 +118,11 @@ public struct GlobalFontMagnification {
         NSFont(name: name, size: scaledSize(baseSize))
     }
 
+    /// Normalizes a requested magnification to the supported range and step.
     public static func clamp(_ percent: Int) -> Int {
-        Swift.max(minimumPercent, Swift.min(maximumPercent, percent))
+        let bounded = Swift.max(minimumPercent, Swift.min(maximumPercent, percent))
+        let stepped = Int((Double(bounded) / Double(stepPercent)).rounded()) * stepPercent
+        return Swift.max(minimumPercent, Swift.min(maximumPercent, stepped))
     }
 
     /// Stores a new percent and posts the live-update notification.

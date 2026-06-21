@@ -10721,9 +10721,7 @@ final class BrowserDataImportCoordinator {
             super.init()
             setupUI()
             globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
-                Task { @MainActor [weak self] in
-                    self?.handleGlobalFontMagnificationChanged()
-                }
+                self?.handleGlobalFontMagnificationChanged()
             }
             configureInitialState()
         }

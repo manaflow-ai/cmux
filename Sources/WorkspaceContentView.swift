@@ -760,7 +760,7 @@ struct EmptyPanelView: View {
                 .cmuxFont(size: 48)
                 .foregroundStyle(.tertiary)
 
-            Text("Empty Panel")
+            Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
                 .cmuxFont(.headline)
                 .foregroundStyle(.secondary)
 

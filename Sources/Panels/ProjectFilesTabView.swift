@@ -254,18 +254,22 @@ private struct ProjectFilesGroupRow: View {
     let depth: Int
     let isExpanded: Bool
     let onToggle: () -> Void
+    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
 
     var body: some View {
+        let scale = CGFloat(GlobalFontMagnification.clamp(globalFontPercent)) / CGFloat(GlobalFontMagnification.defaultPercent)
+        let chevronWidth = max(1, 12 * scale)
+        let symbolFrame = max(1, 14 * scale)
         Button(action: onToggle) {
             HStack(spacing: 4) {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .cmuxFont(size: 9, weight: .semibold)
-                    .frame(width: 12)
+                    .frame(width: chevronWidth)
                     .foregroundStyle(.secondary)
                 Image(systemName: glyph(for: group.style))
                     .cmuxFont(size: 12)
                     .imageScale(.small)
-                    .frame(width: 14, height: 14)
+                    .frame(width: symbolFrame, height: symbolFrame)
                     .foregroundStyle(.secondary)
                 Text(group.displayName)
                     .cmuxFont(size: 12)
@@ -298,15 +302,19 @@ private struct ProjectFilesFileRow: View {
     let module: ProjectModule
     let isSelected: Bool
     let onSelect: () -> Void
+    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
 
     var body: some View {
+        let scale = CGFloat(GlobalFontMagnification.clamp(globalFontPercent)) / CGFloat(GlobalFontMagnification.defaultPercent)
+        let spacerWidth = max(1, 12 * scale)
+        let symbolFrame = max(1, 14 * scale)
         Button(action: onSelect) {
             HStack(spacing: 4) {
-                Spacer().frame(width: 12)
+                Spacer().frame(width: spacerWidth)
                 Image(systemName: glyph(for: file.fileType))
                     .cmuxFont(size: 12)
                     .imageScale(.small)
-                    .frame(width: 14, height: 14)
+                    .frame(width: symbolFrame, height: symbolFrame)
                     .foregroundStyle(file.existsOnDisk ? Color.secondary : Color.orange)
                 Text(file.displayName)
                     .cmuxFont(size: 12)

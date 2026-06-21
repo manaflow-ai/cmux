@@ -442,7 +442,7 @@ final class CmuxSettingsFileStore {
                 logInvalid("app.globalFontMagnification", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[GlobalFontMagnification.percentKey] = .int(value)
+            snapshot.managedUserDefaults[GlobalFontMagnification.percentKey] = .int(clamped)
         } else if section.keys.contains("globalFontMagnification") {
             logInvalid("app.globalFontMagnification", sourcePath: sourcePath)
         }
