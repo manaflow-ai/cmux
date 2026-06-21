@@ -9745,16 +9745,13 @@ struct TabItemView: View, Equatable {
             }
 
             if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
-                HStack(spacing: 4) {
-                    Image(systemName: logLevelIcon(latestLog.level))
-                        .font(.system(size: scaledFontSize(8)))
-                        .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
-                    Text(latestLog.message)
-                        .font(.system(size: scaledFontSize(10)))
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+                SidebarWorkspaceLogRow(
+                    entry: latestLog,
+                    isActive: usesInvertedActiveForeground,
+                    activeSecondaryColor: { activeSecondaryColor($0) },
+                    messageColor: activeSecondaryColor(0.8),
+                    fontScale: fontScale
+                )
                 .transition(.opacity)
             }
 
@@ -9783,153 +9780,46 @@ struct TabItemView: View, Equatable {
 
             // Branch + directory row
             if detailVisibility.showsBranchDirectory {
-                if sidebarBranchVerticalLayout {
-                    if !workspaceSnapshot.branchDirectoryLines.isEmpty {
-                        HStack(alignment: .top, spacing: 3) {
-                            if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
-                                Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: scaledFontSize(9)))
-                                    .foregroundColor(activeSecondaryColor(0.6))
-                            }
-                            VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(workspaceSnapshot.branchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                    if sidebarStacksBranchAndDirectory {
-                                        if let branch = line.branch {
-                                            Text(branch)
-                                                .font(.system(size: scaledFontSize(10), design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                        }
-                                        if !line.directoryCandidates.isEmpty {
-                                            SidebarDirectoryText(
-                                                candidates: line.directoryCandidates,
-                                                color: activeSecondaryColor(0.75),
-                                                fontScale: fontScale
-                                            )
-                                        }
-                                    } else {
-                                        HStack(spacing: 3) {
-                                            if let branch = line.branch {
-                                                Text(branch)
-                                                    .font(.system(size: scaledFontSize(10), design: .monospaced))
-                                                    .foregroundColor(activeSecondaryColor(0.75))
-                                                    .lineLimit(1)
-                                                    .truncationMode(.tail)
-                                            }
-                                            if line.branch != nil, !line.directoryCandidates.isEmpty {
-                                                Image(systemName: "circle.fill")
-                                                    .font(.system(size: scaledFontSize(3)))
-                                                    .foregroundColor(activeSecondaryColor(0.6))
-                                                    .padding(.horizontal, 1)
-                                            }
-                                            if !line.directoryCandidates.isEmpty {
-                                                SidebarDirectoryText(
-                                                    candidates: line.directoryCandidates,
-                                                    color: activeSecondaryColor(0.75),
-                                                    fontScale: fontScale
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else if sidebarStacksBranchAndDirectory,
-                          (workspaceSnapshot.compactGitBranchSummaryText != nil
-                           || !workspaceSnapshot.compactDirectoryCandidates.isEmpty) {
-                    HStack(alignment: .top, spacing: 3) {
-                        if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: scaledFontSize(9)))
-                                .foregroundColor(activeSecondaryColor(0.6))
-                        }
-                        VStack(alignment: .leading, spacing: 1) {
-                            if let branchRow = workspaceSnapshot.compactGitBranchSummaryText {
-                                Text(branchRow)
-                                    .font(.system(size: scaledFontSize(10), design: .monospaced))
-                                    .foregroundColor(activeSecondaryColor(0.75))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                            }
-                            if !workspaceSnapshot.compactDirectoryCandidates.isEmpty {
-                                SidebarDirectoryText(
-                                    candidates: workspaceSnapshot.compactDirectoryCandidates,
-                                    color: activeSecondaryColor(0.75),
-                                    fontScale: fontScale
-                                )
-                            }
-                        }
-                    }
-                } else if !workspaceSnapshot.compactBranchDirectoryCandidates.isEmpty {
-                    HStack(spacing: 3) {
-                        if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: scaledFontSize(9)))
-                                .foregroundColor(activeSecondaryColor(0.6))
-                        }
-                        SidebarDirectoryText(
-                            candidates: workspaceSnapshot.compactBranchDirectoryCandidates,
-                            color: activeSecondaryColor(0.75),
-                            fontScale: fontScale
-                        )
-                    }
-                }
+                SidebarWorkspaceBranchDirectoryRow(
+                    branchDirectoryLines: workspaceSnapshot.branchDirectoryLines,
+                    branchLinesContainBranch: workspaceSnapshot.branchLinesContainBranch,
+                    compactGitBranchSummaryText: workspaceSnapshot.compactGitBranchSummaryText,
+                    compactDirectoryCandidates: workspaceSnapshot.compactDirectoryCandidates,
+                    compactBranchDirectoryCandidates: workspaceSnapshot.compactBranchDirectoryCandidates,
+                    usesVerticalBranchLayout: sidebarBranchVerticalLayout,
+                    stacksBranchAndDirectory: sidebarStacksBranchAndDirectory,
+                    showsGitBranchIcon: sidebarShowGitBranchIcon,
+                    secondaryColor: activeSecondaryColor(0.75),
+                    iconColor: activeSecondaryColor(0.6),
+                    fontScale: fontScale
+                )
             }
 
             // Pull request rows
             if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
-                        let pullRequestNumber = String(pullRequest.number)
-                        let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
-                        let rowContent = HStack(spacing: 4) {
-                            PullRequestStatusIcon(
-                                status: pullRequest.status,
-                                color: pullRequestForegroundColor,
-                                fontScale: fontScale
-                            )
-                            Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
-                            Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                        .font(.system(size: scaledFontSize(10), weight: .semibold))
-                        .foregroundColor(pullRequestForegroundColor)
-                        .opacity(pullRequest.isStale ? 0.5 : 1)
-                        if settings.makesPullRequestsClickable {
-                            Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
-                                .buttonStyle(.plain)
-                                .tint(pullRequestForegroundColor)
-                                .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
-                                .accessibilityIdentifier("SidebarPullRequestRow")
-                        } else {
-                            rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
-                        }
-                    }
-                }
+                SidebarWorkspacePullRequestRows(
+                    pullRequests: workspaceSnapshot.pullRequestRows,
+                    foregroundColor: pullRequestForegroundColor,
+                    fontScale: fontScale,
+                    makesClickable: settings.makesPullRequestsClickable,
+                    statusLabel: { pullRequestStatusLabel($0) },
+                    openTooltip: { title in
+                        String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(title)")
+                    },
+                    onOpen: { openPullRequestLink($0) }
+                )
             }
 
             // Ports row
             if detailVisibility.showsPorts, !workspaceSnapshot.listeningPorts.isEmpty {
-                HStack(spacing: 4) {
-                    ForEach(workspaceSnapshot.listeningPorts, id: \.self) { port in
-                        let portLabel = SidebarPortDisplayText.label(for: port)
-                        let portTooltip = SidebarPortDisplayText.openTooltip(for: port)
-                        Button(action: {
-                            openPortLink(port)
-                        }) {
-                            Text(portLabel)
-                                .underline()
-                        }
-                        .buttonStyle(.plain)
-                        .safeHelp(portTooltip)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .font(.system(size: scaledFontSize(10), design: .monospaced))
-                .foregroundColor(activeSecondaryColor(0.75))
-                .lineLimit(1)
+                SidebarWorkspacePortsRow(
+                    ports: workspaceSnapshot.listeningPorts,
+                    color: activeSecondaryColor(0.75),
+                    fontScale: fontScale,
+                    portLabel: { SidebarPortDisplayText.label(for: $0) },
+                    portTooltip: { SidebarPortDisplayText.openTooltip(for: $0) },
+                    onOpen: { openPortLink($0) }
+                )
             }
         }
         // No implicit .animation(value:) on agent-mutable fields: animating a
@@ -10918,40 +10808,6 @@ struct TabItemView: View, Equatable {
         case .open: return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
         case .merged: return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
         case .closed: return String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
-        }
-    }
-
-    private func logLevelIcon(_ level: SidebarLogLevel) -> String {
-        switch level {
-        case .info: return "circle.fill"
-        case .progress: return "arrowtriangle.right.fill"
-        case .success: return "checkmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .error: return "xmark.circle.fill"
-        }
-    }
-
-    private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
-        if isActive {
-            switch level {
-            case .info:
-                return activeSecondaryColor(0.5)
-            case .progress:
-                return activeSecondaryColor(0.8)
-            case .success:
-                return activeSecondaryColor(0.9)
-            case .warning:
-                return activeSecondaryColor(0.9)
-            case .error:
-                return activeSecondaryColor(0.9)
-            }
-        }
-        switch level {
-        case .info: return .secondary
-        case .progress: return .blue
-        case .success: return .green
-        case .warning: return .orange
-        case .error: return .red
         }
     }
 
