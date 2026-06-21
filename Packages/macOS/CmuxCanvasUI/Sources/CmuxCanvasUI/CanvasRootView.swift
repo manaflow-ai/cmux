@@ -48,11 +48,11 @@ public final class CanvasRootView: NSView {
     static var didShowCommandScrollHintThisSession = false
     var commandScrollHintTask: Task<Void, Never>?
     var commandScrollHintHost: NSHostingView<CanvasCommandScrollHint>?
-    /// A saved viewport waiting to be applied once the scroll view is laid
-    /// out (contentSize settled). Cleared when successfully applied.
+    /// A saved viewport waiting for contentSize to settle. Cleared when applied.
     private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
     var pendingDiscreteZoomAnimation: (canvasCenter: CGPoint, magnification: CGFloat)?
     var discreteZoomAnimationGeneration: UInt64 = 0
+    var shouldReduceMotionForDiscreteZoom: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     /// True while programmatically applying a saved viewport, so the scroll
     /// events that causes don't overwrite the saved value with transients.
     private var isApplyingSavedViewport = false
