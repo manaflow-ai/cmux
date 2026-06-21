@@ -224,6 +224,15 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// read back from the local store. Unchanged hosts are no-ops server-side
     /// (shape-aware equality), so this only emits deltas for what actually
     /// changed (e.g. the flipped active flag).
+    ///
+    /// SCOPE LIMITATION: the backup DO is per-(account, team) but the local
+    /// `MobilePairedMacStore` rows carry only `stackUserID`, so this mirrors the
+    /// account's whole set into whichever team the backup client currently targets.
+    /// For a solo account or a single-team user (team == account) that is exactly
+    /// right. A genuine multi-team user who switches teams and then re-uploads can
+    /// copy another team's hosts into the selected team's backup. Closing that gap
+    /// cleanly needs a `team_id` column on the store rows (a v3 migration) so the
+    /// mirror/restore set can be filtered by team; tracked as a follow-up.
     private func mirrorAccountScope(_ account: String) async {
         guard let macs = try? await inner.loadAll(stackUserID: account), !macs.isEmpty else { return }
         await backup.upload(ops: macs.map { .upsert(Self.backupRecord(from: $0)) })

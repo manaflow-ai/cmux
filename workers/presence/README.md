@@ -118,11 +118,11 @@ iPhone that subscribes/backs up must share one worker):
 - **iOS:** a tapped device app sees no shell env, so the override is read from the
   app's **Info.plist key `CMUXPresenceBaseURL`** (and from `presenceServiceURL`
   UserDefaults / the `CMUX_PRESENCE_BASE_URL` launch env). Resolution precedence:
-  env → UserDefaults → Info.plist → Debug default. The reload scripts should bake
-  `CMUXPresenceBaseURL` from `$CMUX_PRESENCE_BASE_URL` into the tagged build's
-  Info.plist (TODO: wire into the iOS reload's existing dev-identity bake, next to
-  `CMUXDevTag`). Until then, launch via `devicectl process launch --environment
-  CMUX_PRESENCE_BASE_URL=<url> …` to point a device build at your worker.
+  env → UserDefaults → Info.plist → Debug default. `ios/scripts/reload.sh` bakes
+  `$CMUX_PRESENCE_BASE_URL` into that Info.plist key (next to `CMUXDevTag`, via the
+  `CMUX_PRESENCE_BASE_URL` build setting in `ios/Config/Shared.xcconfig` +
+  `Info.plist`), so once it is exported a normally-tapped dev device build talks to
+  your worker. Empty by default, so release/TestFlight builds are unaffected.
 
 Leave `CMUX_PRESENCE_BASE_URL` unset to use the shared `cmux-presence-dev`
 baseline. The durable fix for any feature is to **merge it** — then it ships on

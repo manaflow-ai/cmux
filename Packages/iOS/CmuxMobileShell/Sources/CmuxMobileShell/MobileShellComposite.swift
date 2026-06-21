@@ -4365,6 +4365,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the derived list recomputes to just the offline Mac's rows.
         teardownSecondaryMacSubscriptions()
         workspacesByMac = workspacesByMac.filter { $0.key == offlineForegroundKey }
+        // The retained foreground entry still carries its last-known
+        // `status: .connected`; `macConnectionStatuses` (the Computers screen's
+        // per-Mac dots) derives from these per-Mac states, so without this the
+        // just-disconnected Mac would keep showing a green connected dot. Downgrade
+        // it to `.unavailable` to match the global connection state.
+        if var offline = workspacesByMac[offlineForegroundKey] {
+            offline.status = .unavailable
+            workspacesByMac[offlineForegroundKey] = offline
+        }
         rawTerminalInputBuffer.clear()
     }
 
