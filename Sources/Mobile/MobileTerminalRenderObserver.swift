@@ -13,6 +13,7 @@ final class MobileTerminalRenderObserver {
         var columns: Int
         var rows: Int
         var stateSeq: UInt64
+        var activeScreen: MobileTerminalRenderGridFrame.Screen
         /// Per-row signatures of text *and* resolved styling, so a style-only
         /// change (e.g. typing over a dimmed shell autosuggestion) still marks
         /// the row dirty. See `MobileTerminalRenderGridFrame.rowSignatures()`.
@@ -195,7 +196,8 @@ final class MobileTerminalRenderObserver {
         let frame: MobileTerminalRenderGridFrame
         if let previous,
            previous.columns == snapshot.frame.columns,
-           previous.rows == snapshot.frame.rows {
+           previous.rows == snapshot.frame.rows,
+           previous.activeScreen == snapshot.frame.activeScreen {
             var changedRows = Set<Int>()
             let count = min(previous.rowSignatures.count, nextSignatures.count)
             for index in 0..<count where previous.rowSignatures[index] != nextSignatures[index] {
@@ -244,6 +246,7 @@ final class MobileTerminalRenderObserver {
             columns: frame.columns,
             rows: frame.rows,
             stateSeq: frame.stateSeq,
+            activeScreen: frame.activeScreen,
             rowSignatures: nextSignatures
         )
         guard let envelope = try? MobileTerminalRenderGridEnvelope.viewportDelta(frame),

@@ -201,7 +201,7 @@ import Testing
         stateSeq: 30,
         columns: 16,
         rows: 2,
-        text: "same-sequence-live",
+        text: "snapshot",
         full: false,
         changedRows: [0, 1]
     )
@@ -236,7 +236,7 @@ import Testing
         stateSeq: 30,
         columns: 16,
         rows: 2,
-        text: "same-sequence-live",
+        text: "snapshot",
         full: false,
         changedRows: [0, 1]
     )
@@ -245,6 +245,63 @@ import Testing
     let delivered = session.receiveLive(try .viewportDelta(liveFrame))
 
     #expect(delivered.isEmpty)
+}
+
+@Test func terminalRenderSessionDeliversBufferedSameSequenceResizeDelta() throws {
+    let surfaceID = "terminal"
+    var session = TerminalRenderSession()
+    session.beginSnapshot()
+
+    let liveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 30,
+        columns: 20,
+        rows: 2,
+        text: "snapshot",
+        full: false,
+        changedRows: [0, 1]
+    )
+    let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 30,
+        columns: 16,
+        rows: 2,
+        text: "snapshot"
+    )
+
+    #expect(session.receiveLive(try .viewportDelta(liveFrame)).isEmpty)
+
+    let delivered = session.receiveSnapshot(try .snapshot(snapshotFrame))
+
+    #expect(delivered.map(\.frame.stateSeq) == [30, 30])
+    #expect(delivered.last?.frame.columns == 20)
+}
+
+@Test func terminalRenderSessionDeliversLiveSameSequenceRenderChange() throws {
+    let surfaceID = "terminal"
+    var session = TerminalRenderSession()
+    let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 30,
+        columns: 16,
+        rows: 2,
+        text: "snapshot"
+    )
+    let liveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 30,
+        columns: 16,
+        rows: 2,
+        text: "repaint",
+        full: false,
+        changedRows: [0, 1]
+    )
+
+    _ = session.receiveSnapshot(try .snapshot(snapshotFrame))
+    let delivered = session.receiveLive(try .viewportDelta(liveFrame))
+
+    #expect(delivered.map(\.frame.stateSeq) == [30])
+    #expect(delivered.first?.frame.rowSignatures() != snapshotFrame.rowSignatures())
 }
 
 @Test func terminalRenderSessionInvalidatesSnapshotWhenLiveBufferOverflows() throws {
