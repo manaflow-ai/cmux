@@ -80,6 +80,16 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         stackUserID: String?,
         now: Date
     ) async throws {
+        // Capture the host that is active BEFORE this upsert, so a `markActive`
+        // upsert can mirror exactly the two records whose active flag changes (the
+        // new host, and the previously-active one now cleared) instead of the whole
+        // account.
+        let previouslyActive: MobilePairedMac?
+        if markActive, let account = stackUserID, !account.isEmpty {
+            previouslyActive = try? await inner.activeMac(stackUserID: account)
+        } else {
+            previouslyActive = nil
+        }
         try await inner.upsert(
             macDeviceID: macDeviceID,
             displayName: displayName,
@@ -89,19 +99,20 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             now: now
         )
         // Mirror to the DO only for a signed-in (account-scoped) host; anonymous
-        // local pairings have no per-user collection to back up to.
+        // local pairings have no per-user collection to back up to. Upload the
+        // COMPLETE current record (read back from local) rather than one built from
+        // just these params, so an existing customization (name/color/icon) is
+        // preserved instead of clobbered with nil.
         guard let account = stackUserID, !account.isEmpty else { return }
         lastSignedInAccount = account
-        // `markActive: true` clears the active flag of the account's OTHER hosts
-        // locally, so mirror the whole scope to keep the backup's single-active
-        // invariant; a plain (non-active) upsert only needs to mirror itself.
-        if markActive {
-            await mirrorAccountScope(account)
-        } else {
-            // Upload the COMPLETE current record (read back from local) rather than
-            // a record built from just these params, so an existing customization
-            // (name/color/icon) is preserved instead of clobbered with nil.
-            await uploadCurrentRecord(macDeviceID: macDeviceID, account: account)
+        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account)
+        // `markActive` clears the active flag of the account's previously-active
+        // host locally; mirror THAT one record too so the backup keeps its
+        // single-active invariant — without re-uploading the whole account, which
+        // would copy other-team hosts into the selected team's DO (the local rows
+        // carry no team id to filter by). See `setActive`.
+        if markActive, let previouslyActive, previouslyActive.macDeviceID != macDeviceID {
+            await uploadCurrentRecord(macDeviceID: previouslyActive.macDeviceID, account: account)
         }
     }
 
@@ -137,14 +148,24 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     }
 
     public func setActive(macDeviceID: String) async throws {
+        // Resolve the scope and the previously-active host BEFORE the flip, so we can
+        // mirror exactly the two records that change.
+        let account = try? await accountForMac(macDeviceID)
+        let previouslyActive = (account != nil)
+            ? try? await inner.activeMac(stackUserID: account) : nil
         try await inner.setActive(macDeviceID: macDeviceID)
-        // setActive flips the active flag for one host (and clears the others in
-        // its scope) without going through `upsert`, so mirror the affected
-        // scope to the DO. Otherwise a "select host but don't connect, then
-        // reinstall" sequence restores a stale active host.
-        guard let account = try? await accountForMac(macDeviceID) else { return }
+        // setActive flips the active flag for one host (and clears the previously-
+        // active one in its scope) without going through `upsert`. Mirror ONLY those
+        // two changed records to the DO so a "select host but don't connect, then
+        // reinstall" sequence restores the right active host — WITHOUT a whole-
+        // account upload, which would copy other-team hosts into the selected team's
+        // DO (local rows carry no team id to filter by).
+        guard let account else { return }
         lastSignedInAccount = account
-        await mirrorAccountScope(account)
+        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account)
+        if let previouslyActive, previouslyActive.macDeviceID != macDeviceID {
+            await uploadCurrentRecord(macDeviceID: previouslyActive.macDeviceID, account: account)
+        }
     }
 
     public func remove(macDeviceID: String) async throws {
@@ -229,24 +250,6 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     private func accountForMac(_ macDeviceID: String) async throws -> String? {
         let all = try await inner.loadAll(stackUserID: nil)
         return all.first { $0.macDeviceID == macDeviceID }?.stackUserID
-    }
-
-    /// Upload every host in an account's scope as upserts, with accurate fields
-    /// read back from the local store. Unchanged hosts are no-ops server-side
-    /// (shape-aware equality), so this only emits deltas for what actually
-    /// changed (e.g. the flipped active flag).
-    ///
-    /// SCOPE LIMITATION: the backup DO is per-(account, team) but the local
-    /// `MobilePairedMacStore` rows carry only `stackUserID`, so this mirrors the
-    /// account's whole set into whichever team the backup client currently targets.
-    /// For a solo account or a single-team user (team == account) that is exactly
-    /// right. A genuine multi-team user who switches teams and then re-uploads can
-    /// copy another team's hosts into the selected team's backup. Closing that gap
-    /// cleanly needs a `team_id` column on the store rows (a v3 migration) so the
-    /// mirror/restore set can be filtered by team; tracked as a follow-up.
-    private func mirrorAccountScope(_ account: String) async {
-        guard let macs = try? await inner.loadAll(stackUserID: account), !macs.isEmpty else { return }
-        await backup.upload(ops: macs.map { .upsert(Self.backupRecord(from: $0)) })
     }
 
     /// Build the COMPLETE backup record for a Mac from the local row, so every

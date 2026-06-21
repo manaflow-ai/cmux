@@ -2393,6 +2393,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                authToken: ticket.authToken
            ) {
             activeTicket = adopted
+            // Move the foreground aggregate key from the anonymous key to the real
+            // id so the Computers screen recognizes this Mac as connected and
+            // secondary aggregation excludes it (no duplicate connection to self).
+            adoptForegroundMacIdentity(reportedID)
             // The connection is now attributable to a real Mac: persist it so
             // reconnect-on-launch and the host switcher have a record (the
             // empty-id ticket was skipped by the connect-time persist).
@@ -2755,7 +2759,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return nil
         }
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
-        guard let route = supportedRoutes.first else { return nil }
+        // Dial the route we PROVED reachable above (the non-loopback host/port the
+        // ticket was built from), NOT `supportedRoutes.first`: on a physical phone a
+        // Mac ticket can advertise a higher-priority `debugLoopback` (127.0.0.1)
+        // route, and dialing that makes every secondary subscription connect to the
+        // phone itself — so the Mac is unreachable and silently drops out of the
+        // aggregate. Prefer the exact matching route, then any non-loopback, then any.
+        let route = supportedRoutes.first(where: { route in
+            if case let .hostPort(routeHost, routePort) = route.endpoint {
+                return routeHost == host && routePort == port
+            }
+            return false
+        }) ?? supportedRoutes.first(where: { $0.kind != .debugLoopback })
+            ?? supportedRoutes.first
+        guard let route else { return nil }
         let client = MobileCoreRPCClient(
             runtime: runtime,
             route: route,
@@ -3202,6 +3219,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard previousKey != foregroundMacKey,
               secondaryMacSubscriptions[previousKey] == nil else { return }
         workspacesByMac[previousKey] = nil
+    }
+
+    /// Adopt a host-reported real device id as the foreground Mac's aggregate key.
+    /// A compact/anonymous QR ticket connects with an empty `macDeviceID`, so the
+    /// foreground state lands under the anonymous key with `foregroundMacDeviceID`
+    /// nil. When `mobile.host.status` later reports the real id, move that state to
+    /// the real id and stamp its rows — otherwise the Computers screen shows the
+    /// connected Mac as "not connected" (foregroundMacDeviceID never matched) and
+    /// secondary aggregation, which excludes `foregroundMacDeviceID`, can open a
+    /// DUPLICATE read-only connection to the very Mac that is already foreground.
+    private func adoptForegroundMacIdentity(_ macDeviceID: String) {
+        guard !macDeviceID.isEmpty, foregroundMacDeviceID != macDeviceID else { return }
+        let oldKey = foregroundMacKey
+        foregroundMacDeviceID = macDeviceID
+        guard oldKey != macDeviceID else { return }
+        if var state = workspacesByMac[oldKey] {
+            workspacesByMac[oldKey] = nil
+            state.macDeviceID = macDeviceID
+            state.workspaces = state.workspaces.map { workspace in
+                var copy = workspace
+                copy.macDeviceID = macDeviceID
+                return copy
+            }
+            // Don't clobber a (somehow) pre-existing real-id entry; merge by keeping
+            // the live foreground rows.
+            workspacesByMac[macDeviceID] = state
+        }
+        if let connection = connections[oldKey] {
+            connections[oldKey] = nil
+            connections[macDeviceID] = connection
+        }
     }
 
     /// Apply an optimistic mutation to the foreground Mac's workspace list (e.g. a
