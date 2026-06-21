@@ -92,7 +92,19 @@ struct cmuxApp: App {
     private let authComposition: MacAuthComposition
 
     @State private var tabManager: TabManager
+    // De-singletonization stage b73: this `@StateObject` is the composition-root
+    // owner of the single `TerminalNotificationStore`. `AppDelegate.configure`
+    // records it via `installCompositionRootInstance`, so the transitional
+    // `TerminalNotificationStore.shared` accessor read by the tail call sites
+    // resolves to this same object instead of a self-vivified `static let shared`.
     @StateObject private var notificationStore = TerminalNotificationStore.shared
+    // De-singletonization stage b73: `ClosedItemHistoryStore` no longer
+    // self-vivifies an eager `static let shared`. The composition root
+    // (`AppDelegate.closedItemHistory`, installed in
+    // `applicationDidFinishLaunching`) owns the single instance; the transitional
+    // ``ClosedItemHistoryStore/shared`` accessor used here for the history-menu
+    // `@StateObject` resolves to that same object, so the menu and the AppDelegate
+    // call sites read one store.
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared

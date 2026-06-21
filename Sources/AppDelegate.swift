@@ -190,6 +190,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func ensureTerminalControlInstalled() {
         _ = terminalControl
     }
+    /// The app-target composition owner for the recently-closed-item history
+    /// store (`ClosedItemHistoryStore`). Constructed once at the composition root
+    /// (`applicationDidFinishLaunching` calls
+    /// ``ensureClosedItemHistoryInstalled()``) so the type no longer self-vivifies
+    /// a `static let shared`. This is the injected reference the AppDelegate call
+    /// sites use directly; the tail of call sites (`cmuxApp` history menu,
+    /// `Workspace`, `TabManager`) still reach it through the transitional
+    /// ``ClosedItemHistoryStore/shared`` accessor, which returns this same
+    /// instance.
+    private(set) lazy var closedItemHistory: ClosedItemHistoryStore = {
+        let instance = ClosedItemHistoryStore.shared
+        ClosedItemHistoryStore.installCompositionRootInstance(instance)
+        return instance
+    }()
+
+    /// Resolve + own the ``ClosedItemHistoryStore`` at startup. Idempotent (the
+    /// `lazy` runs once); calling it from `applicationDidFinishLaunching` makes
+    /// ownership explicit at the composition root and holds the single instance
+    /// as ``closedItemHistory``, which the AppDelegate call sites use directly.
+    /// The tail call sites still reach the same object through the transitional
+    /// ``ClosedItemHistoryStore/shared`` accessor, so there is exactly one
+    /// instance.
+    func ensureClosedItemHistoryInstalled() {
+        _ = closedItemHistory
+    }
     #if DEBUG
     /// DEBUG main-run-loop stall probe (CmuxTestSupport); composition-root owned,
     /// injected behind ``RunLoopStallMonitoring`` to retire the former
@@ -1819,6 +1844,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // composition root (de-singletonization stage b72): the type no longer
         // self-vivifies a `static let shared`.
         ensureTerminalControlInstalled()
+        // Construct + own the recently-closed-item history store at the
+        // composition root (de-singletonization stage b73): the type no longer
+        // self-vivifies a `static let shared`.
+        ensureClosedItemHistoryInstalled()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
@@ -2403,7 +2432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
+        closedItemHistory.flushPendingSaves()
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
         // or policy skips the warning, avoid a second alert.
@@ -2511,7 +2540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         PresenceHeartbeatClient.shared.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
+        closedItemHistory.flushPendingSaves()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         sshURLLaunchService.terminateAll()
@@ -2539,7 +2568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
+        closedItemHistory.flushPendingSaves()
     }
 
     func configure(
@@ -2552,6 +2581,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
+        // De-singletonization stage b73: the cmuxApp `@StateObject` owns the
+        // single `TerminalNotificationStore`; record composition-root ownership so
+        // the transitional `TerminalNotificationStore.shared` accessor used by the
+        // tail call sites resolves to this same injected instance.
+        TerminalNotificationStore.installCompositionRootInstance(notificationStore)
         self.sidebarState = sidebarState
         self.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)
@@ -2943,8 +2977,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
         if let originalWindowId = snapshot.windowId,
            originalWindowId != context.windowId {
-            ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: context.windowId)
-            ClosedItemHistoryStore.shared.flushPendingSaves()
+            closedItemHistory.remapWorkspaceWindowIds(from: originalWindowId, to: context.windowId)
+            closedItemHistory.flushPendingSaves()
         }
         let restoreSidebarState = sidebarState(for: context)
         restoreSidebarState.isVisible = snapshot.sidebar.isVisible
@@ -3084,11 +3118,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .willPowerOff:
             isTerminatingApp = true
             _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-            ClosedItemHistoryStore.shared.flushPendingSaves()
+            closedItemHistory.flushPendingSaves()
         case .sessionDidResignActive:
             if isTerminatingApp {
                 _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-                ClosedItemHistoryStore.shared.flushPendingSaves()
+                closedItemHistory.flushPendingSaves()
             } else {
                 saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
             }
@@ -7067,8 +7101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             if let originalWindowId = sessionWindowSnapshot.windowId,
                originalWindowId != windowId {
-                ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
-                ClosedItemHistoryStore.shared.flushPendingSaves()
+                closedItemHistory.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
+                closedItemHistory.flushPendingSaves()
             }
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
@@ -12075,7 +12109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !snapshot.tabManager.workspaces.isEmpty else {
             return
         }
-        ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
+        closedItemHistory.push(.window(ClosedWindowHistoryEntry(
             windowId: context.windowId,
             snapshot: snapshot,
             workspaceIds: context.tabManager.sessionSnapshotWorkspaceIds()
