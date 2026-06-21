@@ -32,6 +32,20 @@ import Testing
 }
 
 @MainActor
+@Test func rawByteTransportInputSeqBehindDoesNotEnterRenderGridWait() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    _ = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.debugSetRenderGridTransportForTesting(false)
+    store.debugSetTerminalEventListenerActiveForTesting(true)
+
+    store.debugHandleTerminalInputResponseForTesting(terminalSeq: 42, surfaceID: surfaceID)
+
+    #expect(store.debugPendingTerminalOutputSeqForTesting(surfaceID: surfaceID) == nil)
+}
+
+@MainActor
 @Test func staleStreamAckDoesNotAdvanceReplacementOutputQueue() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"

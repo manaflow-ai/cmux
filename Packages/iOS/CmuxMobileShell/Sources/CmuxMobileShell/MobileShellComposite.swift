@@ -4965,7 +4965,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let localSeq = deliveredTerminalOutputSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
-        if terminalEventListenerTask != nil {
+        if terminalEventListenerTask != nil, terminalOutputTransport == .renderGrid {
             let pendingSeq = pendingTerminalOutputSeqBySurfaceID[surfaceID]
             pendingTerminalOutputSeqBySurfaceID[surfaceID] = max(remoteSeq, pendingSeq ?? 0)
             if let pendingSeq, localSeq < pendingSeq {
@@ -5334,6 +5334,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             supportedHostCapabilities.remove(Self.terminalRenderGridCapability)
         }
+    }
+
+    func debugSetTerminalEventListenerActiveForTesting(_ active: Bool) {
+        terminalEventListenerTask?.cancel()
+        terminalEventListenerTask = active ? Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        } : nil
+    }
+
+    func debugHandleTerminalInputResponseForTesting(terminalSeq: UInt64, surfaceID: String) {
+        let data = Data(#"{"terminal_seq":\#(terminalSeq)}"#.utf8)
+        handleTerminalInputResponse(data, surfaceID: surfaceID)
+    }
+
+    func debugPendingTerminalOutputSeqForTesting(surfaceID: String) -> UInt64? {
+        pendingTerminalOutputSeqBySurfaceID[surfaceID]
     }
 
     func debugBeginInitialTerminalReplayForTesting(surfaceID: String) {
