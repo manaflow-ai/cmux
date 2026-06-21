@@ -2095,6 +2095,13 @@ extension CMUXCLI {
         let currentBranch = gitCurrentBranchName(in: repoRoot)
         var groups: [DiffBranchRefGroup] = []
 
+        // Safety bound on the branches/remotes scans so a pathological repo (tens
+        // of thousands of refs) cannot make a single popover open allocate, cache,
+        // and transfer an unbounded payload. Generous enough to stay effectively
+        // uncapped for any realistic repo; `git for-each-ref --count` limits the
+        // work at the source rather than after building the full array.
+        let maxRefsPerGroup = 5000
+
         // Suggested: the heuristic bases, deduped, each with reason/confidence.
         var suggestedRows: [DiffBranchRefRow] = []
         var suggestedSeen: Set<String> = []
@@ -2195,7 +2202,7 @@ extension CMUXCLI {
         // Branches: local heads with last-commit relative time, current marked.
         var branchRows: [DiffBranchRefRow] = []
         if let listing = try? gitStdout(
-            ["for-each-ref", "--format=%(refname:short)%09%(committerdate:relative)", "refs/heads"],
+            ["for-each-ref", "--count=\(maxRefsPerGroup)", "--format=%(refname:short)%09%(committerdate:relative)", "refs/heads"],
             in: repoRoot
         ) {
             for line in listing.split(whereSeparator: \.isNewline).map(String.init) {
@@ -2229,7 +2236,7 @@ extension CMUXCLI {
         // Remotes: refs/remotes minus the */HEAD pointers.
         var remoteRows: [DiffBranchRefRow] = []
         if let listing = try? gitStdout(
-            ["for-each-ref", "--format=%(refname:short)", "refs/remotes"],
+            ["for-each-ref", "--count=\(maxRefsPerGroup)", "--format=%(refname:short)", "refs/remotes"],
             in: repoRoot
         ) {
             for line in listing.split(whereSeparator: \.isNewline).map(String.init) {
