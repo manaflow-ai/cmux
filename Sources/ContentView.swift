@@ -1679,7 +1679,7 @@ struct ContentView: View {
         VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
-            windowId: windowId,
+            windowId: windowId, sidebarWidth: sidebarWidth,
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
@@ -9988,6 +9988,7 @@ struct VerticalTabsSidebar: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let windowId: UUID
+    let sidebarWidth: CGFloat
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
@@ -10357,7 +10358,7 @@ struct VerticalTabsSidebar: View {
         let workspaceCount: Int
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
-        let tabItemSettings: SidebarTabItemSettingsSnapshot
+        let tabItemSettings: SidebarTabItemSettingsSnapshot, sidebarWidth: CGFloat
         let tabIndexById: [UUID: Int]
         let workspaceById: [UUID: Workspace]
         let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
@@ -10419,7 +10420,7 @@ struct VerticalTabsSidebar: View {
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
-            tabItemSettings: tabItemSettings,
+            tabItemSettings: tabItemSettings, sidebarWidth: sidebarWidth,
             tabIndexById: tabIndexById,
             workspaceById: workspaceById,
             workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
@@ -12152,7 +12153,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
-            settings: renderContext.tabItemSettings,
+            settings: renderContext.tabItemSettings, sidebarWidth: renderContext.sidebarWidth,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -12934,7 +12935,7 @@ struct TabItemView: View, Equatable {
         lhs.unreadCount == rhs.unreadCount &&
         lhs.hasMemoryWarning == rhs.hasMemoryWarning &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
-        lhs.rowSpacing == rhs.rowSpacing &&
+        lhs.rowSpacing == rhs.rowSpacing && lhs.sidebarWidth == rhs.sidebarWidth &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
@@ -12965,7 +12966,7 @@ struct TabItemView: View, Equatable {
     /// the orange warning badge alongside the unread badge.
     let hasMemoryWarning: Bool
     let latestNotificationText: String?
-    let rowSpacing: CGFloat
+    let rowSpacing: CGFloat, sidebarWidth: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -13339,7 +13340,9 @@ struct TabItemView: View, Equatable {
             settings: settings,
             effectiveSubtitle: effectiveSubtitle,
             metadataEntryIsExpanded: metadataRowsExpanded,
-            metadataBlocksAreExpanded: metadataBlocksExpanded
+            metadataBlocksAreExpanded: metadataBlocksExpanded,
+            sidebarWidth: sidebarWidth, unreadCount: unreadCount,
+            hasMemoryWarning: hasMemoryWarning, canCloseWorkspace: canCloseWorkspace
         )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)

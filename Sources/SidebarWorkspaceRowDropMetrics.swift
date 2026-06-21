@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxFoundation
 import CmuxSidebar
 import Foundation
 
@@ -9,7 +10,9 @@ struct SidebarWorkspaceRowDropMetrics {
     static let maxWrappedTitleLines = 8
     static let maxDescriptionLines = 12
     static let maxMetadataBlockLines = 12
-    private static let estimatedCharactersPerLine = 42
+    private static let defaultEstimatedCharactersPerLine = 42
+    private static let titleGlyphWidthFactor: CGFloat = 0.62
+    private static let bodyGlyphWidthFactor: CGFloat = 0.58
 
     static func targetHeight(
         fontScale: CGFloat,
@@ -68,19 +71,52 @@ struct SidebarWorkspaceRowDropMetrics {
 
     static func estimatedMetadataBlockLineCounts(
         _ blocks: [SidebarMetadataBlock],
-        isExpanded: Bool
+        isExpanded: Bool,
+        textWidth: CGFloat? = nil,
+        fontScale: CGFloat = 1
     ) -> [Int] {
         let visibleBlocks = isExpanded ? blocks : Array(blocks.prefix(collapsedMetadataBlockLimit))
-        return visibleBlocks.map { estimatedLineCount($0.markdown) }
+        return visibleBlocks.map {
+            estimatedLineCount(
+                $0.markdown,
+                maxLines: maxMetadataBlockLines,
+                textWidth: textWidth,
+                fontSize: 10 * max(fontScale, 0.5),
+                glyphWidthFactor: bodyGlyphWidthFactor
+            )
+        }
     }
 
-    static func estimatedTitleLineCount(_ title: String, wraps: Bool) -> Int {
-        wraps ? estimatedLineCount(title, maxLines: maxWrappedTitleLines) : 1
+    static func estimatedTitleLineCount(
+        _ title: String,
+        wraps: Bool,
+        textWidth: CGFloat? = nil,
+        fontScale: CGFloat = 1
+    ) -> Int {
+        wraps
+            ? estimatedLineCount(
+                title,
+                maxLines: maxWrappedTitleLines,
+                textWidth: textWidth,
+                fontSize: 12.5 * max(fontScale, 0.5),
+                glyphWidthFactor: titleGlyphWidthFactor
+            )
+            : 1
     }
 
-    static func estimatedDescriptionLineCount(_ description: String?) -> Int {
+    static func estimatedDescriptionLineCount(
+        _ description: String?,
+        textWidth: CGFloat? = nil,
+        fontScale: CGFloat = 1
+    ) -> Int {
         guard let description else { return 0 }
-        return estimatedLineCount(description, maxLines: maxDescriptionLines)
+        return estimatedLineCount(
+            description,
+            maxLines: maxDescriptionLines,
+            textWidth: textWidth,
+            fontSize: 10.5 * max(fontScale, 0.5),
+            glyphWidthFactor: bodyGlyphWidthFactor
+        )
     }
 
     private static func metadataEntriesHeight(
@@ -107,14 +143,81 @@ struct SidebarWorkspaceRowDropMetrics {
         return (CGFloat(visibleLineCount) * 13 + CGFloat(toggleCount) * 13 + CGFloat(blockSpacingCount) * 3) * scale
     }
 
-    private static func estimatedLineCount(_ text: String, maxLines: Int = maxMetadataBlockLines) -> Int {
-        let boundedText = String(text.prefix(estimatedCharactersPerLine * maxLines))
+    static func rowContentWidth(sidebarWidth: CGFloat) -> CGFloat {
+        max(
+            1,
+            sidebarWidth - 2 * (
+                SidebarWorkspaceListMetrics.rowOuterHorizontalPadding +
+                    SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+            )
+        )
+    }
+
+    static func titleTextWidth(
+        sidebarWidth: CGFloat,
+        unreadCount: Int,
+        hasMemoryWarning: Bool,
+        isPinned: Bool,
+        canCloseWorkspace: Bool,
+        fontScale: CGFloat
+    ) -> CGFloat {
+        let scale = max(fontScale, 0.5)
+        var occupiedWidth: CGFloat = 0
+        var itemCount = 1
+
+        func addAccessory(width: CGFloat) {
+            occupiedWidth += width
+            itemCount += 1
+        }
+
+        if unreadCount > 0 {
+            addAccessory(width: 16 * scale)
+        }
+        if hasMemoryWarning {
+            addAccessory(width: 12 * scale)
+        }
+        if isPinned {
+            addAccessory(width: 10 * scale)
+        }
+        if canCloseWorkspace {
+            addAccessory(width: max(SidebarTrailingAccessoryWidthPolicy().closeButtonWidth, 16 * scale))
+        }
+
+        let spacing = CGFloat(max(itemCount - 1, 0)) * 8
+        return max(1, rowContentWidth(sidebarWidth: sidebarWidth) - occupiedWidth - spacing)
+    }
+
+    private static func estimatedLineCount(
+        _ text: String,
+        maxLines: Int = maxMetadataBlockLines,
+        textWidth: CGFloat? = nil,
+        fontSize: CGFloat = 10,
+        glyphWidthFactor: CGFloat = bodyGlyphWidthFactor
+    ) -> Int {
+        let charactersPerLine = estimatedCharactersPerLine(
+            textWidth: textWidth,
+            fontSize: fontSize,
+            glyphWidthFactor: glyphWidthFactor
+        )
+        let boundedText = String(text.prefix(charactersPerLine * maxLines))
         let lines = boundedText.components(separatedBy: .newlines)
         let lineCount = lines.reduce(0) { count, line in
             let characterCount = line.trimmingCharacters(in: .whitespacesAndNewlines).count
-            return count + max(1, Int(ceil(Double(characterCount) / Double(estimatedCharactersPerLine))))
+            return count + max(1, Int(ceil(Double(characterCount) / Double(charactersPerLine))))
         }
         return min(max(lineCount, 1), maxLines)
+    }
+
+    private static func estimatedCharactersPerLine(
+        textWidth: CGFloat?,
+        fontSize: CGFloat,
+        glyphWidthFactor: CGFloat
+    ) -> Int {
+        guard let textWidth, textWidth.isFinite, textWidth > 0 else {
+            return defaultEstimatedCharactersPerLine
+        }
+        let glyphWidth = max(1, fontSize * glyphWidthFactor)
+        return max(1, Int(floor(textWidth / glyphWidth)))
     }
 
     private static func branchDirectoryRowCount(
@@ -149,19 +252,47 @@ struct SidebarWorkspaceRowDropMetrics {
         settings: SidebarTabItemSettingsSnapshot,
         effectiveSubtitle: String?,
         metadataEntryIsExpanded: Bool,
-        metadataBlocksAreExpanded: Bool
+        metadataBlocksAreExpanded: Bool,
+        sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth),
+        unreadCount: Int = 0,
+        hasMemoryWarning: Bool = false,
+        canCloseWorkspace: Bool = true
     ) -> CGFloat {
         let visibleDetails = settings.visibleAuxiliaryDetails
         let metadataEntryCount = visibleDetails.showsMetadata ? snapshot.metadataEntries.count : 0
+        let scale = max(settings.sidebarFontScale, 0.5)
+        let bodyTextWidth = rowContentWidth(sidebarWidth: sidebarWidth)
+        let resolvedTitleTextWidth = titleTextWidth(
+            sidebarWidth: sidebarWidth,
+            unreadCount: unreadCount,
+            hasMemoryWarning: hasMemoryWarning,
+            isPinned: snapshot.isPinned,
+            canCloseWorkspace: canCloseWorkspace,
+            fontScale: scale
+        )
         let metadataBlockLineCounts = visibleDetails.showsMetadata
-            ? estimatedMetadataBlockLineCounts(snapshot.metadataBlocks, isExpanded: metadataBlocksAreExpanded)
+            ? estimatedMetadataBlockLineCounts(
+                snapshot.metadataBlocks,
+                isExpanded: metadataBlocksAreExpanded,
+                textWidth: bodyTextWidth,
+                fontScale: scale
+            )
             : []
         let hasMetadataBlockToggle = visibleDetails.showsMetadata &&
             snapshot.metadataBlocks.count > collapsedMetadataBlockLimit
         return targetHeight(
             fontScale: settings.sidebarFontScale,
-            titleLineCount: estimatedTitleLineCount(snapshot.title, wraps: settings.wrapsWorkspaceTitles),
-            descriptionLineCount: estimatedDescriptionLineCount(snapshot.customDescription),
+            titleLineCount: estimatedTitleLineCount(
+                snapshot.title,
+                wraps: settings.wrapsWorkspaceTitles,
+                textWidth: resolvedTitleTextWidth,
+                fontScale: scale
+            ),
+            descriptionLineCount: estimatedDescriptionLineCount(
+                snapshot.customDescription,
+                textWidth: bodyTextWidth,
+                fontScale: scale
+            ),
             hasSubtitle: effectiveSubtitle != nil,
             hasRemoteStatus: !settings.hidesAllDetails && settings.showsSSH && snapshot.remoteWorkspaceSidebarText != nil,
             metadataEntryCount: metadataEntryCount,
@@ -181,14 +312,22 @@ struct SidebarWorkspaceRowDropMetrics {
         settings: SidebarTabItemSettingsSnapshot,
         effectiveSubtitle: String?,
         metadataEntryIsExpanded: Bool,
-        metadataBlocksAreExpanded: Bool
+        metadataBlocksAreExpanded: Bool,
+        sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth),
+        unreadCount: Int = 0,
+        hasMemoryWarning: Bool = false,
+        canCloseWorkspace: Bool = true
     ) -> CGFloat? {
         return targetHeight(
             snapshot: snapshot,
             settings: settings,
             effectiveSubtitle: effectiveSubtitle,
             metadataEntryIsExpanded: metadataEntryIsExpanded,
-            metadataBlocksAreExpanded: metadataBlocksAreExpanded
+            metadataBlocksAreExpanded: metadataBlocksAreExpanded,
+            sidebarWidth: sidebarWidth,
+            unreadCount: unreadCount,
+            hasMemoryWarning: hasMemoryWarning,
+            canCloseWorkspace: canCloseWorkspace
         )
     }
 }

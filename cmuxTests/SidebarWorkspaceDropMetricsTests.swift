@@ -100,15 +100,31 @@ import Testing
             ]
         )
 
-        let height = try #require(SidebarWorkspaceRowDropMetrics.dropTargetHeight(
+        let wideHeight = try #require(SidebarWorkspaceRowDropMetrics.dropTargetHeight(
             snapshot: snapshot,
             settings: settings(wrapsWorkspaceTitles: true),
             effectiveSubtitle: "Recent update",
             metadataEntryIsExpanded: false,
-            metadataBlocksAreExpanded: false
+            metadataBlocksAreExpanded: false,
+            sidebarWidth: 600,
+            unreadCount: 0,
+            hasMemoryWarning: false,
+            canCloseWorkspace: true
+        ))
+        let narrowHeight = try #require(SidebarWorkspaceRowDropMetrics.dropTargetHeight(
+            snapshot: snapshot,
+            settings: settings(wrapsWorkspaceTitles: true),
+            effectiveSubtitle: "Recent update",
+            metadataEntryIsExpanded: false,
+            metadataBlocksAreExpanded: false,
+            sidebarWidth: 216,
+            unreadCount: 12,
+            hasMemoryWarning: true,
+            canCloseWorkspace: true
         ))
 
-        #expect(height > workspaceRowHeight())
+        #expect(wideHeight > workspaceRowHeight())
+        #expect(narrowHeight > wideHeight)
     }
 
     private func workspaceRowHeight(
