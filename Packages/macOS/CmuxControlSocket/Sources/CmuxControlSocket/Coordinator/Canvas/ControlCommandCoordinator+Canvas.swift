@@ -1,5 +1,20 @@
 internal import Foundation
 
+private func normalizedCanvasMode(_ raw: String) -> String? {
+    switch raw.lowercased().replacingOccurrences(of: "_", with: "-") {
+    case "canvas":
+        return "canvas"
+    case "zoomablesplits", "zoomable-splits", "zoomable":
+        return "zoomableSplits"
+    case "splits", "split":
+        return "splits"
+    case "toggle":
+        return "toggle"
+    default:
+        return nil
+    }
+}
+
 /// The canvas domain (`canvas.*`): workspace canvas-layout introspection and
 /// control. The coordinator owns param parsing and ref minting; the
 /// app-coupled work (layout mode, canvas model mutations, viewport
@@ -85,7 +100,7 @@ extension ControlCommandCoordinator {
     /// `canvas.set_mode` — switch the workspace between `canvas`,
     /// `zoomableSplits`, `splits`, or `toggle`.
     func canvasSetMode(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let mode = string(params, "mode").flatMap(Self.normalizedCanvasMode) else {
+        guard let mode = string(params, "mode").flatMap(normalizedCanvasMode) else {
             return .err(
                 code: "invalid_params",
                 message: String(
@@ -99,21 +114,6 @@ extension ControlCommandCoordinator {
         let resolution = context?.controlCanvasSetMode(routing: routing, mode: mode)
             ?? .tabManagerUnavailable
         return canvasActionResult(resolution)
-    }
-
-    private static func normalizedCanvasMode(_ raw: String) -> String? {
-        switch raw.lowercased().replacingOccurrences(of: "_", with: "-") {
-        case "canvas":
-            return "canvas"
-        case "zoomablesplits", "zoomable-splits", "zoomable":
-            return "zoomableSplits"
-        case "splits", "split":
-            return "splits"
-        case "toggle":
-            return "toggle"
-        default:
-            return nil
-        }
     }
 
     // MARK: - set_frame

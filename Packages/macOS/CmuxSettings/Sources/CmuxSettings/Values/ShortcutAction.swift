@@ -88,6 +88,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 
     // MARK: Canvas
     case toggleCanvasLayout
+    /// Toggles the current workspace between regular split panes and zoomable split panes.
     case toggleZoomableSplitLayout
     case canvasRevealFocusedPane
     case canvasOverview
