@@ -34,8 +34,6 @@ private final class CommandStubTab: WorkspaceTabRepresenting {
 @MainActor
 private final class NoopWorkspacesHost: WorkspacesHosting {
     typealias Tab = CommandStubTab
-    func workspaceTabsWillChange(to newValue: [CommandStubTab]) {}
-    func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {}
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {}
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {}
 }

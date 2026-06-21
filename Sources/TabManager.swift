@@ -3,6 +3,7 @@ import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
 import Foundation
+import Observation
 import Bonsplit
 import CmuxBrowser
 import CmuxGit
@@ -198,7 +199,8 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 // the pure batch-reorder planning live in CmuxWorkspaces.
 
 @MainActor
-class TabManager: ObservableObject {
+@Observable
+class TabManager {
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
@@ -210,17 +212,18 @@ class TabManager: ObservableObject {
     // sidebar group sections, and the selected-workspace id storage live in
     // WorkspacesModel (CmuxWorkspaces). TabManager stays the per-window
     // composition point: it owns the model, forwards the legacy accessors
-    // below, and implements WorkspacesHosting (bottom of this file) to run
-    // the legacy @Published property-observer side effects at identical
-    // timing (objectWillChange in willSet for SwiftUI observers, selection
-    // side effects in didSet). External observers track this `@Observable`
-    // model directly; the former CurrentValueSubject bridges were retired.
+    // below, and implements WorkspacesHosting (bottom of this file) for the
+    // selection side effects (willSet DEBUG switch tracing + didSet selection
+    // chain). TabManager is now `@Observable`, so SwiftUI observers track this
+    // model directly through the forwarders; the legacy `objectWillChange`-
+    // re-emission willSet hooks and the CurrentValueSubject bridges were retired.
     let workspaces = WorkspacesModel<Workspace>()
 
     /// Window-title + per-surface shell-activity reads/mutations over the
     /// workspace list (CmuxWorkspaces). The PR-refresh half of
     /// `updateSurfaceShellActivity` stays in this composition root because it
     /// routes through `pullRequestProbing`, which CmuxWorkspaces does not import.
+    @ObservationIgnored
     private(set) lazy var surfaceMetadata = SurfaceMetadataCoordinator(model: workspaces)
 
     var tabs: [Workspace] {
@@ -275,28 +278,13 @@ class TabManager: ObservableObject {
         set { workspaces.selectedTabId = newValue }
     }
 
-    // MARK: - WorkspacesHosting hooks (legacy @Published property observers)
+    // MARK: - WorkspacesHosting hooks (DEBUG switch tracing + selection effects)
 
-    /// Legacy `@Published tabs` willSet: keeps `objectWillChange` firing before
-    /// storage changes so the `ObservableObject` `TabManager`'s SwiftUI
-    /// observers update at the same timing. The Combine bridge that also fired
-    /// here was retired; external subscribers now observe `workspaces.tabs`
-    /// (`@Observable`) directly.
-    func workspaceTabsWillChange(to newValue: [Workspace]) {
-        objectWillChange.send()
-    }
-
-    /// Legacy `@Published workspaceGroups` willSet (`objectWillChange` only;
-    /// the Combine bridge was retired, see `workspaceTabsWillChange(to:)`).
-    func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
-        objectWillChange.send()
-    }
-
-    /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
-    /// reads the old value here, exactly like the original property observer.
-    /// `objectWillChange` still fires here; the Combine bridge was retired.
+    /// Legacy `@Published selectedTabId` willSet; reads the old `selectedTabId`
+    /// before storage changes. `TabManager` is now `@Observable`, so SwiftUI
+    /// observers track the `workspaces` sub-model directly; the only surviving
+    /// work here is the DEBUG workspace-switch tracing.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
-        objectWillChange.send()
 #if DEBUG
             guard newValue != selectedTabId else {
                 debugPendingWorkspaceSwitchTrigger = nil
@@ -406,7 +394,13 @@ class TabManager: ObservableObject {
 #endif
             }
     }
-    private var observers: [NSObjectProtocol] = []
+    // NotificationCenter observer tokens. `@Observable` makes the class deinit
+    // nonisolated, so it cannot read MainActor storage; `nonisolated(unsafe)`
+    // lets the deinit unregister them. Safe: mutated only on the MainActor at
+    // construction, read once in deinit. `@ObservationIgnored` (bookkeeping, not
+    // observable UI state).
+    @ObservationIgnored
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     /// Per-window focused-surface bookkeeping (remembered focused panel per
     /// workspace) + the deferred previous-workspace unfocus state machine
     /// (CmuxWorkspaces). TabManager hosts its seam
@@ -429,6 +423,7 @@ class TabManager: ObservableObject {
     /// `lazy` so the resolver closures can read this window's focus state
     /// (`focusedBrowserPanel`/`focusedMarkdownPanel`); both close over `self`
     /// weakly and run on the MainActor where TabManager lives.
+    @ObservationIgnored
     private(set) lazy var focusedBrowserController = FocusedBrowserController(
         resolveFocusedBrowser: { [weak self] in self?.focusedBrowserPanel },
         resolveFocusedMarkdown: { [weak self] in self?.focusedMarkdownPanel }
@@ -440,6 +435,7 @@ class TabManager: ObservableObject {
     /// browser panel (CmuxTerminal). `lazy` so the resolver closures can read
     /// this window's focus state; all three close over `self` weakly and run on
     /// the MainActor where TabManager lives. Mirrors `focusedBrowserController`.
+    @ObservationIgnored
     private(set) lazy var focusedTerminalCommands = FocusedTerminalCommandCoordinator(
         resolveFocusedTerminal: { [weak self] in self?.selectedTerminalPanel },
         resolveFocusedBrowser: { [weak self] in self?.focusedBrowserPanel },
@@ -504,6 +500,7 @@ class TabManager: ObservableObject {
     // commit → prune/release/schedule/remap/post. Shares the same group-snapshot
     // and history-remap collaborators so save and restore stay one source of
     // truth; this TabManager is its SessionSnapshotRestoreHosting witness.
+    @ObservationIgnored
     lazy var sessionSnapshotRestore = SessionSnapshotRestoreCoordinator<Workspace>(
         groupCoordinator: sessionSnapshotGroups,
         remapPlanner: closedPanelHistoryRemapPlanner
@@ -5369,8 +5366,13 @@ extension TabManager {
 }
 
 // The hook methods live in the class body (they touch private selection /
-// DEBUG state); these extensions only bind the conformances.
-extension TabManager: WorkspacesHosting {}
+// DEBUG state); these extensions only bind the conformances. `WorkspacesHosting`'s
+// `Tab` is bound explicitly because its surviving requirements (the selection
+// hooks) are keyed by `UUID`, not `Tab`, after the `Tab`-typed `tabs`/
+// `workspaceGroups` willSet hooks were retired, so it can no longer be inferred.
+extension TabManager: WorkspacesHosting {
+    typealias Tab = Workspace
+}
 extension TabManager: WorkspaceGroupHosting {}
 extension TabManager: SessionSnapshotRestoreHosting {}
 extension TabManager: CloseConfirming {}
