@@ -864,7 +864,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testCopilotHookInstallWritesToHooksSubdirectory() throws {
-        // Regression: hooks were previously installed to ~/.copilot/config.json;
+        // Bug: hooks were previously installed to ~/.copilot/config.json;
         // Copilot CLI only loads hooks from ~/.copilot/hooks/*.json.
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
