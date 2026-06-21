@@ -12,7 +12,7 @@
 7992	Sources/Panels/BrowserPanelView.swift
 7303	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6911	Sources/TerminalController.swift
+6870	Sources/TerminalController.swift
 6318	cmuxTests/SessionPersistenceTests.swift
 6151	CLI/cmux_open.swift
 6077	cmuxTests/GhosttyConfigTests.swift
@@ -156,7 +156,7 @@
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
 649	Sources/CmuxTopSnapshot.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
-636	Sources/TerminalController+ControlPaneContext.swift
+637	Sources/TerminalController+ControlPaneContext.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 623	Sources/App/MenuBarExtraController.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
