@@ -575,8 +575,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         teamID: String?
     ) throws {
         try exec("""
-            UPDATE paired_macs
-            SET owner_key = ?, team_id = ?
+            INSERT INTO paired_macs (
+                mac_device_id, owner_key, display_name, stack_user_id, team_id,
+                created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon
+            )
+            SELECT
+                mac_device_id, ?, display_name, stack_user_id, ?, created_at,
+                last_seen_at, is_active, custom_name, custom_color, custom_icon
+            FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
             .text(toOwnerKey),
@@ -590,6 +596,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
             .text(toOwnerKey),
+            .text(macDeviceID),
+            .text(fromOwnerKey),
+        ])
+        try exec("""
+            DELETE FROM paired_macs
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
             .text(macDeviceID),
             .text(fromOwnerKey),
         ])

@@ -205,6 +205,56 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
     }
 
+    @Test func aggregationRowIDScopingPreservesCurrentSelection() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let foregroundWorkspace = MobileWorkspacePreview(
+            id: "w-foreground",
+            macDeviceID: "mac-a",
+            name: "Foreground",
+            terminals: [MobileTerminalPreview(id: "terminal-foreground", name: "fg")]
+        )
+        let selectedWorkspace = MobileWorkspacePreview(
+            id: "w-selected",
+            macDeviceID: "mac-a",
+            name: "Selected",
+            terminals: [MobileTerminalPreview(id: "terminal-selected", name: "selected")]
+        )
+        let secondaryWorkspace = MobileWorkspacePreview(
+            id: "w-secondary",
+            macDeviceID: "mac-b",
+            name: "Secondary",
+            terminals: [MobileTerminalPreview(id: "terminal-secondary", name: "secondary")]
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [foregroundWorkspace, selectedWorkspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+        store.selectedWorkspaceID = "w-selected"
+        store.selectedTerminalID = "terminal-selected"
+
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [foregroundWorkspace, selectedWorkspace],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [secondaryWorkspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+
+        #expect(store.selectedWorkspace?.name == "Selected")
+        #expect(store.selectedWorkspace?.rpcWorkspaceID.rawValue == "w-selected")
+        #expect(store.selectedWorkspace?.macDeviceID == "mac-a")
+        #expect(store.selectedTerminalID?.rawValue == "terminal-selected")
+    }
+
     @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
         let loopback = try hostPortRoute(
             kind: .debugLoopback,

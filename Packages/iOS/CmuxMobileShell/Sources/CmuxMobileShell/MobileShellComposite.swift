@@ -3289,6 +3289,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// source of truth. Pure and cheap; the only place those two are assigned,
     /// called on any ``workspacesByMac`` or foreground change.
     private func recomputeDerivedWorkspaceState() {
+        let previousSelection = selectedWorkspaceID.flatMap { id in
+            workspaces.first { $0.id == id }
+        }
         let foregroundKey: String?
         if let id = foregroundMacDeviceID, workspacesByMac[id] != nil {
             foregroundKey = id
@@ -3315,6 +3318,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         workspaces = derived
+        if let selectedWorkspaceID,
+           !derived.contains(where: { $0.id == selectedWorkspaceID }) {
+            let remapped = previousSelection.flatMap { previous in
+                derived.first {
+                    $0.rpcWorkspaceID == previous.rpcWorkspaceID
+                        && $0.macDeviceID == previous.macDeviceID
+                }
+            }
+            self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
+        }
         workspaceGroups = workspaceAggregation.derivedGroups(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
     }
@@ -3406,6 +3419,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         groups: [MobileWorkspaceGroupPreview] = []
     ) {
         setForegroundWorkspaceState(workspaces: workspaces, groups: groups, merge: false)
+    }
+
+    /// Test seam: seed the full per-Mac workspace source of truth so aggregation
+    /// edge cases can be tested without opening live secondary transports.
+    func setWorkspaceStatesForTesting(
+        _ states: [String: MacWorkspaceState],
+        foregroundMacDeviceID: String?
+    ) {
+        self.foregroundMacDeviceID = foregroundMacDeviceID
+        workspacesByMac = states
     }
     #endif
 

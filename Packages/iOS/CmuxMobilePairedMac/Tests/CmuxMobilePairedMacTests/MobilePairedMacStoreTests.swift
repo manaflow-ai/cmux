@@ -361,6 +361,48 @@ import Testing
         #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-b")?.macDeviceID == "mac-b")
     }
 
+    @Test func claimingLegacyTeamlessMacMovesRoutesWithoutForeignKeyFailure() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let legacyRoute = try CmxAttachRoute(
+            id: "legacy",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "10.0.0.10", port: 22)
+        )
+        let updatedRoute = try CmxAttachRoute(
+            id: "updated",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "10.0.0.11", port: 22)
+        )
+
+        try await store.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy",
+            routes: [legacyRoute],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        try await store.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Claimed",
+            routes: [updatedRoute],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let claimed = try await store.loadAll(stackUserID: "user-1", teamID: "team-a")
+        #expect(claimed.map(\.macDeviceID) == ["legacy-mac"])
+        #expect(claimed.first?.teamID == "team-a")
+        #expect(claimed.first?.routes.map(\.id) == ["updated"])
+        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.routes.map(\.id) == ["updated"])
+    }
+
     @Test func sameMacDeviceIDCanExistInMultipleTeams() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
