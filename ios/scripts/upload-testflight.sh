@@ -136,7 +136,12 @@ Options:
                             (no repo commit) to the next patch above the last
                             iOS release (newest ios-v<X.Y.Z> tag, else the
                             checked-in MARKETING_VERSION), so betas show e.g.
-                            1.0.4 while 1.0.3 is the last release.
+                            1.0.4 while 1.0.3 is the last release. Implies
+                            range-notes mode (skips the changelog preflight and
+                            version-match guard, since the stamped version
+                            deliberately will not match the changelog top); when
+                            no --notes-from-range base is given the generator
+                            emits its fallback line.
   -h, --help                Show this help.
 EOF
 }
@@ -317,6 +322,19 @@ if [[ "$AUTO_VERSION" -eq 1 ]]; then
   fi
 fi
 
+# Are the notes auto-generated from a commit range instead of the changelog?
+# True when an explicit --notes-from-range base was given, OR when --auto-version
+# is set: an auto-version build stamps the NEXT beta marketing version, which by
+# design will not equal the checked-in changelog top entry, so the changelog
+# preflight + version-match guard must not run for it. The range generator has its
+# own empty/unreachable-base fallback, so this stays correct on the first beta or a
+# missing-history lookup where NOTES_RANGE_BASE is empty (it would otherwise fall
+# back to changelog validation and abort against the stale top version).
+RANGE_NOTES_MODE=0
+if [[ -n "$NOTES_RANGE_BASE" || "$AUTO_VERSION" -eq 1 ]]; then
+  RANGE_NOTES_MODE=1
+fi
+
 # Preflight the TestFlight "What to Test" notes BEFORE the expensive archive, so a
 # deterministic local error (missing ios/CHANGELOG.md, empty audience block) fails
 # fast here instead of being discovered only AFTER the build is already uploaded
@@ -325,8 +343,8 @@ fi
 # build's marketing version) happens later for a reused --archive-path / post-build,
 # where the actual marketing version is known. Skipped when there is no upload to
 # annotate (--export-only), notes are turned off (--skip-notes), or notes come from
-# a commit range (--notes-from-range) rather than the changelog.
-if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && -z "$NOTES_RANGE_BASE" ]]; then
+# a commit range (range-notes mode) rather than the changelog.
+if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
   if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only --audience "$NOTES_AUDIENCE"; then
     echo "error: TestFlight What to Test notes preflight failed (see above). Fix ios/CHANGELOG.md before uploading, or pass --skip-notes to upload without notes." >&2
     exit 1
@@ -531,10 +549,10 @@ fi
 # fails BEFORE the export/upload, not after (when the notes step is non-fatal and
 # would just ship an opaque build). Skipped for --export-only / --skip-notes. If the
 # archive's version is unreadable, the version-match guard simply does not run.
-# Skipped for --notes-from-range: the notes come from the commit range, not the
+# Skipped in range-notes mode: the notes come from the commit range, not the
 # changelog, and --auto-version intentionally stamps a version the changelog would
 # not match.
-if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && -z "$NOTES_RANGE_BASE" ]]; then
+if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
   ARCHIVE_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
   if [[ "$ARCHIVE_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only \
@@ -848,16 +866,23 @@ else
   # re-applied later. NOTES_AUDIENCE was set early. Re-read the archived marketing
   # version so the mutation still carries the version-match guard.
   NOTES_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
-  # With --notes-from-range the notes come from the commit range (not the
-  # changelog), so pass them via --notes and skip the changelog version-match
+  # In range-notes mode the notes come from the commit range (not the changelog),
+  # so pass them via --notes and skip the changelog version-match
   # (--expect-marketing-version validates the changelog top, which we are not
-  # using). Otherwise keep the changelog-driven behavior + version-match guard.
+  # using). The generator self-falls-back when the base is empty/unreachable, so an
+  # auto-version build with no previous-beta SHA still gets a valid fallback line
+  # here instead of dropping back to changelog validation. Otherwise keep the
+  # changelog-driven behavior + version-match guard.
   NOTES_SOURCE_ARGS=()
   NOTES_SOURCE_DESC="ios/CHANGELOG.md"
-  if [[ -n "$NOTES_RANGE_BASE" ]]; then
+  if [[ "$RANGE_NOTES_MODE" -eq 1 ]]; then
     GENERATED_NOTES="$("$SCRIPT_DIR/generate-testflight-notes.sh" "$NOTES_RANGE_BASE" --audience "$NOTES_AUDIENCE" 2>/dev/null || true)"
     NOTES_SOURCE_ARGS=( --notes "$GENERATED_NOTES" )
-    NOTES_SOURCE_DESC="commits since the previous beta (${NOTES_RANGE_BASE})"
+    if [[ -n "$NOTES_RANGE_BASE" ]]; then
+      NOTES_SOURCE_DESC="commits since the previous beta (${NOTES_RANGE_BASE})"
+    else
+      NOTES_SOURCE_DESC="auto-generated notes (no previous beta; fallback)"
+    fi
   elif [[ "$NOTES_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     NOTES_SOURCE_ARGS=( --expect-marketing-version "$NOTES_MARKETING_VERSION" )
   fi
