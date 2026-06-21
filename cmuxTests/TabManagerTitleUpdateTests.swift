@@ -137,6 +137,48 @@ struct TabManagerTitleUpdateTests {
     }
 
     @Test
+    func titleNotificationIgnoredAfterDirectWorkspaceModelRemoval() async throws {
+        let suiteName = "TabManagerTitleDirectModelRemoval.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(100, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let scheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let originalPanelTitle = workspace.panelTitles[focusedPanelId]
+
+        manager.workspaces.tabs = []
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "Removed Workspace - grok"
+            ]
+        )
+
+        await drainMainQueue()
+        #expect(manager.tabs.isEmpty)
+        #expect(scheduler.delays.isEmpty)
+        #expect(workspace.panelTitles[focusedPanelId] == originalPanelTitle)
+        #expect(workspace.panelTitles[focusedPanelId] != "Removed Workspace - grok")
+    }
+
+    @Test
     func titleCoalescingDelayIsDefaultOffAndClampedWhenEnabled() throws {
         let suiteName = "TabManagerTitleCoalescingClamp.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
