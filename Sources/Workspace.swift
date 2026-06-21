@@ -2359,6 +2359,15 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         AgentHibernationLifecycleState
     >
 
+    /// Orchestrates the agent-conversation fork flows (split, new tab, new
+    /// workspace, the resolved new-workspace launch descriptor, the right-click
+    /// context-action dispatch, and the menu availability check). Lifted to
+    /// `CMUXAgentLaunch`; the workspace forwards each former inline fork method to
+    /// this coordinator and conforms to `AgentForkHosting` (the live seam the
+    /// orchestration reaches back through, witnessed in
+    /// `Workspace+AgentForkHosting.swift`). `attach(host: self)`-ed in `init`.
+    let agentForkCoordinator = AgentForkCoordinator<Workspace>()
+
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] {
@@ -2903,6 +2912,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         self.splitDetach = SplitDetachCoordinator(splitLayout: splitLayout)
         self.agentHibernationCoordinator = AgentHibernationCoordinator(model: agentHibernation)
         agentHibernationCoordinator.attach(host: self)
+        agentForkCoordinator.attach(host: self)
         remoteSurfaceCoordinator.attach(host: self)
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
@@ -6739,7 +6749,9 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         return replacementPanel
     }
 
-    private func remoteTerminalStartupCommand() -> String? {
+    /// Relaxed from `private` to `internal` so the lifted fork host conformance
+    /// (`Workspace+AgentForkHosting.swift`) can reach it; the body is unchanged.
+    func remoteTerminalStartupCommand() -> String? {
         guard !suppressRemoteTerminalStartupForSessionRestoreScaffold else {
             return nil
         }
@@ -9575,112 +9587,49 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// stays app-side (it drives the live bonsplit tree and `TabManager`).
     typealias AgentConversationForkWorkspaceLaunch = CMUXAgentLaunch.AgentConversationForkWorkspaceLaunch
 
+    /// Forwards to ``AgentForkCoordinator/forkAgentWorkspaceLaunch(fromPanelId:snapshot:)``.
     func forkAgentWorkspaceLaunch(
         fromPanelId panelId: UUID,
-        snapshot: SessionRestorableAgentSnapshot,
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        snapshot: SessionRestorableAgentSnapshot
     ) -> AgentConversationForkWorkspaceLaunch? {
-        var launchSnapshot = snapshot
-        let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
-        launchSnapshot.workingDirectory = workingDirectory
-        let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
-        let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace(fromPanelId: panelId)
-        let isRemoteFork = remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        guard panels[panelId] is TerminalPanel,
-              let startupInput = launchSnapshot.forkStartupInput(
-                  fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: !isRemoteFork
-              ) else {
-            return nil
-        }
-
-        return AgentConversationForkWorkspaceLaunch(
-            workingDirectory: workingDirectory,
-            terminalWorkingDirectory: isRemoteFork ? nil : workingDirectory,
-            initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteStartupCommand,
-            initialTerminalInput: startupInput,
-            initialTerminalEnvironment: isRemoteFork ? (remoteConfiguration?.sshTerminalStartupEnvironment ?? [:]) : [:],
-            remoteConfiguration: remoteConfiguration,
-            autoConnectRemoteConfiguration: remoteConfiguration != nil
-        )
+        agentForkCoordinator.forkAgentWorkspaceLaunch(fromPanelId: panelId, snapshot: snapshot)
     }
 
+    /// Forwards to ``AgentForkCoordinator/forkAgentConversation(fromPanelId:snapshot:direction:)``.
     @discardableResult
     func forkAgentConversation(
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
-        direction: SplitDirection,
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        direction: SplitDirection
     ) -> TerminalPanel? {
-        var launchSnapshot = snapshot
-        let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
-        launchSnapshot.workingDirectory = workingDirectory
-        let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
-        guard panels[panelId] is TerminalPanel,
-              let paneId = paneId(forPanelId: panelId),
-              let startupInput = launchSnapshot.forkStartupInput(
-                  fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: remoteStartupCommand == nil
-              ) else {
-            return nil
-        }
-
-        let zoomedPaneId = bonsplitController.zoomedPaneId
-        if zoomedPaneId != nil {
-            clearSplitZoom()
-        }
-        let forkedPanel = splitPaneWithNewTerminal(
-            targetPane: paneId,
-            orientation: direction.orientation,
-            insertFirst: direction.insertFirst,
-            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
-            initialInput: startupInput,
-            remoteStartupCommand: remoteStartupCommand
+        agentForkCoordinator.forkAgentConversation(
+            fromPanelId: panelId,
+            snapshot: snapshot,
+            direction: direction
         )
-        if let forkedPanel,
-           remoteStartupCommand != nil,
-           let workingDirectory {
-            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
-        }
-        if forkedPanel == nil, let zoomedPaneId {
-            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
-        }
-        return forkedPanel
     }
 
+    /// Forwards to ``AgentForkHosting/agentForkWorkingDirectory(panelId:snapshot:)``
+    /// (the host conformance), which is the lifted home of this resolution.
     func forkAgentWorkingDirectory(
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot
     ) -> String? {
-        Self.firstNonEmptyPath([
-            snapshot.workingDirectory,
-            panelDirectories[panelId],
-            terminalPanel(for: panelId)?.requestedWorkingDirectory,
-            currentDirectory
-        ])
+        agentForkWorkingDirectory(panelId: panelId, snapshot: snapshot)
     }
 
+    /// Forwards to ``AgentForkCoordinator/canForkAgentConversationFromPanel(_:)``.
     /// Synchronous availability check used by the tab right-click context menu to decide
     /// whether to surface the Fork Conversation item for a given anchor tab. Restricted to
     /// `.supportedWithoutProbe` so we never offer an item that may quietly fail; agents
     /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
     /// palette path that performs that probe first.
     func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
-        guard panels[panelId] is TerminalPanel else { return false }
-        guard let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
-            return false
-        }
-        let isRemote = isRemoteTerminalSurface(panelId)
-        return ContentView.commandPaletteSnapshotForkAvailability(
-            snapshot,
-            isRemoteTerminal: isRemote
-        ) == .supportedWithoutProbe
+        agentForkCoordinator.canForkAgentConversationFromPanel(panelId)
     }
 
+    /// Forwards to ``AgentForkHosting/agentForkableSnapshot(panelId:)`` (the host
+    /// conformance), which is the lifted home of this lookup.
     /// Snapshot used by the right-click fork path. Prefers the workspace's restored snapshot
     /// (filled on session restore / hibernation), then falls back to the process-wide
     /// `SharedLiveAgentIndex`. The shared index loads the on-disk hook session store off the
@@ -9692,18 +9641,10 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// evaluates the menu state on the same frame — Fork Conversation appears the moment
     /// the index is loaded without requiring a second right-click.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
-            return snapshot
-        }
-        if let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
-            return snapshot
-        }
-        // Last resort: a live agent cmux never recorded a hook for (e.g. an
-        // `sr claude` / direct `codex` launch that bypassed the cmux wrapper).
-        // Lazily process-detected and debounced, off the hot hook-store path.
-        return SharedLiveAgentIndex.shared.processDetectedSnapshot(workspaceId: id, panelId: panelId)
+        agentForkableSnapshot(panelId: panelId)
     }
 
+    /// Forwards to ``AgentForkCoordinator/forkAgentConversationToNewTab(fromPanelId:snapshot:anchorTabId:paneId:)``.
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
     /// to the right of `anchorTabId` in `paneId`. Uses the same `claude --resume --fork-session`
     /// startup input the existing split/new-workspace forks rely on, so divergence is owned by
@@ -9713,64 +9654,19 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
         anchorTabId: TabID,
-        paneId: PaneID,
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        paneId: PaneID
     ) -> TerminalPanel? {
-        var launchSnapshot = snapshot
-        let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
-        launchSnapshot.workingDirectory = workingDirectory
-        let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
-        guard panels[panelId] is TerminalPanel,
-              let startupInput = launchSnapshot.forkStartupInput(
-                  fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: remoteStartupCommand == nil
-              ) else {
-            return nil
-        }
-
-        let zoomedPaneId = bonsplitController.zoomedPaneId
-        if zoomedPaneId != nil {
-            clearSplitZoom()
-        }
-
-        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let forkedPanel = newTerminalSurface(
-            inPane: paneId,
-            focus: true,
-            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
-            initialInput: startupInput
+        agentForkCoordinator.forkAgentConversationToNewTab(
+            fromPanelId: panelId,
+            snapshot: snapshot,
+            anchorTabId: anchorTabId,
+            paneId: paneId
         )
-        if let forkedPanel {
-            _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)
-            if remoteStartupCommand != nil, let workingDirectory {
-                updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
-            }
-        } else if let zoomedPaneId {
-            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
-        }
-        return forkedPanel
     }
 
-    private func forkAgentRemoteStartupCommand(fromPanelId panelId: UUID) -> String? {
-        guard isRemoteTerminalSurface(panelId) else { return nil }
-        return remoteTerminalStartupCommand()
-    }
-
-    private func forkAgentRemoteConfigurationForNewWorkspace(fromPanelId panelId: UUID) -> WorkspaceRemoteConfiguration? {
-        guard forkAgentRemoteStartupCommand(fromPanelId: panelId) != nil else { return nil }
-        let forkedSSHOptions = remoteConfiguration
-            .map { WorkspaceRemoteConfiguration.forkedAgentSSHOptions($0.sshOptions) }
-        return remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
-            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
-            allowPersistentPTYRestore: false,
-            preserveSSHOptions: true,
-            agentSocketPath: remoteConfiguration?.agentSocketPath
-        ) ?? remoteConfiguration
-    }
-
-    private static func firstNonEmptyPath(_ candidates: [String?]) -> String? {
+    /// Relaxed from `private` to `internal` so the lifted fork host conformance
+    /// (`Workspace+AgentForkHosting.swift`) can reach it; the body is unchanged.
+    static func firstNonEmptyPath(_ candidates: [String?]) -> String? {
         for candidate in candidates {
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let trimmed, !trimmed.isEmpty {
@@ -11349,105 +11245,21 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    /// Forwards to ``AgentForkCoordinator/handleForkConversationContextAction(panelId:destination:anchorTabId:paneId:)``.
+    /// The panel-id resolution from the tab and the configured-destination
+    /// resolution from the action stay app-side (the coordinator never imports
+    /// `TabContextAction` / `AgentConversationForkDefaultSettings`).
     private func handleForkConversationContextAction(_ action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
-        guard let panelId = panelIdFromSurfaceId(tab.id),
-              let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
-            NSSound.beep()
-            return
-        }
-        // Mirror the menu-visibility gate exactly: only fork when the snapshot is
-        // probe-free supported. Using the weaker `!= .unsupported` here would let a
-        // `.requiresProbe` snapshot through if the action is ever wired up outside
-        // the bonsplit menu, leading to a fork that may quietly fail at the shell.
-        let isRemote = isRemoteTerminalSurface(panelId)
-        guard ContentView.commandPaletteSnapshotForkAvailability(
-            snapshot,
-            isRemoteTerminal: isRemote
-        ) == .supportedWithoutProbe else {
-            NSSound.beep()
-            return
-        }
-
-        let destination = action == .forkConversation
-            ? AgentConversationForkDefaultSettings.current()
-            : AgentConversationForkDestination(tabContextAction: action)
-        guard forkAgentConversation(
-            fromPanelId: panelId,
-            snapshot: snapshot,
-            destination: destination,
+        agentForkCoordinator.handleForkConversationContextAction(
+            panelId: panelIdFromSurfaceId(tab.id),
+            destination: {
+                action == .forkConversation
+                    ? AgentConversationForkDefaultSettings.current()
+                    : AgentConversationForkDestination(tabContextAction: action)
+            },
             anchorTabId: tab.id,
             paneId: pane
-        ) else {
-            NSSound.beep()
-            return
-        }
-    }
-
-    private func forkAgentConversation(
-        fromPanelId panelId: UUID,
-        snapshot: SessionRestorableAgentSnapshot,
-        destination: AgentConversationForkDestination,
-        anchorTabId: TabID,
-        paneId: PaneID
-    ) -> Bool {
-        if let direction = destination.splitDirection {
-            return forkAgentConversation(
-                fromPanelId: panelId,
-                snapshot: snapshot,
-                direction: direction
-            ) != nil
-        }
-
-        switch destination {
-        case .newTab:
-            return forkAgentConversationToNewTab(
-                fromPanelId: panelId,
-                snapshot: snapshot,
-                anchorTabId: anchorTabId,
-                paneId: paneId
-            ) != nil
-        case .newWorkspace:
-            return forkAgentConversationToNewWorkspace(
-                fromPanelId: panelId,
-                snapshot: snapshot
-            )
-        case .right, .left, .top, .bottom:
-            return false
-        }
-    }
-
-    private func forkAgentConversationToNewWorkspace(
-        fromPanelId panelId: UUID,
-        snapshot: SessionRestorableAgentSnapshot
-    ) -> Bool {
-        guard let owningTabManager,
-              let launch = forkAgentWorkspaceLaunch(
-                  fromPanelId: panelId,
-                  snapshot: snapshot
-              ) else {
-            return false
-        }
-
-        let forkWorkspace = owningTabManager.addWorkspace(
-            workingDirectory: launch.terminalWorkingDirectory,
-            initialTerminalCommand: launch.initialTerminalCommand,
-            initialTerminalInput: launch.initialTerminalInput,
-            initialTerminalEnvironment: launch.initialTerminalEnvironment,
-            inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-            autoWelcomeIfNeeded: false
         )
-        if let remoteConfiguration = launch.remoteConfiguration {
-            forkWorkspace.configureRemoteConnection(
-                remoteConfiguration,
-                autoConnect: launch.autoConnectRemoteConfiguration
-            )
-        }
-        if let workingDirectory = launch.workingDirectory,
-           launch.terminalWorkingDirectory == nil,
-           let forkPanelId = forkWorkspace.focusedPanelId {
-            forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
-        }
-        return true
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabMoveToDestination destinationId: String, for tab: Bonsplit.Tab, inPane pane: PaneID) {
