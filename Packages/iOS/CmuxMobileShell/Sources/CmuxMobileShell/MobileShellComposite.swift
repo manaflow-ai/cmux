@@ -5229,7 +5229,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         requestTerminalReplay(surfaceID: surfaceID)
     }
 
-    private func finishTerminalReplayRequest(surfaceID: String) {
+    private func finishTerminalReplayRequest(surfaceID: String, streamToken: UUID?) {
+        guard streamToken == nil || terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
+            return
+        }
         terminalReplaySurfaceIDsInFlight.remove(surfaceID)
         guard terminalReplaySurfaceIDsPendingRetry.remove(surfaceID) != nil else {
             return
@@ -5317,9 +5320,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         terminalReplaySurfaceIDsInFlight.insert(surfaceID)
         beginTerminalRenderSnapshot(surfaceID: surfaceID)
+        let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID]
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.finishTerminalReplayRequest(surfaceID: surfaceID) }
+            defer { self.finishTerminalReplayRequest(surfaceID: surfaceID, streamToken: streamToken) }
             do {
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
@@ -5333,6 +5337,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 let data = try await client.sendRequest(request)
                 guard self.remoteClient === client else { return }
+                guard streamToken == nil || self.terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
+                    MobileDebugLog.anchormux("CMUX_REPLAY stale_stream surface=\(surfaceID) action=drop")
+                    return
+                }
                 let payload = try? MobileTerminalReplayResponse.decode(data)
                 let bytes = payload?.dataBase64.flatMap { Data(base64Encoded: $0) }
                 let snapshotBytes = payload?.snapshotBase64.flatMap { Data(base64Encoded: $0) }

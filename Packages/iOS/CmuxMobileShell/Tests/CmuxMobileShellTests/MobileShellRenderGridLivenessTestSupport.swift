@@ -75,6 +75,7 @@ actor LivenessHostRouter {
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var replayRequestCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
+    private var replaySnapshotsByRequestNumber: [Int: (seq: UInt64, text: String)] = [:]
     private var holdSubscribe = false
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
@@ -113,6 +114,10 @@ actor LivenessHostRouter {
     /// replay snapshot that outlives the view that requested it.
     func holdReplayRequest(number: Int) {
         heldReplayRequestNumbers.insert(number)
+    }
+
+    func setReplaySnapshot(number: Int, seq: UInt64, text: String) {
+        replaySnapshotsByRequestNumber[number] = (seq, text)
     }
 
     /// Forget the host-side registration, modeling a lost subscription behind
@@ -185,7 +190,19 @@ actor LivenessHostRouter {
             replayRequestCount += 1
             if heldReplayRequestNumbers.contains(replayRequestCount) {
                 await park()
-                return nil
+            }
+            if let snapshot = replaySnapshotsByRequestNumber[replayRequestCount],
+               let frame = try? MobileTerminalRenderGridFrame.fromPlainRows(
+                   surfaceID: "live-terminal",
+                   stateSeq: snapshot.seq,
+                   columns: 16,
+                   rows: 4,
+                   text: snapshot.text
+               ),
+               let envelope = try? MobileTerminalRenderGridEnvelope.snapshot(frame) {
+                return try? Self.resultFrame(id: id, result: [
+                    "render_grid_envelope": envelope.jsonObject(),
+                ])
             }
             return try? Self.resultFrame(id: id, result: [:])
         case "mobile.events.unsubscribe", "mobile.terminal.viewport":

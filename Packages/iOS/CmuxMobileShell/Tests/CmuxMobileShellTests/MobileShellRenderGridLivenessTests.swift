@@ -186,6 +186,8 @@ import Testing
     let router = LivenessHostRouter()
     let box = TransportBox()
     await router.holdReplayRequest(number: 1)
+    await router.setReplaySnapshot(number: 1, seq: 1, text: "old replay")
+    await router.setReplaySnapshot(number: 2, seq: 2, text: "new replay")
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     defer {
         Task { await router.releaseAllHeld() }
@@ -204,6 +206,14 @@ import Testing
         sawSecondReplay,
         "unmounting must clear the in-flight replay guard; otherwise the remounted surface can stay stuck behind the old replay"
     )
+    let sawFreshReplay = try await pollUntil { secondCollector.lines.contains { $0.contains("new replay") } }
+    #expect(sawFreshReplay, "the remounted surface must receive its own replay")
+
+    await router.releaseAllHeld()
+    let sawStaleReplay = try await pollUntil(attempts: 10) {
+        secondCollector.lines.contains { $0.contains("old replay") }
+    }
+    #expect(!sawStaleReplay, "the first mount's stale replay must not deliver into the remounted stream")
     secondCollector.unmount()
 }
 
