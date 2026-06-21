@@ -110,7 +110,7 @@ jobs:
   mobile-core-package:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'macos-26' }}
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -150,7 +150,12 @@ jobs:
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'macos-26' }}
+    # Blacksmith, not the bare `macos-26` label (which our self-hosted fleet
+    # carries). iOS simulator XCTest runs inside the Simulator, not as a
+    # foregrounded Mac app, so the Blacksmith macOS foreground limitation that
+    # blocks macOS app-host XCTest does not apply here; this lane is verified
+    # green on blacksmith-6vcpu-macos-26.
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -359,3 +364,52 @@ jobs:
             fi
             exit "$status"
           done
+
+  ios-tests:
+    name: ios-tests
+    # Aggregate gate for this workflow's iOS suites. Add this check to the branch
+    # protection required list (it is the iOS sibling of ci.yml's "tests" gate).
+    # References each suite by job KEY via needs:, so renaming or sharding a job
+    # never desyncs the required-checks list. Add new iOS jobs to needs: here.
+    needs:
+      - detect-ios-changes
+      - package-conventions-lint
+      - mobile-core-package
+      - ios-simulator
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    timeout-minutes: 5
+    steps:
+      - name: Check iOS test routing
+        env:
+          IOS_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["IOS_NEEDS"])
+
+          # The routing job must succeed for its should_run/should_lint outputs to
+          # be trustworthy; the suites below run or skip based on those outputs.
+          if needs["detect-ios-changes"]["result"] != "success":
+              print(f"detect-ios-changes: {needs['detect-ios-changes']['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          # A suite that opted out via the routing filter reports "skipped", which
+          # is fine; a suite that actually ran and failed must block the merge.
+          allowed = {"success", "skipped"}
+          bad = {
+              name: data["result"]
+              for name, data in sorted(needs.items())
+              if name != "detect-ios-changes" and data["result"] not in allowed
+          }
+          if bad:
+              for name, result in bad.items():
+                  print(f"{name} did not pass: {result}", file=sys.stderr)
+              sys.exit(1)
+
+          for name, data in sorted(needs.items()):
+              print(f"{name}={data['result']}")
+          PY

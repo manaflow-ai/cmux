@@ -79,9 +79,11 @@ struct CMUXMobileRootView: View {
     }
 
     /// DEBUG-only wrapper so Release/iOS archives never reference the
-    /// `canImport(UIKit) && DEBUG`-gated `WorkspaceListLayoutPreviewView` type
-    /// directly (Swift type-checks every `rootContent` branch even when
-    /// `shouldShowWorkspaceListLayoutPreview` is statically false in Release).
+    /// `#if DEBUG`-gated `WorkspaceListLayoutPreviewView` type directly (a
+    /// simulator screenshot fixture). Swift type-checks every `rootContent`
+    /// branch even when `shouldShowWorkspaceListLayoutPreview` is statically
+    /// false in Release, so gate the reference here, the same way
+    /// `terminalLayoutPreview` does, and Release compiles to `EmptyView`.
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
