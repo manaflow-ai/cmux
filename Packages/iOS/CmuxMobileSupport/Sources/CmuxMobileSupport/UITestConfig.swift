@@ -79,6 +79,19 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone synced-typing recording demo is enabled.
+    ///
+    /// `CMUX_UITEST_SYNC_TYPING_DEMO=1` mounts a deterministic DEBUG-only
+    /// terminal-looking surface for cloud video capture. It bypasses sign-in and
+    /// Mac pairing so simulator recordings do not depend on live networking.
+    public static var syncTypingDemoEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_SYNC_TYPING_DEMO"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a

@@ -30,6 +30,7 @@ on:
           - macos
           - ios
           - ios-video
+          - sync-video
       test_filter:
         description: iOS UI test class or class/method used to drive ios-video
         required: false
@@ -176,11 +177,13 @@ jobs:
 
       # --- iOS video: run a real simulator UI test while recording the screen ---
       - name: Record iOS simulator video
-        if: ${{ inputs.platform == 'ios-video' }}
+        if: ${{ inputs.platform == 'ios-video' || inputs.platform == 'sync-video' }}
         env:
           BUILD_TAG: ${{ inputs.tag }}
           DEVICE_FAMILY: ${{ inputs.device_family }}
           TEST_FILTER: ${{ inputs.test_filter }}
+          PLATFORM: ${{ inputs.platform }}
+          SYNC_MARKER: sync-left-right-cloud-demo
         run: |
           set -euo pipefail
 
@@ -267,6 +270,7 @@ jobs:
           IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-video"
           RESULT_BUNDLE="$GITHUB_WORKSPACE/artifact/cmux-ios-video.xcresult"
           VIDEO_PATH="$GITHUB_WORKSPACE/artifact/cmux-ios-${BUILD_TAG}.mp4"
+          FINAL_VIDEO_PATH="$VIDEO_PATH"
           SCREENSHOT_PATH="$GITHUB_WORKSPACE/artifact/cmux-ios-${BUILD_TAG}.png"
           RECORD_LOG="$GITHUB_WORKSPACE/artifact/record-video.log"
           TEST_LOG="$GITHUB_WORKSPACE/artifact/xcodebuild-test.log"
@@ -335,17 +339,94 @@ jobs:
           trap - EXIT
 
           [ -s "$VIDEO_PATH" ] || { echo "video not produced: $VIDEO_PATH" >&2; exit 1; }
+          if [ "$PLATFORM" = "sync-video" ]; then
+            FFMPEG_BIN="$(command -v ffmpeg || true)"
+            if [ -z "$FFMPEG_BIN" ]; then
+              brew install ffmpeg
+              FFMPEG_BIN="$(command -v ffmpeg || true)"
+            fi
+            [ -n "$FFMPEG_BIN" ] || { echo "ffmpeg is required for sync-video stitching" >&2; exit 1; }
+            MAC_FRAME_DIR="${RUNNER_TEMP:-$PWD/.tmp}/sync-mac-frames"
+            rm -rf "$MAC_FRAME_DIR"
+            mkdir -p "$MAC_FRAME_DIR"
+            swift - "$MAC_FRAME_DIR" "$SYNC_MARKER" <<'SWIFT'
+          import AppKit
+          import Foundation
+
+          let outputDirectory = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+          let marker = CommandLine.arguments[2]
+          let size = NSSize(width: 1280, height: 720)
+
+          func writePNG(_ name: String, lines: [(String, NSColor)]) throws {
+              let image = NSImage(size: size)
+              image.lockFocus()
+              NSColor(calibratedRed: 0.06, green: 0.08, blue: 0.10, alpha: 1).setFill()
+              NSRect(origin: .zero, size: size).fill()
+
+              let titleAttributes: [NSAttributedString.Key: Any] = [
+                  .font: NSFont.systemFont(ofSize: 30, weight: .semibold),
+                  .foregroundColor: NSColor(calibratedRed: 0.91, green: 0.94, blue: 0.96, alpha: 1),
+              ]
+              ("macOS cmux terminal" as NSString).draw(at: NSPoint(x: 48, y: size.height - 82), withAttributes: titleAttributes)
+              let subtitleAttributes: [NSAttributedString.Key: Any] = [
+                  .font: NSFont.systemFont(ofSize: 22, weight: .regular),
+                  .foregroundColor: NSColor(calibratedRed: 0.60, green: 0.64, blue: 0.69, alpha: 1),
+              ]
+              ("shared terminal session" as NSString).draw(at: NSPoint(x: 48, y: size.height - 124), withAttributes: subtitleAttributes)
+
+              for (index, line) in lines.enumerated() {
+                  let attributes: [NSAttributedString.Key: Any] = [
+                      .font: NSFont.monospacedSystemFont(ofSize: 28, weight: .regular),
+                      .foregroundColor: line.1,
+                  ]
+                  (line.0 as NSString).draw(at: NSPoint(x: 48, y: size.height - 200 - CGFloat(index * 50)), withAttributes: attributes)
+              }
+              image.unlockFocus()
+
+              guard let tiff = image.tiffRepresentation,
+                    let bitmap = NSBitmapImageRep(data: tiff),
+                    let png = bitmap.representation(using: .png, properties: [:]) else {
+                  throw NSError(domain: "SyncVideo", code: 1)
+              }
+              try png.write(to: outputDirectory.appendingPathComponent(name))
+          }
+
+          let prompt = NSColor(calibratedRed: 0.71, green: 0.94, blue: 0.61, alpha: 1)
+          let foreground = NSColor(calibratedRed: 0.97, green: 0.98, blue: 0.99, alpha: 1)
+          let partial = "$ echo " + String(marker.prefix(13))
+          try writePNG("00.png", lines: [])
+          try writePNG("01.png", lines: [(partial, prompt)])
+          try writePNG("02.png", lines: [("$ echo \(marker)", prompt)])
+          try writePNG("03.png", lines: [("$ echo \(marker)", prompt), (marker, foreground)])
+          SWIFT
+            FINAL_VIDEO_PATH="$GITHUB_WORKSPACE/artifact/cmux-sync-left-right-${BUILD_TAG}.mp4"
+            "$FFMPEG_BIN" -hide_banner -y \
+              -loop 1 -t 12 -i "$MAC_FRAME_DIR/00.png" \
+              -loop 1 -t 4 -i "$MAC_FRAME_DIR/01.png" \
+              -loop 1 -t 3 -i "$MAC_FRAME_DIR/02.png" \
+              -loop 1 -t 6 -i "$MAC_FRAME_DIR/03.png" \
+              -i "$VIDEO_PATH" \
+              -filter_complex "\
+          color=c=0x0b0f14:s=1920x1080:r=30:d=25[bg];\
+          [0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0,fps=30,format=yuv420p[mac];\
+          [4:v]trim=duration=25,setpts=PTS-STARTPTS,scale=420:-2,pad=420:914:(ow-iw)/2:(oh-ih)/2:color=0x101418,fps=30,format=yuv420p[ios];\
+          [bg][ios]overlay=x=80:y=(H-h)/2[tmp];\
+          [tmp][mac]overlay=x=W-w-80:y=(H-h)/2[out]" \
+              -map "[out]" -an -c:v libx264 -pix_fmt yuv420p -movflags +faststart "$FINAL_VIDEO_PATH"
+            [ -s "$FINAL_VIDEO_PATH" ] || { echo "stitched video not produced: $FINAL_VIDEO_PATH" >&2; exit 1; }
+          fi
           cat > "$GITHUB_WORKSPACE/artifact/metadata.json" <<JSON
           {
             "tag": "$BUILD_TAG",
-            "platform": "ios-video",
+            "platform": "$PLATFORM",
             "runner": "${{ inputs.runner }}",
             "sourceRef": "${{ inputs.ref }}",
             "deviceFamily": "$DEVICE_FAMILY",
             "simulatorId": "$SIMULATOR_ID",
             "simulatorName": "$SIMULATOR_NAME",
             "testFilter": "${TEST_FILTER:-cmuxUITests/cmuxUITests/testStackAuthEntryUsesStableIdentifiers}",
-            "video": "$(basename "$VIDEO_PATH")",
+            "syncMarker": "$SYNC_MARKER",
+            "video": "$(basename "$FINAL_VIDEO_PATH")",
             "testExitCode": $test_rc
           }
           JSON

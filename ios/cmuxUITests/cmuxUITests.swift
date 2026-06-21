@@ -76,6 +76,28 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
+    @MainActor
+    func testSyncedTypingDemoShowsInputOnTerminal() async throws {
+        let marker = "sync-left-right-cloud-demo"
+        let command = "echo \(marker)"
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_SYNC_TYPING_DEMO": "1",
+        ])
+        let input = app.textFields["MobileSyncDemoInput"]
+        XCTAssertTrue(input.waitForExistence(timeout: 8))
+
+        Thread.sleep(forTimeInterval: 1.0)
+        input.tap()
+        input.typeText(command)
+        Thread.sleep(forTimeInterval: 1.0)
+        input.typeText("\r")
+
+        let terminal = app.otherElements["MobileSyncDemoTerminal"]
+        XCTAssertTrue(terminal.waitForExistence(timeout: 4))
+        XCTAssertTrue(terminal.label.contains(marker), "Expected demo terminal to contain \(marker). Label: \(terminal.label)")
+        Thread.sleep(forTimeInterval: 2.0)
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not
