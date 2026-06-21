@@ -94,7 +94,17 @@
     "faqOrchestrationQ": "cmuxは複数のエージェントやサブエージェントをオーケストレーションできますか？",
     "faqOrchestrationA": "はい。エージェントがサブエージェントやチームメイトを起動すると、cmuxはそれらを隠れたバックグラウンドプロセスではなくネイティブのペインや分割として表示します。<teamsLink>Claude Codeチーム</teamsLink>と<omoLink>oh-my-opencode</omoLink>のマルチモデルオーケストレーションに対応しており、実行中のすべてのエージェントが見えて操作できます。",
     "faqCustomizeQ": "cmuxをカスタマイズできますか？",
-    "faqCustomizeA": "はい。ターミナルの描画はGhostty設定を使うため、テーマ、フォント、色、カーソルがそのまま反映されます。<path>~/.config/cmux/cmux.json</path>のcmux独自の設定でサイドバー、タブバー、分割ペイン、動作を制御でき、<shortcutsLink>キーボードショートカット</shortcutsLink>もすべて編集可能です。<link>設定</link>をご覧ください。"
+    "faqCustomizeA": "はい。ターミナルの描画はGhostty設定を使うため、テーマ、フォント、色、カーソルがそのまま反映されます。<path>~/.config/cmux/cmux.json</path>のcmux独自の設定でサイドバー、タブバー、分割ペイン、動作を制御でき、<shortcutsLink>キーボードショートカット</shortcutsLink>もすべて編集可能です。<link>設定</link>をご覧ください。",
+    "faqSkillsQ": "cmuxにスキルはありますか？",
+    "faqSkillsA": "はい。スキルは、CLI制御、ワークスペースの自動化、設定、ブラウザサーフェスなどを、cmuxで動作する任意のエージェントに渡せる再利用可能なワークフローです。<skillsLink>cmux-skills</skillsLink>の公開コレクションを見るか、<link>スキルのドキュメント</link>をご覧ください。",
+    "faqFeatureQ": "機能リクエストやバグ報告があります",
+    "faqFeatureA": "ぜひ聞かせてください。GitHubで<issuesLink>イシュー</issuesLink>や<prLink>プルリクエスト</prLink>を開くか、<mailLink>メールでご連絡</mailLink>ください。",
+    "faqIosQ": "iOSアプリはありますか？",
+    "faqIosA": "はい、ベータ版があります。Mobile ConnectウィンドウからiPhoneをMacとペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。TestFlightで「cmux BETA」として提供されています。",
+    "faqSupportQ": "cmuxを支援するには？",
+    "faqSupportA": "cmuxは無料・オープンソースであり、これからもずっとそうです。開発を支援し、cmux AI、iOSアプリ、Cloud VMなど今後の機能に早期アクセスしたい方は、<foundersLink>cmux Founders Edition</foundersLink>をご覧ください。",
+    "faqBrowserQ": "組み込みブラウザでは何ができますか？",
+    "faqBrowserA": "cmuxはターミナルの隣に本物のブラウザペインを分割表示でき、完全にプログラム可能です。同じsocket APIから、ナビゲート、DOMのスナップショット、クリック、入力、JavaScriptの評価、コンソールやネットワークの読み取りができます。エージェントはこれを使って、cmuxを離れずに自分のWeb変更を検証します。<link>ブラウザ自動化</link>をご覧ください。"
   },
   "community": {
     "title": "コミュニティ",

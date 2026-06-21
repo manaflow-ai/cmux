@@ -59,7 +59,7 @@ function HomeContent() {
           </span>
         </p>
         <p
-          className="text-base text-muted"
+          className="text-base text-muted lg:-mr-32 xl:-mr-48"
           data-dev="subtitle"
           style={{ lineHeight: 1.5 }}
         >
@@ -185,6 +185,10 @@ function HomeContent() {
               <p className="text-muted">{t("faqPlatformA")}</p>
             </div>
             <div>
+              <p className="font-medium mb-1">{t("faqIosQ")}</p>
+              <p className="text-muted">{t("faqIosA")}</p>
+            </div>
+            <div>
               <p className="font-medium mb-1">{t("faqAgentsQ")}</p>
               <p className="text-muted">{t("faqAgentsA")}</p>
             </div>
@@ -251,6 +255,38 @@ function HomeContent() {
                   ),
                   browserLink: (chunks) => (
                     <Link href="/docs/browser-automation" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqBrowserQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqBrowserA", {
+                  link: (chunks) => (
+                    <Link href="/docs/browser-automation" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqSkillsQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqSkillsA", {
+                  skillsLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux-skills"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                  link: (chunks) => (
+                    <Link href="/docs/skills" className={linkClass}>
                       {chunks}
                     </Link>
                   ),
@@ -327,6 +363,52 @@ function HomeContent() {
                   link: (chunks) => (
                     <a
                       href="https://github.com/manaflow-ai/cmux"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqSupportQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqSupportA", {
+                  foundersLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqFeatureQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqFeatureA", {
+                  issuesLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux/issues"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                  prLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux/pulls"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                  mailLink: (chunks) => (
+                    <a
+                      href="mailto:founders@manaflow.com?subject=%5Bcmux%20feature%20request%20landing%5D&body=Hi%20cmux%20team%2C%20"
                       className={linkClass}
                     >
                       {chunks}

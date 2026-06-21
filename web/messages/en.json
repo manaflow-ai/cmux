@@ -94,7 +94,17 @@
     "faqOrchestrationQ": "Can cmux orchestrate multiple agents and subagents?",
     "faqOrchestrationA": "Yes. When an agent spawns subagents or teammates, cmux turns them into native panes and splits instead of hidden background processes. It supports <teamsLink>Claude Code teams</teamsLink> and <omoLink>oh-my-opencode</omoLink> multi-model orchestration, so every agent in a run is visible and controllable.",
     "faqCustomizeQ": "Can I customize cmux?",
-    "faqCustomizeA": "Yes. Terminal rendering uses your Ghostty config, so themes, fonts, colors, and cursor carry over directly. cmux's own settings in <path>~/.config/cmux/cmux.json</path> control the sidebar, tab bar, split panes, and behavior, and every <shortcutsLink>keyboard shortcut</shortcutsLink> is editable. See <link>configuration</link>."
+    "faqCustomizeA": "Yes. Terminal rendering uses your Ghostty config, so themes, fonts, colors, and cursor carry over directly. cmux's own settings in <path>~/.config/cmux/cmux.json</path> control the sidebar, tab bar, split panes, and behavior, and every <shortcutsLink>keyboard shortcut</shortcutsLink> is editable. See <link>configuration</link>.",
+    "faqSkillsQ": "Does cmux have skills?",
+    "faqSkillsA": "Yes. Skills are reusable workflows you can give any agent running in cmux, for things like CLI control, workspace automation, settings, and browser surfaces. Browse the open collection at <skillsLink>cmux-skills</skillsLink>, or read the <link>skills docs</link>.",
+    "faqFeatureQ": "I have a feature request or found a bug",
+    "faqFeatureA": "We want to hear it. Open an <issuesLink>issue</issuesLink> or <prLink>pull request</prLink> on GitHub, or <mailLink>email us</mailLink>.",
+    "faqIosQ": "Is there an iOS app?",
+    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA.",
+    "faqSupportQ": "How can I support cmux?",
+    "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqBrowserQ": "What can the built-in browser do?",
+    "faqBrowserA": "cmux can split a real browser pane next to your terminal, and it is fully programmable: navigate, snapshot the DOM, click, type, evaluate JavaScript, and read console and network activity over the same socket API. Agents use it to verify their own web changes without leaving cmux. See <link>browser automation</link>."
   },
   "community": {
     "title": "Community",
