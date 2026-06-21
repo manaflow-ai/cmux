@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — マルチタスクのために作られたターミナル",
-    "description": "Ghosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
-    "ogDescription": "AIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
+    "description": "無料・オープンソースのGhosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
+    "ogDescription": "無料・オープンソースのAIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
   },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
@@ -40,13 +40,14 @@
     "nightly": "ナイトリー",
     "copyright": "© {year} Manaflow",
     "language": "言語",
-    "assets": "アセット"
+    "assets": "アセット",
+    "openSource": "オープンソース"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
     "typingCodingAgents": "コーディングエージェント",
     "typingMultitasking": "マルチタスク",
-    "subtitle": "GhosttyベースのネイティブmacOSアプリ。縦タブ、エージェントが注意を必要とするときの通知リング、分割ペイン、プログラマビリティのための<cliLink>CLI</cliLink>を搭載。",
+    "subtitle": "無料・オープンソースのGhosttyベースのネイティブmacOSターミナル。縦タブ、エージェントが注意を必要とするときの通知リング、分割ペイン、プログラマビリティのための<cliLink>CLI</cliLink>を搭載。",
     "features": "機能",
     "faq": "FAQ",
     "communitySection": "コミュニティ",
@@ -59,14 +60,16 @@
       "inAppBrowserDesc": "：スクリプタブルなAPIでターミナルの横にブラウザを分割表示",
       "splitPanes": "分割ペイン",
       "splitPanesDesc": "：各タブ内で水平・垂直に分割",
-      "scriptable": "スクリプタブル",
+      "scriptable": "プログラマブル",
       "scriptableDesc": "：CLIとsocket APIで自動化とスクリプティングが可能",
       "gpuAccelerated": "GPU高速化",
       "gpuAcceleratedDesc": "：libghosttyによるスムーズなレンダリング",
       "lightweight": "軽量",
       "lightweightDesc": "：ネイティブSwift + AppKit、Electronではない",
       "keyboardShortcuts": "キーボードショートカット",
-      "keyboardShortcutsDesc": "：ワークスペース、分割、ブラウザなどの<link>豊富なショートカット</link>"
+      "keyboardShortcutsDesc": "：ワークスペース、分割、ブラウザなどの<link>豊富なショートカット</link>",
+      "openSource": "オープンソース",
+      "openSourceDesc": "：無料・GPLライセンス"
     },
     "faqGhosttyQ": "cmuxとGhosttyの関係は？",
     "faqGhosttyA": "cmuxはGhosttyのフォークではありません。アプリがWebKitをWebビューに使うのと同様に、ターミナルレンダリングのライブラリとして<link>libghostty</link>を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "cmuxはどのコーディングエージェントに対応していますか？",
     "faqAgentsA": "すべてに対応しています。cmuxはターミナルなので、ターミナルで動作するすべてのエージェントがそのまま使えます：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、その他コマンドラインから起動できるすべてのツール。",
     "faqNotificationsQ": "通知はどのように機能しますか？",
-    "faqNotificationsA": "プロセスが注意を必要とするとき、cmuxはペインに通知リング、サイドバーに未読バッジ、通知ポップオーバー、macOSデスクトップ通知を表示します。これらは標準的なターミナルエスケープシーケンス（OSC 9/99/777）で自動的に発火するほか、<cliLink>cmux CLI</cliLink>や<hooksLink>Claude Codeフック</hooksLink>で手動トリガーも可能です。",
+    "faqNotificationsA": "プロセスが注意を必要とするとき、cmuxはペインに通知リング、サイドバーに未読バッジ、通知ポップオーバー、macOSデスクトップ通知を表示します。これらは標準的なターミナルエスケープシーケンス（OSC 9/99/777）で自動的に発火するほか、<cliLink>cmux CLI</cliLink>や<hooksLink>エージェントのフック</hooksLink>で手動トリガーも可能です。フックまたはOSCに対応していれば、Claude Code、Codex、OpenCode、piなど、あらゆるエージェントで動作します。",
     "faqShortcutsQ": "キーボードショートカットはカスタマイズできますか？",
     "faqShortcutsA": "ターミナルのキーバインドはGhosttyの設定ファイル（<configPath>~/.config/ghostty/config</configPath>）から読み込まれます。cmux固有のショートカット（ワークスペース、分割、ブラウザ、通知）は設定画面でカスタマイズできます。全一覧は<link>デフォルトショートカット</link>をご覧ください。",
     "faqTmuxQ": "tmuxとの違いは？",
-    "faqTmuxA": "tmuxはどのターミナル内でも動作するターミナルマルチプレクサです。cmuxはGUI付きのネイティブmacOSアプリで、縦タブ、分割ペイン、組み込みブラウザ、socket APIがすべて内蔵されています。設定ファイルやプレフィックスキーは不要です。",
+    "faqTmuxA": "tmuxは任意のターミナル内で動作するターミナルマルチプレクサです。cmuxはGUIを備えたネイティブmacOSアプリで、縦タブ、分割ペイン、組み込みブラウザ、ソケットAPIがすべて標準搭載されており、設定ファイルやプレフィックスキーは不要です。とはいえ、多くの人がcmuxをSSH + tmuxと組み合わせて愛用しています。cmuxはリモートのtmuxセッションにネイティブでアタッチすることもできます（<link>ベータ</link>）。",
     "faqFreeQ": "cmuxは無料ですか？",
-    "faqFreeA": "はい、cmuxは無料で使えます。ソースコードは<link>GitHub</link>で公開されています。"
+    "faqFreeA": "はい、cmuxは無料で使えます。ソースコードは<link>GitHub</link>で公開されています。",
+    "faqSessionsQ": "セッションは保存されますか？",
+    "faqSessionsA": "はい。cmuxは再起動時にウィンドウ、ワークスペース、ペイン、作業ディレクトリ、スクロールバックを復元します。アプリの終了時だけでなく、コンピュータを完全に再起動した後も状態が維持されます。Claude Code、Codex、OpenCodeなどのエージェントセッションも復帰します。<link>セッション復元</link>をご覧ください。",
+    "faqScriptableQ": "cmuxはプログラム可能ですか？",
+    "faqScriptableA": "はい。すべての操作がcmux CLIとUnixソケットから利用できます。ワークスペースの作成、分割ペインのオープン、入力の送信、画面内容の読み取り、スクリーンショットの取得、アプリ内ブラウザの操作が可能です。<cliLink>CLIリファレンス</cliLink>と<browserLink>ブラウザ自動化</browserLink>のドキュメントをご覧ください。",
+    "faqRemoteQ": "リモートマシンでcmuxを使えますか？",
+    "faqRemoteA": "はい。SSH経由でワークスペースを開き、リモートのtmuxセッションにアタッチできます。エージェントをリモートホストで実行しながら、cmuxから操作できます。<link>SSHとリモート</link>をご覧ください。",
+    "faqOrchestrationQ": "cmuxは複数のエージェントやサブエージェントをオーケストレーションできますか？",
+    "faqOrchestrationA": "はい。エージェントがサブエージェントやチームメイトを起動すると、cmuxはそれらを隠れたバックグラウンドプロセスではなくネイティブのペインや分割として表示します。<teamsLink>Claude Codeチーム</teamsLink>と<omoLink>oh-my-opencode</omoLink>のマルチモデルオーケストレーションに対応しており、実行中のすべてのエージェントが見えて操作できます。",
+    "faqCustomizeQ": "cmuxをカスタマイズできますか？",
+    "faqCustomizeA": "はい。ターミナルの描画はGhostty設定を使うため、テーマ、フォント、色、カーソルがそのまま反映されます。<path>~/.config/cmux/cmux.json</path>のcmux独自の設定でサイドバー、タブバー、分割ペイン、動作を制御でき、<shortcutsLink>キーボードショートカット</shortcutsLink>もすべて編集可能です。<link>設定</link>をご覧ください。",
+    "faqSkillsQ": "cmuxにスキルはありますか？",
+    "faqSkillsA": "はい。スキルは、CLI制御、ワークスペースの自動化、設定、ブラウザサーフェスなどを、cmuxで動作する任意のエージェントに渡せる再利用可能なワークフローです。<skillsLink>cmux-skills</skillsLink>の公開コレクションを見るか、<link>スキルのドキュメント</link>をご覧ください。",
+    "faqFeatureQ": "機能リクエストやバグ報告があります",
+    "faqFeatureA": "ぜひ聞かせてください。GitHubで<issuesLink>イシュー</issuesLink>や<prLink>プルリクエスト</prLink>を開くか、<mailLink>メールでご連絡</mailLink>ください。",
+    "faqIosQ": "iOSアプリはありますか？",
+    "faqIosA": "はい、ベータ版があります。Mobile ConnectウィンドウからiPhoneをMacとペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。TestFlightで「cmux BETA」として提供されています。",
+    "faqSupportQ": "cmuxを支援するには？",
+    "faqSupportA": "cmuxは無料・オープンソースであり、これからもずっとそうです。開発を支援し、cmux AI、iOSアプリ、Cloud VMなど今後の機能に早期アクセスしたい方は、<foundersLink>cmux Founders Edition</foundersLink>をご覧ください。",
+    "faqBrowserQ": "組み込みブラウザでは何ができますか？",
+    "faqBrowserA": "cmuxはターミナルの隣に本物のブラウザペインを分割表示でき、完全にプログラム可能です。同じsocket APIから、ナビゲート、DOMのスナップショット、クリック、入力、JavaScriptの評価、コンソールやネットワークの読み取りができます。エージェントはこれを使って、cmuxを離れずに自分のWeb変更を検証します。<link>ブラウザ自動化</link>をご覧ください。"
   },
   "community": {
     "title": "コミュニティ",
@@ -1456,8 +1479,8 @@
     },
     "ohMyOpenCode": {
       "title": "oh-my-opencode",
-      "metaTitle": "oh-my-opencode - cmux",
-      "metaDescription": "cmux内でOpenCodeとoh-my-openagentを実行。マルチモデルエージェントオーケストレーションをネイティブcmuxスプリットで。",
+      "metaTitle": "oh-my-opencode: cmux内のOpenCodeマルチエージェント",
+      "metaDescription": "oh-my-opencode（cmux omo）は、cmux内でoh-my-openagentプラグインを有効にしてOpenCode CLIを実行します。Claude、GPT、Gemini、Grokを並列エージェントとしてオーケストレーションし、それぞれがネイティブのcmuxスプリットになります。",
       "nightlyWarning": "<nightly>ナイトリービルド</nightly>でのみ利用可能です。",
       "intro": "cmux omoはoh-my-openagentプラグインを有効にしてcmux対応環境でOpenCodeを起動します。oh-my-openagentは複数のAIモデル（Claude、GPT、Gemini、Grok）を専門エージェントとして並列にオーケストレーションします。エージェントペインはネイティブのcmuxスプリットになります。",
       "usage": "使い方",
