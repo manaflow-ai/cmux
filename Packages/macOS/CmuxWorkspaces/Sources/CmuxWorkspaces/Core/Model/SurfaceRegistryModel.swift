@@ -407,4 +407,98 @@ public final class SurfaceRegistryModel<TabSelectionRequest> {
         let rawTarget = min(anchorIndex + 1, tabs.count)
         return max(rawTarget, pinnedCount)
     }
+
+    // MARK: - Close-history eligibility
+
+    /// Surface ids whose next close attempt should be treated as an explicit
+    /// workspace-close gesture from the user (the tab-strip ✕ button, or the
+    /// Close Tab shortcut when the preference closes the workspace on the last
+    /// surface), rather than an internal close/move flow. Faithful storage move
+    /// of the plain (non-`@Published`) `Workspace.explicitUserCloseTabIds`.
+    public var explicitUserCloseTabIds: Set<TabID> = []
+
+    /// Surface ids whose close should record a closed-panel history entry
+    /// (faithful storage move of `Workspace.closeHistoryEligibleTabIds`).
+    public var closeHistoryEligibleTabIds: Set<TabID> = []
+
+    /// Panel ids whose close should record a closed-panel history entry
+    /// (faithful storage move of `Workspace.closeHistoryEligiblePanelIds`).
+    public var closeHistoryEligiblePanelIds: Set<UUID> = []
+
+    /// Surface ids closed specifically via the tab-strip ✕ button (faithful
+    /// storage move of `Workspace.tabCloseButtonCloseTabIds`).
+    public var tabCloseButtonCloseTabIds: Set<TabID> = []
+
+    /// Marks `surfaceId` as an explicit user close and close-history eligible,
+    /// also marking the resolved owning `panelId` eligible. Faithful lift of
+    /// `Workspace.markExplicitClose(surfaceId:)`; the surface→panel resolution
+    /// stays at the call site (the mapping lives in the pane-tree sub-model).
+    public func markExplicitClose(surfaceId: TabID, panelId: UUID?) {
+        explicitUserCloseTabIds.insert(surfaceId)
+        closeHistoryEligibleTabIds.insert(surfaceId)
+        if let panelId {
+            closeHistoryEligiblePanelIds.insert(panelId)
+        }
+    }
+
+    /// Marks `panelId` close-history eligible, also marking the resolved owning
+    /// `surfaceId` eligible. Faithful lift of
+    /// `Workspace.markCloseHistoryEligible(panelId:)`; the panel→surface
+    /// resolution stays at the call site.
+    public func markCloseHistoryEligible(panelId: UUID, surfaceId: TabID?) {
+        closeHistoryEligiblePanelIds.insert(panelId)
+        if let surfaceId {
+            closeHistoryEligibleTabIds.insert(surfaceId)
+        }
+    }
+
+    /// Marks `surfaceId` as an explicit user close performed via the tab-strip
+    /// ✕ button. Faithful lift of `Workspace.markTabCloseButtonClose(surfaceId:)`.
+    public func markTabCloseButtonClose(surfaceId: TabID) {
+        explicitUserCloseTabIds.insert(surfaceId)
+        tabCloseButtonCloseTabIds.insert(surfaceId)
+    }
+
+    /// Consumes the close-history eligibility for a closing surface/panel,
+    /// removing both keys and returning whether either was eligible. Faithful
+    /// lift of the private `Workspace.consumeCloseHistoryEligibility(tabId:panelId:)`.
+    public func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> Bool {
+        let eligibleByTab = closeHistoryEligibleTabIds.remove(tabId) != nil
+        let eligibleByPanel = panelId.map { closeHistoryEligiblePanelIds.remove($0) != nil } ?? false
+        return eligibleByTab || eligibleByPanel
+    }
+
+    /// Clears the close-history eligibility for a surface and its resolved
+    /// owning panel without recording history. Faithful lift of the private
+    /// `Workspace.clearCloseHistoryEligibility(tabId:panelId:)`; the surface→panel
+    /// fallback resolution is performed at the call site and passed in.
+    public func clearCloseHistoryEligibility(tabId: TabID, panelId: UUID?) {
+        closeHistoryEligibleTabIds.remove(tabId)
+        if let panelId {
+            closeHistoryEligiblePanelIds.remove(panelId)
+        }
+    }
+
+    /// Consumes the tab-strip ✕-button close flag for a closing surface,
+    /// returning whether it was set. Faithful lift of the
+    /// `tabCloseButtonCloseTabIds.remove(_:) != nil` check in
+    /// `Workspace.splitTabBar(_:shouldCloseTab:inPane:)`.
+    public func consumeTabCloseButtonClose(_ surfaceId: TabID) -> Bool {
+        tabCloseButtonCloseTabIds.remove(surfaceId) != nil
+    }
+
+    /// Consumes the explicit-user-close flag for a closing surface, returning
+    /// whether it was set. Faithful lift of the
+    /// `explicitUserCloseTabIds.remove(_:) != nil` check in
+    /// `Workspace.splitTabBar(_:shouldCloseTab:inPane:)`.
+    public func consumeExplicitUserClose(_ surfaceId: TabID) -> Bool {
+        explicitUserCloseTabIds.remove(surfaceId) != nil
+    }
+
+    /// Drops the tab-strip ✕-button close flag for a fully-closed surface.
+    /// Faithful lift of the `tabCloseButtonCloseTabIds.remove(_:)` cleanup in
+    /// `Workspace.splitTabBar(_:didCloseTab:fromPane:)`.
+    public func removeTabCloseButtonClose(_ surfaceId: TabID) {
+        tabCloseButtonCloseTabIds.remove(surfaceId)
+    }
 }

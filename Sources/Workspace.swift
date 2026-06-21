@@ -625,17 +625,14 @@ extension Workspace {
     }
 
     private func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> Bool {
-        let eligibleByTab = closeHistoryEligibleTabIds.remove(tabId) != nil
-        let eligibleByPanel = panelId.map { closeHistoryEligiblePanelIds.remove($0) != nil } ?? false
-        return eligibleByTab || eligibleByPanel
+        surfaceRegistry.consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
     }
 
     private func clearCloseHistoryEligibility(tabId: TabID, panelId: UUID? = nil) {
-        closeHistoryEligibleTabIds.remove(tabId)
-        let resolvedPanelId = panelId ?? panelIdFromSurfaceId(tabId)
-        if let resolvedPanelId {
-            closeHistoryEligiblePanelIds.remove(resolvedPanelId)
-        }
+        surfaceRegistry.clearCloseHistoryEligibility(
+            tabId: tabId,
+            panelId: panelId ?? panelIdFromSurfaceId(tabId)
+        )
     }
 
     @discardableResult
@@ -3187,18 +3184,10 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// confirmation in flight, so click spam can't double-kill or stack dialogs.
     private var pendingRemoteTmuxPaneCloseIds: Set<Int> = []
 
-    /// Tab IDs whose next close attempt should be treated as an explicit
-    /// workspace-close gesture from the user (the tab-strip X button, or the Close Tab
-    /// shortcut when the shortcut preference is set to close the workspace on the last surface),
-    /// rather than an internal close/move flow.
-    private var explicitUserCloseTabIds: Set<TabID> = []
-    private var closeHistoryEligibleTabIds: Set<TabID> = []
-    private var closeHistoryEligiblePanelIds: Set<UUID> = []
     // `internal` (not `private`) so the `Workspace+ClosedBrowserRestoreStagingHosting`
     // sibling extension can read it as the `stagingSuppressClosedPanelHistory`
     // witness; every other access stays within this file.
     var suppressClosedPanelHistory = false
-    private var tabCloseButtonCloseTabIds: Set<TabID> = []
 
     /// Panel IDs that were in a pane when a pane-close operation was approved.
     /// Bonsplit pane-close does not emit per-tab didClose callbacks.
@@ -3319,18 +3308,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func markExplicitClose(surfaceId: TabID) {
-        explicitUserCloseTabIds.insert(surfaceId)
-        closeHistoryEligibleTabIds.insert(surfaceId)
-        if let panelId = panelIdFromSurfaceId(surfaceId) {
-            closeHistoryEligiblePanelIds.insert(panelId)
-        }
+        surfaceRegistry.markExplicitClose(surfaceId: surfaceId, panelId: panelIdFromSurfaceId(surfaceId))
     }
 
     func markCloseHistoryEligible(panelId: UUID) {
-        closeHistoryEligiblePanelIds.insert(panelId)
-        if let surfaceId = surfaceIdFromPanelId(panelId) {
-            closeHistoryEligibleTabIds.insert(surfaceId)
-        }
+        surfaceRegistry.markCloseHistoryEligible(panelId: panelId, surfaceId: surfaceIdFromPanelId(panelId))
     }
 
     @discardableResult
@@ -3375,8 +3357,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func markTabCloseButtonClose(surfaceId: TabID) {
-        explicitUserCloseTabIds.insert(surfaceId)
-        tabCloseButtonCloseTabIds.insert(surfaceId)
+        surfaceRegistry.markTabCloseButtonClose(surfaceId: surfaceId)
     }
 
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
@@ -10672,8 +10653,8 @@ extension Workspace: BonsplitDelegate {
             splitLifecycle.recordPostCloseState(controller: controller, closing: tab, inPane: pane)
         }
 
-        let tabCloseButtonClose = tabCloseButtonCloseTabIds.remove(tab.id) != nil
-        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabCloseButtonClose
+        let tabCloseButtonClose = surfaceRegistry.consumeTabCloseButtonClose(tab.id)
+        let explicitUserClose = surfaceRegistry.consumeExplicitUserClose(tab.id) || tabCloseButtonClose
 
         // Remote tmux mirror: closing a window tab means "kill that tmux window".
         // Route ANY non-programmatic close (close button, ⌘W, and batch closes
@@ -10900,7 +10881,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
-        tabCloseButtonCloseTabIds.remove(tabId)
+        surfaceRegistry.removeTabCloseButtonClose(tabId)
         let selectTabId = splitLifecycle.consumePostCloseSelectTabId(forClosed: tabId)
         let shouldClearSplitZoom = splitLifecycle.consumeShouldClearSplitZoom(forClosed: tabId)
         let closedBrowserRestoreSnapshot = closedBrowserRestoreStaging.consumeSnapshot(forTabId: tabId)
