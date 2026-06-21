@@ -120,8 +120,20 @@ public struct BrowserCookieRepository: Sendable {
     /// - Returns: the cookies, or `nil` on timeout.
     public func allCookies(in store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
         awaiter.await(timeout: timeout) { finish in
-            store.getAllCookies { items in
-                finish(items)
+            // `WKHTTPCookieStore` I/O is `@MainActor`-isolated. The await runs on
+            // a worker thread and blocks while the main run loop services the
+            // store's main-actor-hopping callback, so the call must be *initiated*
+            // on main without blocking it: hop via `DispatchQueue.main.async`,
+            // then `MainActor.assumeIsolated` (we are provably on main inside the
+            // hop) to call the isolated method. Same `DispatchQueue.main.async` /
+            // `MainActor.assumeIsolated` bridge the legacy worker-lane control
+            // commands used.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    store.getAllCookies { items in
+                        finish(items)
+                    }
+                }
             }
         }
     }
@@ -137,8 +149,15 @@ public struct BrowserCookieRepository: Sendable {
     /// - Returns: whether the write completed in time.
     public func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> Bool {
         awaiter.await(timeout: timeout) { finish in
-            store.setCookie(cookie) {
-                finish(true)
+            // See `allCookies(in:timeout:)`: `WKHTTPCookieStore` is `@MainActor`,
+            // so initiate the write on main via the `DispatchQueue.main.async` /
+            // `MainActor.assumeIsolated` bridge while the worker thread blocks.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    store.setCookie(cookie) {
+                        finish(true)
+                    }
+                }
             }
         } ?? false
     }
@@ -154,8 +173,15 @@ public struct BrowserCookieRepository: Sendable {
     /// - Returns: whether the delete completed in time.
     public func deleteCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> Bool {
         awaiter.await(timeout: timeout) { finish in
-            store.delete(cookie) {
-                finish(true)
+            // See `allCookies(in:timeout:)`: `WKHTTPCookieStore` is `@MainActor`,
+            // so initiate the delete on main via the `DispatchQueue.main.async` /
+            // `MainActor.assumeIsolated` bridge while the worker thread blocks.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    store.delete(cookie) {
+                        finish(true)
+                    }
+                }
             }
         } ?? false
     }
