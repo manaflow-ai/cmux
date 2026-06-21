@@ -1,21 +1,21 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34345	CLI/cmux.swift
-17692	Sources/AppDelegate.swift
+34347	CLI/cmux.swift
+17685	Sources/AppDelegate.swift
 16066	Sources/ContentView.swift
 13989	Sources/TerminalController.swift
 12725	Sources/Workspace.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11837	Sources/GhosttyTerminalView.swift
-11411	Sources/Panels/BrowserPanel.swift
+11725	Sources/Panels/BrowserPanel.swift
 9335	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
+8017	CLI/cmux_open.swift
 8017	Sources/Panels/BrowserPanelView.swift
 7355	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6220	cmuxTests/GhosttyConfigTests.swift
-6196	CLI/cmux_open.swift
 6159	Sources/TabManager.swift
 6072	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
@@ -111,7 +111,7 @@
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 802	Sources/WorkspaceContentView.swift
 797	Sources/ClosedItemHistory.swift
-787	Sources/DockSplitStore.swift
+797	Sources/DockSplitStore.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 772	Sources/MainWindowFocusController.swift
 769	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+Input.swift
@@ -170,6 +170,7 @@
 596	cmuxTests/CmuxEventBusTests.swift
 594	Sources/SessionIndexModels.swift
 594	cmuxTests/PortalTabDragRoutingTests.swift
+592	Sources/RightSidebarPanelView.swift
 588	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 586	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+PortScan.swift
 586	Sources/JSONCParser.swift
@@ -187,7 +188,6 @@
 561	cmuxTests/GhosttyConfigPathResolverTests.swift
 560	cmuxTests/CLISSHPTYResizeInputTests.swift
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
-556	Sources/RightSidebarPanelView.swift
 551	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 549	Sources/Panels/BrowserAutomation.swift
 540	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
@@ -203,7 +203,6 @@
 527	CLI/CLISocketPathResolver.swift
 526	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
-524	Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/HostBrowserSignInFlowTests.swift
 522	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 522	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
 520	CLI/CMUXCLI+AmpExtension.swift

@@ -13677,7 +13677,7 @@ struct TabItemView: View, Equatable {
         // row is always animating, so the sidebar-wide layout re-runs at display
         // refresh rate (#5764 / #5845). Lazy rows must be height-stable after
         // they appear; content changes now apply in one discrete layout pass.
-        .padding(.horizontal, 10)
+        .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -13705,7 +13705,7 @@ struct TabItemView: View, Equatable {
             fontSize: scaledFontSize(10)
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
