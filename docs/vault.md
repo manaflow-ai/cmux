@@ -19,6 +19,7 @@ Pi Coding Agent and OMP are registered by default:
         },
         "sessionIdSource": { "type": "piSessionFile" },
         "resumeCommand": "{{executable}} --session {{sessionId}}",
+        "forkCommand": "{{executable}} --session {{sessionId}} --fork",
         "cwd": "preserve",
         "sessionDirectory": "~/.pi/agent/sessions"
       },
@@ -30,6 +31,7 @@ Pi Coding Agent and OMP are registered by default:
         },
         "sessionIdSource": { "type": "piSessionFile" },
         "resumeCommand": "{{executable}} --session {{sessionId}}",
+        "forkCommand": "{{executable}} --session {{sessionId}} --fork",
         "cwd": "preserve",
         "sessionDirectory": "~/.omp/agent/sessions"
       }
@@ -53,6 +55,7 @@ For a generic agent that exposes the current session as an argv option:
         },
         "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
         "resumeCommand": "my-agent --session {{sessionId}}",
+        "forkCommand": "my-agent --session {{sessionId}} --fork",
         "cwd": "preserve",
         "sessionDirectory": "~/.my-agent/sessions"
       }

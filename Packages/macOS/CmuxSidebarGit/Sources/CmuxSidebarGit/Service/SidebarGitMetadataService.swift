@@ -1,6 +1,6 @@
 public import Foundation
 public import CmuxGit
-internal import CmuxFileWatch
+internal import CmuxFoundation
 
 /// The production ``SidebarGitMetadataServing``: owns the local git probe
 /// state machine (per-panel probe/rerun flags, retry tasks, tracked

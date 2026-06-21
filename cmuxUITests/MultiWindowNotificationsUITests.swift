@@ -379,7 +379,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let notifyStdout = readTrimmedFile(atPath: commandStdoutPath) ?? ""
         let notifyStderr = readTrimmedFile(atPath: commandStderrPath) ?? ""
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        // `waitForCommandCompletionWhileBackgrounded` above only returns once the
+        // bundled `cmux notify` command has finished while the app stayed
+        // backgrounded, so assert the no-foreground invariant at that causal
+        // point rather than polling a fixed wall-clock window.
         XCTAssertFalse(
             app.state == .runningForeground,
             "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyStderr)"
@@ -876,11 +879,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in predicate() },
-            object: nil
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if predicate() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return predicate()
     }
 
     private func firstSurfaceIdViaCLI(forWorkspaceId workspaceId: String) -> String? {

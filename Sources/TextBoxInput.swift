@@ -1,13 +1,11 @@
 import AppKit
-import CmuxTerminalEngine
-import CmuxTerminalServices
+import CmuxTerminal
 import Carbon.HIToolbox
 import CmuxSettingsUI
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import os
-import CmuxTerminal
 
 private enum TextBoxLayout {
     static let minLines = 1

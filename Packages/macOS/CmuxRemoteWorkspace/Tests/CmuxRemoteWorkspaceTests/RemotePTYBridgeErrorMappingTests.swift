@@ -32,6 +32,7 @@ struct RemotePTYBridgeErrorMappingTests {
         "daemon error text maps onto the app-resolved strings by wire-pinned markers",
         arguments: [
             ("daemon: missing required capability pty.write.notification", "test-missing-capability"),
+            ("daemon: missing required capability pty.resize.notification", "test-missing-capability"),
             ("attach failed: pty.session unsupported", "test-missing-capability"),
             ("pty_session_not_found", "test-session-ended"),
             ("persistent SSH PTY session is not running", "test-session-ended"),

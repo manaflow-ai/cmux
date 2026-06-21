@@ -1,9 +1,10 @@
 import SwiftUI
 import Foundation
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Bonsplit
-import CmuxWorkspaceWindow
+import CmuxWorkspaces
 import CmuxTerminal
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
@@ -122,6 +123,7 @@ struct WorkspaceContentView: View {
     let isWorkspaceInputActive: Bool
     let isFullScreen: Bool
     let workspacePortalPriority: Int
+    let windowAppearance: WindowAppearanceSnapshot
     let onThemeRefreshRequest: ((
         _ reason: String,
         _ backgroundEventId: UInt64?,
@@ -136,9 +138,7 @@ struct WorkspaceContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
+    private var isMinimalMode: Bool { WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal }
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
@@ -225,7 +225,7 @@ struct WorkspaceContentView: View {
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
-                        appearance: appearance,
+                        appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                         terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                         onFocus: {
@@ -343,7 +343,7 @@ struct WorkspaceContentView: View {
                     isWorkspaceVisible: isWorkspaceVisible,
                     isWorkspaceInputActive: isWorkspaceInputActive,
                     portalPriority: workspacePortalPriority,
-                    appearance: appearance
+                    appearance: appearance, windowAppearance: windowAppearance
                 )
             } else {
                 bonsplitView

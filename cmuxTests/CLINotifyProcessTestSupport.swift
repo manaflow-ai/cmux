@@ -262,7 +262,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 pending.append(buffer, count: count)
             }
 
-            let payload: [String: Any] = ["type": "ready"]
+            let payload: [String: Any] = ["type": "ready", "attachment_token": "attach-token"]
             guard var data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
             data.append(0x0A)
             data.withUnsafeBytes { rawBuffer in

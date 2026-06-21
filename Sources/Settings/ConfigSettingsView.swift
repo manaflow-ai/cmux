@@ -1,5 +1,5 @@
 import AppKit
-import CmuxFileOpen
+import CmuxWorkspaces
 import SwiftUI
 
 struct ConfigSettingsView: View {

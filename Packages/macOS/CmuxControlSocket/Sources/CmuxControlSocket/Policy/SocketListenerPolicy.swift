@@ -1,4 +1,4 @@
-internal import CmuxSocketControl
+internal import CmuxSettings
 public import Darwin
 
 /// Pure decision logic for the control-socket listener: accept-failure

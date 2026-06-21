@@ -1,4 +1,4 @@
-import CmuxSession
+import CmuxWorkspaces
 import XCTest
 
 #if canImport(cmux_DEV)

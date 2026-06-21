@@ -60,22 +60,54 @@ struct JSONConfigStoreTests {
         let (store, fileURL, _) = makeStore()
         try Data("{}".utf8).write(to: fileURL)
 
+        let key = JSONKey<String>(id: "automation.socketPassword", defaultValue: "")
+        let payload = #"{"automation":{"socketPassword":"injected"}}"#
+
+        // The observer Task owns its own iterator. It reports through a
+        // ready-stream the instant it consumes the initial ("") value, then keeps
+        // collecting until it sees the injected value.
+        let (ready, readyContinuation) = AsyncStream<Void>.makeStream()
         let observed = Task<[String], Never> {
             var collected: [String] = []
-            for await value in store.values(for: JSONKey<String>(id: "automation.socketPassword", defaultValue: "")) {
+            for await value in store.values(for: key) {
                 collected.append(value)
-                if collected.count == 2 { break }
+                if collected.count == 1 { readyContinuation.yield() }
+                if collected.last == "injected" { break }
             }
             return collected
         }
 
-        // Give the subscriber Task time to register before the file change;
-        // DispatchSource also coalesces events, so wait for delivery to settle.
-        try? await Task.sleep(nanoseconds: 100_000_000)
-        let payload = #"{"automation":{"socketPassword":"injected"}}"#
-        try Data(payload.utf8).write(to: fileURL)
+        // Wait for the observer to consume the initial value before any external
+        // write, so the first collected element is deterministically "" rather
+        // than racing a writer that could land "injected" before the initial read.
+        await withTimeout(seconds: 8) {
+            var it = ready.makeAsyncIterator()
+            _ = await it.next()
+        }
 
-        let collected = await withTimeout(seconds: 3) { await observed.value }
+        // The producer yields that initial value just before it finishes
+        // registering the subscriber on the actor, so the first filesystem event
+        // can still race that registration. Instead of betting a single
+        // wall-clock sleep, run a concurrent writer that re-applies the same
+        // external edit on a loop, bumping the file's modification date each pass.
+        // Each re-touch produces a fresh DispatchSource event that is delivered
+        // once the watcher is armed. The bytes (and thus the asserted value) are
+        // identical every pass, so this only closes the readiness race without
+        // weakening the assertion.
+        let writer = Task {
+            var bump = Date()
+            while !Task.isCancelled {
+                try? Data(payload.utf8).write(to: fileURL)
+                bump = bump.addingTimeInterval(1)
+                try? FileManager.default.setAttributes(
+                    [.modificationDate: bump], ofItemAtPath: fileURL.path
+                )
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
+
+        let collected = await withTimeout(seconds: 8) { await observed.value }
+        writer.cancel()
         #expect(collected.first == "")
         #expect(collected.last == "injected")
     }

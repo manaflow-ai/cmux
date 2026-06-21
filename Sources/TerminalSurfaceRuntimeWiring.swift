@@ -3,7 +3,7 @@ import Foundation
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
-import CmuxSocketControl
+import CmuxSettings
 import struct CmuxSettings.AgentIntegrationSettingsStore
 
 // The app-side conformances and bridges injected into the CmuxTerminal

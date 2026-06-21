@@ -351,6 +351,16 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 	if !sawPTYWriteNotificationCapability {
 		t.Fatalf("hello should advertise pty.write.notification: %v", firstResult)
 	}
+	var sawPTYResizeNotificationCapability bool
+	for _, capability := range capabilities {
+		if capability == "pty.resize.notification" {
+			sawPTYResizeNotificationCapability = true
+			break
+		}
+	}
+	if !sawPTYResizeNotificationCapability {
+		t.Fatalf("hello should advertise pty.resize.notification: %v", firstResult)
+	}
 
 	var second map[string]any
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
@@ -397,6 +407,45 @@ func TestRunStdioPTYWriteNotificationDoesNotEmitResponse(t *testing.T) {
 	}
 	if ok, _ := response["ok"].(bool); !ok {
 		t.Fatalf("ping response should be ok=true after pty.write notification: %v", response)
+	}
+}
+
+func TestRunStdioPTYResizeNotificationDoesNotEmitResponse(t *testing.T) {
+	input := strings.NewReader(
+		`{"method":"pty.resize","params":{"session_id":"missing","attachment_id":"missing","client_attachment_token":"token","cols":100,"rows":30}}` + "\n" +
+			`{"id":2,"method":"ping","params":{}}` + "\n",
+	)
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d frame lines, want pty.error event plus ping response: %q", len(lines), out.String())
+	}
+
+	var event map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("failed to decode pty.resize error event: %v", err)
+	}
+	if _, hasID := event["id"]; hasID {
+		t.Fatalf("pty.resize notification should not emit an RPC response id: %v", event)
+	}
+	if got := event["event"]; got != "pty.error" {
+		t.Fatalf("first frame = %v, want pty.error event; payload=%v", got, event)
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &response); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if got := response["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, response)
+	}
+	if ok, _ := response["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after pty.resize notification: %v", response)
 	}
 }
 
@@ -457,6 +506,45 @@ func TestRunStdioNullIDPTYWriteStillEmitsResponse(t *testing.T) {
 	}
 	if ok, _ := ping["ok"].(bool); !ok {
 		t.Fatalf("ping response should be ok=true after id:null pty.write: %v", ping)
+	}
+}
+
+func TestRunStdioNullIDPTYResizeStillEmitsResponse(t *testing.T) {
+	input := strings.NewReader(
+		`{"id":null,"method":"pty.resize","params":{"session_id":"missing","attachment_id":"missing","client_attachment_token":"token","cols":100,"rows":30}}` + "\n" +
+			`{"id":2,"method":"ping","params":{}}` + "\n",
+	)
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d frame lines, want pty.resize response plus ping response: %q", len(lines), out.String())
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &response); err != nil {
+		t.Fatalf("failed to decode pty.resize response: %v", err)
+	}
+	if eventName, _ := response["event"].(string); eventName != "" {
+		t.Fatalf("id:null pty.resize should emit an RPC response, got event: %v", response)
+	}
+	if ok, _ := response["ok"].(bool); ok {
+		t.Fatalf("missing pty.resize target should fail: %v", response)
+	}
+
+	var ping map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &ping); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if got := ping["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, ping)
+	}
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after id:null pty.resize: %v", ping)
 	}
 }
 
@@ -855,6 +943,43 @@ func TestPersistentDaemonPTYWriteNotificationDoesNotEmitResponse(t *testing.T) {
 	}
 	if ok, _ := ping["ok"].(bool); !ok {
 		t.Fatalf("ping response should be ok=true after pty.write notification: %v", ping)
+	}
+}
+
+func TestPersistentDaemonPTYResizeNotificationDoesNotEmitResponse(t *testing.T) {
+	socketPath, stop := startPersistentDaemonForTest(t, "good-token")
+	defer stop()
+
+	conn, reader, writer := openPersistentTestClient(t, socketPath, "good-token")
+	defer conn.Close()
+
+	writePersistentTestFrame(t, writer, map[string]any{
+		"method": "pty.resize",
+		"params": map[string]any{
+			"session_id":              "missing",
+			"attachment_id":           "missing",
+			"client_attachment_token": "token",
+			"cols":                    100,
+			"rows":                    30,
+		},
+	})
+	event := readPersistentTestFrame(t, conn, reader)
+	if _, hasID := event["id"]; hasID {
+		t.Fatalf("pty.resize notification should not emit an RPC response id: %v", event)
+	}
+	if got := event["event"]; got != "pty.error" {
+		t.Fatalf("first frame = %v, want pty.error event; payload=%v", got, event)
+	}
+	ping := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     2,
+		Method: "ping",
+		Params: map[string]any{},
+	})
+	if got := ping["id"]; got != float64(2) {
+		t.Fatalf("response id = %v, want ping id 2; payload=%v", got, ping)
+	}
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("ping response should be ok=true after pty.resize notification: %v", ping)
 	}
 }
 

@@ -59,7 +59,7 @@ function HomeContent() {
           </span>
         </p>
         <p
-          className="text-base text-muted"
+          className="text-base text-muted lg:-mr-32 xl:-mr-48"
           data-dev="subtitle"
           style={{ lineHeight: 1.5 }}
         >
@@ -106,6 +106,7 @@ function HomeContent() {
                 ["scriptable", "scriptableDesc"],
                 ["gpuAccelerated", "gpuAcceleratedDesc"],
                 ["lightweight", "lightweightDesc"],
+                ["openSource", "openSourceDesc"],
               ] as const
             ).map(([title, desc]) => (
               <li key={title} className="flex gap-3">
@@ -184,8 +185,47 @@ function HomeContent() {
               <p className="text-muted">{t("faqPlatformA")}</p>
             </div>
             <div>
+              <p className="font-medium mb-1">{t("faqIosQ")}</p>
+              <p className="text-muted">{t("faqIosA")}</p>
+            </div>
+            <div>
               <p className="font-medium mb-1">{t("faqAgentsQ")}</p>
               <p className="text-muted">{t("faqAgentsA")}</p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqOrchestrationQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqOrchestrationA", {
+                  teamsLink: (chunks) => (
+                    <Link
+                      href="/docs/agent-integrations/claude-code-teams"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </Link>
+                  ),
+                  omoLink: (chunks) => (
+                    <Link
+                      href="/docs/agent-integrations/oh-my-opencode"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqRemoteQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqRemoteA", {
+                  link: (chunks) => (
+                    <Link href="/docs/ssh" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqNotificationsQ")}</p>
@@ -198,6 +238,55 @@ function HomeContent() {
                   ),
                   hooksLink: (chunks) => (
                     <Link href="/docs/notifications#integration-examples" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqScriptableQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqScriptableA", {
+                  cliLink: (chunks) => (
+                    <Link href="/docs/api" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                  browserLink: (chunks) => (
+                    <Link href="/docs/browser-automation" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqBrowserQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqBrowserA", {
+                  link: (chunks) => (
+                    <Link href="/docs/browser-automation" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqSkillsQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqSkillsA", {
+                  skillsLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux-skills"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                  link: (chunks) => (
+                    <Link href="/docs/skills" className={linkClass}>
                       {chunks}
                     </Link>
                   ),
@@ -222,8 +311,50 @@ function HomeContent() {
               </p>
             </div>
             <div>
+              <p className="font-medium mb-1">{t("faqCustomizeQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqCustomizeA", {
+                  path: (chunks) => (
+                    <code className="text-xs bg-code-bg px-1.5 py-0.5 rounded">
+                      {chunks}
+                    </code>
+                  ),
+                  shortcutsLink: (chunks) => (
+                    <Link href="/docs/keyboard-shortcuts" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                  link: (chunks) => (
+                    <Link href="/docs/configuration" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqSessionsQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqSessionsA", {
+                  link: (chunks) => (
+                    <Link href="/docs/session-restore" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
               <p className="font-medium mb-1">{t("faqTmuxQ")}</p>
-              <p className="text-muted">{t("faqTmuxA")}</p>
+              <p className="text-muted">
+                {t.rich("faqTmuxA", {
+                  link: (chunks) => (
+                    <Link href="/docs/remote-tmux" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqFreeQ")}</p>
@@ -232,6 +363,52 @@ function HomeContent() {
                   link: (chunks) => (
                     <a
                       href="https://github.com/manaflow-ai/cmux"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqSupportQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqSupportA", {
+                  foundersLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqFeatureQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqFeatureA", {
+                  issuesLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux/issues"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                  prLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux/pulls"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                  mailLink: (chunks) => (
+                    <a
+                      href="mailto:founders@manaflow.com?subject=%5Bcmux%20feature%20request%20landing%5D&body=Hi%20cmux%20team%2C%20"
                       className={linkClass}
                     >
                       {chunks}

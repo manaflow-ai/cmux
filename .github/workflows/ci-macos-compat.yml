@@ -14,7 +14,7 @@ jobs:
             startup_smoke: true
             virtual_display: true
             skip_zig: false
-          - os: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+          - os: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
             timeout: 30
             startup_smoke: true
             virtual_display: false

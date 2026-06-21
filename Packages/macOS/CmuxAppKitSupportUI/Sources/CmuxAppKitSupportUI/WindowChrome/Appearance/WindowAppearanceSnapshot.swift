@@ -1,7 +1,7 @@
 public import AppKit
 public import SwiftUI
 public import CmuxFoundation
-public import CmuxWorkspaceWindow
+public import CmuxWorkspaces
 
 /// Resolved window chrome appearance for a single render pass.
 public struct WindowAppearanceSnapshot {

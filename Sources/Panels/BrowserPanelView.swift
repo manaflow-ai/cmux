@@ -1,5 +1,5 @@
 import Bonsplit
-import CmuxBrowserImport
+import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
@@ -5560,6 +5560,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var isApplyingHostedInspectorLayout = false
         private var hostedInspectorReapplyWorkItem: DispatchWorkItem?
         private var hostedInspectorDockConfigurationSyncWorkItem: DispatchWorkItem?
+        private var hostedInspectorSideDockPromotionTask: Task<Void, Never>?
+        private var hostedInspectorSideDockPromotionTaskID: UUID?
         private var adaptiveBottomDockRequestCooldownDeadline: Date?
         private var recordedHostedInspectorSideDockWidth: CGFloat?
         private var lastHostedInspectorManualSideDockAllowed: Bool?
@@ -5572,6 +5574,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         deinit {
             hostedInspectorReapplyWorkItem?.cancel()
             hostedInspectorDockConfigurationSyncWorkItem?.cancel()
+            hostedInspectorSideDockPromotionTask?.cancel()
             if let trackingArea {
                 removeTrackingArea(trackingArea)
             }
@@ -6156,8 +6159,39 @@ struct WebViewRepresentable: NSViewRepresentable {
             // The inspector frontend sometimes reports its dock configuration a tick
             // late after local-inline reattach. Promote the visible left/right split
             // immediately so drag routing stays symmetric on both dock sides.
+            if shouldForceHostedInspectorBottomDock(using: hit) {
+                _ = requestAdaptiveHostedInspectorBottomDock(reason: "sideDock.promote")
+                return false
+            }
             activateHostedInspectorSideDockIfNeeded(using: hit)
             return isHostedInspectorSideDockActive()
+        }
+
+        /// Schedules `promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded`
+        /// for the next runloop tick when a promotion is actually pending, so the
+        /// hierarchy mutation it performs never runs inside the `layout()` pass
+        /// that observed the candidate (see the note in `layout()`). The candidate
+        /// lookup here is read-only; the deferred work re-validates all state
+        /// before mutating, so it is safe even if the layout changes in between.
+        private func scheduleHostedInspectorSideDockPromotionIfNeeded() {
+            guard hostedInspectorSideDockPromotionTask == nil else { return }
+            guard !isHostedInspectorSideDockActive(),
+                  let slotView = localInlineSlotView,
+                  hostedInspectorDividerCandidateUsingKnownWebViews(in: slotView) != nil else {
+                return
+            }
+            let taskID = UUID()
+            hostedInspectorSideDockPromotionTaskID = taskID
+            let task = Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self else { return }
+                guard self.hostedInspectorSideDockPromotionTaskID == taskID else { return }
+                self.hostedInspectorSideDockPromotionTask = nil
+                self.hostedInspectorSideDockPromotionTaskID = nil
+                guard !Task.isCancelled else { return }
+                _ = self.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
+            }
+            hostedInspectorSideDockPromotionTask = task
         }
 
         private func deactivateHostedInspectorSideDockIfNeeded(reparentTo slotView: WindowBrowserSlotView?) {
@@ -6362,7 +6396,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func layout() {
             super.layout()
-            _ = promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
             if enforceAdaptiveBottomDockIfNeeded(reason: "host.layout") {
                 updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
                 notifyGeometryChangedIfNeeded()
@@ -6371,6 +6404,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return
             }
+            // Defer this hierarchy mutation out of `layout()` to avoid #6150.
+            scheduleHostedInspectorSideDockPromotionIfNeeded()
             if let previousSize = lastHostedInspectorLayoutBoundsSize,
                Self.sizeApproximatelyEqual(previousSize, bounds.size, epsilon: 0.5) {
                 // Origin-only frame churn is common while the surrounding split layout

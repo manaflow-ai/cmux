@@ -1,7 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
-import CmuxFileOpen
+import CmuxWorkspaces
 import CmuxSettings
 import SwiftUI
 

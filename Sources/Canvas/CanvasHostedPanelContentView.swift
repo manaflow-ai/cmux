@@ -1,5 +1,6 @@
 import SwiftUI
 import Bonsplit
+import CmuxAppKitSupportUI
 
 /// SwiftUI fallback content for canvas panes whose panel kind is not yet
 /// direct-hosted (browser, markdown, file preview, agent session, ...).
@@ -15,6 +16,8 @@ struct CanvasHostedPanelContentView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
+    let customSidebarTabManager: TabManager?
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
@@ -28,6 +31,8 @@ struct CanvasHostedPanelContentView: View {
             portalPriority: portalPriority,
             isSplit: false,
             appearance: appearance,
+            windowAppearance: windowAppearance,
+            customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: false,
             terminalAgentContext: "",
             onFocus: onRequestPanelFocus,

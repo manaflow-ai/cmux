@@ -17,19 +17,38 @@ from cmux import cmux, cmuxError
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 
 
+def _wait_portal_terminals(c: cmux, expected: int = 2, timeout: float = 8.0):
+    """Poll surface_health until the terminals settle into their portal-hosted state.
+
+    Returns the settled list of terminal rows once there are >= `expected`
+    terminals and every one reports in_window=true and portal=true, which is
+    the async AppKit layout/attachment state the assertions below check. Raises
+    cmuxError with the last-seen snapshot if it never settles within `timeout`.
+    """
+    start = time.time()
+    terminals: list = []
+    while time.time() - start < timeout:
+        health = c.surface_health()
+        terminals = [row for row in health if row.get("type") == "terminal"]
+        if len(terminals) >= expected and all(
+            row.get("in_window", False) and row.get("portal") is True
+            for row in terminals
+        ):
+            return terminals
+        time.sleep(0.2)
+    raise cmuxError(
+        f"terminals did not become portal-hosted within {timeout}s: {terminals}"
+    )
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         c.activate_app()
 
         c.new_workspace()
-        time.sleep(0.2)
         c.new_split("right")
-        time.sleep(0.8)
 
-        health = c.surface_health()
-        terminals = [row for row in health if row.get("type") == "terminal"]
-        if len(terminals) < 2:
-            raise cmuxError(f"expected >=2 terminal surfaces after split, got={terminals}")
+        terminals = _wait_portal_terminals(c, expected=2)
 
         for row in terminals:
             if not row.get("in_window", False):

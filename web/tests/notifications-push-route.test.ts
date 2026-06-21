@@ -36,6 +36,7 @@ mock.module("@vercel/firewall", () => ({
 
 mock.module("../db/client", () => ({
   cloudDb,
+  closeCloudDbForTests: async () => {},
 }));
 
 const pushRoute = await import("../app/api/notifications/push/route");

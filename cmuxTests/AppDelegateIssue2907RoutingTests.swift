@@ -1,5 +1,5 @@
 import XCTest
-import CmuxTerminalEngine
+import CmuxTerminal
 import AppKit
 import Bonsplit
 

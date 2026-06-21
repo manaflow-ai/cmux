@@ -88,6 +88,17 @@ PROMPT='%F{5}❯%f '
 
 _ANSI_RE = re.compile(rb"\x1b\][^\x07]*\x07|\x1b\[[0-9;?]*[ -/]*[@-~]|\r")
 
+# Overall safety cap for a single PTY session. The phases below advance off
+# observed output (first prompt ready, then async preprompt rendered), so a
+# fast machine finishes well under this; the cap only bounds the failure path.
+_SESSION_DEADLINE = 20.0
+# How long to wait for a specific output signal (first prompt, async redraw)
+# before giving up on that phase and letting the session drain to the deadline.
+_PHASE_DEADLINE = 8.0
+
+# The interactive prompt character rendered by the minimal Pure-like PROMPT.
+_PROMPT_MARK = "❯"  # ❯
+
 
 def _capture_session(
     *,
@@ -96,6 +107,7 @@ def _capture_session(
     resources_dir: Path,
     workdir: Path,
     zsh_path: str,
+    async_line: str,
 ) -> str:
     base = Path(tempfile.mkdtemp(prefix="cmux_ghostty_pure_preprompt_"))
     try:
@@ -130,10 +142,23 @@ def _capture_session(
         os.close(slave)
 
         output = bytearray()
+
+        def _cleaned() -> str:
+            return _ANSI_RE.sub(b"", bytes(output)).decode("utf-8", errors="replace")
+
+        # Phase machine driven by observed output, not wall-clock guesses:
+        #   phase 0: wait until zsh renders its first interactive prompt, then
+        #            send a newline to force a second prompt cycle.
+        #   phase 1: wait until the async preprompt line has rendered (the
+        #            `sleep 0.05` redraw landed), then send `exit`.
+        #   phase 2: drain remaining output until the shell closes the PTY.
+        # Each phase has its own deadline so a stuck signal fails the phase
+        # instead of hanging; the overall session is bounded by _SESSION_DEADLINE.
         start = time.time()
         phase = 0
+        phase_started = start
         try:
-            while time.time() - start < 4.5:
+            while time.time() - start < _SESSION_DEADLINE:
                 readable, _, _ = select.select([master], [], [], 0.2)
                 if master in readable:
                     try:
@@ -144,13 +169,20 @@ def _capture_session(
                         break
                     output.extend(chunk)
 
-                elapsed = time.time() - start
-                if phase == 0 and elapsed > 1.2:
-                    os.write(master, b"\n")
-                    phase = 1
-                elif phase == 1 and elapsed > 2.8:
-                    os.write(master, b"exit\n")
-                    phase = 2
+                now = time.time()
+                if phase == 0:
+                    # First prompt is ready once the prompt mark has rendered.
+                    if _PROMPT_MARK in _cleaned() or now - phase_started > _PHASE_DEADLINE:
+                        os.write(master, b"\n")
+                        phase = 1
+                        phase_started = now
+                elif phase == 1:
+                    # Second async redraw landed once the async preprompt line
+                    # appears in the captured output.
+                    if async_line in _cleaned() or now - phase_started > _PHASE_DEADLINE:
+                        os.write(master, b"exit\n")
+                        phase = 2
+                        phase_started = now
         finally:
             try:
                 proc.wait(timeout=5)
@@ -195,6 +227,7 @@ def main() -> int:
         resources_dir=resources_dir,
         workdir=workdir,
         zsh_path=zsh_path,
+        async_line=async_line,
     )
     ghostty = _capture_session(
         use_ghostty=True,
@@ -202,6 +235,7 @@ def main() -> int:
         resources_dir=resources_dir,
         workdir=workdir,
         zsh_path=zsh_path,
+        async_line=async_line,
     )
 
     plain_stale, plain_async = _stale_preprompt_lines(plain, path_line, async_line)

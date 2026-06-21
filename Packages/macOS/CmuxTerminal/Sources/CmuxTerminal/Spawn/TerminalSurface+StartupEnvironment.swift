@@ -120,9 +120,43 @@ extension TerminalSurface {
             try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
             let script = """
             #!/usr/bin/env bash
+            cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
+            if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
+                cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"
+                if [[ -x "$cmux_candidate" ]]; then
+                    cmux_wrapper="$cmux_candidate"
+                fi
+            fi
+            if [[ ! -x "$cmux_wrapper" ]]; then
+                cmux_cli="$(command -v cmux 2>/dev/null || true)"
+                if [[ -n "$cmux_cli" ]]; then
+                    cmux_candidate="$(dirname "$cmux_cli")/cmux-claude-wrapper"
+                    if [[ -x "$cmux_candidate" ]]; then
+                        cmux_wrapper="$cmux_candidate"
+                    fi
+                fi
+            fi
             export CMUX_CLAUDE_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
             export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=\(shellSingleQuoted(shimDirectory.path))
-            exec \(shellSingleQuoted(wrapperURL.path)) "$@"
+            if [[ -x "$cmux_wrapper" ]]; then
+                exec "$cmux_wrapper" "$@"
+            fi
+            cmux_path_without_shim=""
+            cmux_old_ifs="$IFS"
+            IFS=:
+            for cmux_entry in ${PATH:-}; do
+                if [[ "$cmux_entry" == "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" || "$cmux_entry" == */cmux-cli-shims/* || "$cmux_entry" == */cmux-cli-shims ]]; then
+                    continue
+                fi
+                if [[ -z "$cmux_path_without_shim" ]]; then
+                    cmux_path_without_shim="$cmux_entry"
+                else
+                    cmux_path_without_shim="$cmux_path_without_shim:$cmux_entry"
+                fi
+            done
+            IFS="$cmux_old_ifs"
+            export PATH="$cmux_path_without_shim"
+            exec claude "$@"
             """
             try script.write(to: shimURL, atomically: true, encoding: .utf8)
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimURL.path)

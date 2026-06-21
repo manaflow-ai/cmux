@@ -1,4 +1,3 @@
-import CMUXAgentVault
 import Foundation
 
 public enum RovoDevSessionResolver {

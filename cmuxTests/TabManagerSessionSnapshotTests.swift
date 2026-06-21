@@ -1,5 +1,4 @@
-import CmuxSession
-import CmuxWorkspaceNavigation
+import CmuxWorkspaces
 import Darwin
 import CmuxCore
 import XCTest
@@ -497,10 +496,14 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         _ = manager.addWorkspace(select: true)
 
         let snapshot = manager.focusHistoryMenuSnapshot(direction: .back)
+        let endedAt = Date()
         let item = try XCTUnwrap(snapshot.items.first)
 
-        XCTAssertGreaterThanOrEqual(item.focusedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970 - 1)
-        XCTAssertLessThanOrEqual(item.focusedAt.timeIntervalSince1970, Date().timeIntervalSince1970 + 1)
+        // The recorded focus timestamp is stamped while `addWorkspace` runs, so it must fall
+        // within the causal interval bounded by the reads before and after that call. Asserting
+        // the closed [startedAt, endedAt] interval removes the prior ±1s wall-clock fudge.
+        XCTAssertGreaterThanOrEqual(item.focusedAt.timeIntervalSince1970, startedAt.timeIntervalSince1970)
+        XCTAssertLessThanOrEqual(item.focusedAt.timeIntervalSince1970, endedAt.timeIntervalSince1970)
     }
 
     func testReopenClosedItemRestoresClosedPanelSnapshot() throws {

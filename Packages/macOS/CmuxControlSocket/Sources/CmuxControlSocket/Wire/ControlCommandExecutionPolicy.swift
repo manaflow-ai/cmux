@@ -83,6 +83,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",
+        "sidebar.custom.open",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via

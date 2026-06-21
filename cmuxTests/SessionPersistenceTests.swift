@@ -1,7 +1,7 @@
 import CMUXAgentLaunch
 import CmuxCore
 import CmuxFoundation
-import CmuxSession
+import CmuxWorkspaces
 import Darwin
 import XCTest
 import CmuxTerminal

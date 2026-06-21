@@ -26,6 +26,16 @@ def focused_pane_id(client: cmux) -> Optional[str]:
     return None
 
 
+def wait_url_contains(client: cmux, panel_id: str, needle: str, timeout_s: float = 10.0) -> None:
+    start = time.time()
+    while time.time() - start < timeout_s:
+        url = client._send_command(f"get_url {panel_id}").strip()
+        if url and not url.startswith("ERROR") and needle in url:
+            return
+        time.sleep(0.1)
+    raise RuntimeError(f"Timed out waiting for url to contain '{needle}': {url!r}")
+
+
 def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
     """
     1. Create workspace with horizontal split: terminal (left) | browser with URL (right)
@@ -43,7 +53,7 @@ def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
 
     # Create a browser pane to the right, loading a real page
     browser_id = client.new_pane(direction="right", panel_type="browser", url="https://example.com")
-    time.sleep(2.0)  # Wait for page load
+    wait_url_contains(client, browser_id, "example.com", timeout_s=15.0)  # Wait for page load
 
     # Identify the two panes
     panes = client.list_panes()
@@ -114,7 +124,7 @@ def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
     client.set_shortcut("focus_right", "clear")
 
     browser_id = client.new_pane(direction="right", panel_type="browser", url="https://example.com")
-    time.sleep(2.0)
+    wait_url_contains(client, browser_id, "example.com", timeout_s=15.0)
 
     panes = client.list_panes()
     if len(panes) < 2:

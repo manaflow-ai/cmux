@@ -1,5 +1,5 @@
 import XCTest
-import CMUXWorkstream
+import CMUXAgentLaunch
 import Darwin
 
 #if canImport(cmux_DEV)

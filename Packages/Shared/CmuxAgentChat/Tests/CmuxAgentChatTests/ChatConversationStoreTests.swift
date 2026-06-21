@@ -594,7 +594,7 @@ struct ChatConversationStoreTests {
         })
         await source.setSendFailure(false)
         await store.send(text: "second\ndelivered send")
-        _ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 2 }
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 2 })
 
         let echo = ChatMessage(
             id: "echo-ph",
@@ -604,7 +604,7 @@ struct ChatConversationStoreTests {
             kind: .prose(ChatProse(text: "[Pasted text #1 +2 lines]"))
         )
         await source.emit(.appended([echo]))
-        _ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 }
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
         // One non-failed pending was consumed; the failed row remains.
         let remaining = Self.pendingItems(store.rows)
         #expect(remaining.count == 1)
@@ -624,7 +624,7 @@ struct ChatConversationStoreTests {
         let attachment = ChatOutboundAttachment(data: Data([0x89]), format: .png)
         await store.send(text: "", attachments: [attachment])
         await store.send(text: "/compact")
-        _ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 2 }
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 2 })
 
         let slashEcho = ChatMessage(
             id: "echo-slash",
@@ -634,7 +634,7 @@ struct ChatConversationStoreTests {
             kind: .prose(ChatProse(text: "/compact"))
         )
         await source.emit(.appended([slashEcho]))
-        _ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 }
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
         // The exact-text match consumed "/compact"; the attachment-only
         // pending survives until its clipboard-path echo arrives.
         #expect(Self.pendingItems(store.rows).first?.text.isEmpty == true)

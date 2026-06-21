@@ -26,9 +26,6 @@ def _resolve_socket_path() -> str:
     return socket_path
 
 
-SOCKET_PATH = _resolve_socket_path()
-
-
 def _must(cond: bool, msg: str) -> None:
     if not cond:
         raise cmuxError(msg)
@@ -55,13 +52,13 @@ def _find_cli_binary() -> str:
     return candidates[0]
 
 
-def _run_cli(cli: str, args: list[str]) -> str:
+def _run_cli(cli: str, socket_path: str, args: list[str]) -> str:
     env = dict(os.environ)
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
     env.pop("CMUX_TAB_ID", None)
 
-    cmd = [cli, "--socket", SOCKET_PATH] + args
+    cmd = [cli, "--socket", socket_path] + args
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
     if proc.returncode != 0:
         merged = f"{proc.stdout}\n{proc.stderr}".strip()
@@ -82,6 +79,7 @@ def _parse_sidebar_state(text: str) -> dict[str, str]:
 
 def _wait_for_sidebar_branch(
     cli: str,
+    socket_path: str,
     workspace: str,
     expected_branch: str,
     timeout: float = 15.0,
@@ -90,7 +88,7 @@ def _wait_for_sidebar_branch(
     last_state = ""
 
     while time.time() < deadline:
-        state_text = _run_cli(cli, ["sidebar-state", "--workspace", workspace])
+        state_text = _run_cli(cli, socket_path, ["sidebar-state", "--workspace", workspace])
         last_state = state_text
         state = _parse_sidebar_state(state_text)
         raw_branch = state.get("git_branch", "")
@@ -149,6 +147,12 @@ def _create_git_repo(root: Path) -> Path:
 
 
 def main() -> int:
+    try:
+        socket_path = _resolve_socket_path()
+    except cmuxError as exc:
+        print(f"SKIP: {exc}")
+        return 0
+
     cli = _find_cli_binary()
     temp_root = Path(tempfile.mkdtemp(prefix="cmux_issue_915_external_git_"))
     created_workspace: str | None = None
@@ -156,10 +160,10 @@ def main() -> int:
     try:
         repo_path = _create_git_repo(temp_root)
 
-        with cmux(SOCKET_PATH) as client:
+        with cmux(socket_path) as client:
             baseline_workspace = client.current_workspace()
 
-            created = _run_cli(cli, ["new-workspace", "--cwd", str(repo_path)])
+            created = _run_cli(cli, socket_path, ["new-workspace", "--cwd", str(repo_path)])
             _must(created.startswith("OK "), f"new-workspace expected OK response, got: {created!r}")
             created_workspace = created.removeprefix("OK ").strip()
             _must(bool(created_workspace), f"new-workspace returned no workspace handle: {created!r}")
@@ -169,7 +173,7 @@ def main() -> int:
                 "new-workspace --cwd should preserve selected workspace",
             )
 
-            initial_state = _wait_for_sidebar_branch(cli, created_workspace, "main")
+            initial_state = _wait_for_sidebar_branch(cli, socket_path, created_workspace, "main")
             _must(
                 initial_state.get("cwd", "") == str(repo_path),
                 f"Expected sidebar cwd={repo_path!r}, got {initial_state.get('cwd', '')!r}",
@@ -185,6 +189,7 @@ def main() -> int:
 
             refreshed_state = _wait_for_sidebar_branch(
                 cli,
+                socket_path,
                 created_workspace,
                 "feature/external-refresh",
                 timeout=15.0,
@@ -201,7 +206,7 @@ def main() -> int:
     finally:
         if created_workspace:
             try:
-                _run_cli(cli, ["close-workspace", "--workspace", created_workspace])
+                _run_cli(cli, socket_path, ["close-workspace", "--workspace", created_workspace])
             except Exception:
                 pass
         shutil.rmtree(temp_root, ignore_errors=True)

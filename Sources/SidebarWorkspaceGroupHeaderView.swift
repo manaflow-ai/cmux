@@ -70,7 +70,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
 
-    @State private var isHovered = false
+    @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
@@ -158,7 +158,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 defaultValue: "Focus the group's anchor workspace"
             )))
 
-            let plusVisible = isHovered && !showsShortcutHint
+            let plusVisible = rowInteractionState.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: showsShortcutHint
+            )
             Button(action: onTapPlus) {
                 Image(systemName: "plus")
                     .font(.system(size: metrics.plusFontSize, weight: .medium))
@@ -214,6 +217,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             }
         }
         .padding(.vertical, 5)
+        .padding(.trailing, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
         .contentShape(Rectangle())
         .background(
             isAnchorActive
@@ -227,7 +231,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             offsetX: shortcutHintXOffset,
             offsetY: shortcutHintYOffset
         )
-        .padding(.horizontal, 6)
+        .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .opacity(isBeingDragged ? 0.6 : 1)
@@ -238,12 +242,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 rowSpacing: rowSpacing
             )
         }
+        .overlay {
+            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+        }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
-        .onHover { hovering in
-            isHovered = hovering
-        }
         .contextMenu {
             Button(
                 String(

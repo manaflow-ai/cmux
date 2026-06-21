@@ -352,14 +352,18 @@ struct RemoteProxyBrokerTests {
         // Resume the parked backoff after teardown: the stale wakeup must not
         // start a new tunnel.
         clock.fireOldestSleep()
-        let deadline = Date().addingTimeInterval(0.3)
-        while Date() < deadline { usleep(10_000) }
-        #expect(provider.tunnels.count == 1)
 
         // The transport is gone: PTY calls now fail with the not-ready error.
+        // `listPTY` bridges through `queue.sync`, which drains every prior
+        // `queue.async` block on the broker's serial queue first: both the
+        // `teardownEntryLocked` enqueued by `release()` and the
+        // `restartDelayElapsed` enqueued by the resumed retry Task. After it
+        // returns, the stale wakeup is guaranteed to have run (and been
+        // absorbed by the token guard), so the tunnel count is stable.
         #expect(throws: (any Error).self) {
             try broker.listPTY(configuration: makeConfiguration())
         }
+        #expect(provider.tunnels.count == 1)
     }
 
     @Test("releasing the last lease stops a running tunnel")

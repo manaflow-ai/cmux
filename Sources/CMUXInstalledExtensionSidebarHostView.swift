@@ -1,4 +1,4 @@
-@_spi(CmuxHostTransport) import CMUXExtensionHostSupport
+@_spi(CmuxHostTransport) import CmuxSidebar
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import AppKit
 import ExtensionFoundation

@@ -84,6 +84,17 @@ export async function SiteFooter() {
         <div className="flex items-center justify-between mt-10">
           <p className="text-xs text-muted">
             {t("copyright", { year })}
+            <span aria-hidden className="mx-2">
+              ·
+            </span>
+            <a
+              href="https://github.com/manaflow-ai/cmux"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground transition-colors"
+            >
+              {t("openSource")}
+            </a>
           </p>
           <LanguageSwitcher />
         </div>

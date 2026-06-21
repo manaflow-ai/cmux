@@ -61,22 +61,21 @@ struct UserDefaultsSettingsStoreTests {
         let (store, catalog) = makeStore()
         await store.set(.light, for: catalog.app.appearance)
 
-        let observed = Task<[AppearanceMode], Never> {
-            var collected: [AppearanceMode] = []
-            for await mode in store.values(for: catalog.app.appearance) {
-                collected.append(mode)
-                if collected.count == 3 { break }
-            }
-            return collected
-        }
+        // Drive the stream synchronously: awaiting next() before each set()
+        // forces the AsyncStream build closure to run (registering the
+        // UserDefaults observer) and serializes change delivery, so no write's
+        // notification can be missed regardless of scheduler timing.
+        var iterator = store.values(for: catalog.app.appearance).makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial == .light)
 
-        try? await Task.sleep(nanoseconds: 50_000_000)
         await store.set(.dark, for: catalog.app.appearance)
-        try? await Task.sleep(nanoseconds: 50_000_000)
-        await store.set(.system, for: catalog.app.appearance)
+        let dark = await iterator.next()
+        #expect(dark == .dark)
 
-        let collected = await observed.value
-        #expect(collected == [.light, .dark, .system])
+        await store.set(.system, for: catalog.app.appearance)
+        let system = await iterator.next()
+        #expect(system == .system)
     }
 
     @Test func migratesLegacyKey() async {

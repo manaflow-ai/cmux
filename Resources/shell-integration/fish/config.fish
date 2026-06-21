@@ -144,10 +144,46 @@ if test "$_cmux_integration_enabled" != 0
         begin
             printf '%s\n' '#!/usr/bin/env bash'
             if test "$command_name" = claude
+                printf 'cmux_wrapper=%s\n' (string escape --style=script -- "$wrapper_path")
+                printf '%s\n' 'if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then'
+                printf '%s\n' '    cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"'
+                printf '%s\n' '    if [[ -x "$cmux_candidate" ]]; then'
+                printf '%s\n' '        cmux_wrapper="$cmux_candidate"'
+                printf '%s\n' '    fi'
+                printf '%s\n' 'fi'
+                printf '%s\n' 'if [[ ! -x "$cmux_wrapper" ]]; then'
+                printf '%s\n' '    cmux_cli="$(command -v cmux 2>/dev/null || true)"'
+                printf '%s\n' '    if [[ -n "$cmux_cli" ]]; then'
+                printf '%s\n' '        cmux_candidate="$(dirname "$cmux_cli")/cmux-claude-wrapper"'
+                printf '%s\n' '        if [[ -x "$cmux_candidate" ]]; then'
+                printf '%s\n' '            cmux_wrapper="$cmux_candidate"'
+                printf '%s\n' '        fi'
+                printf '%s\n' '    fi'
+                printf '%s\n' 'fi'
                 printf 'export CMUX_CLAUDE_WRAPPER_SHIM=%s\n' (string escape --style=script -- "$shim_path")
                 printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=%s\n' (string escape --style=script -- "$shim_root")
+                printf '%s\n' 'if [[ -x "$cmux_wrapper" ]]; then'
+                printf '%s\n' '    exec "$cmux_wrapper" "$@"'
+                printf '%s\n' 'fi'
+                printf '%s\n' 'cmux_path_without_shim=""'
+                printf '%s\n' 'cmux_old_ifs="$IFS"'
+                printf '%s\n' 'IFS=:'
+                printf '%s\n' 'for cmux_entry in ${PATH:-}; do'
+                printf '%s\n' '    if [[ "$cmux_entry" == "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" || "$cmux_entry" == */cmux-cli-shims/* || "$cmux_entry" == */cmux-cli-shims ]]; then'
+                printf '%s\n' '        continue'
+                printf '%s\n' '    fi'
+                printf '%s\n' '    if [[ -z "$cmux_path_without_shim" ]]; then'
+                printf '%s\n' '        cmux_path_without_shim="$cmux_entry"'
+                printf '%s\n' '    else'
+                printf '%s\n' '        cmux_path_without_shim="$cmux_path_without_shim:$cmux_entry"'
+                printf '%s\n' '    fi'
+                printf '%s\n' 'done'
+                printf '%s\n' 'IFS="$cmux_old_ifs"'
+                printf '%s\n' 'export PATH="$cmux_path_without_shim"'
+                printf '%s\n' 'exec claude "$@"'
+            else
+                printf 'exec %s "$@"\n' (string escape --style=script -- "$wrapper_path")
             end
-            printf 'exec %s "$@"\n' (string escape --style=script -- "$wrapper_path")
         end >"$shim_path" 2>/dev/null; or return 0
         chmod 0700 "$shim_path" >/dev/null 2>&1; or return 0
         if test "$command_name" = claude
@@ -171,7 +207,13 @@ if test "$_cmux_integration_enabled" != 0
         switch "$command_name"
             case claude
                 function claude --wraps "$wrapper_path" --inherit-variable wrapper_path
-                    "$wrapper_path" $argv
+                    if test -x "$CMUX_CLAUDE_WRAPPER_SHIM"
+                        "$CMUX_CLAUDE_WRAPPER_SHIM" $argv
+                    else if test -x "$wrapper_path"
+                        "$wrapper_path" $argv
+                    else
+                        command claude $argv
+                    end
                 end
             case grok
                 function grok --wraps "$wrapper_path" --inherit-variable wrapper_path

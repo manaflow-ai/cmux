@@ -58,6 +58,25 @@ def wait_for_flash_count(client: cmux, surface: str, minimum: int = 1, timeout: 
     return last
 
 
+def wait_for_notification_read(
+    client: cmux, surface_id: str, timeout: float = 4.0
+) -> Optional[dict]:
+    """Poll list_notifications until the notification for `surface_id` is read.
+
+    Returns the matching notification dict (read or not) at the deadline, or None
+    if no notification for that surface ever appeared.
+    """
+    start = time.time()
+    target: Optional[dict] = None
+    while time.time() - start < timeout:
+        items = client.list_notifications()
+        target = next((n for n in items if n["surface_id"] == surface_id), None)
+        if target is not None and target["is_read"]:
+            return target
+        time.sleep(0.05)
+    return target
+
+
 def ensure_two_surfaces(client: cmux) -> list[tuple[int, str, bool]]:
     surfaces = client.list_surfaces()
     if len(surfaces) < 2:
@@ -229,14 +248,12 @@ def test_mark_read_on_focus_change(client: cmux) -> TestResult:
 
         client.set_app_focus(False)
         client.notify_surface(other[0], "focusread")
-        time.sleep(0.1)
+        wait_for_notifications(client, 1)
 
         client.set_app_focus(True)
         client.focus_surface(other[0])
-        time.sleep(0.1)
 
-        items = client.list_notifications()
-        target = next((n for n in items if n["surface_id"] == other[1]), None)
+        target = wait_for_notification_read(client, other[1])
         if target is None:
             result.failure("Expected notification for target surface")
         elif not target["is_read"]:
@@ -258,17 +275,22 @@ def test_mark_read_on_app_active(client: cmux) -> TestResult:
         client.clear_notifications()
         client.set_app_focus(False)
         client.notify("activate")
-        time.sleep(0.1)
 
-        items = client.list_notifications()
+        items = wait_for_notifications(client, 1)
         if not items or items[0]["is_read"]:
             result.failure("Expected unread notification before activation")
             return result
 
         client.simulate_app_active()
-        time.sleep(0.1)
 
+        deadline = time.time() + 4.0
         items = client.list_notifications()
+        while time.time() < deadline:
+            items = client.list_notifications()
+            if items and items[0]["is_read"]:
+                break
+            time.sleep(0.05)
+
         if not items:
             result.failure("Expected notification to remain after activation")
         elif not items[0]["is_read"]:

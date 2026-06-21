@@ -2,6 +2,13 @@ import Foundation
 
 /// Settings under the dotted-id prefix `terminal.*`.
 public struct TerminalCatalogSection: SettingCatalogSection {
+    /// Default multiplier applied to terminal scroll deltas.
+    public static let scrollSpeedDefault = 1.0
+    /// Minimum allowed multiplier for terminal scroll deltas.
+    public static let scrollSpeedMinimum = 0.25
+    /// Maximum allowed multiplier for terminal scroll deltas.
+    public static let scrollSpeedMaximum = 3.0
+
     public let showScrollBar = DefaultsKey<Bool>(
         id: "terminal.showScrollBar",
         defaultValue: true,
@@ -83,6 +90,31 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     public let resumeCommands = JSONKey<[String]>(
         id: "terminal.resumeCommands",
         defaultValue: []
+    )
+
+    /// Multiplier applied to terminal scroll wheel and trackpad deltas.
+    public let scrollSpeed = DefaultsKey<Double>(
+        id: "terminal.scrollSpeed",
+        defaultValue: TerminalCatalogSection.scrollSpeedDefault,
+        userDefaultsKey: "terminal.scrollSpeed"
+    )
+
+    /// Whether the per-pane runaway-memory guardrail is active. When on, cmux
+    /// polls each pane's process-tree memory and warns (badge + dismissible
+    /// banner with a kill action) when one crosses the threshold, before the OS
+    /// can OOM-suspend the whole app. On by default.
+    public let runawayMemoryGuardrailEnabled = DefaultsKey<Bool>(
+        id: "terminal.runawayMemoryGuardrail.enabled",
+        defaultValue: true,
+        userDefaultsKey: "terminal.runawayMemoryGuardrail.enabled"
+    )
+
+    /// Process-tree resident-memory threshold, in gigabytes, at which a pane is
+    /// flagged as a runaway. Default 8 GB.
+    public let runawayMemoryGuardrailThresholdGB = DefaultsKey<Double>(
+        id: "terminal.runawayMemoryGuardrail.thresholdGB",
+        defaultValue: 8,
+        userDefaultsKey: "terminal.runawayMemoryGuardrail.thresholdGB"
     )
 
     public init() {}

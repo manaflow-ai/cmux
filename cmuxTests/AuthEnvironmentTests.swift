@@ -57,6 +57,40 @@ struct AuthEnvironmentTests {
         assertNativeSignInURL(url)
     }
 
+    @Test("tagged debug sign-in URL uses local origin and tag callback scheme")
+    func taggedDebugSignInURLUsesLocalOriginAndTagCallbackScheme() throws {
+        let url = AuthEnvironment.signInURL(
+            callbackState: "state-1",
+            environment: [
+                "CMUX_TAG": "pair-auth",
+                "CMUX_PORT": "4123",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.pair-auth"
+        )
+
+        #expect(url.scheme == "http")
+        #expect(url.host == "localhost")
+        #expect(url.port == 4123)
+        #expect(url.path == "/handler/native-sign-in")
+
+        let afterAuthReturnTo = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "after_auth_return_to" })?
+            .value)
+        let afterSignInURL = try #require(URL(string: afterAuthReturnTo))
+        #expect(afterSignInURL.scheme == "http")
+        #expect(afterSignInURL.host == "localhost")
+        #expect(afterSignInURL.port == 4123)
+
+        let nativeReturnTo = try #require(URLComponents(url: afterSignInURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "native_app_return_to" })?
+            .value)
+        let nativeCallbackURL = try #require(URL(string: nativeReturnTo))
+        #expect(nativeCallbackURL.scheme == "cmux-dev-pair-auth")
+        #expect(nativeCallbackURL.host == "auth-callback")
+    }
+
     @Test("sign-in URL ignores locale-like environment values")
     func signInURLIgnoresLocaleLikeEnvironmentValues() {
         let englishURL = AuthEnvironment.signInURL(

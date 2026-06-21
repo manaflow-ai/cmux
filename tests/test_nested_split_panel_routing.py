@@ -39,6 +39,34 @@ def _after_all(c: cmux, panel_ids: list[str], label: str) -> dict[str, int]:
     return diffs
 
 
+def _poll_routing_diffs(
+    c: cmux,
+    panel_ids: list[str],
+    target: str,
+    label: str,
+    *,
+    min_changed: int = 250,
+    timeout_s: float = 5.0,
+) -> dict[str, int]:
+    """Poll panel snapshots until the target panel renders the echoed line.
+
+    The terminal render of an echoed line is async, so a single snapshot taken
+    after a fixed sleep can miss it under CI/VM load. `panel_snapshot` returns the
+    changed-pixel delta since that panel's previous snapshot, so each poll captures
+    whatever was painted since the last poll. The marker line paints as one frame,
+    so once it lands a single iteration's diff clears the threshold and we return
+    immediately. The caller takes the pre-send baseline (so the first iteration
+    diffs the rendered line against the pre-send frame); on the deadline we return
+    the last diffs so the existing assertion still produces a useful message.
+    """
+    deadline = time.time() + timeout_s
+    diffs = _after_all(c, panel_ids, label=label)
+    while diffs.get(target, -1) < min_changed and time.time() < deadline:
+        time.sleep(0.05)
+        diffs = _after_all(c, panel_ids, label=label)
+    return diffs
+
+
 def _assert_routing(diffs: dict[str, int], target: str, *, min_changed: int = 250, ratio: float = 3.0) -> None:
     tgt = diffs.get(target)
     if tgt is None:
@@ -93,10 +121,9 @@ def main() -> int:
             # Send marker to the target panel.
             c.send_surface(target, f"echo {marker}\n")
 
-            # Allow time for the terminal to render the new line.
-            time.sleep(0.35)
-
-            diffs = _after_all(c, panel_ids, label=f"step{i}")
+            # Poll until the terminal renders the new line in the target panel,
+            # rather than guessing a fixed sleep (async render flakes under load).
+            diffs = _poll_routing_diffs(c, panel_ids, target, label=f"step{i}")
             _assert_routing(diffs, target)
 
             # Sanity: the marker should be present in the terminal model too.

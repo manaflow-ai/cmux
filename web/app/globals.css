@@ -131,7 +131,10 @@ body {
     display: inline-block;
     font-family: var(--font-geist-mono);
     font-weight: 500;
-    margin-left: -1.45rem;
+    /* Net inline advance must be 0 so heading text aligns with body text:
+       margin-left + width + margin-right = -1.2 + 1 + 0.2 = 0. The "#" still
+       sits in the left gutter, revealed on hover. */
+    margin-left: -1.2rem;
     margin-right: 0.2rem;
     opacity: 0;
     text-decoration: none;

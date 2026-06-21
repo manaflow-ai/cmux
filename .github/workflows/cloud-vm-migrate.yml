@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   preflight:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     defaults:
       run:
         working-directory: web
@@ -43,7 +43,7 @@ jobs:
 
   migrate-staging:
     if: ${{ inputs.target == 'staging' || inputs.target == 'production' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     needs: preflight
     environment: cloud-vm-staging
     defaults:
@@ -100,7 +100,7 @@ jobs:
 
   migrate-production:
     if: ${{ inputs.target == 'production' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     needs: migrate-staging
     environment: cloud-vm-production
     defaults:

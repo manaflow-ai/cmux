@@ -272,28 +272,22 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     // MARK: - Socket plumbing (mirrors AutomationSocketUITests)
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        var resolvedPath: String?
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                let originalPath = self.socketPath
+        waitForControlSocketReady(
+            pingTimeout: timeout,
+            socketFileExists: {
+                self.socketCandidates().contains { FileManager.default.fileExists(atPath: $0) }
+            },
+            pingReturnsPong: {
                 for candidate in self.socketCandidates() {
                     guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                    self.socketPath = candidate
                     if ControlSocketClient(path: candidate, responseTimeout: 1.0).sendLine("ping") == "PONG" {
-                        resolvedPath = candidate
+                        self.socketPath = candidate
                         return true
                     }
-                    self.socketPath = originalPath
                 }
                 return false
-            },
-            object: NSObject()
+            }
         )
-        let completed = XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
-        if let resolvedPath {
-            socketPath = resolvedPath
-        }
-        return completed
     }
 
     private func socketCandidates() -> [String] {

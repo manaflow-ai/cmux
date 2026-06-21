@@ -1,5 +1,5 @@
 import AppKit
-import CMUXWorkstream
+import CMUXAgentLaunch
 import CmuxNotifications
 import Foundation
 

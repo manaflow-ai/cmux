@@ -1,6 +1,5 @@
 import XCTest
 import CmuxBrowser
-import CmuxBrowserImport
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

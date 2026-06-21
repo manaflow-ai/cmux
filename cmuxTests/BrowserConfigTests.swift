@@ -9,7 +9,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import Network
-import CmuxBrowserPanel
+import CmuxBrowser
 import CmuxSettings
 import CmuxSidebar
 

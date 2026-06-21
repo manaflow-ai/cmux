@@ -1,5 +1,5 @@
 import Foundation
-import CMUXWorkstream
+import CMUXAgentLaunch
 
 extension CmuxEventBus {
     func publishWorkspaceCreated(

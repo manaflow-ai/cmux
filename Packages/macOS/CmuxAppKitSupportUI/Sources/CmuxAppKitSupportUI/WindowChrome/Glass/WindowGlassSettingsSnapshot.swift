@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxFoundation
-public import CmuxWorkspaceWindow
+public import CmuxWorkspaces
 
 /// Persisted and terminal-driven settings for the window-level glass root.
 public struct WindowGlassSettingsSnapshot {

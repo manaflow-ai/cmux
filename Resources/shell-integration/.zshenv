@@ -16,11 +16,14 @@
 if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
     builtin export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
     builtin unset GHOSTTY_ZSH_ZDOTDIR
-elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]]; then
+elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" \
+   && "$CMUX_ZSH_ZDOTDIR" != "${CMUX_SHELL_INTEGRATION_DIR:-}" \
+   && "$CMUX_ZSH_ZDOTDIR" != */Contents/Resources/shell-integration ]]; then
     builtin export ZDOTDIR="$CMUX_ZSH_ZDOTDIR"
     builtin unset CMUX_ZSH_ZDOTDIR
 else
     builtin unset ZDOTDIR
+    builtin unset CMUX_ZSH_ZDOTDIR
 fi
 
 {

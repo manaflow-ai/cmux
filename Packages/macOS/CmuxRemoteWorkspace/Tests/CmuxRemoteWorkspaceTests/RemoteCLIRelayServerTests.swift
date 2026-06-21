@@ -46,8 +46,10 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
     init(response: Data) throws {
         self.response = response
         path = NSTemporaryDirectory() + "cmux-relay-test-\(UUID().uuidString.prefix(8)).sock"
-        listenFD = socket(AF_UNIX, SOCK_STREAM, 0)
-        precondition(listenFD >= 0)
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: "FakeUnixSocketServer", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "socket() failed errno=\(errno)"])
+        }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8CString)
@@ -60,11 +62,19 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         }
         let len = socklen_t(MemoryLayout.size(ofValue: address.sun_family) + pathBytes.count)
         let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(listenFD, $0, len) }
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, len) }
         }
-        precondition(bound == 0, "bind failed errno=\(errno)")
-        precondition(listen(listenFD, 4) == 0)
-        let fd = listenFD
+        guard bound == 0 else {
+            let bindErrno = errno  // capture before close() can overwrite errno
+            Darwin.close(fd)
+            throw NSError(domain: "FakeUnixSocketServer", code: Int(bindErrno), userInfo: [NSLocalizedDescriptionKey: "bind() failed errno=\(bindErrno)"])
+        }
+        guard listen(fd, 4) == 0 else {
+            let listenErrno = errno  // capture before close() can overwrite errno
+            Darwin.close(fd)
+            throw NSError(domain: "FakeUnixSocketServer", code: Int(listenErrno), userInfo: [NSLocalizedDescriptionKey: "listen() failed errno=\(listenErrno)"])
+        }
+        self.listenFD = fd
         Thread.detachNewThread { [weak self] in
             let client = accept(fd, nil, nil)
             guard client >= 0 else { return }

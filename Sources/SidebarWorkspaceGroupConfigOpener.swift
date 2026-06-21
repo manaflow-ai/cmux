@@ -1,5 +1,5 @@
 import AppKit
-import CmuxFileOpen
+import CmuxWorkspaces
 import Foundation
 
 /// Opens workspace-group configuration and documentation surfaces.

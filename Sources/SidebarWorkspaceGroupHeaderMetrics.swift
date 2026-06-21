@@ -11,8 +11,9 @@ import CoreGraphics
 /// from one scaling path.
 ///
 /// The `base*` constants are the design sizes at the default sidebar font size,
-/// where ``SidebarTabItemFontScale/scale(for:)`` returns `1.0`. Every metric is
-/// the corresponding base value multiplied by ``fontScale``.
+/// where ``SidebarTabItemFontScale/scale(for:)`` returns `1.0`. Most metrics are
+/// the corresponding base value multiplied by ``fontScale``. Control frames keep
+/// a minimum hit size so they stay aligned with normal workspace row controls.
 ///
 /// ```swift
 /// let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: settings.sidebarFontScale)
@@ -50,8 +51,9 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     static let baseUnreadVerticalPadding: CGFloat = 1
     /// Plus-button glyph point size at the default sidebar font size.
     static let basePlusFontSize: CGFloat = 11
-    /// Plus-button frame edge at the default sidebar font size.
-    static let basePlusFrame: CGFloat = 18
+    /// Plus-button frame edge at the default sidebar font size. This matches the
+    /// normal workspace close-button frame so their centers share the same x-position.
+    static let basePlusFrame: CGFloat = 16
 
     /// Scaled chevron glyph point size.
     var chevronFontSize: CGFloat { Self.baseChevronFontSize * fontScale }
@@ -72,5 +74,5 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     /// Scaled plus-button glyph point size.
     var plusFontSize: CGFloat { Self.basePlusFontSize * fontScale }
     /// Scaled plus-button frame edge.
-    var plusFrame: CGFloat { Self.basePlusFrame * fontScale }
+    var plusFrame: CGFloat { max(Self.basePlusFrame, Self.basePlusFrame * fontScale) }
 }

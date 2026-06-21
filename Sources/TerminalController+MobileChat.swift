@@ -94,6 +94,29 @@ extension TerminalController {
         adoptDetectedAgentSessions(workspace: resolved.workspace)
     }
 
+    /// Surface-scoped title-change adoption path. Unlike the workspace-list
+    /// sweep, this handles live terminal title churn and must avoid rescanning
+    /// every terminal in the workspace.
+    @discardableResult
+    func adoptDetectedAgentSession(titleChange: GhosttyTitleChange) -> Bool {
+        guard let resolved = mobileResolveWorkspaceAndSurface(
+            params: [
+                "workspace_id": titleChange.tabId.uuidString,
+                "surface_id": titleChange.surfaceId.uuidString,
+            ],
+            requireTerminal: false
+        ),
+            let surfaceId = resolved.surfaceId,
+            let panel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return false
+        }
+        return adoptDetectedAgentSession(
+            workspace: resolved.workspace,
+            panel: panel,
+            title: titleChange.title
+        )
+    }
+
     /// Workspace-typed core of ``adoptDetectedAgentSessions(workspaceID:)``,
     /// for callers that already hold the `Workspace` (the workspace-list RPC
     /// enumerates every workspace and adopts inline, so the toggle is known
@@ -102,30 +125,38 @@ extension TerminalController {
     /// once the surface has a session, so a repeat scan of an already-adopted
     /// workspace touches no filesystem.
     func adoptDetectedAgentSessions(workspace: Workspace) {
-        let workspaceID = workspace.id.uuidString
-        guard let service = agentChatTranscriptService else { return }
         for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
-            let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
             let title = workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle
-            let normalizedTitle = title.lowercased()
-            // Claude is the case the wrapper-launched workflow hits; detect by
-            // launch metadata (hook PID key / initial command) or the live
-            // terminal title claude sets ("✳ Claude Code", then "✳ <ai-title>").
-            let isClaude = TextBoxAgentDetection.isClaudeCode(context: context)
-                || normalizedTitle.contains("claude")
-                || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
-            guard isClaude else { continue }
-            let cwd = workspace.panelDirectories[panel.id]
-                ?? (panel.directory.isEmpty ? nil : panel.directory)
-                ?? (workspace.currentDirectory.isEmpty ? nil : workspace.currentDirectory)
-            guard let cwd, !cwd.isEmpty else { continue }
-            service.adoptDetectedClaudeSession(
-                workspaceID: workspaceID,
-                surfaceID: panel.id.uuidString,
-                workingDirectory: cwd,
-                titleHint: title
-            )
+            adoptDetectedAgentSession(workspace: workspace, panel: panel, title: title)
         }
+    }
+
+    @discardableResult
+    private func adoptDetectedAgentSession(
+        workspace: Workspace,
+        panel: TerminalPanel,
+        title: String
+    ) -> Bool {
+        guard let service = agentChatTranscriptService else { return false }
+        let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+        let normalizedTitle = title.lowercased()
+        // Claude is the case the wrapper-launched workflow hits; detect by
+        // launch metadata (hook PID key / initial command) or the live
+        // terminal title claude sets ("✳ Claude Code", then "✳ <ai-title>").
+        let isClaude = TextBoxAgentDetection.isClaudeCode(context: context)
+            || normalizedTitle.contains("claude")
+            || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
+        guard isClaude else { return false }
+        let cwd = workspace.panelDirectories[panel.id]
+            ?? (panel.directory.isEmpty ? nil : panel.directory)
+            ?? (workspace.currentDirectory.isEmpty ? nil : workspace.currentDirectory)
+        guard let cwd, !cwd.isEmpty else { return false }
+        return service.adoptDetectedClaudeSession(
+            workspaceID: workspace.id.uuidString,
+            surfaceID: panel.id.uuidString,
+            workingDirectory: cwd,
+            titleHint: title
+        )
     }
 
     /// `mobile.chat.history`: one transcript page for a session.

@@ -1,6 +1,6 @@
 import AppKit
 import CmuxTerminalCore
-import CmuxTerminalEngine
+import CmuxTerminal
 import ObjectiveC.runtime
 
 @MainActor
