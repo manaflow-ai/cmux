@@ -4,52 +4,74 @@ import SwiftUI
 extension DockSplitStore {
     // MARK: - Config resolution
 
-    nonisolated static func resolve(rootDirectory: String?) throws -> DockConfigResolution {
-        if let projectURL = projectConfigURL(rootDirectory: rootDirectory) {
-            return try loadConfig(
-                from: projectURL,
-                baseDirectory: projectBaseDirectory(for: projectURL),
-                isProjectSource: true
+    /// Resolves the config that seeds a Dock of the given scope.
+    ///
+    /// - `.workspace`: only the project `.cmux/dock.json` (searched upward from
+    ///   `rootDirectory`); no global fallback, so the Workspace Dock stays
+    ///   distinct from the Global Dock. Empty when there is no project config.
+    /// - `.global`: only `~/.config/cmux/dock.json` with a home base directory.
+    ///
+    /// `scope` defaults to `.workspace` to preserve existing call sites/tests.
+    nonisolated static func resolve(scope: DockScope = .workspace, rootDirectory: String?) throws -> DockConfigResolution {
+        switch scope {
+        case .workspace:
+            if let projectURL = projectConfigURL(rootDirectory: rootDirectory) {
+                return try loadConfig(
+                    from: projectURL,
+                    baseDirectory: projectBaseDirectory(for: projectURL),
+                    isProjectSource: true
+                )
+            }
+            return DockConfigResolution(
+                controls: [],
+                sourceURL: nil,
+                baseDirectory: rootDirectory.flatMap(existingDirectory) ?? FileManager.default.homeDirectoryForCurrentUser.path,
+                isProjectSource: false
             )
-        }
-
-        let globalURL = globalConfigURL()
-        if FileManager.default.fileExists(atPath: globalURL.path) {
-            return try loadConfig(
-                from: globalURL,
+        case .global:
+            let globalURL = globalConfigURL()
+            if FileManager.default.fileExists(atPath: globalURL.path) {
+                return try loadConfig(
+                    from: globalURL,
+                    baseDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+                    isProjectSource: false
+                )
+            }
+            return DockConfigResolution(
+                controls: [],
+                sourceURL: nil,
                 baseDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
                 isProjectSource: false
             )
         }
-
-        return DockConfigResolution(
-            controls: [],
-            sourceURL: nil,
-            baseDirectory: rootDirectory.flatMap(existingDirectory) ?? FileManager.default.homeDirectoryForCurrentUser.path,
-            isProjectSource: false
-        )
     }
 
-    nonisolated static func configIdentity(rootDirectory: String?) -> DockConfigIdentity {
-        if let projectURL = projectConfigURL(rootDirectory: rootDirectory) {
+    nonisolated static func configIdentity(scope: DockScope = .workspace, rootDirectory: String?) -> DockConfigIdentity {
+        switch scope {
+        case .workspace:
+            if let projectURL = projectConfigURL(rootDirectory: rootDirectory) {
+                return DockConfigIdentity(
+                    sourcePath: canonicalConfigPath(projectURL),
+                    baseDirectory: projectBaseDirectory(for: projectURL)
+                )
+            }
             return DockConfigIdentity(
-                sourcePath: canonicalConfigPath(projectURL),
-                baseDirectory: projectBaseDirectory(for: projectURL)
+                sourcePath: nil,
+                baseDirectory: rootDirectory.flatMap(existingDirectory) ?? FileManager.default.homeDirectoryForCurrentUser.path
             )
-        }
-
-        let globalURL = globalConfigURL()
-        if FileManager.default.fileExists(atPath: globalURL.path) {
+        case .global:
+            let globalURL = globalConfigURL()
+            if FileManager.default.fileExists(atPath: globalURL.path) {
+                return DockConfigIdentity(
+                    sourcePath: canonicalConfigPath(globalURL),
+                    baseDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+                )
+            }
             return DockConfigIdentity(
-                sourcePath: canonicalConfigPath(globalURL),
+                sourcePath: nil,
                 baseDirectory: FileManager.default.homeDirectoryForCurrentUser.path
             )
         }
-
-        return DockConfigIdentity(
-            sourcePath: nil,
-            baseDirectory: rootDirectory.flatMap(existingDirectory) ?? FileManager.default.homeDirectoryForCurrentUser.path
-        )
     }
 
     nonisolated static func configIdentity(for resolution: DockConfigResolution) -> DockConfigIdentity {
@@ -68,13 +90,18 @@ extension DockSplitStore {
             : String(localized: "dock.source.global", defaultValue: "Global Dock")
     }
 
-    nonisolated static func preferredEditableConfigURL(rootDirectory: String?) throws -> URL {
-        if let rootDirectory = rootDirectory.flatMap(existingDirectory) {
-            return URL(fileURLWithPath: rootDirectory, isDirectory: true)
-                .appendingPathComponent(".cmux", isDirectory: true)
-                .appendingPathComponent("dock.json", isDirectory: false)
+    nonisolated static func preferredEditableConfigURL(scope: DockScope = .workspace, rootDirectory: String?) throws -> URL {
+        switch scope {
+        case .workspace:
+            if let rootDirectory = rootDirectory.flatMap(existingDirectory) {
+                return URL(fileURLWithPath: rootDirectory, isDirectory: true)
+                    .appendingPathComponent(".cmux", isDirectory: true)
+                    .appendingPathComponent("dock.json", isDirectory: false)
+            }
+            return globalConfigURL()
+        case .global:
+            return globalConfigURL()
         }
-        return globalConfigURL()
     }
 
     nonisolated static func writeTemplate(to url: URL) throws {

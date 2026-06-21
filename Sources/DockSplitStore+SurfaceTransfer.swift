@@ -143,7 +143,9 @@ extension DockSplitStore {
                 title: String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
             )
         ]
-        let referenceWindowId = app.tabManagerFor(tabId: workspaceId).flatMap { app.windowId(for: $0) }
+        // For the Global Dock (no owning workspace) this resolves the active
+        // main window; for a Workspace Dock it resolves that workspace's window.
+        let referenceWindowId = app.dockReferenceTabManager(for: self).flatMap { app.windowId(for: $0) }
         let targets = app.workspaceMoveTargets(excludingWorkspaceId: workspaceId, referenceWindowId: referenceWindowId)
         destinations.append(contentsOf: targets.map { target in
             TabContextMoveDestination(

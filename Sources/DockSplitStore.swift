@@ -13,6 +13,12 @@ final class DockSplitStore: BonsplitDelegate {
     let workspaceId: UUID
     let bonsplitController: BonsplitController
 
+    /// Which Dock this store backs: `.workspace` (per-workspace, seeded from the
+    /// project `.cmux/dock.json`) or `.global` (one app-wide Dock seeded from
+    /// `~/.config/cmux/dock.json` that persists everywhere). Drives config
+    /// resolution and how cross-container moves resolve a reference window.
+    let scope: DockScope
+
     private(set) var sourceLabel: String = ""
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
@@ -46,11 +52,13 @@ final class DockSplitStore: BonsplitDelegate {
 
     init(
         workspaceId: UUID,
+        scope: DockScope = .workspace,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
     ) {
         self.workspaceId = workspaceId
+        self.scope = scope
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
@@ -170,8 +178,9 @@ final class DockSplitStore: BonsplitDelegate {
         configurationIdentityGeneration += 1
         let generation = configurationIdentityGeneration
         configurationIdentityTask?.cancel()
+        let scope = scope
         configurationIdentityTask = Task.detached(priority: .utility) { [weak self] in
-            let current = Self.configIdentity(rootDirectory: rootDirectory)
+            let current = Self.configIdentity(scope: scope, rootDirectory: rootDirectory)
             guard !Task.isCancelled else { return }
             await self?.applyConfigurationIdentity(current, generation: generation)
         }
@@ -605,8 +614,9 @@ final class DockSplitStore: BonsplitDelegate {
         configurationLoadRootDirectory = rootDirectory
         configurationIdentityTask?.cancel()
         configurationLoadTask?.cancel()
+        let scope = scope
         configurationLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let result = Self.loadConfigurationSnapshot(rootDirectory: rootDirectory)
+            let result = Self.loadConfigurationSnapshot(scope: scope, rootDirectory: rootDirectory)
             guard !Task.isCancelled else { return }
             await self?.applyConfigurationLoadResult(
                 result,
@@ -627,12 +637,12 @@ final class DockSplitStore: BonsplitDelegate {
         reload()
     }
 
-    private nonisolated static func loadConfigurationSnapshot(rootDirectory: String?) -> DockConfigurationLoadResult {
+    private nonisolated static func loadConfigurationSnapshot(scope: DockScope, rootDirectory: String?) -> DockConfigurationLoadResult {
         do {
-            return .resolved(try resolve(rootDirectory: rootDirectory))
+            return .resolved(try resolve(scope: scope, rootDirectory: rootDirectory))
         } catch {
             return .failed(
-                identity: configIdentity(rootDirectory: rootDirectory),
+                identity: configIdentity(scope: scope, rootDirectory: rootDirectory),
                 message: configurationLoadErrorMessage(for: error)
             )
         }
@@ -759,7 +769,7 @@ final class DockSplitStore: BonsplitDelegate {
             if let activeConfigURL {
                 target = activeConfigURL
             } else {
-                target = try Self.preferredEditableConfigURL(rootDirectory: currentBaseDirectory())
+                target = try Self.preferredEditableConfigURL(scope: scope, rootDirectory: currentBaseDirectory())
             }
         } catch {
             errorMessage = Self.configurationOpenErrorMessage(for: error)

@@ -42,6 +42,11 @@ extension AppDelegate {
     /// Used by `moveBonsplitTab` to route a Dock→main-area drop.
     func locateDockSurface(tabId: UUID) -> (dock: DockSplitStore, panelId: UUID)? {
         let bonsplitTabId = TabID(uuid: tabId)
+        // The app-wide Global Dock first (it has no owning workspace), then each
+        // workspace's local Dock.
+        if let globalDock = existingGlobalDock, let panel = globalDock.panel(for: bonsplitTabId) {
+            return (globalDock, panel.id)
+        }
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
                 guard let dock = workspace._dockSplit,
@@ -161,7 +166,9 @@ extension AppDelegate {
         focus: Bool = true,
         focusWindow: Bool = false
     ) -> Bool {
-        guard let manager = tabManagerFor(tabId: sourceDock.workspaceId) else { return false }
+        // The Global Dock has no owning workspace/window, so resolve the target
+        // window from the active main window instead of the dock's owner id.
+        guard let manager = dockReferenceTabManager(for: sourceDock) else { return false }
         let sourcePane = sourceDock.paneId(forPanelId: panelId)
         guard let detached = sourceDock.detachSurface(panelId: panelId) else { return false }
         (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.workspace)

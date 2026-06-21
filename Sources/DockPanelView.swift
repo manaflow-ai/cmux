@@ -9,10 +9,15 @@ import SwiftUI
 /// area, just constrained to the sidebar width.
 struct DockPanelView: View {
     let store: DockSplitStore
+    /// Which Dock this panel is presenting (Workspace vs Global). Drives the
+    /// toolbar scope toggle's selection.
+    let scope: DockScope
     let isSidebarVisible: Bool
     let mode: RightSidebarMode
     let rootDirectory: String?
     let windowAppearance: WindowAppearanceSnapshot
+    /// Invoked when the user flips the toolbar scope toggle.
+    var onSelectScope: (DockScope) -> Void = { _ in }
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
 
@@ -62,13 +67,27 @@ struct DockPanelView: View {
         store.applyGhosttyChrome(from: next)
     }
 
+    private var scopeBinding: Binding<DockScope> {
+        Binding(get: { scope }, set: { onSelectScope($0) })
+    }
+
     private var toolbar: some View {
         HStack(spacing: 6) {
-            Text(store.sourceLabel)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            Picker("", selection: scopeBinding) {
+                ForEach(DockScope.allCases, id: \.self) { dockScope in
+                    Text(dockScope.label).tag(dockScope)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.small)
+            .fixedSize()
+            .help(String(
+                localized: "dock.scope.help",
+                defaultValue: "Switch between this workspace's Dock and the Global Dock"
+            ))
+            .accessibilityIdentifier("DockScopeToggle")
+
             Spacer(minLength: 4)
 
             Menu {

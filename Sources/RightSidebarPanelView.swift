@@ -411,18 +411,7 @@ struct RightSidebarPanelView: View {
             case .feed:
                 FeedPanelView()
             case .dock:
-                if let workspace = tabManager.selectedWorkspace {
-                    DockPanelView(
-                        store: workspace.dockSplit,
-                        isSidebarVisible: fileExplorerState.isVisible,
-                        mode: fileExplorerState.mode,
-                        rootDirectory: RightSidebarDirectoryContext.dockRootDirectory(workspaceDirectory: workspace.currentDirectory, fallbackDirectory: sessionIndexDirectory),
-                        windowAppearance: windowAppearance
-                    )
-                    .id(workspace.id)
-                } else {
-                    Color.clear
-                }
+                dockPanel(windowAppearance: windowAppearance)
             case .customSidebar:
                 EmptyView()
             }
@@ -433,6 +422,53 @@ struct RightSidebarPanelView: View {
 
     private var sessionIndexDirectory: String? {
         sessionIndexStore.currentDirectory
+    }
+
+    /// Renders the Dock panel for the currently selected scope. The Workspace
+    /// Dock is keyed to its workspace so it remounts on workspace switch; the
+    /// Global Dock keeps a constant identity so it persists across workspace
+    /// switches (and is the same store in every window).
+    @ViewBuilder
+    private func dockPanel(windowAppearance: WindowAppearanceSnapshot) -> some View {
+        let scope = fileExplorerState.dockScope
+        let onSelectScope: (DockScope) -> Void = { newScope in
+            fileExplorerState.dockScope = newScope
+        }
+        switch scope {
+        case .workspace:
+            if let workspace = tabManager.selectedWorkspace {
+                DockPanelView(
+                    store: workspace.dockSplit,
+                    scope: .workspace,
+                    isSidebarVisible: fileExplorerState.isVisible,
+                    mode: fileExplorerState.mode,
+                    rootDirectory: RightSidebarDirectoryContext.dockRootDirectory(
+                        workspaceDirectory: workspace.currentDirectory,
+                        fallbackDirectory: sessionIndexDirectory
+                    ),
+                    windowAppearance: windowAppearance,
+                    onSelectScope: onSelectScope
+                )
+                .id("dock.workspace.\(workspace.id)")
+            } else {
+                Color.clear
+            }
+        case .global:
+            if let app = AppDelegate.shared {
+                DockPanelView(
+                    store: app.globalDock,
+                    scope: .global,
+                    isSidebarVisible: fileExplorerState.isVisible,
+                    mode: fileExplorerState.mode,
+                    rootDirectory: nil,
+                    windowAppearance: windowAppearance,
+                    onSelectScope: onSelectScope
+                )
+                .id("dock.global")
+            } else {
+                Color.clear
+            }
+        }
     }
 
     private func selectMode(_ mode: RightSidebarMode) {
