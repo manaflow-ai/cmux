@@ -36,8 +36,12 @@ extension VerticalTabsSidebar {
         let canMarkAnchorRead = notificationStore.canMarkWorkspaceRead(forTabIds: anchorIds)
         let canMarkAnchorUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: anchorIds)
         let anchorHasLatestNotification = notificationStore.latestNotification(forTabId: group.anchorWorkspaceId) != nil
-        let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: memberWorkspaceIds)
-        let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: memberWorkspaceIds)
+        // "Mark all workspaces in group" targets the contained workspaces only,
+        // never the anchor: the anchor is the group's own row, whose read status
+        // is owned by the separate "Mark Group as Read/Unread" actions.
+        let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
+        let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
+        let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
         let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
             at: anchorIndex,
@@ -164,15 +168,15 @@ extension VerticalTabsSidebar {
             onClearLatestNotifications: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
                 notificationStore?.clearLatestNotification(forTabId: anchorId)
             },
-            onMarkAllRead: { [weak notificationStore, memberWorkspaceIds] in
+            onMarkAllRead: { [weak notificationStore, nonAnchorMemberIds] in
                 guard let notificationStore else { return }
-                for id in memberWorkspaceIds {
+                for id in nonAnchorMemberIds {
                     notificationStore.markRead(forTabId: id)
                 }
             },
-            onMarkAllUnread: { [weak notificationStore, memberWorkspaceIds] in
+            onMarkAllUnread: { [weak notificationStore, nonAnchorMemberIds] in
                 guard let notificationStore else { return }
-                for id in memberWorkspaceIds {
+                for id in nonAnchorMemberIds {
                     notificationStore.markUnread(forTabId: id)
                 }
             },
