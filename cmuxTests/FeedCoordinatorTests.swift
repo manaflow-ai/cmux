@@ -777,6 +777,26 @@ struct FeedCoordinatorTests {
         #expect(!state.isSubscribing("thread-1"))
     }
 
+    @Test func codexTeamsThreadSubscriptionRetryBudgetBoundsReconnectRounds() {
+        var budget = CodexTeamsThreadSubscriptionRetryBudget(maxPendingRounds: 2, retryInterval: 1)
+
+        #expect(budget.markPending("thread-1"))
+        #expect(Set(budget.pendingThreadIdSnapshot()) == Set(["thread-1"]))
+
+        budget.resetDeadline()
+        #expect(Set(budget.pendingThreadIdSnapshot()) == Set(["thread-1"]))
+        #expect(budget.pendingRetryTimeout() == nil)
+
+        #expect(budget.markPending("thread-1"))
+        #expect(!budget.markPending("thread-1"))
+        #expect(budget.pendingThreadIdSnapshot().isEmpty)
+        #expect(budget.pendingRetryTimeout() == nil)
+
+        #expect(!budget.markPending("thread-1"))
+        budget.clear("thread-1")
+        #expect(budget.markPending("thread-1"))
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {

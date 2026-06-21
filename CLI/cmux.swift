@@ -19292,6 +19292,7 @@ struct CMUXCLI {
 
     private static let codexTeamsMaxAutoDepth = 2
     private static let codexTeamsReconcileInterval: TimeInterval = 1
+    private static let codexTeamsMaxPendingThreadSubscriptionRetryRounds = 3
     private static let codexTeamsMaxCachedApprovalItems = 500
     static let codexTeamsApprovalMethods: Set<String> = [
         "item/commandExecution/requestApproval",
@@ -19591,8 +19592,10 @@ struct CMUXCLI {
         private var lastAgentSurfaceId: String?
         private var subscribingThreadIds = Set<String>()
         private var subscribedThreadIds = Set<String>()
-        private var pendingThreadSubscriptionRetryIds = Set<String>()
-        private var pendingThreadSubscriptionRetryDeadline: DispatchTime?
+        private var pendingThreadSubscriptionRetryBudget = CodexTeamsThreadSubscriptionRetryBudget(
+            maxPendingRounds: CMUXCLI.codexTeamsMaxPendingThreadSubscriptionRetryRounds,
+            retryInterval: CMUXCLI.codexTeamsReconcileInterval
+        )
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
@@ -19669,9 +19672,13 @@ struct CMUXCLI {
                     clearPendingThreadSubscriptionRetry(threadId)
                 } catch {
                     if isTransientThreadResumeError(error) {
-                        markPendingThreadSubscriptionRetry(threadId)
-                        cliWriteStderr("cmux codex-teams watcher will retry thread \(threadId): rollout not ready\n")
+                        if markPendingThreadSubscriptionRetry(threadId) {
+                            cliWriteStderr("cmux codex-teams watcher will retry thread \(threadId): rollout not ready\n")
+                        } else {
+                            cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): rollout not ready after retries\n")
+                        }
                     } else {
+                        clearPendingThreadSubscriptionRetry(threadId)
                         cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
                     }
                 }
@@ -19720,9 +19727,13 @@ struct CMUXCLI {
                     clearPendingThreadSubscriptionRetry(thread.id)
                 } catch {
                     if isTransientThreadResumeError(error) {
-                        markPendingThreadSubscriptionRetry(thread.id)
-                        cliWriteStderr("cmux codex-teams watcher will retry thread \(thread.id): rollout not ready\n")
+                        if markPendingThreadSubscriptionRetry(thread.id) {
+                            cliWriteStderr("cmux codex-teams watcher will retry thread \(thread.id): rollout not ready\n")
+                        } else {
+                            cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): rollout not ready after retries\n")
+                        }
                     } else {
+                        clearPendingThreadSubscriptionRetry(thread.id)
                         cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
                     }
                 }
@@ -19774,7 +19785,7 @@ struct CMUXCLI {
             stateLock.lock()
             subscribingThreadIds.removeAll(keepingCapacity: true)
             subscribedThreadIds.removeAll(keepingCapacity: true)
-            pendingThreadSubscriptionRetryDeadline = nil
+            pendingThreadSubscriptionRetryBudget.resetDeadline()
             stateLock.unlock()
         }
 
@@ -19798,27 +19809,22 @@ struct CMUXCLI {
             stateLock.unlock()
         }
 
-        private func markPendingThreadSubscriptionRetry(_ threadId: String) {
+        private func markPendingThreadSubscriptionRetry(_ threadId: String) -> Bool {
             stateLock.lock()
-            pendingThreadSubscriptionRetryIds.insert(threadId)
-            if pendingThreadSubscriptionRetryDeadline == nil {
-                pendingThreadSubscriptionRetryDeadline = .now() + CMUXCLI.codexTeamsReconcileInterval
-            }
+            let shouldRetry = pendingThreadSubscriptionRetryBudget.markPending(threadId)
             stateLock.unlock()
+            return shouldRetry
         }
 
         private func clearPendingThreadSubscriptionRetry(_ threadId: String) {
             stateLock.lock()
-            pendingThreadSubscriptionRetryIds.remove(threadId)
-            if pendingThreadSubscriptionRetryIds.isEmpty {
-                pendingThreadSubscriptionRetryDeadline = nil
-            }
+            pendingThreadSubscriptionRetryBudget.clear(threadId)
             stateLock.unlock()
         }
 
         private func pendingThreadSubscriptionRetryIdSnapshot() -> [String] {
             stateLock.lock()
-            let threadIds = Array(pendingThreadSubscriptionRetryIds)
+            let threadIds = pendingThreadSubscriptionRetryBudget.pendingThreadIdSnapshot()
             stateLock.unlock()
             return threadIds
         }
@@ -19826,15 +19832,7 @@ struct CMUXCLI {
         private func pendingThreadSubscriptionRetryTimeout() -> TimeInterval? {
             stateLock.lock()
             defer { stateLock.unlock() }
-            guard !pendingThreadSubscriptionRetryIds.isEmpty,
-                  let deadline = pendingThreadSubscriptionRetryDeadline else {
-                return nil
-            }
-            let now = DispatchTime.now().uptimeNanoseconds
-            if deadline.uptimeNanoseconds <= now {
-                return 0
-            }
-            return TimeInterval(deadline.uptimeNanoseconds - now) / 1_000_000_000
+            return pendingThreadSubscriptionRetryBudget.pendingRetryTimeout()
         }
 
         private func isTransientThreadResumeError(_ error: Error) -> Bool {
