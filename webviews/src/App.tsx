@@ -701,13 +701,29 @@ function BaseControl({
 // wired backend. Production behavior is unchanged when the flag is absent.
 function resolveBranchPicker(payload: any): BranchPickerPayload | null {
   const value = payload?.branchPicker;
-  if (value && typeof value === "object" && typeof value.refsURL === "string") {
-    return value as BranchPickerPayload;
+  // Opt into the new picker only when the full FROZEN CONTRACT shape is present:
+  // refsURL and regenerateURLTemplate must be non-empty strings (selection does
+  // `regenerateURLTemplate.replace(...)`, which throws if it is missing), and
+  // currentRef/headRef must be strings (rendered in the button label). Anything
+  // missing falls back to the legacy <select>.
+  if (isValidBranchPickerPayload(value)) {
+    return value;
   }
   if (import.meta.env?.DEV && devBranchPickerMockEnabled()) {
     return devBranchPickerMock();
   }
   return null;
+}
+
+function isValidBranchPickerPayload(value: any): value is BranchPickerPayload {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof value.refsURL === "string" && value.refsURL !== "" &&
+    typeof value.regenerateURLTemplate === "string" && value.regenerateURLTemplate !== "" &&
+    typeof value.currentRef === "string" &&
+    typeof value.headRef === "string",
+  );
 }
 
 function devBranchPickerMockEnabled(): boolean {

@@ -92,10 +92,17 @@ export function BranchBasePicker({
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const listboxId = useId();
 
-  const flat = buildFlatRows(groups, query, picker, label);
+  // Callback ref: the filter input is rendered only while the popover is open,
+  // so it mounts each time the popover opens. Focusing it here gives the same
+  // open-time focus as autoFocus without the a11y-flagged autoFocus attribute
+  // (noAutofocus) and without a raw useEffect.
+  const focusFilterInput = (node: HTMLInputElement | null) => {
+    node?.focus();
+  };
+
+  const flat = buildFlatRows(groups, query, label);
   const clampedHighlight = flat.length === 0 ? 0 : Math.min(highlight, flat.length - 1);
 
   const openPopover = () => {
@@ -221,8 +228,7 @@ export function BranchBasePicker({
           <div className="base-picker-search">
             <Icon name="search" />
             <input
-              ref={inputRef}
-              autoFocus
+              ref={focusFilterInput}
               type="text"
               className="base-picker-input"
               placeholder={label("branchPickerFilterPlaceholder")}
@@ -250,7 +256,11 @@ export function BranchBasePicker({
             ) : (
               flat.map((entry, index) => (
                 <BranchPickerRowView
-                  key={`${entry.groupId}:${entry.row.ref}:${index}`}
+                  // Stable identity key: groupId + ref. A ref is unique within a
+                  // group, and the groupId prefix disambiguates the same ref
+                  // appearing in two groups (e.g. Suggested vs Worktrees), so the
+                  // key survives filter rebuilds (no array-index key).
+                  key={`${entry.groupId}:${entry.row.ref}`}
                   domId={rowDomId(listboxId, index)}
                   entry={entry}
                   label={label}
@@ -411,7 +421,6 @@ function renderMatched(text: string, match: [number, number] | null) {
 export function buildFlatRows(
   groups: BranchPickerGroup[] | null,
   query: string,
-  picker: BranchPickerPayload,
   label: DiffViewerLabelResolver,
 ): FlatRow[] {
   const trimmed = query.trim();
@@ -483,7 +492,6 @@ export function buildFlatRows(
       moreCount: 0,
     });
   }
-  void picker;
   return result;
 }
 

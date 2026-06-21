@@ -111,7 +111,7 @@ test("empty filter caps each group and flags the hidden tail count", () => {
       label: `origin/feature-${index}`,
     })) },
   ];
-  const flat = buildFlatRows(groups, "", pickerPayload(0), label);
+  const flat = buildFlatRows(groups, "", label);
   // 1 suggested + 8 capped remotes.
   expect(flat.length).toBe(9);
   // Only the last rendered remote carries the hidden-tail count (2304 - 8).
@@ -126,7 +126,7 @@ test("filtering scans every group and caps the rendered total at 50", () => {
       label: `origin/feature-${index}`,
     })) },
   ];
-  const flat = buildFlatRows(groups, "feature-1", pickerPayload(0), label);
+  const flat = buildFlatRows(groups, "feature-1", label);
   // Hundreds match "feature-1"; rendered set is capped at 50 with no "more" rows.
   expect(flat.length).toBe(50);
   expect(flat.every((row) => row.moreCount === 0)).toBe(true);
@@ -138,7 +138,7 @@ test("a query matching nothing offers the raw typed ref", () => {
   const groups = [
     { id: "remotes", label: "Remotes", rows: [{ ref: "origin/main", label: "origin/main" }] },
   ];
-  const flat = buildFlatRows(groups, "zzz-nope", pickerPayload(0), label);
+  const flat = buildFlatRows(groups, "zzz-nope", label);
   expect(flat[0]?.raw).toBe(true);
   expect(flat[0]?.row.ref).toBe("zzz-nope");
 });

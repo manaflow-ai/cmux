@@ -175,8 +175,8 @@ body {
   border: 1px solid transparent;
   border-radius: 6px;
   background:
-    linear-gradient(45deg, transparent 50%, currentColor 50%) right 11px center / 4px 4px no-repeat,
-    linear-gradient(135deg, currentColor 50%, transparent 50%) right 7px center / 4px 4px no-repeat,
+    linear-gradient(45deg, transparent 50%, currentcolor 50%) right 11px center / 4px 4px no-repeat,
+    linear-gradient(135deg, currentcolor 50%, transparent 50%) right 7px center / 4px 4px no-repeat,
     color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
   color: inherit;
   font: inherit;
@@ -248,7 +248,6 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  min-width: 0;
   /* Base is the primary action and the highest-priority picker: it is content
      sized (no flex-grow, so it does not stretch into a half-empty button) and
      has the LOWEST shrink, so it is the last to give up width. Its min-width
@@ -287,7 +286,7 @@ body {
 .base-picker-button svg {
   width: 12px;
   height: 12px;
-  stroke: currentColor;
+  stroke: currentcolor;
   fill: none;
   stroke-width: 1.6;
   stroke-linecap: round;
@@ -430,7 +429,7 @@ body {
 .base-picker-search svg {
   width: 13px;
   height: 13px;
-  stroke: currentColor;
+  stroke: currentcolor;
   fill: none;
   stroke-width: 1.6;
   stroke-linecap: round;
@@ -569,7 +568,7 @@ body {
   height: 14px;
   display: block;
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-width: 1;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -788,7 +787,7 @@ body[data-status-only="true"] #files-sidebar {
   width: 15px;
   height: 15px;
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-width: 1;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -856,7 +855,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
 .file-status {
   width: 17px;
   height: 17px;
-  border: 1px solid currentColor;
+  border: 1px solid currentcolor;
   border-radius: 5px;
   display: inline-flex;
   align-items: center;
@@ -1029,7 +1028,7 @@ body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending
   display: block;
   width: 26px;
   height: 26px;
-  background-color: currentColor;
+  background-color: currentcolor;
   opacity: 0.8;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
