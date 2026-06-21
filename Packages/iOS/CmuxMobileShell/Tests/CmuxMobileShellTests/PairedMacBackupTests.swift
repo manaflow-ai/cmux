@@ -30,6 +30,15 @@ import Testing
         )
     }
 
+    private func uploadedRecord(from op: PairedMacBackupOp) -> PairedMacBackupRecord? {
+        switch op {
+        case .upsert(let record), .revive(let record):
+            return record
+        case .delete:
+            return nil
+        }
+    }
+
     @Test func backupClientEndpointURLJoinsBasePath() {
         #expect(PairedMacBackupClient.endpointURL(
             serviceBaseURL: "https://presence.example"
@@ -66,11 +75,11 @@ import Testing
         // Mirrored to the backup.
         let ops = await backup.uploadedOps()
         #expect(ops.count == 1)
-        if case .upsert(let rec) = ops.first {
+        if let rec = ops.first.flatMap(uploadedRecord(from:)) {
             #expect(rec.macDeviceID == "manual-10.0.0.1:22")
             #expect(rec.isActive == true)
         } else {
-            Issue.record("expected an upsert op")
+            Issue.record("expected a record upload op")
         }
     }
 
@@ -106,6 +115,153 @@ import Testing
         // One upsert + one delete; removeAll (sign-out wipe) must NOT touch the server.
         #expect(ops.contains { if case .delete(let id) = $0 { return id == "mac-a" } else { return false } })
         #expect(ops.count == 2)
+    }
+
+    @Test func rePairAfterConfirmedDeleteUploadsRevive() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup()
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        try await store.upsert(macDeviceID: "mac-a", displayName: nil, routes: [try route("10.0.0.1", 22)], markActive: true, stackUserID: "user-1", now: Date())
+        try await store.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil)
+        try await store.upsert(macDeviceID: "mac-a", displayName: nil, routes: [try route("10.0.0.1", 22)], markActive: true, stackUserID: "user-1", now: Date())
+
+        if case .revive(let record)? = await backup.uploadedOps().last {
+            #expect(record.macDeviceID == "mac-a")
+        } else {
+            Issue.record("expected re-pair to upload a revive op")
+        }
+    }
+
+    @Test func failedDeleteUploadLeavesDurableLocalTombstone() async throws {
+        // If a Forget tombstone upload fails, the stale live server record must
+        // not resurrect on the next restore. The local tombstone outbox is
+        // durable and is passed into restore as an additional delete set until a
+        // tombstone upload eventually succeeds.
+        let suiteName = "paired-mac-pending-delete-\(UUID().uuidString)"
+        let pending = UserDefaultsPairedMacPendingDeleteStore(suiteName: suiteName)
+        let backup = FakeBackup(
+            records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)],
+            failNextUploads: 99
+        )
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let firstStore = BackingUpPairedMacStore(
+            inner: inner,
+            backup: backup,
+            pendingDeleteStore: pending
+        )
+
+        try await inner.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mini",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date()
+        )
+        try await firstStore.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil)
+        #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)
+
+        let (freshInner, freshDir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: freshDir) }
+        let secondStore = BackingUpPairedMacStore(
+            inner: freshInner,
+            backup: backup,
+            pendingDeleteStore: pending
+        )
+        let restored = try await secondStore.loadAll(stackUserID: "user-1")
+
+        #expect(restored.isEmpty)
+        #expect(try await freshInner.loadAll(stackUserID: "user-1").isEmpty)
+        #expect(await backup.uploadedOps().contains {
+            if case .delete(let id) = $0 { return id == "mac-a" }
+            return false
+        })
+        await pending.removeAll()
+    }
+
+    @Test func failedLocalRemoveDoesNotPersistPendingCloudTombstone() async throws {
+        let suiteName = "paired-mac-failed-local-remove-\(UUID().uuidString)"
+        let pending = UserDefaultsPairedMacPendingDeleteStore(suiteName: suiteName)
+        let backup = FakeBackup(records: [
+            try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true),
+        ])
+        let (real, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await real.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mini",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date()
+        )
+        let failing = GatedUpsertStore(inner: real, failRemove: true)
+        let store = BackingUpPairedMacStore(
+            inner: failing,
+            backup: backup,
+            pendingDeleteStore: pending
+        )
+
+        await #expect(throws: NSError.self) {
+            try await store.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil)
+        }
+        #expect(await backup.uploadedOps().allSatisfy {
+            if case .delete = $0 { return false }
+            return true
+        })
+
+        let (freshInner, freshDir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: freshDir) }
+        let freshStore = BackingUpPairedMacStore(
+            inner: freshInner,
+            backup: backup,
+            pendingDeleteStore: pending
+        )
+        let restored = try await freshStore.loadAll(stackUserID: "user-1")
+        #expect(restored.map(\.macDeviceID) == ["mac-a"])
+        await pending.removeAll()
+    }
+
+    @Test func durablePendingDeleteCompletesLocalDeleteBeforeRestore() async throws {
+        // Simulates a crash after the delete intent was persisted but before the
+        // local row was removed. The next read must finish the local delete before
+        // flushing the server tombstone, so the stale server live record cannot
+        // restore the Mac.
+        let suiteName = "paired-mac-crash-delete-intent-\(UUID().uuidString)"
+        let pending = UserDefaultsPairedMacPendingDeleteStore(suiteName: suiteName)
+        await pending.save(["mac-a"], scope: "user-1\u{0}")
+        let backup = FakeBackup(
+            records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)],
+            failNextUploads: 99
+        )
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await inner.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mini",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date()
+        )
+        let store = BackingUpPairedMacStore(
+            inner: inner,
+            backup: backup,
+            pendingDeleteStore: pending
+        )
+
+        let restored = try await store.loadAll(stackUserID: "user-1")
+
+        #expect(restored.isEmpty)
+        #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)
+        #expect(await backup.uploadedOps().contains {
+            if case .delete(let id) = $0 { return id == "mac-a" }
+            return false
+        })
+        await pending.removeAll()
     }
 
     // MARK: - Restore
@@ -254,6 +410,64 @@ import Testing
         let wipe = Task { try await backing.removeAll() }
         await gated.release()
         try await wipe.value
+        _ = await restoreKick.value
+
+        #expect(try await real.loadAll(stackUserID: "user-1").isEmpty)
+    }
+
+    @Test func removeDrainsRestoreSuspendedInsideUpsertBeforeDeletingExistingMac() async throws {
+        // Regression: forgetting a Mac while a refresh is suspended inside upsert
+        // must leave the Mac forgotten. The delete is authoritative, so `remove`
+        // drains the in-flight restore before issuing the final local delete.
+        let (real, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await real.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Old Mini",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1_000)
+        )
+        let gated = GatedUpsertStore(inner: real)
+        let backing = BackingUpPairedMacStore(
+            inner: gated,
+            backup: FakeBackup(records: [
+                try backupRecord("mac-a", host: "10.0.0.2", lastSeenMs: 2_000_000, active: true),
+            ])
+        )
+
+        let refresh = Task { await backing.refreshFromBackup(stackUserID: "user-1") }
+        await gated.waitUntilUpsertEntered()
+        let forget = Task { try await backing.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil) }
+        await gated.release()
+        try await forget.value
+        _ = await refresh.value
+
+        #expect(try await real.loadAll(stackUserID: "user-1").isEmpty)
+    }
+
+    @Test func boundaryInvalidationRemovesRestoreSuspendedInsideUpsert() async throws {
+        // signOut()/team-switch are synchronous, so they invalidate a shared
+        // boundary immediately before the actor cancellation task runs. A restore
+        // suspended inside `upsert` must notice that invalidation after the write
+        // resumes and remove the row it just inserted.
+        let (real, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let gated = GatedUpsertStore(inner: real)
+        let boundary = PairedMacRestoreBoundary()
+        let backing = BackingUpPairedMacStore(
+            inner: gated,
+            backup: FakeBackup(records: [
+                try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true),
+            ]),
+            restoreBoundary: boundary
+        )
+
+        let restoreKick = Task { _ = try? await backing.loadAll(stackUserID: "user-1") }
+        await gated.waitUntilUpsertEntered()
+        boundary.invalidate()
+        await gated.release()
         _ = await restoreKick.value
 
         #expect(try await real.loadAll(stackUserID: "user-1").isEmpty)
@@ -555,10 +769,10 @@ import Testing
 
         // The last upload (from setActive's scope mirror) marks mac-b active and mac-a inactive.
         let ops = await backup.uploadedOps()
-        let lastB = ops.last { if case .upsert(let r) = $0 { return r.macDeviceID == "mac-b" } else { return false } }
-        let lastA = ops.last { if case .upsert(let r) = $0 { return r.macDeviceID == "mac-a" } else { return false } }
-        if case .upsert(let b)? = lastB { #expect(b.isActive) } else { Issue.record("no mac-b upsert mirrored") }
-        if case .upsert(let a)? = lastA { #expect(!a.isActive) } else { Issue.record("no mac-a upsert mirrored") }
+        let lastB = ops.compactMap(uploadedRecord(from:)).last { $0.macDeviceID == "mac-b" }
+        let lastA = ops.compactMap(uploadedRecord(from:)).last { $0.macDeviceID == "mac-a" }
+        if let lastB { #expect(lastB.isActive) } else { Issue.record("no mac-b upsert mirrored") }
+        if let lastA { #expect(!lastA.isActive) } else { Issue.record("no mac-a upsert mirrored") }
     }
 
     // MARK: - Flag

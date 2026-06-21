@@ -39,8 +39,17 @@ public struct PairedMacRestore: Sendable {
     public func run(
         accountID: String,
         teamID: String? = nil,
-        now: Date = Date()
+        now: Date = Date(),
+        boundary: PairedMacRestoreBoundary? = nil,
+        boundaryGeneration: UInt64? = nil,
+        locallyDeletedMacDeviceIDs: Set<String> = []
     ) async -> RestoreOutcome {
+        func isCurrent() -> Bool {
+            guard !Task.isCancelled else { return false }
+            guard let boundary, let boundaryGeneration else { return true }
+            return boundary.isCurrent(boundaryGeneration)
+        }
+
         guard let snapshot = await backup.fetchSnapshot(teamID: teamID) else {
             return RestoreOutcome(completed: false, restored: 0)
         }
@@ -48,12 +57,13 @@ public struct PairedMacRestore: Sendable {
         // cancelled while the network fetch was suspended, do NOT write the
         // previous account's Macs back into the just-emptied local store. Report
         // `completed: false` so the caller does not memoize a non-restore.
-        if Task.isCancelled {
+        if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
         }
         let tombstoneIDs = Set(snapshot.deletedMacDeviceIDs
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty })
+            .union(locallyDeletedMacDeviceIDs)
         let liveRecords = snapshot.records.filter { !tombstoneIDs.contains($0.macDeviceID) }
         guard !liveRecords.isEmpty || !tombstoneIDs.isEmpty else {
             return RestoreOutcome(completed: true, restored: 0)
@@ -63,11 +73,11 @@ public struct PairedMacRestore: Sendable {
         // The fetch is not the only sign-out window: re-check after the load too,
         // before we start writing (a wipe between fetch and load must not be
         // overwritten with the old account's Macs).
-        if Task.isCancelled {
+        if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
         }
         for macDeviceID in tombstoneIDs {
-            if Task.isCancelled {
+            if !isCurrent() {
                 return RestoreOutcome(completed: false, restored: 0)
             }
             do {
@@ -81,7 +91,7 @@ public struct PairedMacRestore: Sendable {
         let local = tombstoneIDs.isEmpty
             ? localBeforeTombstones
             : ((try? await store.loadAll(stackUserID: accountID, teamID: teamID)) ?? [])
-        if Task.isCancelled {
+        if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
         }
         var localByID: [String: MobilePairedMac] = [:]
@@ -96,7 +106,7 @@ public struct PairedMacRestore: Sendable {
             // Re-check before EVERY write: a sign-out wipe can land between any two
             // upserts, and writes after it would reinsert the previous account's
             // Macs into the emptied store. Stop the moment we are cancelled.
-            if Task.isCancelled {
+            if !isCurrent() {
                 return RestoreOutcome(completed: false, restored: restored)
             }
             let backupSeconds = record.lastSeenAt / 1000.0
@@ -129,6 +139,16 @@ public struct PairedMacRestore: Sendable {
                     teamID: teamID,
                     now: backupDate
                 )
+                if !isCurrent() {
+                    if localByID[record.macDeviceID] == nil {
+                        try? await store.remove(
+                            macDeviceID: record.macDeviceID,
+                            stackUserID: accountID,
+                            teamID: teamID
+                        )
+                    }
+                    return RestoreOutcome(completed: false, restored: restored)
+                }
                 // Apply the user customizations from the (fresher) backup so a
                 // rename / color / icon set on another device lands here. Set
                 // verbatim (including nil) so a cleared override clears here too;
@@ -142,6 +162,9 @@ public struct PairedMacRestore: Sendable {
                     teamID: teamID,
                     now: backupDate
                 )
+                if !isCurrent() {
+                    return RestoreOutcome(completed: false, restored: restored)
+                }
                 restored += 1
             } catch {
                 pairedMacRestoreLog.warning(

@@ -1,4 +1,3 @@
-public import CMUXMobileCore
 public import Foundation
 import os
 
@@ -53,26 +52,31 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     }
 
     /// Upload backup mutations to the presence worker.
-    public func upload(ops: [PairedMacBackupOp]) async {
+    @discardableResult
+    public func upload(ops: [PairedMacBackupOp]) async -> Bool {
         let teamID = await teamIDProvider()
-        await upload(ops: ops, teamID: teamID)
+        return await upload(ops: ops, teamID: teamID)
     }
 
     /// Upload backup mutations to the presence worker for an already-captured team.
-    public func upload(ops: [PairedMacBackupOp], teamID: String?) async {
-        guard !ops.isEmpty else { return }
+    @discardableResult
+    public func upload(ops: [PairedMacBackupOp], teamID: String?) async -> Bool {
+        guard !ops.isEmpty else { return true }
         let body = PairedMacBackupRequestBody(ops: ops.map(PairedMacBackupOpWire.init(op:)))
         guard let data = try? JSONEncoder().encode(body),
               let request = await makeRequest(method: "POST", body: data, teamID: teamID) else {
-            return
+            return false
         }
         do {
             let (_, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 pairedMacBackupLog.warning("paired-mac backup upload failed: HTTP \(http.statusCode)")
+                return false
             }
+            return true
         } catch {
             pairedMacBackupLog.warning("paired-mac backup upload error: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 

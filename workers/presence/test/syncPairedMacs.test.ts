@@ -296,10 +296,15 @@ describe("applyBackupOps", () => {
     const afterOverflow = await listLiveBackup(storage, account);
     expect(afterOverflow.some((r) => r.macDeviceID === "mac-overflow")).toBe(false);
 
-    // ...but REVIVING an existing tombstoned id is allowed when the upsert is
-    // newer than the tombstone (reuses its slot, no growth).
+    // ...but EXPLICITLY reviving an existing tombstoned id is allowed (reuses its
+    // slot, no growth).
     await applyBackupOps(storage, account, [
-      { kind: "upsert", id: "mac-0", record: { ...record("mac-0", "10.0.0.1", 22), lastSeenAt: T0 + 3 } },
+      {
+        kind: "upsert",
+        id: "mac-0",
+        allowTombstoneRevive: true,
+        record: { ...record("mac-0", "10.0.0.1", 22), lastSeenAt: T0 + 3 },
+      },
     ], T0 + 3);
     const afterRevive = await listLiveBackup(storage, account);
     expect(afterRevive.some((r) => r.macDeviceID === "mac-0")).toBe(true);
@@ -351,25 +356,26 @@ describe("applyBackupOps", () => {
     expect(snapshot.deletedMacDeviceIDs).toEqual(["mac-a"]);
   });
 
-  it("ignores stale upserts older than a retained tombstone", async () => {
+  it("ignores ordinary upserts after a retained tombstone unless explicitly revived", async () => {
     const storage = new FakeStorage();
     await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "10.0.0.1", 22) }], T0);
     await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-a" }], T0 + 1000);
 
-    const stale = await applyBackupOps(storage, "user-1", [
-      { kind: "upsert", id: "mac-a", record: record("mac-a", "10.0.0.1", 22) },
+    const staleWithFastClock = await applyBackupOps(storage, "user-1", [
+      { kind: "upsert", id: "mac-a", record: { ...record("mac-a", "10.0.0.1", 22), lastSeenAt: T0 + 60_000 } },
     ], T0 + 2000);
-    expect(stale).toHaveLength(0);
+    expect(staleWithFastClock).toHaveLength(0);
     expect((await listBackupSnapshot(storage, "user-1")).deletedMacDeviceIDs).toEqual(["mac-a"]);
 
-    const fresh = await applyBackupOps(storage, "user-1", [
+    const explicitRevive = await applyBackupOps(storage, "user-1", [
       {
         kind: "upsert",
         id: "mac-a",
+        allowTombstoneRevive: true,
         record: { ...record("mac-a", "10.0.0.2", 22), lastSeenAt: T0 + 3000 },
       },
     ], T0 + 3000);
-    expect(fresh).toHaveLength(1);
+    expect(explicitRevive).toHaveLength(1);
     expect((await listLiveBackup(storage, "user-1")).map((r) => r.macDeviceID)).toEqual(["mac-a"]);
   });
 

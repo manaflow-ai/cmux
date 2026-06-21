@@ -8,13 +8,17 @@ import Foundation
 /// sign-out wipe is final.
 actor GatedUpsertStore: MobilePairedMacStoring {
     private let inner: MobilePairedMacStore
+    private let failRemove: Bool
     private var enteredContinuation: CheckedContinuation<Void, Never>?
     private var entered = false
     private var releaseContinuation: CheckedContinuation<Void, Never>?
     private var released = false
     private var gateArmed = true
 
-    init(inner: MobilePairedMacStore) { self.inner = inner }
+    init(inner: MobilePairedMacStore, failRemove: Bool = false) {
+        self.inner = inner
+        self.failRemove = failRemove
+    }
 
     func waitUntilUpsertEntered() async {
         if entered { return }
@@ -74,6 +78,7 @@ actor GatedUpsertStore: MobilePairedMacStoring {
     }
 
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        if failRemove { throw NSError(domain: "GatedUpsertStore", code: 1) }
         try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
     }
 

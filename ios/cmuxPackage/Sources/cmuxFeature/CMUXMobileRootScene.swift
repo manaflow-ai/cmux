@@ -179,7 +179,9 @@ public struct CMUXMobileRootScene: View {
     /// service URL resolves. Team scoping is unconditional: selected-team
     /// boundaries must hold even in Release builds where backup is off.
     @MainActor
-    private func makeBackedUpPairedMacStore() -> (any MobilePairedMacStoring)? {
+    private func makeBackedUpPairedMacStore(
+        restoreBoundary: PairedMacRestoreBoundary
+    ) -> (any MobilePairedMacStoring)? {
         guard let store = pairedMacStore else { return nil }
         let coordinator = auth.coordinator
         let scopedStore = TeamScopedPairedMacStore(
@@ -200,7 +202,9 @@ public struct CMUXMobileRootScene: View {
         return BackingUpPairedMacStore(
             inner: scopedStore,
             backup: client,
-            teamIDProvider: { await coordinator.resolvedTeamID }
+            teamIDProvider: { await coordinator.resolvedTeamID },
+            restoreBoundary: restoreBoundary,
+            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore()
         )
     }
 
@@ -237,7 +241,8 @@ public struct CMUXMobileRootScene: View {
         let coordinator = auth.coordinator
         let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
         let deviceRegistry = makeDeviceRegistry()
-        let backedUpPairedMacStore = makeBackedUpPairedMacStore()
+        let restoreBoundary = PairedMacRestoreBoundary()
+        let backedUpPairedMacStore = makeBackedUpPairedMacStore(restoreBoundary: restoreBoundary)
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
@@ -246,6 +251,7 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
+            pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
@@ -261,6 +267,7 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
+            pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
             identityProvider: identityProvider,

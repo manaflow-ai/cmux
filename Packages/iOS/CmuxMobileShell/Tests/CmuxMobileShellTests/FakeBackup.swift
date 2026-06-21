@@ -9,25 +9,38 @@ actor FakeBackup: PairedMacBackingUp {
     private let records: [PairedMacBackupRecord]
     private let deletedMacDeviceIDs: [String]
     private var failNextFetches: Int
+    private var failNextUploads: Int
 
     init(
         records: [PairedMacBackupRecord] = [],
         deletedMacDeviceIDs: [String] = [],
-        failNextFetches: Int = 0
+        failNextFetches: Int = 0,
+        failNextUploads: Int = 0
     ) {
         self.records = records
         self.deletedMacDeviceIDs = deletedMacDeviceIDs
         self.failNextFetches = failNextFetches
+        self.failNextUploads = failNextUploads
     }
 
-    func upload(ops: [PairedMacBackupOp]) async {
+    func upload(ops: [PairedMacBackupOp]) async -> Bool {
         uploaded.append(contentsOf: ops)
         uploadedTeamIDs.append(nil)
+        if failNextUploads > 0 {
+            failNextUploads -= 1
+            return false
+        }
+        return true
     }
 
-    func upload(ops: [PairedMacBackupOp], teamID: String?) async {
+    func upload(ops: [PairedMacBackupOp], teamID: String?) async -> Bool {
         uploaded.append(contentsOf: ops)
         uploadedTeamIDs.append(teamID)
+        if failNextUploads > 0 {
+            failNextUploads -= 1
+            return false
+        }
+        return true
     }
 
     func fetchAll() async -> [PairedMacBackupRecord]? {

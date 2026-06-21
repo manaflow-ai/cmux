@@ -107,6 +107,9 @@ export type PairedMacBackupOp =
        * Absent here (e.g. a hand-built op) is treated as "all provided", i.e. the
        * record's custom fields are authoritative as-is. */
       providedCustom?: { name: boolean; color: boolean; icon: boolean };
+      /** Explicit user re-add of an id with a retained server tombstone. Normal
+       * route refreshes and full reconciles must leave tombstones authoritative. */
+      allowTombstoneRevive?: boolean;
     }
   | { kind: "delete"; id: string };
 
@@ -207,6 +210,7 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
       kind: "upsert",
       id,
       providedCustom,
+      allowTombstoneRevive: e.reviveDeleted === true,
       record: {
         macDeviceID: id,
         displayName: displayName || undefined,
@@ -276,9 +280,9 @@ export async function applyBackupOps(
   // record count (live + RETAINED tombstones). Capping the total bounds storage
   // against create/delete churn: a delete keeps a tombstone for the GC retention
   // window, so live-only capping lets a client cycle 200 new ids → delete → repeat
-  // and grow the DO without bound. A brand-new id consumes a new storage slot, so
-  // it is gated on the total cap; reviving a tombstoned id reuses its slot (no
-  // total growth) and is gated only on the live cap.
+  // and grow the DO without bound. A brand-new id consumes a new storage slot.
+  // Explicitly reviving a tombstoned id reuses its slot (no total growth) and is
+  // gated only on the live cap.
   const existingRecords = await listRecords<PairedMacBackupRecord>(storage, collection);
   let liveCount = existingRecords.filter((r) => !r.deleted).length;
   let totalCount = existingRecords.length;
@@ -300,12 +304,12 @@ export async function applyBackupOps(
     const existing = await readRecord<PairedMacBackupRecord>(storage, collection, op.id);
     const isBrandNew = existing === undefined;
     const isReviving = existing !== undefined && existing.deleted;
-    if (isReviving && op.record.lastSeenAt <= existing.updatedAt) {
-      // A delete tombstone is the authoritative "forget" operation. A stale
-      // device that has not restored the tombstone yet may still hold and
-      // republish its old local row; ignore that older upsert so it cannot
-      // resurrect the forgotten Mac. A true re-pair/re-add carries a fresh
-      // lastSeenAt and is allowed to reuse the tombstoned slot.
+    if (isReviving && op.allowTombstoneRevive !== true) {
+      // A delete tombstone is the authoritative "forget" operation. Stale
+      // devices can republish ordinary upserts with newer lastSeenAt values, so
+      // timestamps must not be used as a revive signal. Ignore every ordinary
+      // upsert while a tombstone exists; only an explicit re-add path may send
+      // allowTombstoneRevive.
       continue;
     }
     const addsLive = isBrandNew || isReviving;

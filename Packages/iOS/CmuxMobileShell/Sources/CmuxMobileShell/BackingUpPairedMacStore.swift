@@ -35,6 +35,9 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// The most recent signed-in account seen on a read/write, so `remove` (which
     /// has no account parameter) only mirrors deletes while signed in.
     private var lastSignedInAccount: String?
+    private let restoreBoundary: PairedMacRestoreBoundary
+    private let pendingDeleteStore: any PairedMacPendingDeleteStoring
+    private var pendingDeleteIDsByScope: [String: Set<String>] = [:]
     /// Bumped by every `removeAll()` (sign-out wipe). A restore captures it before
     /// awaiting its task and re-checks after: a restore that completed/resumed
     /// across a wipe must NOT memoize `restoredScopes` (which would make a
@@ -46,11 +49,15 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     public init(
         inner: any MobilePairedMacStoring,
         backup: any PairedMacBackingUp,
-        teamIDProvider: @escaping @Sendable () async -> String? = { nil }
+        teamIDProvider: @escaping @Sendable () async -> String? = { nil },
+        restoreBoundary: PairedMacRestoreBoundary = PairedMacRestoreBoundary(),
+        pendingDeleteStore: any PairedMacPendingDeleteStoring = InMemoryPairedMacPendingDeleteStore()
     ) {
         self.inner = inner
         self.backup = backup
         self.teamIDProvider = teamIDProvider
+        self.restoreBoundary = restoreBoundary
+        self.pendingDeleteStore = pendingDeleteStore
     }
 
     /// Upsert a paired Mac locally, then mirror the changed backup records.
@@ -72,10 +79,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // new host, and the previously-active one now cleared) instead of the whole
         // account. Scoped to the current team — single-active is per (account, team).
         let previouslyActive: MobilePairedMac?
+        let existedBeforeUpsert: Bool
         if markActive, let account = stackUserID, !account.isEmpty {
-            previouslyActive = try? await inner.activeMac(stackUserID: account, teamID: team)
+            let existing = (try? await inner.loadAll(stackUserID: account, teamID: team)) ?? []
+            previouslyActive = existing.first { $0.isActive }
+            existedBeforeUpsert = existing.contains { $0.macDeviceID == macDeviceID }
         } else {
             previouslyActive = nil
+            existedBeforeUpsert = true
         }
         try await inner.upsert(
             macDeviceID: macDeviceID,
@@ -93,7 +104,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // preserved instead of clobbered with nil.
         guard let account = stackUserID, !account.isEmpty else { return }
         lastSignedInAccount = account
-        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account, teamID: team)
+        let allowsTombstoneRevive = await clearPendingDelete(macDeviceID: macDeviceID, account: account, teamID: team)
+            || (markActive && !existedBeforeUpsert)
+        await uploadCurrentRecord(
+            macDeviceID: macDeviceID,
+            account: account,
+            teamID: team,
+            allowTombstoneRevive: allowsTombstoneRevive
+        )
         // `markActive` clears the active flag of the account's previously-active
         // host locally; mirror THAT one record too so the backup keeps its
         // single-active invariant — without re-uploading the whole account, which
@@ -223,11 +241,33 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         } else {
             account = try? await accountForMac(macDeviceID, teamID: team)
         }
-        try await inner.remove(macDeviceID: macDeviceID, stackUserID: account, teamID: team)
         // Only mirror the delete while signed in; an anonymous removal has no
         // per-user backup to delete and would just fail auth and log noise.
-        guard account != nil || lastSignedInAccount != nil else { return }
-        await backup.upload(ops: [.delete(macDeviceID: macDeviceID)], teamID: team)
+        let backupAccount = account ?? lastSignedInAccount
+        let scope = backupAccount.map { pairedMacBackupScopeKey(account: $0, teamID: team) }
+        if let scope {
+            // Persist the delete intent before removing the only local row. If the
+            // app dies or the network upload fails after the local delete, the next
+            // read/restore still applies this tombstone and retries the backup
+            // delete instead of restoring the stale live record from the server.
+            // The catch below rolls this intent back if the local delete itself
+            // fails, so the outbox never claims a row was forgotten locally when it
+            // was not.
+            await addPendingDelete(macDeviceID: macDeviceID, scope: scope)
+        }
+        let draining = cancelInFlightRestoresReturningTasks()
+        for task in draining { _ = await task.value }
+        do {
+            try await inner.remove(macDeviceID: macDeviceID, stackUserID: account, teamID: team)
+            if let scope {
+                await flushPendingDeletes(scope: scope, teamID: team)
+            }
+        } catch {
+            if let scope {
+                await clearPendingDelete(macDeviceID: macDeviceID, scope: scope)
+            }
+            throw error
+        }
     }
 
     /// Clear local paired Macs without deleting the user's server backup.
@@ -261,6 +301,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// `Task.isCancelled` checks fire. Does not touch `inner` — sign-out keeps the
     /// per-user rows; only `removeAll` wipes them, after draining.
     private func cancelInFlightRestoresReturningTasks() -> [Task<RestoreOutcome, Never>] {
+        restoreBoundary.invalidate()
         resetGeneration &+= 1
         restoredScopes.removeAll()
         let tasks = Array(inFlight.values)
@@ -280,14 +321,26 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // Coalesce with any in-flight restore for this scope so we never run two
         // merges concurrently against the same store.
         let team = (await teamIDProvider()) ?? ""
-        let scope = "\(account)\u{0}\(team)"
+        let scope = pairedMacBackupScopeKey(account: account, teamID: team.isEmpty ? nil : team)
         let restoreTeam = team.isEmpty ? nil : team
+        await applyPendingLocalDeletes(scope: scope, account: account, teamID: restoreTeam)
+        _ = await flushPendingDeletes(scope: scope, teamID: restoreTeam)
         let task: Task<RestoreOutcome, Never>
         if let existing = inFlight[scope] {
             task = existing
         } else {
             let restore = PairedMacRestore(store: inner, backup: backup)
-            let created = Task { await restore.run(accountID: account, teamID: restoreTeam) }
+            let pendingDeletes = await pendingDeleteIDs(scope: scope)
+            let boundaryGeneration = restoreBoundary.generation
+            let created = Task {
+                await restore.run(
+                    accountID: account,
+                    teamID: restoreTeam,
+                    boundary: restoreBoundary,
+                    boundaryGeneration: boundaryGeneration,
+                    locallyDeletedMacDeviceIDs: pendingDeletes
+                )
+            }
             inFlight[scope] = created
             task = created
         }
@@ -298,7 +351,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // a scope the wipe removed and suppressing a same-launch re-sign-in restore).
         guard resetGeneration == generation else { return }
         inFlight[scope] = nil
-        if outcome.completed { restoredScopes.insert(scope) }
+        if outcome.completed {
+            restoredScopes.insert(scope)
+            await flushPendingDeletes(scope: scope, teamID: restoreTeam)
+        }
     }
 
     // MARK: - Internals
@@ -339,11 +395,19 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
 
     /// Upload the current complete record for one Mac (read back from the local
     /// store so customizations are preserved). Best-effort.
-    private func uploadCurrentRecord(macDeviceID: String, account: String, teamID: String? = nil) async {
+    @discardableResult
+    private func uploadCurrentRecord(
+        macDeviceID: String,
+        account: String,
+        teamID: String? = nil,
+        allowTombstoneRevive: Bool = false
+    ) async -> Bool {
         let team = await resolvedTeam(teamID)
         guard let mac = (try? await inner.loadAll(stackUserID: account, teamID: team))?
-            .first(where: { $0.macDeviceID == macDeviceID }) else { return }
-        await backup.upload(ops: [.upsert(Self.backupRecord(from: mac))], teamID: team)
+            .first(where: { $0.macDeviceID == macDeviceID }) else { return false }
+        let record = Self.backupRecord(from: mac)
+        let op: PairedMacBackupOp = allowTombstoneRevive ? .revive(record) : .upsert(record)
+        return await backup.upload(ops: [op], teamID: team)
     }
 
     /// Run the backup restore once per signed-in (account, team) scope this
@@ -353,16 +417,28 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         guard let account = stackUserID, !account.isEmpty else { return }
         lastSignedInAccount = account
         let team = (await teamIDProvider()) ?? ""
-        let scope = "\(account)\u{0}\(team)"
-        if restoredScopes.contains(scope) { return }
+        let scope = pairedMacBackupScopeKey(account: account, teamID: team.isEmpty ? nil : team)
         let restoreTeam = team.isEmpty ? nil : team
+        await applyPendingLocalDeletes(scope: scope, account: account, teamID: restoreTeam)
+        _ = await flushPendingDeletes(scope: scope, teamID: restoreTeam)
+        if restoredScopes.contains(scope) { return }
 
         let task: Task<RestoreOutcome, Never>
         if let existing = inFlight[scope] {
             task = existing
         } else {
             let restore = PairedMacRestore(store: inner, backup: backup)
-            let created = Task { await restore.run(accountID: account, teamID: restoreTeam) }
+            let pendingDeletes = await pendingDeleteIDs(scope: scope)
+            let boundaryGeneration = restoreBoundary.generation
+            let created = Task {
+                await restore.run(
+                    accountID: account,
+                    teamID: restoreTeam,
+                    boundary: restoreBoundary,
+                    boundaryGeneration: boundaryGeneration,
+                    locallyDeletedMacDeviceIDs: pendingDeletes
+                )
+            }
             inFlight[scope] = created
             task = created
         }
@@ -373,6 +449,65 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // scope the wipe removed, suppressing a same-launch re-sign-in restore).
         guard resetGeneration == generation else { return }
         inFlight[scope] = nil
-        if outcome.completed { restoredScopes.insert(scope) }
+        if outcome.completed {
+            restoredScopes.insert(scope)
+            await flushPendingDeletes(scope: scope, teamID: restoreTeam)
+        }
     }
+
+    private func pendingDeleteIDs(scope: String) async -> Set<String> {
+        if let ids = pendingDeleteIDsByScope[scope] { return ids }
+        let ids = await pendingDeleteStore.load(scope: scope)
+        pendingDeleteIDsByScope[scope] = ids
+        return ids
+    }
+
+    private func savePendingDeleteIDs(_ ids: Set<String>, scope: String) async {
+        pendingDeleteIDsByScope[scope] = ids
+        await pendingDeleteStore.save(ids, scope: scope)
+    }
+
+    private func addPendingDelete(macDeviceID: String, scope: String) async {
+        let trimmed = macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        var ids = await pendingDeleteIDs(scope: scope)
+        ids.insert(trimmed)
+        await savePendingDeleteIDs(ids, scope: scope)
+    }
+
+    @discardableResult
+    private func clearPendingDelete(macDeviceID: String, account: String, teamID: String?) async -> Bool {
+        let scope = pairedMacBackupScopeKey(account: account, teamID: teamID)
+        return await clearPendingDelete(macDeviceID: macDeviceID, scope: scope)
+    }
+
+    @discardableResult
+    private func clearPendingDelete(macDeviceID: String, scope: String) async -> Bool {
+        var ids = await pendingDeleteIDs(scope: scope)
+        guard ids.remove(macDeviceID) != nil else { return false }
+        await savePendingDeleteIDs(ids, scope: scope)
+        return true
+    }
+
+    private func applyPendingLocalDeletes(scope: String, account: String, teamID: String?) async {
+        let ids = await pendingDeleteIDs(scope: scope)
+        guard !ids.isEmpty else { return }
+        for macDeviceID in ids {
+            try? await inner.remove(macDeviceID: macDeviceID, stackUserID: account, teamID: teamID)
+        }
+    }
+
+    @discardableResult
+    private func flushPendingDeletes(scope: String, teamID: String?) async -> Set<String> {
+        let ids = await pendingDeleteIDs(scope: scope)
+        guard !ids.isEmpty else { return ids }
+        let ops = ids.sorted().map { PairedMacBackupOp.delete(macDeviceID: $0) }
+        guard await backup.upload(ops: ops, teamID: teamID) else { return ids }
+        await savePendingDeleteIDs([], scope: scope)
+        return []
+    }
+}
+
+private func pairedMacBackupScopeKey(account: String, teamID: String?) -> String {
+    "\(account)\u{0}\(teamID ?? "")"
 }

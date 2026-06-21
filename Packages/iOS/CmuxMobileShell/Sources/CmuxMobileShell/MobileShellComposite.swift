@@ -556,6 +556,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private let runtime: (any MobileSyncRuntime)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    private let pairedMacRestoreBoundary: PairedMacRestoreBoundary?
     /// Best-effort, team-scoped lookup of fresher attach routes from the device
     /// registry. Optional and failure-tolerant: when `nil` or unreachable,
     /// reconnect uses the locally persisted paired-Mac routes, so pairing
@@ -790,6 +791,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingCode: String = "",
         workspaces: [MobileWorkspacePreview] = [],
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
+        pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
@@ -809,6 +811,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.runtime = runtime
         self.draftStore = draftStore
         self.pairedMacStore = pairedMacStore
+        self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
         self.presence = presence
         self.identityProvider = identityProvider
@@ -1006,8 +1009,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // across this sign-out cannot resume — possibly authorized with the next
         // account's live token — and write rows for the previous account. The
         // local store is intentionally retained (scoped per user) for a
-        // same-account re-sign-in restore. Fire-and-forget: signOut is sync.
-        if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
+        // same-account re-sign-in restore. Invalidate the shared boundary
+        // synchronously first; the actor cleanup below is still fire-and-forget
+        // because signOut is sync.
+        pairedMacRestoreBoundary?.invalidate()
+        if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             Task { await refresher.cancelInFlightRestores() }
         }
         rawTerminalInputBuffer.clear()
@@ -1080,8 +1086,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
-        // Fire-and-forget (this method is sync); does not wipe the local store.
-        if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
+        // Invalidate the shared boundary synchronously first; actor cleanup is
+        // fire-and-forget (this method is sync) and does not wipe the local store.
+        pairedMacRestoreBoundary?.invalidate()
+        if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             Task { await refresher.cancelInFlightRestores() }
         }
         // Lazy display: clear the stale old-team lists; the next loadPairedMacs() /
@@ -1497,7 +1505,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
         // this a stale port makes the auto-connect fail and the app falls back to
         // the Mac picker, the screen we want to avoid showing.
-        if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
+        if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
         guard await isScopeCurrent(scope) else {
@@ -2279,7 +2287,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // surface a Mac (a freshly restored secondary) that the in-memory
         // `pairedMacs` cache has not loaded yet; gating on that cache would no-op
         // the open and strand the user on a workspace whose Mac never connected.
-        if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
+        if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: identityProvider?.currentUserID)
         }
         let scope = await currentScopeSnapshot()
@@ -3058,7 +3066,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let scope = await currentScopeSnapshot() else { return }
         // Pull the authoritative backup first so a secondary Mac that relaunched
         // on a new port has its route refreshed before we (re)connect.
-        if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
+        if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
         guard await isAggregationScopeValid(scope) else { return }
@@ -3120,6 +3128,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let macID = mac.macDeviceID
         guard secondaryMacSubscriptions[macID] == nil else { return }
         guard let handle = await makeSecondaryClient(for: mac) else {
+            guard await isAggregationScopeValid(scope) else { return }
             markSecondaryMacUnavailable(macID)
             return
         }
@@ -3711,6 +3720,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         reportedViewportSizesByTerminalKey[key] = viewportSize
     }
 
+    /// Open the workspace preview, switching the foreground Mac first when the workspace belongs to another paired Mac.
     public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
         let workspace = workspaces.first { $0.id == id }
         let remoteWorkspaceID = workspace?.rpcWorkspaceID ?? id
