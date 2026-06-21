@@ -202,11 +202,8 @@ public struct TerminalLetterboxGeometry {
         return local.intersection(CGRect(origin: .zero, size: renderRect.size))
     }
 
-    /// Cover rect, in the host view's coordinate space, that blanks the bottom
-    /// guard rows plus any slack below them. The local scroll renderer can briefly
-    /// leave stale glyphs in the final row while live output advances, so the
-    /// visual clip must cover whole terminal rows, not just the sub-cell
-    /// spare strip used by the backing renderer.
+    /// Cover rect, in the host view's coordinate space, that blanks only the
+    /// hidden overscan and slack below the visible terminal viewport.
     public static func bottomOverscanCoverRect(
         bounds: CGSize,
         visibleRenderRect: CGRect,
@@ -217,9 +214,7 @@ public struct TerminalLetterboxGeometry {
         guard bounds.width > 0, bounds.height > 0, !visibleRenderRect.isEmpty else {
             return .zero
         }
-        let rowHeight = max(1, cellPixelSize.height / max(scale, 1))
-        let guardHeight = (CGFloat(max(0, guardRows)) + 0.5) * rowHeight
-        let coverTop = min(max(0, visibleRenderRect.maxY - guardHeight), bounds.height)
+        let coverTop = min(max(0, visibleRenderRect.maxY), bounds.height)
         return CGRect(
             x: 0,
             y: coverTop,

@@ -40,29 +40,21 @@ public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
         try JSONDecoder().decode(Self.self, from: data)
     }
 
-    /// The live terminal event as a viewport-delta envelope.
+    /// The live terminal event as a typed render-grid envelope.
     ///
-    /// New hosts emit the typed envelope directly. Older hosts emitted a wrapped
-    /// or bare render-grid frame; normalize those frames here so the shell's
-    /// downstream output path still handles one protocol shape and never lets a
-    /// live event own scrollback metadata.
-    public static func liveViewportEnvelope(from data: Data) -> MobileTerminalRenderGridEnvelope? {
+    /// New hosts emit typed envelopes directly. Older hosts emitted wrapped or
+    /// bare render-grid frames; normalize those legacy frames as viewport deltas
+    /// so only explicitly typed snapshot events can own scrollback metadata.
+    public static func liveEnvelope(from data: Data) -> MobileTerminalRenderGridEnvelope? {
         if let event = try? decode(data) {
             if event.hasRole {
-                guard let envelope = event.envelope, envelope.role == .viewportDelta else {
-                    return nil
-                }
-                return envelope
-            }
-            if let envelope = event.envelope, envelope.role == .viewportDelta {
-                return envelope
+                return event.envelope
             }
             if let frame = event.frame {
                 return viewportDeltaEnvelope(fromLegacyFrame: frame)
             }
         }
-        if let envelope = try? MobileTerminalRenderGridEnvelope.decode(data),
-           envelope.role == .viewportDelta {
+        if let envelope = try? MobileTerminalRenderGridEnvelope.decode(data) {
             return envelope
         }
         if payloadContainsRole(data) {
@@ -72,6 +64,13 @@ public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
             return viewportDeltaEnvelope(fromLegacyFrame: frame)
         }
         return nil
+    }
+
+    /// Legacy convenience for callers that only accept viewport deltas.
+    public static func liveViewportEnvelope(from data: Data) -> MobileTerminalRenderGridEnvelope? {
+        guard let envelope = liveEnvelope(from: data),
+              envelope.role == .viewportDelta else { return nil }
+        return envelope
     }
 
     private static func payloadContainsRole(_ data: Data) -> Bool {

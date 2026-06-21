@@ -2,10 +2,9 @@ public import Foundation
 
 /// Typed decoder for the `mobile.host.status` RPC result.
 ///
-/// Drives terminal-output transport negotiation: the iOS client prefers the
-/// render-grid transport when the Mac either advertises the render-grid
-/// capability or reports `terminal_fidelity == "render_grid"`, and otherwise
-/// falls back to raw bytes.
+/// Decodes the host status response. Modern iOS terminal rendering is
+/// render-grid only; capability fields are still decoded for diagnostics,
+/// feature gating, and older-host reporting.
 public struct MobileHostStatusResponse: Decodable, Sendable {
     /// Capability identifiers the host advertises (for example
     /// `terminal.render_grid.v1`).

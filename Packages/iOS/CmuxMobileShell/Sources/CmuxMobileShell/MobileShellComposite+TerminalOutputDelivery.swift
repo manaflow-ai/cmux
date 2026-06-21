@@ -4,17 +4,11 @@ import CmuxMobileShellModel
 public import Foundation
 
 extension MobileShellComposite {
-    /// Yield a raw PTY byte chunk to the surface stream, if one is attached.
+    /// Drop legacy raw PTY byte chunks before they can switch an iOS terminal
+    /// surface away from the render-grid display model.
     func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
-        guard !expectsRenderGridTerminalOutput else {
-            MobileDebugLog.anchormux(
-                "sync.raw_bytes.dropped surface=\(surfaceID) reason=render_grid_transport bytes=\(bytes.count)"
-            )
-            return
-        }
-        deliverTerminalOutput(
-            TerminalOutputDelivery(bytes: bytes, replaceable: false),
-            surfaceID: surfaceID
+        MobileDebugLog.anchormux(
+            "sync.raw_bytes.dropped surface=\(surfaceID) reason=render_grid_only bytes=\(bytes.count)"
         )
     }
 

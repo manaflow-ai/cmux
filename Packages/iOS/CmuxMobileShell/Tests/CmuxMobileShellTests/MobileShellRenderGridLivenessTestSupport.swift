@@ -68,7 +68,13 @@ actor LivenessHostRouter {
         var topics: [String]?
     }
 
+    struct ReplayRequestParams: Equatable, Sendable {
+        var maxScrollbackRows: Int?
+        var scrollbackScope: String?
+    }
+
     private var recorded: [RecordedRequest] = []
+    private var replayParams: [ReplayRequestParams] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
@@ -80,17 +86,30 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var terminalFidelity = "render_grid"
 
-    func record(method: String?, topics: [String]?) {
+    func record(method: String?, topics: [String]?, replayParams: ReplayRequestParams?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
+        if method == "mobile.terminal.replay", let replayParams {
+            self.replayParams.append(replayParams)
+        }
     }
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
     }
 
+    func replayRequestParams(at index: Int) -> ReplayRequestParams? {
+        guard replayParams.indices.contains(index) else { return nil }
+        return replayParams[index]
+    }
+
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func setTerminalFidelity(_ terminalFidelity: String) {
+        self.terminalFidelity = terminalFidelity
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -170,7 +189,7 @@ actor LivenessHostRouter {
                 return nil
             }
             return try? Self.resultFrame(id: id, result: [
-                "terminal_fidelity": "render_grid",
+                "terminal_fidelity": terminalFidelity,
                 "capabilities": capabilities,
             ])
         case "mobile.events.subscribe":
@@ -298,8 +317,13 @@ actor LivenessTransport: CmxByteTransport {
             let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
             let method = parsed?["method"] as? String
             let id = parsed?["id"] as? String
-            let topics = (parsed?["params"] as? [String: Any])?["topics"] as? [String]
-            await router.record(method: method, topics: topics)
+            let params = parsed?["params"] as? [String: Any]
+            let topics = params?["topics"] as? [String]
+            let replayParams = LivenessHostRouter.ReplayRequestParams(
+                maxScrollbackRows: (params?["max_scrollback_rows"] as? NSNumber)?.intValue,
+                scrollbackScope: params?[MobileTerminalScrollbackReplayRequest.scopeParameter] as? String
+            )
+            await router.record(method: method, topics: topics, replayParams: replayParams)
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.

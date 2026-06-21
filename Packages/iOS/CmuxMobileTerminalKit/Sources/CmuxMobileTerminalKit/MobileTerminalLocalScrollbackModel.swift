@@ -166,6 +166,19 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         activeScreen == .primary && mirrorHydration.requiresHostHydration
     }
 
+    public mutating func requestsHostHydrationForGesture(rowDelta: Double) -> Bool {
+        guard activeScreen == .primary,
+              canServePrimaryScrollLocally,
+              !hasRequestedFullScrollbackHydration,
+              replayWindow.scrollbackRows == replayWindow.mirrorBudget.defaultReplayRows,
+              rowDelta > 0 else {
+            return false
+        }
+        guard rowOffset - rowDelta <= 0 else { return false }
+        hasRequestedFullScrollbackHydration = true
+        return true
+    }
+
     private let bottomAnchorPolicy: BottomAnchorPolicy
     private let mirrorRetentionPolicy: MirrorRetentionPolicy
 
@@ -182,6 +195,7 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
     private var boundsState: BoundsState = .unobserved
     private var pendingAnchor: PendingAnchor = .none
     private var hasAuthoritativeReplayMetadata = false
+    private var hasRequestedFullScrollbackHydration = false
 
     public init(
         bottomAnchorPolicy: BottomAnchorPolicy = BottomAnchorPolicy(),
@@ -212,6 +226,9 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
             rowOffset = maxRowOffset
         }
         hasAuthoritativeReplayMetadata = self.activeScreen == .primary
+        if scrollbackRows != replayWindow.mirrorBudget.defaultReplayRows {
+            hasRequestedFullScrollbackHydration = scrollbackRows > replayWindow.mirrorBudget.defaultReplayRows
+        }
         mirrorHydration = .unhydrated
         return MetadataResult(
             rowOffset: rowOffset,
@@ -299,5 +316,6 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         boundsState = .unobserved
         pendingAnchor = .none
         hasAuthoritativeReplayMetadata = false
+        hasRequestedFullScrollbackHydration = false
     }
 }

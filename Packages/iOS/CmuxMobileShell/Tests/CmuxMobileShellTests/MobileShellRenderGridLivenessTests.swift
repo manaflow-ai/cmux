@@ -47,6 +47,9 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let replayParams = await router.replayRequestParams(at: 0)
+    #expect(replayParams?.maxScrollbackRows == MobileTerminalScrollbackBudget.fullReplayRows)
+    #expect(replayParams?.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope)
 
     // The Mac pushes a live render-grid event while the subscribe ack is
     // still pending (the server-side subscription from a previous generation
@@ -365,4 +368,24 @@ import Testing
     #expect(currentMacStore.supportsWorkspaceActions)
     #expect(currentMacStore.supportsWorkspaceReadStateActions)
     #expect(currentMacStore.supportsWorkspaceCloseActions)
+}
+
+@MainActor
+@Test func unsupportedTerminalFidelityStillSubscribesRenderGridOnly() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setCapabilities(["events.v1", "terminal.bytes.v1", "terminal.replay.v1"])
+    await router.setTerminalFidelity("ghostty_bytes")
+
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    #expect(
+        store.debugTerminalEventTopicsForTesting() == [
+            "workspace.updated",
+            "terminal.render_grid",
+            "notification.dismissed",
+            "notification.badge",
+        ]
+    )
 }

@@ -8,6 +8,8 @@ public struct MobileTerminalRenderGridEnvelope: Codable, Equatable, Sendable {
         case snapshot
         /// A live viewport delta that must not replace local scrollback history.
         case viewportDelta = "viewport_delta"
+        /// A live full viewport replacement that must not replace scrollback history.
+        case viewportReplacement = "viewport_replacement"
     }
 
     /// Validation failures for invalid render-grid envelope/frame pairings.
@@ -16,6 +18,8 @@ public struct MobileTerminalRenderGridEnvelope: Codable, Equatable, Sendable {
         case snapshotRequiresFullFrame
         /// Viewport delta envelopes must carry a delta frame.
         case viewportDeltaRequiresDeltaFrame
+        /// Viewport replacement envelopes must carry a full frame.
+        case viewportReplacementRequiresFullFrame
     }
 
     /// The semantic role of ``frame``.
@@ -34,6 +38,8 @@ public struct MobileTerminalRenderGridEnvelope: Codable, Equatable, Sendable {
             guard frame.full else { throw ValidationError.snapshotRequiresFullFrame }
         case .viewportDelta:
             guard !frame.full else { throw ValidationError.viewportDeltaRequiresDeltaFrame }
+        case .viewportReplacement:
+            guard frame.full else { throw ValidationError.viewportReplacementRequiresFullFrame }
         }
         self.role = role
         self.frame = frame
@@ -68,6 +74,15 @@ public struct MobileTerminalRenderGridEnvelope: Codable, Equatable, Sendable {
     /// - Throws: ``ValidationError/viewportDeltaRequiresDeltaFrame`` when `frame` is full.
     public static func viewportDelta(_ frame: MobileTerminalRenderGridFrame) throws -> Self {
         try Self(role: .viewportDelta, frame: frame)
+    }
+
+    /// Creates a history-preserving full live viewport replacement envelope.
+    ///
+    /// - Parameter frame: A full render-grid frame.
+    /// - Returns: A viewport-replacement envelope.
+    /// - Throws: ``ValidationError/viewportReplacementRequiresFullFrame`` when `frame` is a delta.
+    public static func viewportReplacement(_ frame: MobileTerminalRenderGridFrame) throws -> Self {
+        try Self(role: .viewportReplacement, frame: frame)
     }
 
     /// Whether this envelope replaces the local mirror's scrollback history.

@@ -326,14 +326,14 @@ struct TerminalLetterboxGeometryTests {
         ) == CGRect(x: 0, y: 0, width: 402, height: 480))
     }
 
-    @Test("bottom overscan cover blanks final guard row and slack below")
-    func bottomOverscanCoverBlanksFinalGuardRowAndSlack() {
+    @Test("bottom overscan cover starts below the visible viewport")
+    func bottomOverscanCoverStartsBelowVisibleViewport() {
         #expect(TerminalLetterboxGeometry.bottomOverscanCoverRect(
             bounds: CGSize(width: 402, height: 700),
             visibleRenderRect: CGRect(x: 0, y: 0, width: 402, height: 480),
             cellPixelSize: CGSize(width: 18, height: 30),
             scale: 3
-        ) == CGRect(x: 0, y: 435, width: 402, height: 265))
+        ) == CGRect(x: 0, y: 480, width: 402, height: 220))
     }
 
     @Test("bottom dock anchors to visible terminal rect instead of hidden spare row")

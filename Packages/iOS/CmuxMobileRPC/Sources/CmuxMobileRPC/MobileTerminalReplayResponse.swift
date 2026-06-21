@@ -3,11 +3,10 @@ public import Foundation
 
 /// Typed decoder for the `mobile.terminal.replay` RPC result.
 ///
-/// Cold-attach / self-heal replay. The Mac prefers a bounded render-grid
-/// snapshot (``renderGrid``); a base64 VT snapshot (``snapshotBase64``) and a
-/// base64 raw byte tail (``dataBase64``) remain compatibility fallbacks for
-/// older hosts. ``sequence`` carries the explicit end sequence when the host
-/// reports one outside the render grid.
+/// Cold-attach / self-heal replay. iOS terminal rendering consumes the bounded
+/// render-grid snapshot (``renderGrid`` or ``renderGridEnvelope``) only.
+/// Legacy byte fields still decode so diagnostics can explain an older or
+/// malformed host response, but they are not display fallbacks.
 public struct MobileTerminalReplayResponse: Decodable, Sendable {
     /// Base64-encoded raw byte tail, the lowest-fidelity fallback.
     public let dataBase64: String?

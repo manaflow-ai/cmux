@@ -189,7 +189,7 @@ import Testing
         #expect(MobileTerminalRenderGridEvent.liveViewportEnvelope(from: Data(json.utf8)) == nil)
     }
 
-    @Test func renderGridEventRejectsTypedSnapshotOnLiveTopic() throws {
+    @Test func renderGridEventAcceptsTypedSnapshotOnLiveTopic() throws {
         let json = """
         {
           "role": "snapshot",
@@ -205,6 +205,34 @@ import Testing
         }
         """
 
+        let envelope = try #require(MobileTerminalRenderGridEvent.liveEnvelope(from: Data(json.utf8)))
+        #expect(envelope.role == .snapshot)
+        #expect(envelope.frame.full)
+        #expect(envelope.ownsScrollback)
+        #expect(MobileTerminalRenderGridEvent.liveViewportEnvelope(from: Data(json.utf8)) == nil)
+    }
+
+    @Test func renderGridEventAcceptsTypedViewportReplacementOnLiveTopic() throws {
+        let json = """
+        {
+          "role": "viewport_replacement",
+          "render_grid": {
+            "format": "cmux.render-grid.v1",
+            "surface_id": "surface-6",
+            "state_seq": 9,
+            "columns": 4,
+            "rows": 1,
+            "full": true,
+            "row_spans": []
+          }
+        }
+        """
+
+        let envelope = try #require(MobileTerminalRenderGridEvent.liveEnvelope(from: Data(json.utf8)))
+        #expect(envelope.role == .viewportReplacement)
+        #expect(envelope.frame.full)
+        #expect(envelope.ownsScrollback == false)
+        #expect(envelope.replayGrid == nil)
         #expect(MobileTerminalRenderGridEvent.liveViewportEnvelope(from: Data(json.utf8)) == nil)
     }
 

@@ -121,6 +121,61 @@ import Testing
     #expect(scroll.rowOffset == 1634)
 }
 
+@Test func topEdgeOfDefaultReplayWindowRequestsHostHydration() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: MobileTerminalScrollbackBudget.defaultReplayRows)
+    _ = model.updateBounds(
+        total: UInt64(MobileTerminalScrollbackBudget.defaultReplayRows + 48),
+        len: 48
+    )
+
+    _ = model.applyGesture(rowDelta: Double(MobileTerminalScrollbackBudget.defaultReplayRows) - 2)
+
+    let requestsHydration = model.requestsHostHydrationForGesture(rowDelta: 3)
+    #expect(requestsHydration)
+}
+
+@Test func defaultReplayWindowRequestsHostHydrationOnlyOnceAtTop() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: MobileTerminalScrollbackBudget.defaultReplayRows)
+    _ = model.updateBounds(
+        total: UInt64(MobileTerminalScrollbackBudget.defaultReplayRows + 48),
+        len: 48
+    )
+
+    _ = model.applyGesture(rowDelta: Double(MobileTerminalScrollbackBudget.defaultReplayRows))
+
+    let firstRequest = model.requestsHostHydrationForGesture(rowDelta: 1)
+    let secondRequest = model.requestsHostHydrationForGesture(rowDelta: 1)
+    #expect(firstRequest)
+    #expect(secondRequest == false)
+}
+
+@Test func fullReplayWindowDoesNotRequestRepeatedHostHydrationAtTop() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: MobileTerminalScrollbackBudget.fullReplayRows)
+    _ = model.updateBounds(
+        total: UInt64(MobileTerminalScrollbackBudget.fullReplayRows + 48),
+        len: 48
+    )
+
+    _ = model.applyGesture(rowDelta: Double(MobileTerminalScrollbackBudget.fullReplayRows))
+
+    let requestsHydration = model.requestsHostHydrationForGesture(rowDelta: 1)
+    #expect(requestsHydration == false)
+}
+
+@Test func smallCompleteReplayWindowDoesNotRequestMoreHostHistoryAtTop() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 12)
+    _ = model.updateBounds(total: 60, len: 48)
+
+    _ = model.applyGesture(rowDelta: 12)
+
+    let requestsHydration = model.requestsHostHydrationForGesture(rowDelta: 1)
+    #expect(requestsHydration == false)
+}
+
 @Test func oneRowMirrorAccountingSlackDoesNotMarkReplayTruncated() {
     var model = MobileTerminalLocalScrollbackModel(
         mirrorRetentionPolicy: .init(accountingSlackRows: 1)

@@ -186,7 +186,11 @@ final class MobileTerminalRenderObserver {
     private func emitRenderGrid(surfaceID: UUID) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
-              let snapshot = surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
+              let snapshot = surface.mobileRenderGridFrame(
+                stateSeq: stateSeq,
+                full: true,
+                scrollbackLines: 0
+              ) else {
             renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
             return
         }
@@ -194,6 +198,7 @@ final class MobileTerminalRenderObserver {
         let previous = renderGridStatesBySurfaceID[surfaceID]
         let nextSignatures = snapshot.frame.rowSignatures()
         let frame: MobileTerminalRenderGridFrame
+        let envelope: MobileTerminalRenderGridEnvelope
         if let previous,
            previous.columns == snapshot.frame.columns,
            previous.rows == snapshot.frame.rows,
@@ -232,14 +237,16 @@ final class MobileTerminalRenderObserver {
                 }
                 frame = deltaFrame
             }
-        } else {
-            guard let fullViewportDelta = try? snapshot.frame.filteredRows(
-                Set(0..<snapshot.frame.rows),
-                full: false
-            ) else {
+            guard let deltaEnvelope = try? MobileTerminalRenderGridEnvelope.viewportDelta(frame) else {
                 return
             }
-            frame = fullViewportDelta
+            envelope = deltaEnvelope
+        } else {
+            frame = snapshot.frame
+            guard let snapshotEnvelope = try? MobileTerminalRenderGridEnvelope.viewportReplacement(frame) else {
+                return
+            }
+            envelope = snapshotEnvelope
         }
 
         renderGridStatesBySurfaceID[surfaceID] = RenderGridState(
@@ -249,12 +256,11 @@ final class MobileTerminalRenderObserver {
             activeScreen: frame.activeScreen,
             rowSignatures: nextSignatures
         )
-        guard let envelope = try? MobileTerminalRenderGridEnvelope.viewportDelta(frame),
-              let payload = try? envelope.jsonObject() else { return }
+        guard let payload = try? envelope.jsonObject() else { return }
         MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)
         #if DEBUG
         cmuxDebugLog(
-            "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) role=viewport_delta full=\(frame.full) " +
+            "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) role=\(envelope.role.rawValue) full=\(frame.full) " +
                 "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) seq=\(frame.stateSeq)"
         )
         #endif

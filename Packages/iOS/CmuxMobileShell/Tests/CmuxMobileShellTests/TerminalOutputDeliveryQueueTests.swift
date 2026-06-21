@@ -25,24 +25,22 @@ import Testing
     let surfaceID = "terminal"
 
     _ = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-    store.debugSetRenderGridTransportForTesting(true)
-    store.deliverTerminalBytes(Data("raw fallback must not clear semantic snapshot".utf8), surfaceID: surfaceID)
+    store.deliverTerminalBytes(Data("legacy bytes must not clear semantic snapshot".utf8), surfaceID: surfaceID)
 
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
 }
 
 @MainActor
-@Test func rawByteTransportInputSeqBehindDoesNotEnterRenderGridWait() async throws {
+@Test func renderGridTransportInputSeqBehindWaitsForRenderGridEvent() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
 
     _ = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-    store.debugSetRenderGridTransportForTesting(false)
     store.debugSetTerminalEventListenerActiveForTesting(true)
 
     store.debugHandleTerminalInputResponseForTesting(terminalSeq: 42, surfaceID: surfaceID)
 
-    #expect(store.debugPendingTerminalOutputSeqForTesting(surfaceID: surfaceID) == nil)
+    #expect(store.debugPendingTerminalOutputSeqForTesting(surfaceID: surfaceID) == 42)
 }
 
 @MainActor
@@ -51,13 +49,13 @@ import Testing
     let surfaceID = "terminal"
 
     var oldIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-    store.deliverTerminalBytes(Data("old-first".utf8), surfaceID: surfaceID)
+    store.deliverTerminalRenderGrid(try testRenderGridEnvelope(surfaceID: surfaceID, seq: 1, text: "old-first"), surfaceID: surfaceID)
     let oldChunk = try #require(await oldIterator.next())
 
     var currentIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-    store.deliverTerminalBytes(Data("new-first".utf8), surfaceID: surfaceID)
+    store.deliverTerminalRenderGrid(try testRenderGridEnvelope(surfaceID: surfaceID, seq: 2, text: "new-first"), surfaceID: surfaceID)
     let currentChunk = try #require(await currentIterator.next())
-    store.deliverTerminalBytes(Data("new-second".utf8), surfaceID: surfaceID)
+    store.deliverTerminalRenderGrid(try testRenderGridEnvelope(surfaceID: surfaceID, seq: 3, text: "new-second"), surfaceID: surfaceID)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: oldChunk.streamToken)
 
@@ -65,7 +63,7 @@ import Testing
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: currentChunk.streamToken)
     let secondChunk = try #require(await currentIterator.next())
-    #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
+    #expect(String(decoding: secondChunk.data, as: UTF8.self).contains("new-second"))
 }
 
 @MainActor
@@ -126,7 +124,7 @@ import Testing
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-    store.debugSetRenderGridTransportForTesting(true)
+    store.debugMarkRenderGridCapabilityForTesting()
     store.debugBeginInitialTerminalReplayForTesting(surfaceID: surfaceID)
 
     store.debugFailInitialTerminalRenderGridReplayForTesting(surfaceID: surfaceID, replaySeq: 10)
@@ -171,7 +169,7 @@ import Testing
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-    store.debugSetRenderGridTransportForTesting(true)
+    store.debugMarkRenderGridCapabilityForTesting()
     store.debugBeginInitialTerminalReplayForTesting(surfaceID: surfaceID)
 
     let deltaFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
@@ -370,6 +368,33 @@ import Testing
 
     #expect(delivered.map(\.frame.stateSeq) == [30])
     #expect(delivered.first?.frame.rowSignatures() != snapshotFrame.rowSignatures())
+}
+
+@Test func terminalRenderSessionDeliversLiveViewportReplacement() throws {
+    let surfaceID = "terminal"
+    var session = TerminalRenderSession()
+    let initialFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 30,
+        columns: 16,
+        rows: 2,
+        text: "initial"
+    )
+    let resizedFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 31,
+        columns: 20,
+        rows: 3,
+        text: "resized"
+    )
+
+    _ = session.receiveSnapshot(try .snapshot(initialFrame))
+    let delivered = session.receiveLive(try .viewportReplacement(resizedFrame))
+
+    #expect(delivered.map(\.role) == [.viewportReplacement])
+    #expect(delivered.first?.frame.full == true)
+    #expect(delivered.first?.frame.columns == 20)
+    #expect(delivered.first?.ownsScrollback == false)
 }
 
 @Test func terminalRenderSessionInvalidatesSnapshotWhenLiveBufferOverflows() throws {
@@ -579,34 +604,34 @@ import Testing
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
     let viewport = TerminalOutputDelivery(bytes: Data("viewport".utf8), replaceable: true)
-    let rawBytes = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
+    let nonreplaceableBytes = TerminalOutputDelivery(bytes: Data("barrier".utf8), replaceable: false)
     let laterViewport = TerminalOutputDelivery(bytes: Data("later viewport".utf8), replaceable: true)
 
     #expect(queue.enqueue(inFlight) == inFlight)
     #expect(queue.enqueue(viewport) == nil)
-    #expect(queue.enqueue(rawBytes) == nil)
+    #expect(queue.enqueue(nonreplaceableBytes) == nil)
     #expect(queue.enqueue(laterViewport) == nil)
 
     #expect(queue.pendingCount == 3)
     #expect(queue.completeInFlight() == viewport)
-    #expect(queue.completeInFlight() == rawBytes)
+    #expect(queue.completeInFlight() == nonreplaceableBytes)
     #expect(queue.completeInFlight() == laterViewport)
     #expect(queue.completeInFlight() == nil)
 }
 
-@Test func terminalOutputQueueDrainsRawFallbackBacklogInOrder() {
+@Test func terminalOutputQueueDrainsNonreplaceableBacklogInOrder() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
 
     #expect(queue.enqueue(inFlight) == inFlight)
     for index in 0..<128 {
-        let delivery = TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
+        let delivery = TerminalOutputDelivery(bytes: Data("barrier-\(index)".utf8), replaceable: false)
         #expect(queue.enqueue(delivery) == nil)
     }
 
     #expect(queue.pendingCount == 128)
     for index in 0..<128 {
-        let expected = TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
+        let expected = TerminalOutputDelivery(bytes: Data("barrier-\(index)".utf8), replaceable: false)
         #expect(queue.completeInFlight() == expected)
     }
     #expect(queue.completeInFlight() == nil)
@@ -637,6 +662,21 @@ import Testing
     #expect(queue.consumeRenderGridOverflowStateSeq() == nil)
     #expect(queue.completeInFlight() == nil)
     #expect(queue.isIdle)
+}
+
+private func testRenderGridEnvelope(
+    surfaceID: String,
+    seq: UInt64,
+    text: String
+) throws -> MobileTerminalRenderGridEnvelope {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: seq,
+        columns: 20,
+        rows: 2,
+        text: text
+    )
+    return try MobileTerminalRenderGridEnvelope.snapshot(frame)
 }
 
 @Test func viewportDeltaEnvelopeIsReplaceableOnlyWhenEveryRowIsCleared() throws {
@@ -714,6 +754,7 @@ import Testing
 
     let snapshot = try MobileTerminalRenderGridEnvelope.snapshot(primaryWithScrollback)
     let delta = try MobileTerminalRenderGridEnvelope.viewportDelta(viewportDelta)
+    let replacement = try MobileTerminalRenderGridEnvelope.viewportReplacement(primaryWithScrollback)
 
     #expect(snapshot.ownsScrollback)
     #expect(snapshot.scrollbackRowsForLocalMirror == 8)
@@ -722,4 +763,7 @@ import Testing
     #expect(!delta.ownsScrollback)
     #expect(delta.scrollbackRowsForLocalMirror == nil)
     #expect(delta.replayGrid == nil)
+    #expect(!replacement.ownsScrollback)
+    #expect(replacement.scrollbackRowsForLocalMirror == nil)
+    #expect(replacement.replayGrid == nil)
 }

@@ -26,6 +26,20 @@ import Testing
     #expect(hydrated.requestsScrollbackHydration == false)
 }
 
+@Test func primaryScrollHydratesHostAtRetainedMirrorEdge() {
+    let decision = MobileTerminalScrollForwardingPolicy().decision(
+        activeScreen: .primary,
+        decouplePrimaryScreenScroll: true,
+        localMirrorCanServePrimaryScroll: true,
+        localMirrorRequiresHydration: false,
+        localMirrorRequestsMoreScrollback: true
+    )
+
+    #expect(decision.appliesLocally)
+    #expect(decision.forwardsToHost)
+    #expect(decision.requestsScrollbackHydration)
+}
+
 @Test func alternateScreenScrollAlwaysForwardsWithoutHistoryHydration() {
     let decision = MobileTerminalScrollForwardingPolicy().decision(
         activeScreen: .alternate,

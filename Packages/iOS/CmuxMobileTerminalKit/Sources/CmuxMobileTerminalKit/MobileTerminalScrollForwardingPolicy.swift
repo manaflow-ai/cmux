@@ -23,7 +23,7 @@ public struct MobileTerminalScrollForwardingPolicy: Sendable {
 
     /// Legacy predicate for whether a primary-screen scroll may apply locally.
     ///
-    /// New call sites should use ``decision(activeScreen:decouplePrimaryScreenScroll:localMirrorCanServePrimaryScroll:localMirrorRequiresHydration:)``
+    /// New call sites should use ``decision(activeScreen:decouplePrimaryScreenScroll:localMirrorCanServePrimaryScroll:localMirrorRequiresHydration:localMirrorRequestsMoreScrollback:)``
     /// so an unhydrated or truncated local mirror falls back to the host.
     /// - Parameter activeScreen: The screen currently rendered by the mobile
     ///   Ghostty mirror.
@@ -37,7 +37,7 @@ public struct MobileTerminalScrollForwardingPolicy: Sendable {
 
     /// Legacy predicate for whether a scroll must be sent to the Mac.
     ///
-    /// New call sites should use ``decision(activeScreen:decouplePrimaryScreenScroll:localMirrorCanServePrimaryScroll:localMirrorRequiresHydration:)``.
+    /// New call sites should use ``decision(activeScreen:decouplePrimaryScreenScroll:localMirrorCanServePrimaryScroll:localMirrorRequiresHydration:localMirrorRequestsMoreScrollback:)``.
     public func shouldForwardToHost(
         activeScreen: MobileTerminalRenderGridFrame.Screen,
         decouplePrimaryScreenScroll: Bool
@@ -49,7 +49,8 @@ public struct MobileTerminalScrollForwardingPolicy: Sendable {
         activeScreen: MobileTerminalRenderGridFrame.Screen,
         decouplePrimaryScreenScroll: Bool,
         localMirrorCanServePrimaryScroll: Bool,
-        localMirrorRequiresHydration: Bool
+        localMirrorRequiresHydration: Bool,
+        localMirrorRequestsMoreScrollback: Bool = false
     ) -> Decision {
         guard activeScreen == .primary else {
             return Decision(
@@ -70,6 +71,13 @@ public struct MobileTerminalScrollForwardingPolicy: Sendable {
                 appliesLocally: false,
                 forwardsToHost: true,
                 requestsScrollbackHydration: localMirrorRequiresHydration
+            )
+        }
+        if localMirrorRequestsMoreScrollback {
+            return Decision(
+                appliesLocally: true,
+                forwardsToHost: true,
+                requestsScrollbackHydration: true
             )
         }
         return Decision(

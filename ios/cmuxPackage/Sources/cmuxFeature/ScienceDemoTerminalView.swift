@@ -58,14 +58,8 @@ private struct ScienceDemoTerminalSurface: UIViewRepresentable {
             task?.cancel()
             task = Task { @MainActor [weak self] in
                 guard let self, let surfaceView else { return }
-                await surfaceView.processOutputAndWait(Self.initialFrame)
-                await surfaceView.processOutputAndWait(Self.historyBlock(start: 1, count: 260))
-                for index in 261...320 {
-                    guard !Task.isCancelled else { return }
-                    try? await Task.sleep(nanoseconds: 18_000_000)
-                    await surfaceView.processOutputAndWait(Self.sampleLine(index))
-                }
-                await surfaceView.processOutputAndWait(Self.footer)
+                guard let envelope = try? Self.snapshotEnvelope() else { return }
+                await surfaceView.processRenderGridEnvelopeAndWait(envelope)
             }
         }
 
@@ -77,47 +71,93 @@ private struct ScienceDemoTerminalSurface: UIViewRepresentable {
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {}
 
-        private static var initialFrame: Data {
-            var text = "\u{1b}[2J\u{1b}[H"
-            text += "\u{1b}[38;5;81mcmux mobile science demo\u{1b}[0m\r\n"
-            text += "\u{1b}[38;5;245mGhostty renderer, local demo feed, no auth, no pairing, no host round trip.\u{1b}[0m\r\n\r\n"
-            text += "\u{1b}[1mexperiment\u{1b}[0m       smooth primary scrollback on iPhone\r\n"
-            text += "\u{1b}[1mobservation\u{1b}[0m     touch scroll stays local until a real TUI alternate screen needs host wheel input\r\n"
-            text += "\u{1b}[1mtransport\u{1b}[0m       canned PTY bytes into the same Ghostty surface used by the live app\r\n\r\n"
-            text += "index  timestamp      signal       value       note\r\n"
-            text += "-----  -------------  -----------  ----------  -----------------------------\r\n"
-            return Data(text.utf8)
-        }
-
-        private static func historyBlock(start: Int, count: Int) -> Data {
-            var data = Data()
-            data.reserveCapacity(count * 96)
-            for index in start..<(start + count) {
-                data.append(sampleLine(index))
-            }
-            return data
-        }
-
-        private static func sampleLine(_ index: Int) -> Data {
-            let signal = ["render", "scroll", "input", "latency", "viewport"][index % 5]
-            let paddedSignal = signal.padding(toLength: 11, withPad: " ", startingAt: 0)
-            let color = [82, 45, 214, 208, 141][index % 5]
-            let value = String(format: "%.3f", Double(index * 37 % 997) / 997.0)
-            let text = String(
-                format: "%5d  T+%05dms    \u{1b}[38;5;%dm%@\u{1b}[0m  %@      primary scrollback sample\r\n",
-                index,
-                index * 70,
-                color,
-                paddedSignal,
-                value
+        private static func snapshotEnvelope() throws -> MobileTerminalRenderGridEnvelope {
+            let columns = 112
+            let visibleRows = 48
+            let allLines = demoLines()
+            let scrollbackLines = Array(allLines.dropLast(visibleRows))
+            let viewportLines = Array(allLines.suffix(visibleRows))
+            let frame = try MobileTerminalRenderGridFrame(
+                surfaceID: "science-demo-terminal",
+                stateSeq: 1,
+                columns: columns,
+                rows: visibleRows,
+                cursor: .init(row: visibleRows - 1, column: 0),
+                styles: demoStyles,
+                rowSpans: rowSpans(for: viewportLines, startingAt: 0),
+                terminalForeground: "#F8F8F2",
+                terminalBackground: "#272822",
+                terminalCursorColor: "#F8F8F2",
+                scrollbackRows: scrollbackLines.count,
+                scrollbackSpans: rowSpans(for: scrollbackLines, startingAt: 0)
             )
-            return Data(text.utf8)
+            return try .snapshot(frame)
         }
 
-        private static var footer: Data {
-            var text = "\r\n\u{1b}[38;5;118mready\u{1b}[0m  320 lines loaded. Drag upward to exercise local scrollback.\r\n"
-            text += "      This screen intentionally bypasses Google sign-in for the demo build.\r\n"
-            return Data(text.utf8)
+        private static var demoStyles: [MobileTerminalRenderGridFrame.Style] {
+            [
+                .default,
+                .init(id: 1, foreground: "#66D9EF", bold: true),
+                .init(id: 2, foreground: "#A6E22E"),
+                .init(id: 3, foreground: "#AE81FF"),
+                .init(id: 4, foreground: "#F92672"),
+                .init(id: 5, foreground: "#E6DB74"),
+                .init(id: 6, foreground: "#75715E"),
+            ]
+        }
+
+        private static func demoLines() -> [(styleID: Int, text: String)] {
+            var lines: [(styleID: Int, text: String)] = [
+                (1, "cmux mobile science demo"),
+                (6, "Ghostty renderer, render-grid feed, no auth, no pairing, no host round trip."),
+                (0, ""),
+                (1, "experiment       smooth primary scrollback on iPhone"),
+                (1, "observation     touch scroll stays local on primary screen"),
+                (1, "transport       semantic render-grid snapshot into the live terminal surface"),
+                (0, ""),
+                (0, "index  timestamp      signal       value       note"),
+                (6, "-----  -------------  -----------  ----------  -----------------------------"),
+            ]
+            for index in 1...320 {
+                lines.append(sampleLine(index))
+            }
+            lines.append((0, ""))
+            lines.append((2, "ready  320 lines loaded. Drag upward to exercise local scrollback."))
+            lines.append((6, "       This screen intentionally bypasses Google sign-in for the demo build."))
+            return lines
+        }
+
+        private static func sampleLine(_ index: Int) -> (styleID: Int, text: String) {
+            let styleIDs = [2, 1, 3, 5, 4]
+            let signalIndex = index % 5
+            let signal = ["render", "scroll", "input", "latency", "viewport"][signalIndex]
+            let paddedSignal = signal.padding(toLength: 11, withPad: " ", startingAt: 0)
+            let value = String(format: "%.3f", Double(index * 37 % 997) / 997.0)
+            return (
+                styleIDs[signalIndex],
+                String(
+                    format: "%5d  T+%05dms    %@  %@      primary scrollback sample",
+                    index,
+                    index * 70,
+                    paddedSignal,
+                    value
+                )
+            )
+        }
+
+        private static func rowSpans(
+            for lines: [(styleID: Int, text: String)],
+            startingAt rowOffset: Int
+        ) -> [MobileTerminalRenderGridFrame.RowSpan] {
+            lines.enumerated().compactMap { index, line in
+                guard !line.text.isEmpty else { return nil }
+                return .init(
+                    row: rowOffset + index,
+                    column: 0,
+                    styleID: line.styleID,
+                    text: line.text
+                )
+            }
         }
     }
 }

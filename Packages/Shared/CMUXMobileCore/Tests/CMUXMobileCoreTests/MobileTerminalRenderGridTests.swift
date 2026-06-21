@@ -576,6 +576,19 @@ import Testing
     #expect(!delta.ownsScrollback)
     #expect(delta.scrollbackRowsForLocalMirror == nil)
     #expect(delta.replayGrid == nil)
+
+    let replacementFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 11,
+        columns: 10,
+        rows: 2,
+        text: "gamma\ndelta"
+    )
+    let replacement = try MobileTerminalRenderGridEnvelope.viewportReplacement(replacementFrame)
+
+    #expect(!replacement.ownsScrollback)
+    #expect(replacement.scrollbackRowsForLocalMirror == nil)
+    #expect(replacement.replayGrid == nil)
 }
 
 @Test func renderGridEnvelopeRejectsAmbiguousFrameRoles() throws {
@@ -594,6 +607,79 @@ import Testing
     #expect(throws: MobileTerminalRenderGridEnvelope.ValidationError.snapshotRequiresFullFrame) {
         _ = try MobileTerminalRenderGridEnvelope.snapshot(deltaFrame)
     }
+    #expect(throws: MobileTerminalRenderGridEnvelope.ValidationError.viewportReplacementRequiresFullFrame) {
+        _ = try MobileTerminalRenderGridEnvelope.viewportReplacement(deltaFrame)
+    }
+}
+
+@Test func viewportReplacementDoesNotDiscardOwnedScrollbackRows() throws {
+    let snapshotFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 20,
+        columns: 12,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "visible-1"),
+            .init(row: 1, column: 0, text: "visible-2"),
+        ],
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old-1"),
+            .init(row: 1, column: 0, text: "old-2"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: snapshotFrame)
+    let replacementFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 21,
+        columns: 10,
+        rows: 2,
+        text: "new-1\nnew-2"
+    )
+
+    snapshot.apply(try .viewportReplacement(replacementFrame))
+
+    #expect(snapshot.totalRows == 4)
+    #expect(snapshot.plainText.contains("old-1"))
+    #expect(snapshot.plainText.contains("new-2"))
+    #expect(snapshot.columns == 10)
+}
+
+@Test func viewportReplacementClearsBlankRowsEvenWhenFullFrameHasNoClearedRows() throws {
+    let snapshotFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 20,
+        columns: 12,
+        rows: 3,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "old-1"),
+            .init(row: 1, column: 0, text: "stale"),
+            .init(row: 2, column: 0, text: "old-3"),
+        ],
+        scrollbackRows: 1,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "history"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: snapshotFrame)
+    let replacementFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 21,
+        columns: 14,
+        rows: 3,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "new-1"),
+            .init(row: 2, column: 0, text: "new-3"),
+        ]
+    )
+
+    snapshot.apply(try .viewportReplacement(replacementFrame))
+
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == [
+        "new-1", "", "new-3",
+    ])
+    #expect(snapshot.plainText.contains("history"))
+    #expect(!snapshot.plainText.contains("stale"))
 }
 
 @Test func renderGridEnvelopeJSONRoundTripsRoleAndFrame() throws {

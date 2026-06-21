@@ -99,42 +99,46 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
         var targetStylesByID = stylesByID(for: frame.activeScreen)
         mergeStyles(frame.styles, into: &targetStylesByID)
         let nextViewportRows = snapshotViewportRows(from: frame, stylesByID: targetStylesByID)
-        let fullViewportReplacement = isFullViewportReplacement(frame)
-        var targetRows = rows(for: frame.activeScreen)
+        let fullViewportReplacement = envelope.role == .viewportReplacement || isFullViewportReplacement(frame)
         let previousTargetVisibleRowCount = visibleRowCount(for: frame.activeScreen)
         let trailingVisibleRowCount = previousTargetVisibleRowCount
-        let canAppendViewport = activeScreen == .primary &&
-            frame.activeScreen == .primary &&
-            frame.columns == columns &&
-            frame.rows == visibleRowCount &&
-            fullViewportReplacement &&
-            !targetRows.isEmpty
+        let previousActiveScreen = activeScreen
+        let previousColumns = columns
+        let previousVisibleRowCount = visibleRowCount
+        mutateRows(for: frame.activeScreen) { targetRows in
+            let canAppendViewport = envelope.role == .viewportDelta &&
+                previousActiveScreen == .primary &&
+                frame.activeScreen == .primary &&
+                frame.columns == previousColumns &&
+                frame.rows == previousVisibleRowCount &&
+                fullViewportReplacement &&
+                !targetRows.isEmpty
 
-        let oldViewportRows = visibleRowsInSnapshot(
-            in: targetRows,
-            rowOffset: snapshotMaxRowOffset(for: targetRows, visibleRowCount: trailingVisibleRowCount),
-            visibleRowCount: trailingVisibleRowCount
-        )
-        if canAppendViewport,
-           let overlap = viewportOverlap(old: oldViewportRows, new: nextViewportRows) {
-            if overlap < nextViewportRows.count {
-                targetRows.append(contentsOf: nextViewportRows.dropFirst(overlap))
+            let oldViewportRows = visibleRowsInSnapshot(
+                in: targetRows,
+                rowOffset: snapshotMaxRowOffset(for: targetRows, visibleRowCount: trailingVisibleRowCount),
+                visibleRowCount: trailingVisibleRowCount
+            )
+            if canAppendViewport,
+               let overlap = viewportOverlap(old: oldViewportRows, new: nextViewportRows) {
+                if overlap < nextViewportRows.count {
+                    targetRows.append(contentsOf: nextViewportRows.dropFirst(overlap))
+                }
+            } else if fullViewportReplacement {
+                mergeFullViewport(
+                    in: &targetRows,
+                    visibleRowCount: trailingVisibleRowCount,
+                    with: nextViewportRows
+                )
+            } else {
+                patchTrailingViewport(
+                    in: &targetRows,
+                    visibleRowCount: frame.rows,
+                    with: nextViewportRows,
+                    changedRows: changedRows(in: frame)
+                )
             }
-        } else if fullViewportReplacement {
-            mergeFullViewport(
-                in: &targetRows,
-                visibleRowCount: trailingVisibleRowCount,
-                with: nextViewportRows
-            )
-        } else {
-            patchTrailingViewport(
-                in: &targetRows,
-                visibleRowCount: frame.rows,
-                with: nextViewportRows,
-                changedRows: changedRows(in: frame)
-            )
         }
-        setRows(targetRows, for: frame.activeScreen)
         setStylesByID(targetStylesByID, for: frame.activeScreen)
 
         surfaceID = frame.surfaceID
@@ -185,14 +189,14 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
         screen == .primary ? primaryRows : alternateRows
     }
 
-    private mutating func setRows(
-        _ rows: [MobileTerminalRenderGridSnapshotRow],
-        for screen: MobileTerminalRenderGridFrame.Screen
+    private mutating func mutateRows(
+        for screen: MobileTerminalRenderGridFrame.Screen,
+        _ body: (inout [MobileTerminalRenderGridSnapshotRow]) -> Void
     ) {
         if screen == .primary {
-            primaryRows = rows
+            body(&primaryRows)
         } else {
-            alternateRows = rows
+            body(&alternateRows)
         }
     }
 
