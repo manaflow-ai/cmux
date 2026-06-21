@@ -67,6 +67,7 @@ public final class ScrollLagProbe {
     }
 
     /// Whether a scroll session is currently in flight.
+    @MainActor
     public var isScrolling: Bool { isScrollingFlag }
 
     /// Awaits the pending mouse-wheel scroll-end debounce task, if any. Test-only
@@ -84,6 +85,15 @@ public final class ScrollLagProbe {
 
     /// Updates scroll state from a scroll-wheel event's momentum phase, arming
     /// or ending the lag-sampling window.
+    ///
+    /// `@MainActor`: the probe's scroll-lag state is touched only from the main
+    /// thread (the legacy `GhosttyApp` did so by convention; `markScrollActivity`
+    /// comes from `scrollWheel(with:)` and `recordTickSample` from the main-queue
+    /// `tick()`). Expressing that as main-actor isolation is what lets the
+    /// debounce `Task { @MainActor }` capture `self` without tripping Swift 6.1's
+    /// region-isolation check, and keeps the mutable accumulators race-free. The
+    /// non-isolated `GhosttyApp` forwarders reach these via `MainActor.assumeIsolated`.
+    @MainActor
     public func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
         // Cancel any pending scroll-end debounce.
         scrollEndTask?.cancel()
@@ -102,31 +112,23 @@ public final class ScrollLagProbe {
             let generation = scrollEndGeneration
             let clock = clock
             let debounce = scrollEndDebounce
-            // SAFETY: this probe is main-thread-confined by contract (the legacy
-            // `GhosttyApp` accessed all scroll-lag state only from main, and the
-            // legacy debounce used `DispatchQueue.main.asyncAfter`). The type is
-            // deliberately non-isolated and non-`Sendable` to mirror that, and
-            // its forwarders on the non-isolated `GhosttyApp` god type are also
-            // non-isolated, so it must NOT become `@MainActor`. The debounce
-            // `Task` is `@MainActor`-isolated so the self-mutating end runs on
-            // main synchronously before the task completes (matching the legacy
-            // timer, which fired on main, and keeping `awaitPendingScrollEnd`
-            // deterministic). `weakSelf` is captured as `nonisolated(unsafe)` so
-            // that bridging the non-isolated caller's `self` into the main-actor
-            // task body does not trip Swift 6.1's region-isolation check; the
-            // contract guarantees the access stays on main, and the body re-reads
-            // the per-arm `generation` so a stale fire is an idempotent no-op.
-            nonisolated(unsafe) weak var weakSelf = self
-            scrollEndTask = Task { @MainActor in
+            // The debounce `Task` is `@MainActor`-isolated, matching this
+            // `@MainActor` method, so the self-mutating end runs on main
+            // synchronously before the task completes (matching the legacy timer,
+            // which fired on main, and keeping `awaitPendingScrollEnd`
+            // deterministic). The body re-reads the per-arm `generation`, so a
+            // stale fire is an idempotent no-op even if the cancel races.
+            scrollEndTask = Task { @MainActor [weak self] in
                 try? await clock.sleep(for: debounce)
                 guard !Task.isCancelled else { return }
-                guard let weakSelf, weakSelf.scrollEndGeneration == generation else { return }
-                weakSelf.endScrollSession()
+                guard let self, self.scrollEndGeneration == generation else { return }
+                self.endScrollSession()
             }
         }
     }
 
     /// Records one tick's render duration while a scroll session is active.
+    @MainActor
     public func recordTickSample(elapsedMs: Double) {
         guard isScrollingFlag else { return }
         sampleCount += 1
@@ -134,6 +136,7 @@ public final class ScrollLagProbe {
         maxMs = max(maxMs, elapsedMs)
     }
 
+    @MainActor
     private func endScrollSession() {
         guard isScrollingFlag else { return }
         isScrollingFlag = false
