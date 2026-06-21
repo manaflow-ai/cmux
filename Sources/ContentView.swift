@@ -10242,6 +10242,7 @@ struct VerticalTabsSidebar: View {
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             targetRowHeight: nil,
             targetLeadingIndent: 0,
+            forcedDropEdge: nil,
             dragAutoScrollController: dragAutoScrollController
         )
     }
@@ -10605,6 +10606,7 @@ struct VerticalTabsSidebar: View {
                                 lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                                 targetRowHeight: nil,
                                 targetLeadingIndent: 0,
+                                forcedDropEdge: nil,
                                 dragAutoScrollController: dragAutoScrollController
                             ))
                     }
@@ -12121,6 +12123,7 @@ struct VerticalTabsSidebar: View {
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
                 targetRowHeight: rowHeight,
                 targetLeadingIndent: targetLeadingIndent,
+                forcedDropEdge: nil,
                 dragAutoScrollController: dragAutoScrollController
             )
         }
@@ -15400,6 +15403,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     @Binding var lastSidebarSelectionIndex: Int?
     let targetRowHeight: CGFloat?
     let targetLeadingIndent: CGFloat
+    let forcedDropEdge: SidebarDropEdge?
     let dragAutoScrollController: SidebarDragAutoScrollController
 
     /// The identity of the workspace being dragged, resolved from this window's
@@ -15602,7 +15606,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         let explicitGroupId = explicitDropTargetGroupId(
             draggedTabId: draggedTabId,
             pointerX: info.location.x,
-            pointerY: targetTabId == nil ? nil : info.location.y,
+            pointerY: plannerPointerY(for: info),
             targetHeight: targetRowHeight
         )
         let usesTopLevelRows = explicitGroupId == nil && defaultUsesTopLevelRows
@@ -15645,7 +15649,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             return false
         }
 
-        guard fromIndex != targetIndex else {
+        guard fromIndex != targetIndex || explicitGroupId != nil else {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
 #endif
@@ -15761,6 +15765,19 @@ struct SidebarTabDropDelegate: DropDelegate {
         return defaultIndicator
     }
 
+    private func plannerPointerY(for info: DropInfo) -> CGFloat? {
+        guard targetTabId != nil else { return nil }
+        guard let forcedDropEdge, let targetRowHeight else {
+            return info.location.y
+        }
+        switch forcedDropEdge {
+        case .top:
+            return 0
+        case .bottom:
+            return targetRowHeight
+        }
+    }
+
     private func workspaceAfter(_ workspaceId: UUID) -> Workspace? {
         guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId }),
               (index + 1) < tabManager.tabs.count else {
@@ -15874,7 +15891,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             explicitDropTargetGroupId(
                 draggedTabId: $0,
                 pointerX: info.location.x,
-                pointerY: targetTabId == nil ? nil : info.location.y,
+                pointerY: plannerPointerY(for: info),
                 targetHeight: targetRowHeight
             )
         }
@@ -15901,13 +15918,13 @@ struct SidebarTabDropDelegate: DropDelegate {
             tabIds: tabIds,
             pinnedTabIds: pinnedTabIds,
             legalInsertionRange: legalInsertionRange,
-            pointerY: targetTabId == nil ? nil : info.location.y,
+            pointerY: plannerPointerY(for: info),
             targetHeight: targetRowHeight
         )
         let nextIndicator = groupScopedBoundaryIndicator(
             defaultIndicator: plannedIndicator,
             explicitGroupId: explicitGroupId,
-            pointerY: targetTabId == nil ? nil : info.location.y,
+            pointerY: plannerPointerY(for: info),
             targetHeight: targetRowHeight
         )
         let nextUsesTopLevelRows = nextIndicator != nil && usesTopLevelRows

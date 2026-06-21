@@ -118,7 +118,20 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         // `workspace.action move_down` on the last ungrouped row would
         // silently absorb it into the group above just because the request
         // resolved to "stay put."
-        if model.tabs.count <= 1 || plan.fromIndex == plan.toIndex {
+        if model.tabs.count <= 1 {
+            return true
+        }
+        if plan.fromIndex == plan.toIndex {
+            guard isDragOperation, explicitGroupId != nil else {
+                return true
+            }
+            let previousOrder = model.tabs.map(\.id)
+            let previousGroupId = model.tabs[plan.fromIndex].groupId
+            applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
+            let currentGroupId = model.tabs.first(where: { $0.id == tabId })?.groupId
+            if currentGroupId != previousGroupId || model.tabs.map(\.id) != previousOrder {
+                host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])
+            }
             return true
         }
 

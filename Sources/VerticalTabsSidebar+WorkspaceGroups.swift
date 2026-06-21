@@ -69,6 +69,7 @@ extension VerticalTabsSidebar {
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
                 targetRowHeight: rowHeight,
                 targetLeadingIndent: 0,
+                forcedDropEdge: nil,
                 dragAutoScrollController: dragAutoScrollController
             )
             let firstMemberReorderDelegate = firstMemberWorkspaceId.map { memberId in
@@ -81,6 +82,7 @@ extension VerticalTabsSidebar {
                     lastSidebarSelectionIndex: lastSidebarSelectionIndex,
                     targetRowHeight: rowHeight,
                     targetLeadingIndent: SidebarWorkspaceGroupingMetrics.memberIndent,
+                    forcedDropEdge: .top,
                     dragAutoScrollController: dragAutoScrollController
                 )
             }

@@ -229,6 +229,32 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func explicitGroupDropAppliesMembershipWhenIndexDoesNotMove() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let dragged = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child1, child2, dragged, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let draggedIndex = try #require(model.tabs.firstIndex { $0.id == dragged.id })
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: draggedIndex,
+            isDragOperation: true,
+            explicitGroupId: groupId
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == groupId)
+    }
+
+    @Test
     func boundaryDropWithoutExplicitGroupStaysTopLevel() throws {
         let (model, host, groups, reorder) = makeWorld()
         _ = host
