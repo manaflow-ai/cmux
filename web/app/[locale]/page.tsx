@@ -189,6 +189,41 @@ function HomeContent() {
               <p className="text-muted">{t("faqAgentsA")}</p>
             </div>
             <div>
+              <p className="font-medium mb-1">{t("faqOrchestrationQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqOrchestrationA", {
+                  teamsLink: (chunks) => (
+                    <Link
+                      href="/docs/agent-integrations/claude-code-teams"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </Link>
+                  ),
+                  omoLink: (chunks) => (
+                    <Link
+                      href="/docs/agent-integrations/oh-my-opencode"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqRemoteQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqRemoteA", {
+                  link: (chunks) => (
+                    <Link href="/docs/ssh" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
               <p className="font-medium mb-1">{t("faqNotificationsQ")}</p>
               <p className="text-muted">
                 {t.rich("faqNotificationsA", {
@@ -206,6 +241,23 @@ function HomeContent() {
               </p>
             </div>
             <div>
+              <p className="font-medium mb-1">{t("faqScriptableQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqScriptableA", {
+                  cliLink: (chunks) => (
+                    <Link href="/docs/api" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                  browserLink: (chunks) => (
+                    <Link href="/docs/browser-automation" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
               <p className="font-medium mb-1">{t("faqShortcutsQ")}</p>
               <p className="text-muted">
                 {t.rich("faqShortcutsA", {
@@ -216,6 +268,18 @@ function HomeContent() {
                   ),
                   link: (chunks) => (
                     <Link href="/docs/keyboard-shortcuts" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">{t("faqSessionsQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqSessionsA", {
+                  link: (chunks) => (
+                    <Link href="/docs/session-restore" className={linkClass}>
                       {chunks}
                     </Link>
                   ),

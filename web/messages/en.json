@@ -60,7 +60,7 @@
       "inAppBrowserDesc": ": split a browser alongside your terminal with a scriptable API",
       "splitPanes": "Split panes",
       "splitPanesDesc": ": horizontal and vertical splits within each tab",
-      "scriptable": "Scriptable",
+      "scriptable": "Programmable",
       "scriptableDesc": ": CLI and socket API for automation and scripting",
       "gpuAccelerated": "GPU-accelerated",
       "gpuAcceleratedDesc": ": powered by libghostty for smooth rendering",
@@ -84,7 +84,15 @@
     "faqTmuxQ": "How does it compare to tmux?",
     "faqTmuxA": "tmux is a terminal multiplexer that runs inside any terminal. cmux is a native macOS app with a GUI: vertical tabs, split panes, an embedded browser, and a socket API are all built in. No config files or prefix keys needed.",
     "faqFreeQ": "Is cmux free?",
-    "faqFreeA": "Yes, cmux is free to use. The source code is available on <link>GitHub</link>."
+    "faqFreeA": "Yes, cmux is free to use. The source code is available on <link>GitHub</link>.",
+    "faqSessionsQ": "Are my sessions saved?",
+    "faqSessionsA": "Yes. cmux restores your windows, workspaces, panes, working directories, and scrollback when you relaunch, and the state survives a full computer restart, not just quitting the app. Agent sessions like Claude Code, Codex, and OpenCode come back too. See <link>session restore</link>.",
+    "faqScriptableQ": "Is cmux programmable?",
+    "faqScriptableA": "Yes. Every action is available through the cmux CLI and a Unix socket: create workspaces, open split panes, send input, read screen contents, take screenshots, and drive the in-app browser. See the <cliLink>CLI reference</cliLink> and <browserLink>browser automation</browserLink> docs.",
+    "faqRemoteQ": "Can I use cmux with remote machines?",
+    "faqRemoteA": "Yes. Open workspaces over SSH and attach to remote tmux sessions, so agents can run on a remote host while you drive them from cmux. See <link>SSH and remote</link>.",
+    "faqOrchestrationQ": "Can cmux orchestrate multiple agents and subagents?",
+    "faqOrchestrationA": "Yes. When an agent spawns subagents or teammates, cmux turns them into native panes and splits instead of hidden background processes. It supports <teamsLink>Claude Code teams</teamsLink> and <omoLink>oh-my-opencode</omoLink> multi-model orchestration, so every agent in a run is visible and controllable."
   },
   "community": {
     "title": "Community",

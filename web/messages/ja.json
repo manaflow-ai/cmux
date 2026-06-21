@@ -60,7 +60,7 @@
       "inAppBrowserDesc": "：スクリプタブルなAPIでターミナルの横にブラウザを分割表示",
       "splitPanes": "分割ペイン",
       "splitPanesDesc": "：各タブ内で水平・垂直に分割",
-      "scriptable": "スクリプタブル",
+      "scriptable": "プログラマブル",
       "scriptableDesc": "：CLIとsocket APIで自動化とスクリプティングが可能",
       "gpuAccelerated": "GPU高速化",
       "gpuAcceleratedDesc": "：libghosttyによるスムーズなレンダリング",
@@ -84,7 +84,15 @@
     "faqTmuxQ": "tmuxとの違いは？",
     "faqTmuxA": "tmuxはどのターミナル内でも動作するターミナルマルチプレクサです。cmuxはGUI付きのネイティブmacOSアプリで、縦タブ、分割ペイン、組み込みブラウザ、socket APIがすべて内蔵されています。設定ファイルやプレフィックスキーは不要です。",
     "faqFreeQ": "cmuxは無料ですか？",
-    "faqFreeA": "はい、cmuxは無料で使えます。ソースコードは<link>GitHub</link>で公開されています。"
+    "faqFreeA": "はい、cmuxは無料で使えます。ソースコードは<link>GitHub</link>で公開されています。",
+    "faqSessionsQ": "セッションは保存されますか？",
+    "faqSessionsA": "はい。cmuxは再起動時にウィンドウ、ワークスペース、ペイン、作業ディレクトリ、スクロールバックを復元します。アプリの終了時だけでなく、コンピュータを完全に再起動した後も状態が維持されます。Claude Code、Codex、OpenCodeなどのエージェントセッションも復帰します。<link>セッション復元</link>をご覧ください。",
+    "faqScriptableQ": "cmuxはプログラム可能ですか？",
+    "faqScriptableA": "はい。すべての操作がcmux CLIとUnixソケットから利用できます。ワークスペースの作成、分割ペインのオープン、入力の送信、画面内容の読み取り、スクリーンショットの取得、アプリ内ブラウザの操作が可能です。<cliLink>CLIリファレンス</cliLink>と<browserLink>ブラウザ自動化</browserLink>のドキュメントをご覧ください。",
+    "faqRemoteQ": "リモートマシンでcmuxを使えますか？",
+    "faqRemoteA": "はい。SSH経由でワークスペースを開き、リモートのtmuxセッションにアタッチできます。エージェントをリモートホストで実行しながら、cmuxから操作できます。<link>SSHとリモート</link>をご覧ください。",
+    "faqOrchestrationQ": "cmuxは複数のエージェントやサブエージェントをオーケストレーションできますか？",
+    "faqOrchestrationA": "はい。エージェントがサブエージェントやチームメイトを起動すると、cmuxはそれらを隠れたバックグラウンドプロセスではなくネイティブのペインや分割として表示します。<teamsLink>Claude Codeチーム</teamsLink>と<omoLink>oh-my-opencode</omoLink>のマルチモデルオーケストレーションに対応しており、実行中のすべてのエージェントが見えて操作できます。"
   },
   "community": {
     "title": "コミュニティ",
