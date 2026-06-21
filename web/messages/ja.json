@@ -92,7 +92,9 @@
     "faqRemoteQ": "リモートマシンでcmuxを使えますか？",
     "faqRemoteA": "はい。SSH経由でワークスペースを開き、リモートのtmuxセッションにアタッチできます。エージェントをリモートホストで実行しながら、cmuxから操作できます。<link>SSHとリモート</link>をご覧ください。",
     "faqOrchestrationQ": "cmuxは複数のエージェントやサブエージェントをオーケストレーションできますか？",
-    "faqOrchestrationA": "はい。エージェントがサブエージェントやチームメイトを起動すると、cmuxはそれらを隠れたバックグラウンドプロセスではなくネイティブのペインや分割として表示します。<teamsLink>Claude Codeチーム</teamsLink>と<omoLink>oh-my-opencode</omoLink>のマルチモデルオーケストレーションに対応しており、実行中のすべてのエージェントが見えて操作できます。"
+    "faqOrchestrationA": "はい。エージェントがサブエージェントやチームメイトを起動すると、cmuxはそれらを隠れたバックグラウンドプロセスではなくネイティブのペインや分割として表示します。<teamsLink>Claude Codeチーム</teamsLink>と<omoLink>oh-my-opencode</omoLink>のマルチモデルオーケストレーションに対応しており、実行中のすべてのエージェントが見えて操作できます。",
+    "faqCustomizeQ": "cmuxをカスタマイズできますか？",
+    "faqCustomizeA": "はい。ターミナルの描画はGhostty設定を使うため、テーマ、フォント、色、カーソルがそのまま反映されます。<path>~/.config/cmux/cmux.json</path>のcmux独自の設定でサイドバー、タブバー、分割ペイン、動作を制御でき、<shortcutsLink>キーボードショートカット</shortcutsLink>もすべて編集可能です。<link>設定</link>をご覧ください。"
   },
   "community": {
     "title": "コミュニティ",

@@ -92,7 +92,9 @@
     "faqRemoteQ": "Can I use cmux with remote machines?",
     "faqRemoteA": "Yes. Open workspaces over SSH and attach to remote tmux sessions, so agents can run on a remote host while you drive them from cmux. See <link>SSH and remote</link>.",
     "faqOrchestrationQ": "Can cmux orchestrate multiple agents and subagents?",
-    "faqOrchestrationA": "Yes. When an agent spawns subagents or teammates, cmux turns them into native panes and splits instead of hidden background processes. It supports <teamsLink>Claude Code teams</teamsLink> and <omoLink>oh-my-opencode</omoLink> multi-model orchestration, so every agent in a run is visible and controllable."
+    "faqOrchestrationA": "Yes. When an agent spawns subagents or teammates, cmux turns them into native panes and splits instead of hidden background processes. It supports <teamsLink>Claude Code teams</teamsLink> and <omoLink>oh-my-opencode</omoLink> multi-model orchestration, so every agent in a run is visible and controllable.",
+    "faqCustomizeQ": "Can I customize cmux?",
+    "faqCustomizeA": "Yes. Terminal rendering uses your Ghostty config, so themes, fonts, colors, and cursor carry over directly. cmux's own settings in <path>~/.config/cmux/cmux.json</path> control the sidebar, tab bar, split panes, and behavior, and every <shortcutsLink>keyboard shortcut</shortcutsLink> is editable. See <link>configuration</link>."
   },
   "community": {
     "title": "Community",

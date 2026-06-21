@@ -275,6 +275,28 @@ function HomeContent() {
               </p>
             </div>
             <div>
+              <p className="font-medium mb-1">{t("faqCustomizeQ")}</p>
+              <p className="text-muted">
+                {t.rich("faqCustomizeA", {
+                  path: (chunks) => (
+                    <code className="text-xs bg-code-bg px-1.5 py-0.5 rounded">
+                      {chunks}
+                    </code>
+                  ),
+                  shortcutsLink: (chunks) => (
+                    <Link href="/docs/keyboard-shortcuts" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                  link: (chunks) => (
+                    <Link href="/docs/configuration" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            </div>
+            <div>
               <p className="font-medium mb-1">{t("faqSessionsQ")}</p>
               <p className="text-muted">
                 {t.rich("faqSessionsA", {
