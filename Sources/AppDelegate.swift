@@ -661,7 +661,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // dropped by the window teardown paths); resolve it by
         // `AppDelegate.sidebarSelectionState(for:)` (owner ruling 2026-06-18:
         // per-window state is domain-owned, `WindowID`-keyed).
-        var fileExplorerState: FileExplorerState?
+        // The per-window file-explorer (right-sidebar) state was peeled out of
+        // this aggregate into `AppDelegate.windowFileExplorerStates` (a
+        // `WindowID`-keyed ``CmuxWindowing/WindowScopedStore`` whose slice is
+        // dropped by the window teardown paths); resolve it by
+        // `AppDelegate.fileExplorerState(for:)` (owner ruling 2026-06-18:
+        // per-window state is domain-owned, `WindowID`-keyed). It stays optional
+        // because the lifted field was a lazily-bound `var FileExplorerState?`.
+        // The init still accepts `fileExplorerState` only to forward it into the
+        // window's `MainWindowFocusController` at construction (that controller
+        // is a separate, not-yet-drained per-window field); it is no longer
+        // stored on the aggregate.
         let keyboardFocusCoordinator: MainWindowFocusController
         // The per-window config store was peeled out of this aggregate into
         // `AppDelegate.windowConfigStores` (a `WindowID`-keyed
@@ -683,7 +693,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             self.windowId = windowId
             self.tabManager = tabManager
-            self.fileExplorerState = fileExplorerState
             self.window = window
             self.keyboardFocusCoordinator = MainWindowFocusController(
                 windowId: windowId,
@@ -1287,6 +1296,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let fallback = SidebarState()
         windowSidebarStates.setModel(fallback, for: WindowID(context.windowId))
         return fallback
+    }
+
+    /// Per-window right-sidebar (file-explorer) states, keyed by ``WindowID``
+    /// (peeled out of the rejected `MainWindowContext` aggregate; owner ruling
+    /// 2026-06-18: per-window state is domain-owned and `WindowID`-keyed, never
+    /// bundled into one per-window aggregate). Mirrors ``windowSidebarStates``
+    /// exactly EXCEPT that the slice is OPTIONAL by design: the legacy
+    /// `MainWindowContext.fileExplorerState` was a lazily-bound `var
+    /// FileExplorerState?` (nil until the window's content view seeds it), so an
+    /// absent entry faithfully encodes "no file-explorer state yet" and the
+    /// resolver returns `nil` rather than synthesizing an empty one. Its slice is
+    /// seeded/late-bound at `registerMainWindow` and dropped by the window
+    /// teardown paths (`unregisterMainWindowContext` /
+    /// `discardOrphanedMainWindowContext`), which run for every closing window.
+    /// It deliberately does NOT subscribe to the single-consumer
+    /// `windowCoordinator.windowClosed` stream, which would split close events
+    /// with the teardown loop and starve it.
+    let windowFileExplorerStates = WindowScopedStore<FileExplorerState>()
+
+    /// The per-window ``FileExplorerState`` for `context`, resolved by
+    /// ``WindowID`` through ``windowFileExplorerStates``, or `nil` when the
+    /// window has none yet. Unlike ``sidebarState(for:)`` this has NO empty-state
+    /// fallback: the lifted field was an optional `var FileExplorerState?` that
+    /// was nil until lazily bound, so a missing slice must read back as `nil` to
+    /// preserve that exact semantics (callers already coalesce against the
+    /// active-window mirror or bail on `nil`).
+    func fileExplorerState(for context: MainWindowContext) -> FileExplorerState? {
+        windowFileExplorerStates.model(for: WindowID(context.windowId))
     }
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -3401,9 +3438,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.window = window
             tabManager.windowId = existing.windowId
             existing.window = window
-            let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
+            // `self.` qualifies the seam method: the `fileExplorerState`
+            // parameter shadows the `fileExplorerState(for:)` resolver in this
+            // scope.
+            let resolvedFileExplorerState = fileExplorerState ?? self.fileExplorerState(for: existing)
             if let fileExplorerState {
-                existing.fileExplorerState = fileExplorerState
+                windowFileExplorerStates.setModel(fileExplorerState, for: WindowID(existing.windowId))
             }
             existing.keyboardFocusCoordinator.update(
                 window: window,
@@ -3429,7 +3469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 existing.keyboardFocusCoordinator.update(
                     window: existingWindow,
                     tabManager: existing.tabManager,
-                    fileExplorerState: existing.fileExplorerState
+                    fileExplorerState: self.fileExplorerState(for: existing)
                 )
                 window.orderOut(nil)
                 window.close()
@@ -3438,9 +3478,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.window = window
             tabManager.windowId = windowId
             existing.window = window
-            let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
+            let resolvedFileExplorerState = fileExplorerState ?? self.fileExplorerState(for: existing)
             if let fileExplorerState {
-                existing.fileExplorerState = fileExplorerState
+                windowFileExplorerStates.setModel(fileExplorerState, for: WindowID(existing.windowId))
             }
             existing.keyboardFocusCoordinator.update(
                 window: window,
@@ -3464,6 +3504,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowContexts[key] = context
             windowSidebarStates.setModel(sidebarState, for: WindowID(windowId))
             windowSidebarSelectionStates.setModel(sidebarSelectionState, for: WindowID(windowId))
+            if let fileExplorerState {
+                windowFileExplorerStates.setModel(fileExplorerState, for: WindowID(windowId))
+            }
             if let cmuxConfigStore {
                 windowConfigStores.setModel(cmuxConfigStore, for: WindowID(windowId))
             }
@@ -3510,6 +3553,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         windowSidebarStates.setModel(SidebarState(), for: WindowID(windowId))
         windowSidebarSelectionStates.setModel(SidebarSelectionState(), for: WindowID(windowId))
+        if let fileExplorerState {
+            windowFileExplorerStates.setModel(fileExplorerState, for: WindowID(windowId))
+        }
         if let cmuxConfigStore {
             windowConfigStores.setModel(cmuxConfigStore, for: WindowID(windowId))
         }
@@ -4789,6 +4835,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowConfigStores.remove(WindowID(removed.windowId))
         windowSidebarSelectionStates.remove(WindowID(removed.windowId))
         windowSidebarStates.remove(WindowID(removed.windowId))
+        windowFileExplorerStates.remove(WindowID(removed.windowId))
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
@@ -4812,6 +4859,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowConfigStores.remove(WindowID(context.windowId))
         windowSidebarSelectionStates.remove(WindowID(context.windowId))
         windowSidebarStates.remove(WindowID(context.windowId))
+        windowFileExplorerStates.remove(WindowID(context.windowId))
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
@@ -5139,7 +5187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager = context.tabManager
             sidebarState = sidebarState(for: context)
             sidebarSelectionState = sidebarSelectionState(for: context)
-            fileExplorerState = context.fileExplorerState
+            fileExplorerState = fileExplorerState(for: context)
             TerminalController.shared.setActiveTabManager(context.tabManager)
         }
 #if DEBUG
@@ -5317,7 +5365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        guard let state = context.fileExplorerState ?? fileExplorerState else {
+        guard let state = fileExplorerState(for: context) ?? fileExplorerState else {
             return false
         }
         let wasVisible = state.isVisible
@@ -5338,9 +5386,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let state: FileExplorerState?
         if target.isActiveTarget {
-            state = context?.fileExplorerState ?? fileExplorerState
+            state = context.flatMap { fileExplorerState(for: $0) } ?? fileExplorerState
         } else {
-            state = context?.fileExplorerState
+            state = context.flatMap { fileExplorerState(for: $0) }
         }
         guard let state else {
             return .failure(String(localized: "rightSidebar.remote.error.stateUnavailable", defaultValue: "ERROR: Right sidebar state not available"))
@@ -5445,7 +5493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        guard let state = context.fileExplorerState ?? fileExplorerState else {
+        guard let state = fileExplorerState(for: context) ?? fileExplorerState else {
             return false
         }
         let wasVisible = state.isVisible
@@ -5599,7 +5647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let window = context.window ?? windowForMainWindowId(context.windowId)
 #if DEBUG
         let beforeResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let beforeState = context.fileExplorerState ?? fileExplorerState
+        let beforeState = fileExplorerState(for: context) ?? fileExplorerState
         dlog(
             "rs.focus.app.begin preferred={\(debugWindowToken(preferredWindow))} " +
             "context={\(debugContextToken(context))} targetWin={\(debugWindowToken(window))} " +
@@ -5618,7 +5666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "rs.focus.app.end requested=1 result=\(result ? 1 : 0) " +
-            "mode=\(requestedMode?.rawValue ?? (context.fileExplorerState?.mode.rawValue ?? "nil")) " +
+            "mode=\(requestedMode?.rawValue ?? (fileExplorerState(for: context)?.mode.rawValue ?? "nil")) " +
             "targetWin={\(debugWindowToken(window))} fr=\(afterResponder)"
         )
 #endif
@@ -5650,7 +5698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        guard let state = context?.fileExplorerState ?? fileExplorerState else {
+        guard let state = context.flatMap({ fileExplorerState(for: $0) }) ?? fileExplorerState else {
             return (
                 revealed: false,
                 focusApplied: false,
@@ -6782,7 +6830,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager = context.tabManager
             sidebarState = sidebarState(for: context)
             sidebarSelectionState = sidebarSelectionState(for: context)
-            fileExplorerState = context.fileExplorerState
+            fileExplorerState = fileExplorerState(for: context)
             TerminalController.shared.setActiveTabManager(context.tabManager)
         }
 
@@ -7919,6 +7967,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarStateProvider: { [weak self] context in
                 guard let self else { return SidebarState() }
                 return self.sidebarState(for: context)
+            },
+            fileExplorerStateProvider: { [weak self] context in
+                guard let self else { return nil }
+                return self.fileExplorerState(for: context)
             }
         )
         terminalViewportUITestRecorder?.start()
@@ -11720,7 +11772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager = context.tabManager
         sidebarState = sidebarState(for: context)
         sidebarSelectionState = sidebarSelectionState(for: context)
-        fileExplorerState = context.fileExplorerState
+        fileExplorerState = fileExplorerState(for: context)
         TerminalController.shared.setActiveTabManager(context.tabManager)
     }
 
