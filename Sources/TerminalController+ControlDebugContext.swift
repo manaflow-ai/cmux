@@ -134,6 +134,43 @@ extension TerminalController: ControlDebugContext {
         return .inserted
     }
 
+    func controlDebugSimulateMarkedText(_ text: String) -> ControlDebugTypeResolution {
+        guard let window = debugFocusedTerminalWindow() else { return .noWindow }
+        if Self.socketCommandAllowsInAppFocusMutations() {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
+        guard let client = window.firstResponder as? NSTextInputClient else {
+            return .noFirstResponder
+        }
+        client.setMarkedText(
+            text,
+            selectedRange: NSRange(location: text.utf16.count, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        return .inserted
+    }
+
+    func controlDebugSimulateUnmarkText() -> ControlDebugTypeResolution {
+        guard let window = debugFocusedTerminalWindow() else { return .noWindow }
+        if Self.socketCommandAllowsInAppFocusMutations() {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
+        guard let client = window.firstResponder as? NSTextInputClient else {
+            return .noFirstResponder
+        }
+        client.unmarkText()
+        return .inserted
+    }
+
+    private func debugFocusedTerminalWindow() -> NSWindow? {
+        NSApp.keyWindow
+            ?? NSApp.mainWindow
+            ?? NSApp.windows.first(where: { $0.isVisible })
+            ?? NSApp.windows.first
+    }
+
     // MARK: - debug.textbox.*
 
     func controlDebugTabManagerAvailable() -> Bool {

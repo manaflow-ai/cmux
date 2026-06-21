@@ -76,6 +76,10 @@ extension ControlCommandCoordinator {
             return debugReadTerminalText(request.params)
         case "debug.terminal.render_stats":
             return debugRenderStats(request.params)
+        case "debug.terminal.simulate_marked_text":
+            return debugSimulateMarkedText(request.params)
+        case "debug.terminal.simulate_unmark_text":
+            return debugSimulateUnmarkText(request.params)
         case "debug.layout":
             return debugLayout()
         case "debug.portal.stats":
@@ -203,6 +207,43 @@ extension ControlCommandCoordinator {
             // The legacy body's initial (unreachable) value, kept for the
             // equally unreachable unwired-context case.
             return .err(code: "internal_error", message: "No window", data: nil)
+        }
+    }
+
+    // MARK: - debug.terminal.simulate_marked_text
+
+    /// `debug.terminal.simulate_marked_text` — drive the focused terminal view's
+    /// `NSTextInputClient.setMarkedText` directly so the IME preedit hot path
+    /// (`terminal.setMarkedText`) can be exercised deterministically from tests
+    /// without a real input method. DEBUG-only; mirrors `debug.type`.
+    func debugSimulateMarkedText(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let text = rawString(params, "text") else {
+            return .err(code: "invalid_params", message: "Missing text", data: nil)
+        }
+        switch debugContext?.controlDebugSimulateMarkedText(text) {
+        case .noWindow:
+            return .err(code: "not_found", message: "No window", data: nil)
+        case .noFirstResponder:
+            return .err(code: "not_found", message: "No terminal first responder", data: nil)
+        case .inserted:
+            return .ok(.object([:]))
+        case nil:
+            return .err(code: "internal_error", message: "Debug context unavailable", data: nil)
+        }
+    }
+
+    /// `debug.terminal.simulate_unmark_text` — commit/clear the focused terminal
+    /// view's IME preedit via `unmarkText`, exercising `terminal.unmarkText`.
+    func debugSimulateUnmarkText(_ params: [String: JSONValue]) -> ControlCallResult {
+        switch debugContext?.controlDebugSimulateUnmarkText() {
+        case .noWindow:
+            return .err(code: "not_found", message: "No window", data: nil)
+        case .noFirstResponder:
+            return .err(code: "not_found", message: "No terminal first responder", data: nil)
+        case .inserted:
+            return .ok(.object([:]))
+        case nil:
+            return .err(code: "internal_error", message: "Debug context unavailable", data: nil)
         }
     }
 

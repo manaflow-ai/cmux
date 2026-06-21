@@ -292,6 +292,8 @@ public struct ControlCapabilitiesManifest: Sendable, Equatable {
             "debug.terminal.is_focused",
             "debug.terminal.read_text",
             "debug.terminal.render_stats",
+            "debug.terminal.simulate_marked_text",
+            "debug.terminal.simulate_unmark_text",
             "debug.layout",
             "debug.portal.stats",
             "debug.bonsplit_underflow.count",
