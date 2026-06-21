@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Combine
 import CmuxFoundation
 import CmuxSettings
@@ -438,7 +439,7 @@ final class CmuxSettingsFileStore {
         }
         if let raw = jsonString(section["forkConversationDefaultDestination"]) {
             if let destination = AgentConversationForkDestination(rawValue: raw) {
-                snapshot.managedUserDefaults[AgentConversationForkDefaultSettings.key] = .string(destination.rawValue)
+                snapshot.managedUserDefaults[AgentConversationForkDestination.defaultDestinationDefaultsKey] = .string(destination.rawValue)
             } else {
                 logInvalid("app.forkConversationDefaultDestination", sourcePath: sourcePath)
             }
