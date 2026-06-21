@@ -53,6 +53,7 @@ export const navItems: NavEntry[] = [
   { titleKey: "skills", href: "/docs/skills" },
   { titleKey: "notifications", href: "/docs/notifications" },
   { titleKey: "ssh", href: "/docs/ssh" },
+  { titleKey: "ios", href: "/docs/ios" },
   { titleKey: "remoteTmux", href: "/docs/remote-tmux", locales: remoteTmuxDocsLocales },
   {
     sectionKey: "agentIntegrations",

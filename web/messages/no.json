@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — Terminalen bygget for multitasking",
-    "description": "Nativ macOS-terminal bygget på Ghostty. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-verktøy. Vertikale faner, varselsringer, delte paneler og en socket-API.",
-    "ogDescription": "Nativ macOS-terminal for AI-kodingsagenter. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-verktøy."
+    "description": "Gratis og åpen kildekode nativ macOS-terminal bygget på Ghostty. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-verktøy. Vertikale faner, varselsringer, delte paneler og en socket API.",
+    "ogDescription": "Gratis og åpen kildekode macOS-terminal for AI-kodingsagenter. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-verktøy."
   },
   "common": {
     "downloadForMac": "Last ned for Mac",
@@ -40,13 +40,14 @@
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Språk",
-    "assets": "Ressurser"
+    "assets": "Ressurser",
+    "openSource": "Åpen kildekode"
   },
   "home": {
     "taglinePrefix": "Terminalen bygget for ",
     "typingCodingAgents": "kodeagenter",
     "typingMultitasking": "multitasking",
-    "subtitle": "Nativ macOS-app bygget på Ghostty. Vertikale faner, varselsringer når agenter trenger oppmerksomhet, delte paneler og en <cliLink>CLI</cliLink> for programmerbarhet.",
+    "subtitle": "Gratis og åpen kildekode nativ macOS-terminal bygget på Ghostty. Vertikale faner, varselsringer når agenter trenger oppmerksomhet, delte paneler og en <cliLink>CLI</cliLink> for programmerbarhet.",
     "features": "Funksjoner",
     "faq": "Vanlige spørsmål",
     "communitySection": "Fellesskap",
@@ -59,14 +60,16 @@
       "inAppBrowserDesc": ": del en nettleser ved siden av terminalen med et skriptbart API",
       "splitPanes": "Delte paneler",
       "splitPanesDesc": ": horisontale og vertikale delinger innenfor hver fane",
-      "scriptable": "Skriptbar",
+      "scriptable": "Programmerbar",
       "scriptableDesc": ": CLI og socket-API for automatisering og skripting",
       "gpuAccelerated": "GPU-akselerert",
       "gpuAcceleratedDesc": ": drevet av libghostty for jevn gjengivelse",
       "lightweight": "Lettvekts",
       "lightweightDesc": ": nativ Swift + AppKit, ingen Electron",
       "keyboardShortcuts": "Tastatursnarveier",
-      "keyboardShortcutsDesc": ": <link>omfattende snarveier</link> for arbeidsområder, delinger, nettleser og mer"
+      "keyboardShortcutsDesc": ": <link>omfattende snarveier</link> for arbeidsområder, delinger, nettleser og mer",
+      "openSource": "Åpen kildekode",
+      "openSourceDesc": ": gratis og GPL-lisensiert"
     },
     "faqGhosttyQ": "Hva er forholdet mellom cmux og Ghostty?",
     "faqGhosttyA": "cmux er ikke en fork av Ghostty. Den bruker <link>libghostty</link> som et bibliotek for terminalgjengivelse, på samme måte som apper bruker WebKit for nettvisninger. Ghostty er en frittstående terminal; cmux er en annen app bygget på toppen av gjengivelsesmotoren.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "Hvilke kodeagenter fungerer cmux med?",
     "faqAgentsA": "Alle. cmux er en terminal, så enhver agent som kjører i en terminal fungerer med en gang: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent og alt annet du kan starte fra kommandolinjen.",
     "faqNotificationsQ": "Hvordan fungerer varsler?",
-    "faqNotificationsA": "Når en prosess trenger oppmerksomhet, viser cmux varselsringer rundt paneler, uleste merker i sidefeltet, en varselspopover og et macOS-skrivebordvarsel. Disse utløses automatisk via standard terminal-escape-sekvenser (OSC 9/99/777), eller du kan utløse dem med <cliLink>cmux CLI</cliLink> og <hooksLink>Claude Code hooks</hooksLink>.",
+    "faqNotificationsA": "Når en prosess trenger oppmerksomhet, viser cmux varselsringer rundt panelene, uleste merker i sidefeltet, et varsel-popover og et macOS-skrivebordsvarsel. Disse utløses automatisk via standard terminal-escape-sekvenser (OSC 9/99/777), eller du kan utløse dem med <cliLink>cmux CLI</cliLink> og <hooksLink>agent-hooks</hooksLink>. Enhver agent som støtter hooks eller OSC fungerer, inkludert Claude Code, Codex, OpenCode og pi.",
     "faqShortcutsQ": "Kan jeg tilpasse tastatursnarveier?",
     "faqShortcutsA": "Terminaltastebindinger leses fra Ghostty-konfigurasjonsfilen din (<configPath>~/.config/ghostty/config</configPath>). cmux-spesifikke snarveier (arbeidsområder, delinger, nettleser, varsler) kan tilpasses i Innstillinger. Se <link>standardsnarveiene</link> for en komplett liste.",
     "faqTmuxQ": "Hvordan sammenligner det seg med tmux?",
-    "faqTmuxA": "tmux er en terminalmultiplekser som kjører inne i en hvilken som helst terminal. cmux er en nativ macOS-app med et GUI: vertikale faner, delte paneler, en innebygd nettleser og et socket-API er alle innebygd. Ingen konfigurasjonsfiler eller prefikstaster nødvendig.",
+    "faqTmuxA": "tmux er en terminal-multiplekser som kjører inne i en hvilken som helst terminal. cmux er en nativ macOS-app med et grafisk grensesnitt: vertikale faner, delte paneler, en innebygd nettleser og en socket API, alt innebygd, uten konfigurasjonsfiler eller prefiks-taster. Når det er sagt, kjører mange gjerne cmux sammen med SSH og tmux, og cmux kan koble til de eksterne tmux-øktene dine nativt (<link>beta</link>).",
     "faqFreeQ": "Er cmux gratis?",
-    "faqFreeA": "Ja, cmux er gratis å bruke. Kildekoden er tilgjengelig på <link>GitHub</link>."
+    "faqFreeA": "Ja, cmux er gratis å bruke. Kildekoden er tilgjengelig på <link>GitHub</link>.",
+    "faqSessionsQ": "Blir øktene mine lagret?",
+    "faqSessionsA": "Ja. cmux gjenoppretter vinduer, workspaces, paneler, arbeidskataloger og scrollback når du starter på nytt, og tilstanden overlever en full omstart av datamaskinen, ikke bare det å avslutte appen. Agentøkter som Claude Code, Codex og OpenCode kommer også tilbake. Se <link>øktgjenoppretting</link>.",
+    "faqScriptableQ": "Er cmux programmerbar?",
+    "faqScriptableA": "Ja. Hver handling er tilgjengelig via cmux CLI og en Unix-socket: opprett workspaces, åpne delte paneler, send inndata, les skjerminnhold, ta skjermbilder og styr den innebygde nettleseren. Se <cliLink>CLI-referansen</cliLink> og dokumentasjonen om <browserLink>nettleserautomatisering</browserLink>.",
+    "faqRemoteQ": "Kan jeg bruke cmux med eksterne maskiner?",
+    "faqRemoteA": "Ja. Åpne workspaces over SSH og koble til eksterne tmux-økter, slik at agenter kan kjøre på en ekstern vert mens du styrer dem fra cmux. Se <link>SSH og ekstern</link>.",
+    "faqOrchestrationQ": "Kan cmux orkestrere flere agenter og underagenter?",
+    "faqOrchestrationA": "Ja. Når en agent starter underagenter eller lagkamerater, gjør cmux dem om til native paneler og delinger i stedet for skjulte bakgrunnsprosesser. Den støtter <teamsLink>Claude Code-team</teamsLink> og multimodell-orkestrering med <omoLink>oh-my-opencode</omoLink>, slik at hver agent i en kjøring er synlig og kan styres.",
+    "faqCustomizeQ": "Kan jeg tilpasse cmux?",
+    "faqCustomizeA": "Ja. Terminalgjengivelsen bruker Ghostty-konfigurasjonen din, så temaer, skrifter, farger og markør overføres direkte. cmux sine egne innstillinger i <path>~/.config/cmux/cmux.json</path> styrer sidefeltet, fanelinjen, delte paneler og oppførsel, og hver <shortcutsLink>hurtigtast</shortcutsLink> kan redigeres. Se <link>konfigurasjon</link>.",
+    "faqIosQ": "Finnes det en iOS-app?",
+    "faqIosA": "Ja, i beta. Par iPhonen din med Mac-en fra Mobile Connect-vinduet, og koble deg til terminalene dine fra telefonen, med valgfri videresending av terminalvarsler. Den distribueres på TestFlight som cmux BETA.",
+    "faqSkillsQ": "Har cmux skills?",
+    "faqSkillsA": "Ja. Skills er gjenbrukbare arbeidsflyter du kan gi til enhver agent som kjører i cmux, for ting som CLI-styring, automatisering av arbeidsområdet, innstillinger og nettleserflater. Bla gjennom den åpne samlingen på <skillsLink>cmux-skills</skillsLink>, eller les <link>skills-dokumentasjonen</link>.",
+    "faqBrowserQ": "Hva kan den innebygde nettleseren gjøre?",
+    "faqBrowserA": "cmux kan dele opp et ekte nettleserpanel ved siden av terminalen din, og det er fullt programmerbart: naviger, ta et øyebliksbilde av DOM-en, klikk, skriv, evaluer JavaScript og les konsoll- og nettverksaktivitet over det samme socket API. Agenter bruker det til å verifisere sine egne webendringer uten å forlate cmux. Se <link>nettleserautomatisering</link>.",
+    "faqSupportQ": "Hvordan kan jeg støtte cmux?",
+    "faqSupportA": "cmux er gratis og åpen kildekode, og kommer alltid til å være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer, inkludert cmux AI, iOS-appen og Cloud VMs, sjekk ut <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqFeatureQ": "Jeg har et funksjonsønske eller har funnet en feil",
+    "faqFeatureA": "Vi vil gjerne høre det. Åpne et <issuesLink>issue</issuesLink> eller en <prLink>pull request</prLink> på GitHub, eller <mailLink>send oss en e-post</mailLink>."
   },
   "community": {
     "title": "Fellesskap",
@@ -1389,6 +1412,10 @@
       "configTitle": "cmux.json",
       "configDesc": "Sett de samme standardverdiene i ~/.config/cmux/cmux.json under terminal:",
       "focusNote": "Gjenopprettede økter beholder lagret TextBox-synlighet og fokusstatus. Disse standardverdiene gjelder bare nyopprettede terminalflater."
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode: OpenCode multi-agent i cmux",
+      "metaDescription": "oh-my-opencode (cmux omo) kjører OpenCode CLI med oh-my-openagent-pluginet inne i cmux. Orkestrer Claude, GPT, Gemini og Grok som parallelle agenter, hver i sin egen native cmux-deling."
     }
   },
   "legal": {

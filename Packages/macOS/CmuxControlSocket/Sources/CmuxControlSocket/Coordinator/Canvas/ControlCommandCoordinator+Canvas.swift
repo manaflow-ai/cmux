@@ -295,7 +295,7 @@ extension ControlCommandCoordinator {
 
     // MARK: - Shared resolution mapping
 
-    private func canvasActionResult(_ resolution: ControlCanvasActionResolution) -> ControlCallResult {
+    func canvasActionResult(_ resolution: ControlCanvasActionResolution) -> ControlCallResult {
         switch resolution {
         case .ok(let mode):
             return .ok(.object(["mode": .string(mode)]))
@@ -325,6 +325,12 @@ extension ControlCommandCoordinator {
                     localized: "control.canvas.error.requiresFreeformCanvas",
                     defaultValue: "Command requires freeform canvas layout (run canvas.set_mode with mode=canvas first)"
                 ),
+                data: nil
+            )
+        case .viewportUnavailable:
+            return .err(
+                code: "invalid_state",
+                message: "Canvas viewport is not attached",
                 data: nil
             )
         case .paneNotFound(let id):

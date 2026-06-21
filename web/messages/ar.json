@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — المحطة الطرفية المصممة لتعدد المهام",
-    "description": "محطة طرفية أصلية لنظام macOS مبنية على Ghostty. تعمل مع Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وأي أداة CLI. علامات تبويب عمودية، حلقات إشعارات، أجزاء مقسمة، وواجهة برمجة مقابس.",
-    "ogDescription": "محطة طرفية أصلية لنظام macOS لوكلاء البرمجة بالذكاء الاصطناعي. تعمل مع Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وأي أداة CLI."
+    "description": "محطة طرفية أصلية لنظام macOS مجانية ومفتوحة المصدر مبنية على Ghostty. تعمل مع Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وأي أداة CLI. علامات تبويب عمودية، وحلقات إشعارات، وأجزاء مقسمة، وواجهة برمجة مقابس.",
+    "ogDescription": "محطة طرفية لنظام macOS مجانية ومفتوحة المصدر لوكلاء البرمجة بالذكاء الاصطناعي. تعمل مع Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وأي أداة CLI."
   },
   "common": {
     "downloadForMac": "تحميل لنظام Mac",
@@ -40,13 +40,14 @@
     "nightly": "إصدار ليلي",
     "copyright": "© {year} Manaflow",
     "language": "اللغة",
-    "assets": "الأصول"
+    "assets": "الأصول",
+    "openSource": "مفتوح المصدر"
   },
   "home": {
     "taglinePrefix": "الطرفية المصممة لـ",
     "typingCodingAgents": "وكلاء البرمجة",
     "typingMultitasking": "تعدد المهام",
-    "subtitle": "تطبيق macOS أصلي مبني على Ghostty. علامات تبويب عمودية، حلقات إشعار عندما يحتاج الوكلاء انتباهك، ألواح مقسمة، و<cliLink>CLI</cliLink> للبرمجة.",
+    "subtitle": "محطة طرفية أصلية لنظام macOS مجانية ومفتوحة المصدر مبنية على Ghostty. علامات تبويب عمودية، وحلقات إشعارات عندما يحتاج الوكلاء إلى الانتباه، وأجزاء مقسمة، و<cliLink>واجهة CLI</cliLink> للبرمجة.",
     "features": "الميزات",
     "faq": "الأسئلة الشائعة",
     "communitySection": "المجتمع",
@@ -66,7 +67,9 @@
       "lightweight": "خفيف الوزن",
       "lightweightDesc": ": Swift + AppKit أصلي، بدون Electron",
       "keyboardShortcuts": "اختصارات لوحة المفاتيح",
-      "keyboardShortcutsDesc": ": <link>اختصارات شاملة</link> لمساحات العمل والتقسيمات والمتصفح والمزيد"
+      "keyboardShortcutsDesc": ": <link>اختصارات شاملة</link> لمساحات العمل والتقسيمات والمتصفح والمزيد",
+      "openSource": "مفتوح المصدر",
+      "openSourceDesc": ": مجاني ومرخّص بموجب GPL"
     },
     "faqGhosttyQ": "ما علاقة cmux بـ Ghostty؟",
     "faqGhosttyA": "cmux ليس نسخة معدلة من Ghostty. يستخدم <link>libghostty</link> كمكتبة لعرض الطرفية، بنفس الطريقة التي تستخدم بها التطبيقات WebKit لعرض الويب. Ghostty طرفية مستقلة؛ cmux تطبيق مختلف مبني فوق محرك العرض الخاص بها.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "ما هي وكلاء البرمجة التي يعمل معها cmux؟",
     "faqAgentsA": "جميعها. cmux طرفية، لذا أي وكيل يعمل في الطرفية يعمل مباشرة: Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وGoose وAmp وCline وCursor Agent وأي شيء آخر يمكنك تشغيله من سطر الأوامر.",
     "faqNotificationsQ": "كيف تعمل الإشعارات؟",
-    "faqNotificationsA": "عندما تحتاج عملية ما إلى انتباهك، يعرض cmux حلقات إشعار حول الألواح، وشارات غير مقروءة في الشريط الجانبي، ونافذة إشعارات منبثقة، وإشعار سطح مكتب macOS. تعمل تلقائياً عبر تسلسلات الطرفية القياسية (OSC 9/99/777)، أو يمكنك تشغيلها باستخدام <cliLink>واجهة أوامر cmux</cliLink> و<hooksLink>خطافات Claude Code</hooksLink>.",
+    "faqNotificationsA": "عندما تحتاج عملية ما إلى الانتباه، يعرض cmux حلقات إشعارات حول الأجزاء، وشارات غير مقروءة في الشريط الجانبي، ونافذة منبثقة للإشعارات، وإشعارًا على سطح مكتب macOS. تُطلق هذه الإشعارات تلقائيًا عبر تسلسلات الهروب الطرفية القياسية (OSC 9/99/777)، أو يمكنك تشغيلها باستخدام <cliLink>cmux CLI</cliLink> و<hooksLink>خطافات الوكلاء</hooksLink>. يعمل أي وكيل يدعم الخطافات أو OSC، بما في ذلك Claude Code وCodex وOpenCode وpi.",
     "faqShortcutsQ": "هل يمكنني تخصيص اختصارات لوحة المفاتيح؟",
     "faqShortcutsA": "تُقرأ اختصارات الطرفية من ملف إعدادات Ghostty الخاص بك (<configPath>~/.config/ghostty/config</configPath>). يمكن تخصيص اختصارات cmux الخاصة (مساحات العمل، التقسيمات، المتصفح، الإشعارات) في الإعدادات. راجع <link>الاختصارات الافتراضية</link> للقائمة الكاملة.",
     "faqTmuxQ": "كيف يقارن مع tmux؟",
-    "faqTmuxA": "tmux هو مُضاعف طرفيات يعمل داخل أي طرفية. cmux تطبيق macOS أصلي بواجهة رسومية: علامات تبويب عمودية، ألواح مقسمة، متصفح مدمج، وواجهة مقابس مدمجة. لا حاجة لملفات إعداد أو مفاتيح بادئة.",
+    "faqTmuxA": "tmux هو مُعدِّد طرفيات يعمل داخل أي محطة طرفية. أما cmux فهو تطبيق macOS أصلي بواجهة رسومية: علامات تبويب عمودية، وأجزاء مقسمة، ومتصفح مدمج، وواجهة برمجة مقابس، كلها مدمجة، دون حاجة إلى ملفات إعداد أو مفاتيح بادئة. ومع ذلك، يشغّل الكثير من الناس cmux مع SSH وtmux معًا بسعادة، ويستطيع cmux الاتصال بجلسات tmux البعيدة الخاصة بك بشكل أصلي (<link>بيتا</link>).",
     "faqFreeQ": "هل cmux مجاني؟",
-    "faqFreeA": "نعم، cmux مجاني الاستخدام. الكود المصدري متاح على <link>GitHub</link>."
+    "faqFreeA": "نعم، cmux مجاني الاستخدام. الكود المصدري متاح على <link>GitHub</link>.",
+    "faqSessionsQ": "هل يتم حفظ جلساتي؟",
+    "faqSessionsA": "نعم. يستعيد cmux نوافذك ومساحات العمل والأجزاء وأدلة العمل وسجل التمرير عند إعادة التشغيل، وتبقى الحالة محفوظة حتى بعد إعادة تشغيل الكمبيوتر بالكامل، وليس فقط عند إغلاق التطبيق. وتعود أيضًا جلسات الوكلاء مثل Claude Code وCodex وOpenCode. راجع <link>استعادة الجلسة</link>.",
+    "faqScriptableQ": "هل cmux قابل للبرمجة؟",
+    "faqScriptableA": "نعم. كل إجراء متاح من خلال واجهة cmux CLI ومقبس Unix: إنشاء مساحات العمل، وفتح الأجزاء المقسمة، وإرسال المدخلات، وقراءة محتويات الشاشة، والتقاط لقطات الشاشة، والتحكم في المتصفح المدمج في التطبيق. راجع <cliLink>مرجع CLI</cliLink> ووثائق <browserLink>أتمتة المتصفح</browserLink>.",
+    "faqRemoteQ": "هل يمكنني استخدام cmux مع الأجهزة البعيدة؟",
+    "faqRemoteA": "نعم. افتح مساحات العمل عبر SSH واتصل بجلسات tmux البعيدة، حتى يتمكن الوكلاء من العمل على مضيف بعيد بينما تتحكم بهم من cmux. راجع <link>SSH والأجهزة البعيدة</link>.",
+    "faqOrchestrationQ": "هل يستطيع cmux تنسيق وكلاء ووكلاء فرعيين متعددين؟",
+    "faqOrchestrationA": "نعم. عندما يُنشئ وكيل وكلاء فرعيين أو زملاء، يحوّلهم cmux إلى أجزاء وتقسيمات أصلية بدلاً من عمليات خلفية مخفية. وهو يدعم <teamsLink>فرق Claude Code</teamsLink> وتنسيق النماذج المتعددة في <omoLink>oh-my-opencode</omoLink>، بحيث يكون كل وكيل في عملية تشغيل مرئيًا وقابلاً للتحكم.",
+    "faqCustomizeQ": "هل يمكنني تخصيص cmux؟",
+    "faqCustomizeA": "نعم. يستخدم عرض المحطة الطرفية إعدادات Ghostty الخاصة بك، لذا تنتقل السمات والخطوط والألوان والمؤشر مباشرةً. وتتحكم إعدادات cmux الخاصة في <path>~/.config/cmux/cmux.json</path> في الشريط الجانبي وشريط التبويبات والأجزاء المقسمة والسلوك، وكل <shortcutsLink>اختصار لوحة مفاتيح</shortcutsLink> قابل للتعديل. راجع <link>الإعدادات</link>.",
+    "faqIosQ": "هل يوجد تطبيق iOS؟",
+    "faqIosA": "نعم، في مرحلة تجريبية. اقرن iPhone الخاص بك مع Mac من نافذة Mobile Connect واتصل بطرفياتك من هاتفك، مع إمكانية توجيه إشعارات الطرفية اختيارياً. يُطرح عبر TestFlight باسم cmux BETA.",
+    "faqSkillsQ": "هل يحتوي cmux على مهارات؟",
+    "faqSkillsA": "نعم. المهارات هي سير عمل قابلة لإعادة الاستخدام يمكنك منحها لأي وكيل يعمل في cmux، لأشياء مثل التحكم بـ CLI وأتمتة مساحة العمل والإعدادات وأجزاء المتصفح. تصفّح المجموعة المفتوحة على <skillsLink>cmux-skills</skillsLink>، أو اقرأ <link>وثائق المهارات</link>.",
+    "faqBrowserQ": "ماذا يمكن أن يفعل المتصفح المدمج؟",
+    "faqBrowserA": "يمكن لـ cmux تقسيم جزء متصفح حقيقي بجانب طرفيتك، وهو قابل للبرمجة بالكامل: تصفّح، والتقط لقطة DOM، وانقر، واكتب، ونفّذ JavaScript، واقرأ نشاط وحدة التحكم والشبكة عبر نفس socket API. يستخدمه الوكلاء للتحقق من تغييرات الويب الخاصة بهم دون مغادرة cmux. انظر <link>أتمتة المتصفح</link>.",
+    "faqSupportQ": "كيف يمكنني دعم cmux؟",
+    "faqSupportA": "cmux مجاني ومفتوح المصدر، وسيظل كذلك دائماً. إذا كنت تريد دعم التطوير والحصول على وصول مبكر لما هو قادم، بما في ذلك cmux AI وتطبيق iOS وCloud VMs، فاطّلع على <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqFeatureQ": "لدي طلب ميزة أو وجدت خطأً",
+    "faqFeatureA": "نريد أن نسمعه. افتح <issuesLink>issue</issuesLink> أو <prLink>pull request</prLink> على GitHub، أو <mailLink>راسلنا عبر البريد</mailLink>."
   },
   "community": {
     "title": "المجتمع",
@@ -1389,6 +1412,10 @@
       "configTitle": "cmux.json",
       "configDesc": "اضبط القيم الافتراضية نفسها في ~/.config/cmux/cmux.json ضمن terminal:",
       "focusNote": "تحتفظ الجلسات المستعادة بحالة ظهور TextBox والتركيز المحفوظة. تنطبق هذه القيم الافتراضية فقط على أسطح الطرفية المنشأة حديثًا."
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode: تعدد الوكلاء في OpenCode داخل cmux",
+      "metaDescription": "يشغّل oh-my-opencode (cmux omo) واجهة OpenCode CLI مع إضافة oh-my-openagent داخل cmux. نسّق Claude وGPT وGemini وGrok كوكلاء متوازين، كلٌّ في تقسيم cmux أصلي."
     }
   },
   "legal": {

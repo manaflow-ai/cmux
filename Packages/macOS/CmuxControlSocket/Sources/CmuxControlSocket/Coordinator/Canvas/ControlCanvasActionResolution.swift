@@ -13,6 +13,8 @@ public enum ControlCanvasActionResolution: Sendable, Equatable {
     case notCanvasMode
     /// A freeform canvas-only action was requested outside freeform canvas mode.
     case notFreeformCanvasMode
+    /// The workspace is in canvas mode, but no live viewport is attached.
+    case viewportUnavailable
     case paneNotFound(UUID)
     /// The action needed a target pane but no surface selector was given and
     /// the workspace has no focused panel.
