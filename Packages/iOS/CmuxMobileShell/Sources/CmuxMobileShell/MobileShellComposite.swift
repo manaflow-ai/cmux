@@ -5246,8 +5246,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let attempts = terminalReplayRetryAttemptsBySurfaceID[surfaceID, default: 0]
         guard attempts < 3 else {
+            terminalReplayRetryAttemptsBySurfaceID.removeValue(forKey: surfaceID)
+            terminalReplaySurfaceIDsPendingRetry.remove(surfaceID)
+            cancelTerminalRenderSnapshot(surfaceID: surfaceID, baseSeq: deliveredSeq)
             MobileDebugLog.anchormux(
-                "CMUX_REPLAY retry_abandoned surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)"
+                "CMUX_REPLAY retry_abandoned surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq) action=degraded_live"
             )
             return
         }
