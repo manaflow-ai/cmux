@@ -67,11 +67,11 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
             self.primaryStylesByID = initialStylesByID
             self.alternateStylesByID = styleTable(from: [.default])
         } else {
-            self.primaryRows = []
+            self.primaryRows = snapshotScrollbackRows(from: frame, stylesByID: initialStylesByID)
             self.alternateRows = Array(initialRows.suffix(frame.rows))
             self.primaryVisibleRowCount = 0
             self.alternateVisibleRowCount = frame.rows
-            self.primaryStylesByID = styleTable(from: [.default])
+            self.primaryStylesByID = initialStylesByID
             self.alternateStylesByID = initialStylesByID
         }
     }
@@ -100,9 +100,7 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
         let fullViewportReplacement = isFullViewportReplacement(frame)
         var targetRows = rows(for: frame.activeScreen)
         let previousTargetVisibleRowCount = visibleRowCount(for: frame.activeScreen)
-        let trailingVisibleRowCount = previousTargetVisibleRowCount > 0
-            ? previousTargetVisibleRowCount
-            : frame.rows
+        let trailingVisibleRowCount = previousTargetVisibleRowCount
         let canAppendViewport = activeScreen == .primary &&
             frame.activeScreen == .primary &&
             frame.columns == columns &&
@@ -261,12 +259,19 @@ private func snapshotRows(
     from frame: MobileTerminalRenderGridFrame,
     stylesByID: [Int: MobileTerminalRenderGridFrame.Style]
 ) -> [MobileTerminalRenderGridSnapshotRow] {
-    let scrollback = groupedRows(
+    snapshotScrollbackRows(from: frame, stylesByID: stylesByID) +
+        snapshotViewportRows(from: frame, stylesByID: stylesByID)
+}
+
+private func snapshotScrollbackRows(
+    from frame: MobileTerminalRenderGridFrame,
+    stylesByID: [Int: MobileTerminalRenderGridFrame.Style]
+) -> [MobileTerminalRenderGridSnapshotRow] {
+    groupedRows(
         spans: frame.scrollbackSpans,
         rowCount: frame.scrollbackRows,
         stylesByID: stylesByID
     )
-    return scrollback + snapshotViewportRows(from: frame, stylesByID: stylesByID)
 }
 
 private func snapshotViewportRows(

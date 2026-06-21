@@ -422,6 +422,48 @@ import Testing
     #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == ["shell 3", "shell 4"])
 }
 
+@Test func renderGridAlternateSnapshotPreservesPrimaryScrollbackForTUIExit() throws {
+    let alternateSnapshot = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "vim 1"),
+            .init(row: 1, column: 0, text: "vim 2"),
+        ],
+        activeScreen: .alternate,
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old 1"),
+            .init(row: 1, column: 0, text: "old 2"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: alternateSnapshot)
+
+    #expect(snapshot.activeScreen == .alternate)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["vim 1", "vim 2"])
+
+    let returnedPrimary = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 2,
+        full: false,
+        clearedRows: [0, 1],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "shell 1"),
+            .init(row: 1, column: 0, text: "shell 2"),
+        ]
+    )
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(returnedPrimary))
+
+    #expect(snapshot.activeScreen == .primary)
+    #expect(snapshot.totalRows == 4)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["old 1", "old 2"])
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == ["shell 1", "shell 2"])
+}
+
 @Test func renderGridDeltaClearsOnlyChangedRows() throws {
     let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal-a",
