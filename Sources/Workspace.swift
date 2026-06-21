@@ -3477,7 +3477,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     @discardableResult
     func markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(surfaceId: TabID, tabStripClose: Bool, tabCloseButton: Bool, explicitUserClose: Bool = false) -> Bool {
-        let shouldClose = shouldCloseWorkspaceOnLastSurface(for: surfaceId, tabStripClose: tabStripClose)
+        let shouldClose = (explicitUserClose || tabStripClose) && shouldCloseWorkspaceOnLastSurface(for: surfaceId, tabStripClose: tabStripClose)
         let shouldKeepOpen = shouldKeepWorkspaceOpenOnLastSurface(for: surfaceId, explicitUserClose: explicitUserClose, tabStripClose: tabStripClose)
         remoteTmuxWorkspaceCloseButtonByTabId[surfaceId] = shouldClose ? Optional(tabCloseButton) : nil
         if shouldClose {
@@ -11936,15 +11936,8 @@ extension Workspace: BonsplitDelegate {
             if let remoteTmuxWorkspaceCloseButton {
                 pendingRemoteDisconnectReplacement = nil
                 let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
-                if remoteTmuxWorkspaceCloseButton {
-                    _ = manager?.closeWorkspaceFromTabCloseButton(self)
-                } else {
-                    _ = manager?.closeWorkspaceFromCloseTabGesture(self)
-                }
-                if manager?.tabs.contains(where: { $0.id == id }) == false {
-                    scheduleTerminalGeometryReconcile()
-                    return
-                }
+                let closeRequested = remoteTmuxWorkspaceCloseButton ? (manager?.closeWorkspaceFromTabCloseButton(self) ?? false) : (manager?.closeWorkspaceFromCloseTabGesture(self) ?? false)
+                if closeRequested { scheduleTerminalGeometryReconcile(); return }
                 remoteTmuxKeepWorkspaceOpenAfterSessionEnd = true; isRemoteTmuxMirror = false
                 remoteTmuxWindowMirrors.removeAll()
             }

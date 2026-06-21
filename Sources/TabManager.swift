@@ -2203,33 +2203,27 @@ class TabManager: ObservableObject {
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
             guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-            return true
+            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
-        closeWorkspaceIfRunningProcess(workspace)
-        return true
+        return closeWorkspaceIfRunningProcess(workspace)
     }
 
     @discardableResult
     func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
             guard confirmPinnedWorkspaceClose(source: .tabClose) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-            return true
+            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
-        closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
-        return true
+        return closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
     }
 
     @discardableResult
     func closeWorkspaceFromTabCloseButton(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
             guard confirmPinnedWorkspaceClose(source: .tabCloseButton) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-            return true
+            return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
-        closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton)
-        return true
+        return closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton)
     }
 
     @discardableResult
@@ -2320,7 +2314,7 @@ class TabManager: ObservableObject {
                 }
                 continue
             }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            _ = closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
     }
 
@@ -2525,7 +2519,7 @@ class TabManager: ObservableObject {
         _ workspace: Workspace,
         requiresConfirmation: Bool = true,
         source: CloseConfirmationSource = .workspace
-    ) {
+    ) -> Bool {
         // Anchor-close ALWAYS prompts (subject to its own
         // workspaceGroups.anchorCloseSuppressed flag), regardless of
         // requiresConfirmation. Batch-close paths set requiresConfirmation=false
@@ -2539,9 +2533,7 @@ class TabManager: ObservableObject {
             let otherMemberCount = tabs.reduce(0) { partial, tab in
                 tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
             }
-            if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
-                return
-            }
+            if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) { return false }
         }
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
@@ -2552,7 +2544,7 @@ class TabManager: ObservableObject {
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
                acceptCmdD: willCloseWindow
            ) {
-            return
+            return false
         }
         if tabs.count <= 1 {
             // Last workspace in this window closes via the window-close path, but it
@@ -2571,6 +2563,7 @@ class TabManager: ObservableObject {
         } else {
             closeWorkspace(workspace)
         }
+        return true
     }
 
     private func shouldConfirmClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
