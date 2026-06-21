@@ -1327,6 +1327,23 @@
         }
       }
     },
+    "mobile.computers.presenceConnectedNoHeartbeat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no heartbeat (connected directly)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハートビートなし（直接接続済み）"
+          }
+        }
+      }
+    },
     "mobile.computers.presenceFooter": {
       "extractionState": "manual",
       "localizations": {

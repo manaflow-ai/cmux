@@ -174,8 +174,16 @@ struct MacComputerRow: View {
     /// Diagnostic line: presence (the Mac's own heartbeat) + the route the phone
     /// would dial. Lets the user see "online via presence but phone not connected"
     /// (a tailscale/route problem) and the exact endpoint.
+    ///
+    /// When the phone is CONNECTED to this Mac, the live connection is the liveness
+    /// truth, so a server "presence: unknown" next to "Connected" is contradictory
+    /// noise — drop it and show just the route. Real presence data (online / last
+    /// seen) still shows, and the full presence state is always in the detail sheet.
     private var diagnosticLine: String {
         let route = computer.routeDescription ?? L10n.string("mobile.computers.noRoute", defaultValue: "no route")
+        if isConnected, computer.presence == nil {
+            return route
+        }
         return String(
             format: L10n.string("mobile.computers.diagnosticFormat", defaultValue: "Presence: %@ · %@"),
             presencePhrase, route

@@ -253,6 +253,15 @@ struct MacComputerDetailView: View {
                 }
                 LabeledContent(L10n.string("mobile.computers.field.lastSeen", defaultValue: "Last seen"),
                                value: presence.lastSeenAt.formatted(.relative(presentation: .named)))
+            } else if connectionStatus == .connected {
+                // The phone is connected to this Mac directly, so the lack of a
+                // server heartbeat is not a problem — say so instead of a bare
+                // "unknown" that contradicts the green Connection section above.
+                LabeledContent(
+                    L10n.string("mobile.computers.field.reported", defaultValue: "Reports"),
+                    value: L10n.string(
+                        "mobile.computers.presenceConnectedNoHeartbeat",
+                        defaultValue: "no heartbeat (connected directly)"))
             } else {
                 LabeledContent(L10n.string("mobile.computers.field.reported", defaultValue: "Reports"),
                                value: L10n.string("mobile.computers.presenceUnknown", defaultValue: "unknown"))
