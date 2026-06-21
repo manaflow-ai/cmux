@@ -841,7 +841,7 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
 
 final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     func testFirstEntryPinsToTopAnchor() {
-        let anchor = ContentView.commandPaletteScrollPositionAnchor(
+        let anchor = CommandPaletteSelectionNavigation.scrollPositionAnchor(
             selectedIndex: 0,
             resultCount: 20
         )
@@ -849,7 +849,7 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     }
 
     func testLastEntryPinsToBottomAnchor() {
-        let anchor = ContentView.commandPaletteScrollPositionAnchor(
+        let anchor = CommandPaletteSelectionNavigation.scrollPositionAnchor(
             selectedIndex: 19,
             resultCount: 20
         )
@@ -857,7 +857,7 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     }
 
     func testMiddleEntryUsesNilAnchorForMinimalScroll() {
-        let anchor = ContentView.commandPaletteScrollPositionAnchor(
+        let anchor = CommandPaletteSelectionNavigation.scrollPositionAnchor(
             selectedIndex: 6,
             resultCount: 20
         )
@@ -865,7 +865,7 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     }
 
     func testEmptyResultsProduceNoAnchor() {
-        let anchor = ContentView.commandPaletteScrollPositionAnchor(
+        let anchor = CommandPaletteSelectionNavigation.scrollPositionAnchor(
             selectedIndex: 0,
             resultCount: 0
         )

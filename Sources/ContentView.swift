@@ -312,6 +312,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     /// snapshot-type-aware reads stay here behind
     /// ``CommandPaletteForkableAgentProbeHost`` conformance.
     @State var commandPaletteForkableAgentProbeCoordinator = CommandPaletteForkableAgentProbeCoordinator<ContentView>()
+    /// Owns the command palette's rename and workspace-description flow logic.
+    /// The seed, validate, and apply transitions live in the coordinator; every
+    /// app-target read or write (workspace lookup, title mutation, focus reset,
+    /// present, dismiss, beep, DEBUG log) stays here behind
+    /// ``CommandPaletteEditFlowHost`` conformance.
+    private let commandPaletteEditFlowCoordinator = CommandPaletteEditFlowCoordinator()
     @State private var isCommandPaletteSearchPending = false
     @State private var feedbackComposerCoordinator = FeedbackComposerCoordinator()
     @AppStorage(AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
@@ -2016,7 +2022,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 "palette.wsDescription.request observed={\((observedWindow).commandPaletteWindowDebugSummary)} " +
                 "requested={\((requestedWindow).commandPaletteWindowDebugSummary)} " +
                 "shouldHandle=\(shouldHandle ? 1 : 0) presented=\(isCommandPalettePresented ? 1 : 0) " +
-                "mode=\(debugCommandPaletteModeLabel(commandPalettePresentation.mode))"
+                "mode=\(commandPalettePresentation.mode.debugModeLabel)"
             )
 #endif
             guard shouldHandle else { return }
@@ -2499,7 +2505,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
         .onChange(of: commandPalettePresentation.resultsRevision) { _ in
             let resultIDs = cachedCommandPaletteResults.map(\.id)
-            commandPalettePresentation.selectedResultIndex = Self.commandPaletteResolvedSelectionIndex(
+            commandPalettePresentation.selectedResultIndex = CommandPalettePendingActivation.resolvedSelectionIndex(
                 preferredCommandID: commandPalettePresentation.selectionAnchorCommandID,
                 fallbackSelectedIndex: commandPalettePresentation.selectedResultIndex,
                 resultIDs: resultIDs
@@ -2706,7 +2712,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 #if DEBUG
             cmuxDebugLog(
                 "palette.wsDescription.focus.binding new=\(newValue ? 1 : 0) " +
-                "mode=\(debugCommandPaletteModeLabel(commandPalettePresentation.mode)) " +
+                "mode=\(commandPalettePresentation.mode.debugModeLabel) " +
                 "window={\((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow).commandPaletteWindowDebugSummary)} " +
                 "fr=\(((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder).commandPaletteResponderDebugSummary)"
             )
@@ -3078,9 +3084,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
         let visiblePreviewResultLimit = Self.commandPaletteVisiblePreviewResultLimit
         if preservePendingActivation {
-            commandPalettePresentation.pendingActivation = Self.commandPalettePendingActivation(
-                commandPalettePresentation.pendingActivation,
-                rebasedTo: requestID
+            commandPalettePresentation.pendingActivation = commandPalettePresentation.pendingActivation?.rebased(
+                toRequestID: requestID
             )
         } else {
             commandPalettePresentation.pendingActivation = nil
@@ -3106,8 +3111,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 commandsByID: commandsByID
             )
             let resultIDs = cachedCommandPaletteResults.map(\.id)
-            let pendingActivationResolution = Self.commandPalettePendingActivationResolution(
-                commandPalettePresentation.pendingActivation,
+            let pendingActivationResolution = commandPalettePresentation.pendingActivation.resolution(
                 requestID: requestID,
                 resultIDs: resultIDs
             )
@@ -3233,8 +3237,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                     commandsByID: commandPaletteCoordinator.searchCommandsByID
                 )
                 let resultIDs = cachedCommandPaletteResults.map(\.id)
-                let pendingActivationResolution = Self.commandPalettePendingActivationResolution(
-                    commandPalettePresentation.pendingActivation,
+                let pendingActivationResolution = commandPalettePresentation.pendingActivation.resolution(
                     requestID: requestID,
                     resultIDs: resultIDs
                 )
@@ -5190,106 +5193,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         return min(max(commandPalettePresentation.selectedResultIndex, 0), resultCount - 1)
     }
 
-    static func commandPaletteResolvedSelectionIndex(
-        preferredCommandID: String?,
-        fallbackSelectedIndex: Int,
-        resultIDs: [String]
-    ) -> Int {
-        guard !resultIDs.isEmpty else { return 0 }
-        if let preferredCommandID,
-           let anchoredIndex = resultIDs.firstIndex(of: preferredCommandID) {
-            return anchoredIndex
-        }
-        return min(max(fallbackSelectedIndex, 0), resultIDs.count - 1)
-    }
-
-    static func commandPaletteSelectionAnchorCommandID(
-        selectedIndex: Int,
-        resultIDs: [String]
-    ) -> String? {
-        guard !resultIDs.isEmpty else { return nil }
-        let resolvedIndex = min(max(selectedIndex, 0), resultIDs.count - 1)
-        return resultIDs[resolvedIndex]
-    }
-
-    static func commandPalettePendingActivationRequestID(
-        _ pendingActivation: CommandPalettePendingActivation?
-    ) -> UInt64? {
-        switch pendingActivation {
-        case .selected(let requestID, _, _):
-            return requestID
-        case .command(let requestID, _):
-            return requestID
-        case nil:
-            return nil
-        }
-    }
-
-    static func commandPalettePendingActivation(
-        _ pendingActivation: CommandPalettePendingActivation?,
-        rebasedTo requestID: UInt64
-    ) -> CommandPalettePendingActivation? {
-        switch pendingActivation {
-        case .selected(_, let fallbackSelectedIndex, let preferredCommandID):
-            return .selected(
-                requestID: requestID,
-                fallbackSelectedIndex: fallbackSelectedIndex,
-                preferredCommandID: preferredCommandID
-            )
-        case .command(_, let commandID):
-            return .command(requestID: requestID, commandID: commandID)
-        case nil:
-            return nil
-        }
-    }
-
-    static func commandPaletteResolvedPendingActivation(
-        _ pendingActivation: CommandPalettePendingActivation?,
-        requestID: UInt64,
-        resultIDs: [String]
-    ) -> CommandPaletteResolvedActivation? {
-        switch pendingActivation {
-        case .selected(let activationRequestID, let fallbackSelectedIndex, let preferredCommandID):
-            guard activationRequestID == requestID else { return nil }
-            let resolvedIndex = commandPaletteResolvedSelectionIndex(
-                preferredCommandID: preferredCommandID,
-                fallbackSelectedIndex: fallbackSelectedIndex,
-                resultIDs: resultIDs
-            )
-            return .selected(index: resolvedIndex)
-        case .command(let activationRequestID, let commandID):
-            guard activationRequestID == requestID, resultIDs.contains(commandID) else { return nil }
-            return .command(commandID: commandID)
-        case nil:
-            return nil
-        }
-    }
-
-    static func commandPalettePendingActivationResolution(
-        _ pendingActivation: CommandPalettePendingActivation?,
-        requestID: UInt64,
-        resultIDs: [String]
-    ) -> CommandPalettePendingActivationResolutionResult {
-        CommandPalettePendingActivationResolutionResult(
-            resolvedActivation: commandPaletteResolvedPendingActivation(
-                pendingActivation,
-                requestID: requestID,
-                resultIDs: resultIDs
-            ),
-            shouldClearPendingActivation: commandPalettePendingActivationRequestID(pendingActivation) == requestID
-        )
-    }
-
-    static func commandPaletteScrollPositionAnchor(
-        selectedIndex: Int,
-        resultCount: Int
-    ) -> UnitPoint? {
-        guard resultCount > 0 else { return nil }
-        if selectedIndex <= 0 { return UnitPoint.top }
-        if selectedIndex >= resultCount - 1 { return UnitPoint.bottom }
-        return nil
-    }
-
     private func updateCommandPaletteScrollTarget(resultCount: Int, animated: Bool) {
         guard resultCount > 0 else {
             commandPalettePresentation.scrollTargetIndex = nil
@@ -5298,7 +5201,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
 
         let selectedIndex = commandPaletteSelectedIndex(resultCount: resultCount)
-        commandPalettePresentation.scrollTargetAnchor = Self.commandPaletteScrollPositionAnchor(
+        commandPalettePresentation.scrollTargetAnchor = CommandPaletteSelectionNavigation.scrollPositionAnchor(
             selectedIndex: selectedIndex,
             resultCount: resultCount
         )
@@ -5316,7 +5219,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func syncCommandPaletteSelectionAnchor(resultIDs: [String]) {
-        commandPalettePresentation.selectionAnchorCommandID = Self.commandPaletteSelectionAnchorCommandID(
+        commandPalettePresentation.selectionAnchorCommandID = CommandPaletteSelectionNavigation.selectionAnchorCommandID(
             selectedIndex: commandPalettePresentation.selectedResultIndex,
             resultIDs: resultIDs
         )
@@ -5426,7 +5329,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 NSSound.beep()
                 return
             }
-            let resolvedIndex = Self.commandPaletteResolvedSelectionIndex(
+            let resolvedIndex = CommandPalettePendingActivation.resolvedSelectionIndex(
                 preferredCommandID: commandPalettePresentation.selectionAnchorCommandID,
                 fallbackSelectedIndex: fallbackIndex,
                 resultIDs: cachedCommandPaletteResults.map(\.id)
@@ -5561,35 +5464,35 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func openCommandPaletteRenameTabInput() {
-        if !isCommandPalettePresented {
-            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
-        }
-        beginRenameTabFlow()
+        commandPaletteEditFlowCoordinator.openRenameTabInput(
+            host: self,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func openCommandPaletteRenameWorkspaceInput() {
-        if !isCommandPalettePresented {
-            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
-        }
-        beginRenameWorkspaceFlow()
+        commandPaletteEditFlowCoordinator.openRenameWorkspaceInput(
+            host: self,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func openCommandPaletteWorkspaceDescriptionInput() {
 #if DEBUG
         cmuxDebugLog(
             "palette.wsDescription.open begin presented=\(isCommandPalettePresented ? 1 : 0) " +
-            "mode=\(debugCommandPaletteModeLabel(commandPalettePresentation.mode)) " +
+            "mode=\(commandPalettePresentation.mode.debugModeLabel) " +
             "window={\((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow).commandPaletteWindowDebugSummary)}"
         )
 #endif
-        if !isCommandPalettePresented {
-            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
-        }
-        beginWorkspaceDescriptionFlow()
+        commandPaletteEditFlowCoordinator.openWorkspaceDescriptionInput(
+            host: self,
+            presentation: commandPalettePresentation
+        )
 #if DEBUG
         cmuxDebugLog(
             "palette.wsDescription.open end presented=\(isCommandPalettePresented ? 1 : 0) " +
-            "mode=\(debugCommandPaletteModeLabel(commandPalettePresentation.mode)) " +
+            "mode=\(commandPalettePresentation.mode.debugModeLabel) " +
             "focusFlag=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0)"
         )
 #endif
@@ -6011,19 +5914,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             return "project.detail"
         }
     }
-
-    private func debugCommandPaletteModeLabel(_ mode: CommandPaletteMode) -> String {
-        switch mode {
-        case .commands:
-            return "commands"
-        case .renameInput:
-            return "renameInput"
-        case .renameConfirm:
-            return "renameConfirm"
-        case .workspaceDescriptionInput:
-            return "workspaceDescriptionInput"
-        }
-    }
 #endif
 
     private func resetCommandPaletteSearchFocus() {
@@ -6038,7 +5928,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 #if DEBUG
         cmuxDebugLog(
             "palette.wsDescription.focus.reset schedule presented=\(isCommandPalettePresented ? 1 : 0) " +
-            "mode=\(debugCommandPaletteModeLabel(commandPalettePresentation.mode)) " +
+            "mode=\(commandPalettePresentation.mode.debugModeLabel) " +
             "focusFlag=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0)"
         )
 #endif
@@ -6236,100 +6126,41 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func beginRenameWorkspaceFlow() {
-        guard let workspace = tabManager.selectedWorkspace else {
-            NSSound.beep()
-            return
-        }
-        let target = CommandPaletteRenameTarget(
-            kind: .workspace(workspaceId: workspace.id),
-            currentName: workspaceDisplayName(workspace)
+        commandPaletteEditFlowCoordinator.beginRenameWorkspace(
+            host: self,
+            presentation: commandPalettePresentation
         )
-        startRenameFlow(target)
     }
 
     private func beginWorkspaceDescriptionFlow() {
-        guard let workspace = tabManager.selectedWorkspace else {
-            NSSound.beep()
-            return
-        }
-        let target = CommandPaletteWorkspaceDescriptionTarget(
-            workspaceId: workspace.id,
-            currentDescription: workspace.customDescription ?? ""
+        commandPaletteEditFlowCoordinator.beginWorkspaceDescription(
+            host: self,
+            presentation: commandPalettePresentation
         )
-        startWorkspaceDescriptionFlow(target)
     }
 
     private func beginRenameTabFlow() {
-        guard let panelContext = focusedPanelContext else {
-            NSSound.beep()
-            return
-        }
-        let panelName = panelDisplayName(
-            workspace: panelContext.workspace,
-            panelId: panelContext.panelId,
-            fallback: panelContext.panel.displayTitle
+        commandPaletteEditFlowCoordinator.beginRenameTab(
+            host: self,
+            presentation: commandPalettePresentation
         )
-        let target = CommandPaletteRenameTarget(
-            kind: .tab(workspaceId: panelContext.workspace.id, panelId: panelContext.panelId),
-            currentName: panelName
-        )
-        startRenameFlow(target)
-    }
-
-    private func startRenameFlow(_ target: CommandPaletteRenameTarget) {
-        commandPalettePresentation.renameDraft = target.currentName
-        commandPaletteShouldFocusWorkspaceDescriptionEditor = false
-        commandPalettePresentation.mode = .renameInput(target)
-        resetCommandPaletteRenameFocus()
-        syncCommandPaletteDebugStateForObservedWindow()
-    }
-
-    private func startWorkspaceDescriptionFlow(_ target: CommandPaletteWorkspaceDescriptionTarget) {
-#if DEBUG
-        cmuxDebugLog(
-            "palette.wsDescription.flow.start workspace=\(target.workspaceId.uuidString.prefix(8)) " +
-            "descLen=\((target.currentDescription as NSString).length) " +
-            "presented=\(isCommandPalettePresented ? 1 : 0) " +
-            "modeBefore=\(debugCommandPaletteModeLabel(commandPalettePresentation.mode))"
-        )
-#endif
-        commandPalettePresentation.workspaceDescriptionDraft = target.currentDescription
-        commandPalettePresentation.workspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
-        commandPalettePresentation.pendingTextSelectionBehavior = nil
-        commandPalettePresentation.mode = .workspaceDescriptionInput(target)
-        resetCommandPaletteWorkspaceDescriptionFocus()
-#if DEBUG
-        cmuxDebugLog(
-            "palette.wsDescription.flow.armed workspace=\(target.workspaceId.uuidString.prefix(8)) " +
-            "height=\(String(format: "%.1f", commandPalettePresentation.workspaceDescriptionHeight)) " +
-            "modeAfter=\(debugCommandPaletteModeLabel(commandPalettePresentation.mode))"
-        )
-#endif
-        syncCommandPaletteDebugStateForObservedWindow()
     }
 
     private func continueRenameFlow(target: CommandPaletteRenameTarget) {
-        guard case .renameInput(let activeTarget) = commandPalettePresentation.mode,
-              activeTarget == target else { return }
-        applyRenameFlow(target: target, proposedName: commandPalettePresentation.renameDraft)
+        commandPaletteEditFlowCoordinator.continueRename(
+            target: target,
+            host: self,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func applyRenameFlow(target: CommandPaletteRenameTarget, proposedName: String) {
-        let trimmedName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedName: String? = trimmedName.isEmpty ? nil : trimmedName
-
-        switch target.kind {
-        case .workspace(let workspaceId):
-            tabManager.setCustomTitle(tabId: workspaceId, title: normalizedName)
-        case .tab(let workspaceId, let panelId):
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-                NSSound.beep()
-                return
-            }
-            workspace.setPanelCustomTitle(panelId: panelId, title: normalizedName)
-        }
-
-        dismissCommandPalette()
+        commandPaletteEditFlowCoordinator.applyRename(
+            target: target,
+            proposedName: proposedName,
+            host: self,
+            presentation: commandPalettePresentation
+        )
     }
 
     private func applyWorkspaceDescriptionFlow(
@@ -12192,3 +12023,86 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
 /// Lifted to `CmuxCore.SidebarSelection`; this typealias keeps the unqualified
 /// `SidebarSelection` spelling resolving for app-target consumers.
 typealias SidebarSelection = CmuxCore.SidebarSelection
+
+extension ContentView: CommandPaletteEditFlowHost {
+    var commandPaletteEditFlowIsPresented: Bool { isCommandPalettePresented }
+
+    var commandPaletteEditFlowDefaultWorkspaceDescriptionHeight: CGFloat {
+        CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
+    }
+
+    func commandPaletteEditFlowSelectedWorkspaceRenameTarget() -> CommandPaletteRenameTarget? {
+        guard let workspace = tabManager.selectedWorkspace else { return nil }
+        return CommandPaletteRenameTarget(
+            kind: .workspace(workspaceId: workspace.id),
+            currentName: workspaceDisplayName(workspace)
+        )
+    }
+
+    func commandPaletteEditFlowFocusedTabRenameTarget() -> CommandPaletteRenameTarget? {
+        guard let panelContext = focusedPanelContext else { return nil }
+        let panelName = panelDisplayName(
+            workspace: panelContext.workspace,
+            panelId: panelContext.panelId,
+            fallback: panelContext.panel.displayTitle
+        )
+        return CommandPaletteRenameTarget(
+            kind: .tab(workspaceId: panelContext.workspace.id, panelId: panelContext.panelId),
+            currentName: panelName
+        )
+    }
+
+    func commandPaletteEditFlowSelectedWorkspaceDescriptionTarget() -> CommandPaletteWorkspaceDescriptionTarget? {
+        guard let workspace = tabManager.selectedWorkspace else { return nil }
+        return CommandPaletteWorkspaceDescriptionTarget(
+            workspaceId: workspace.id,
+            currentDescription: workspace.customDescription ?? ""
+        )
+    }
+
+    func commandPaletteEditFlowBeep() {
+        NSSound.beep()
+    }
+
+    func commandPaletteEditFlowSetShouldFocusWorkspaceDescriptionEditor(_ shouldFocus: Bool) {
+        commandPaletteShouldFocusWorkspaceDescriptionEditor = shouldFocus
+    }
+
+    func commandPaletteEditFlowResetRenameFocus() {
+        resetCommandPaletteRenameFocus()
+    }
+
+    func commandPaletteEditFlowResetWorkspaceDescriptionFocus() {
+        resetCommandPaletteWorkspaceDescriptionFocus()
+    }
+
+    func commandPaletteEditFlowSyncDebugState() {
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    func commandPaletteEditFlowPresent() {
+        presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+    }
+
+    func commandPaletteEditFlowDismiss() {
+        dismissCommandPalette()
+    }
+
+    func commandPaletteEditFlowSetWorkspaceTitle(workspaceId: UUID, title: String?) {
+        tabManager.setCustomTitle(tabId: workspaceId, title: title)
+    }
+
+    func commandPaletteEditFlowSetTabTitle(workspaceId: UUID, panelId: UUID, title: String?) -> Bool {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return false
+        }
+        workspace.setPanelCustomTitle(panelId: panelId, title: title)
+        return true
+    }
+
+    func commandPaletteEditFlowDebugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+        cmuxDebugLog(message())
+#endif
+    }
+}
