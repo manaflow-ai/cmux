@@ -62,6 +62,25 @@ private final class SurfaceMetadataHostStub: SurfaceMetadataHosting {
         }
     }
 
+    var latestConversationMessage: String?
+    var latestSubmittedMessage: String?
+    var latestSubmittedAt: Date?
+
+    var surfaceMetadataLatestConversationMessage: String? {
+        get { latestConversationMessage }
+        set { latestConversationMessage = newValue }
+    }
+
+    var surfaceMetadataLatestSubmittedMessage: String? {
+        get { latestSubmittedMessage }
+        set { latestSubmittedMessage = newValue }
+    }
+
+    var surfaceMetadataLatestSubmittedAt: Date? {
+        get { latestSubmittedAt }
+        set { latestSubmittedAt = newValue }
+    }
+
     func surfaceMetadataLogIgnoredRestoredCwdReport(
         panelId: UUID,
         missingVolumeRoot: String,
@@ -277,5 +296,47 @@ struct WorkspaceSurfaceMetadataModelTests {
     func unmountedVolumeRootReturnsNilForNonVolumePath() {
         #expect(Model.unmountedVolumeRoot(for: "/Users/me/work") == nil)
         #expect(Model.unmountedVolumeRoot(for: "   ") == nil)
+    }
+
+    @Test
+    func conversationMessagePreviewCollapsesWhitespaceAndTrims() {
+        #expect(Model.conversationMessagePreview(from: "  hello   world  ") == "hello world")
+        #expect(Model.conversationMessagePreview(from: nil) == nil)
+        #expect(Model.conversationMessagePreview(from: "   \n ") == nil)
+    }
+
+    @Test
+    func conversationMessagePreviewTruncatesPastMaxLength() {
+        let preview = Model.conversationMessagePreview(from: String(repeating: "a", count: 10), maxLength: 4)
+        #expect(preview == "aaaa...")
+    }
+
+    @Test
+    func recordConversationMessageStoresDedupedPreviewOnHost() {
+        let (model, _, host) = makeModel()
+
+        #expect(model.recordConversationMessage("  Done.  "))
+        #expect(host.latestConversationMessage == "Done.")
+        // Unchanged deduped preview is rejected.
+        #expect(!model.recordConversationMessage("Done."))
+        // Empty/whitespace message is rejected and leaves the prior value.
+        #expect(!model.recordConversationMessage("   "))
+        #expect(host.latestConversationMessage == "Done.")
+    }
+
+    @Test
+    func recordSubmittedMessageStampsConversationSubmittedAndTime() {
+        let (model, _, host) = makeModel()
+        let before = Date()
+
+        #expect(model.recordSubmittedMessage("ship it"))
+        #expect(host.latestConversationMessage == "ship it")
+        #expect(host.latestSubmittedMessage == "ship it")
+        #expect((host.latestSubmittedAt ?? .distantPast) >= before)
+
+        // Whitespace-only submission records nothing.
+        host.latestSubmittedAt = nil
+        #expect(!model.recordSubmittedMessage(" \n "))
+        #expect(host.latestSubmittedAt == nil)
     }
 }

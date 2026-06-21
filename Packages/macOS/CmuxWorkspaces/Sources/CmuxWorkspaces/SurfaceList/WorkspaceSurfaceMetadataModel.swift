@@ -219,6 +219,59 @@ public final class WorkspaceSurfaceMetadataModel<TabSelectionRequest> {
         return previousState
     }
 
+    /// The single-line preview cmux derives from a conversation or submitted
+    /// message before recording it: whitespace-collapsed, trimmed, and truncated
+    /// to `maxLength` with a trailing ellipsis. Returns `nil` for a `nil` or
+    /// whitespace-only message. Faithful lift of the pure
+    /// `Workspace.conversationMessagePreview(from:maxLength:)`.
+    public static func conversationMessagePreview(
+        from message: String?,
+        maxLength: Int = 240
+    ) -> String? {
+        guard let message else { return nil }
+        let collapsed = message
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !collapsed.isEmpty else { return nil }
+        guard collapsed.count > maxLength else { return collapsed }
+        return "\(collapsed.prefix(maxLength))..."
+    }
+
+    /// Records the latest assistant/conversation `message` preview on the host,
+    /// returning `true` exactly when a new, non-empty preview was stored.
+    ///
+    /// Owns the legacy `Workspace.recordConversationMessage(_:)` decision: derive
+    /// the preview, ignore a `nil`/whitespace-only message, ignore an unchanged
+    /// preview, then write `latestConversationMessage` through the host seam. The
+    /// `@Published` storage stays on `Workspace` (its `$latestConversationMessage`
+    /// projection feeds the sidebar observation publisher), so the write goes
+    /// through ``SurfaceMetadataHosting/surfaceMetadataLatestConversationMessage``;
+    /// its emission moment is the host property's, preserving observer parity.
+    @discardableResult
+    public func recordConversationMessage(_ message: String?) -> Bool {
+        guard let preview = Self.conversationMessagePreview(from: message) else { return false }
+        guard host?.surfaceMetadataLatestConversationMessage != preview else { return false }
+        host?.surfaceMetadataLatestConversationMessage = preview
+        return true
+    }
+
+    /// Records a submitted-prompt `message`: stores its preview as both the
+    /// latest conversation message and the latest submitted message, and stamps
+    /// `latestSubmittedAt` with the current time. Returns `true` when a non-empty
+    /// preview was recorded. Faithful lift of
+    /// `Workspace.recordSubmittedMessage(_:)`; the submitted writes go through the
+    /// host seam so the `@Published` storage and its emission moments stay on
+    /// `Workspace`.
+    @discardableResult
+    public func recordSubmittedMessage(_ message: String?) -> Bool {
+        guard let preview = Self.conversationMessagePreview(from: message) else { return false }
+        _ = recordConversationMessage(preview)
+        host?.surfaceMetadataLatestSubmittedMessage = preview
+        host?.surfaceMetadataLatestSubmittedAt = Date()
+        return true
+    }
+
     /// Recomputes the fused, sorted, deduplicated workspace listening-port
     /// projection from the per-surface registry ports plus the agent and remote
     /// port sets, writing the host's `listeningPorts` only when it changes.
