@@ -10016,6 +10016,7 @@ struct VerticalTabsSidebar: View {
     // `SidebarDragState`, so they need a separate transient collection flag.
     @State private var isBonsplitWorkspaceDropTargetCollectionActive = false
     @State private var bonsplitWorkspaceDropTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
+    @State private var sidebarWorkspaceRowHeights: [UUID: CGFloat] = [:]
     // Freezes `showsModifierShortcutHints` for the workspace whose context menu
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
@@ -12155,7 +12156,9 @@ struct VerticalTabsSidebar: View {
             isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: topDropIndicatorVisible,
             onDragStart: onDragStart,
-            tabDropDelegateFactory: tabDropDelegateFactory,
+            onRowHeightChange: { [tabId = tab.id] height in
+                sidebarWorkspaceRowHeights[tabId] = height
+            },
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
@@ -12173,6 +12176,10 @@ struct VerticalTabsSidebar: View {
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
             .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            .onDrop(
+                of: SidebarTabDragPayload.dropContentTypes,
+                delegate: tabDropDelegateFactory(sidebarWorkspaceRowHeights[tab.id] ?? 1)
+            )
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -12990,10 +12997,7 @@ struct TabItemView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    /// Factory invoked from `body` with the row's measured `rowHeight`. Closure
-    /// captures the parent's `dragState`, so TabItemView itself never holds an
-    /// `@Observable` store reference (snapshot-boundary rule).
-    let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
+    let onRowHeightChange: (CGFloat) -> Void
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
@@ -13017,6 +13021,13 @@ struct TabItemView: View, Equatable {
 
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
+
+    private func updateRowHeight(_ height: CGFloat) {
+        let resolvedHeight = max(height, 1)
+        guard abs(rowHeight - resolvedHeight) >= 0.5 else { return }
+        rowHeight = resolvedHeight
+        onRowHeightChange(resolvedHeight)
+    }
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -13252,10 +13263,10 @@ struct TabItemView: View, Equatable {
         GeometryReader { proxy in
             Color.clear
                 .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
+                    updateRowHeight(proxy.size.height)
                 }
                 .onChange(of: proxy.size.height) { newHeight in
-                    rowHeight = max(newHeight, 1)
+                    updateRowHeight(newHeight)
                 }
         }
     }
@@ -13782,7 +13793,6 @@ struct TabItemView: View, Equatable {
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
