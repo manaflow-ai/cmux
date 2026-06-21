@@ -1100,8 +1100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // True while remote tmux kill-before-quit owns the terminate reply.
     private var isAwaitingTerminateKills = false
     private var terminateKillWatchdogTask: Task<Void, Never>?
-    // True while the app-termination path owns the quit confirmation modal.
-    private var isAwaitingTerminateQuitConfirmation = false
+    private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
+    private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state (visibility, pending-open,
@@ -1852,10 +1852,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func prepareForConfirmedAppTermination() {
+        isTerminatingApp = true
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        ClosedItemHistoryStore.shared.flushPendingSaves()
+    }
+
+    private func presentQuitConfirmationAlert(
+        ownsTerminateRequest: Bool,
+        completion: @escaping QuitConfirmationAlertPresenter.Completion
+    ) {
+        guard activeQuitConfirmationAlertPresenter == nil else { return }
+        let presenter = QuitConfirmationAlertPresenter { [weak self] response, suppressionState in
+            guard let self else { return }
+            self.activeQuitConfirmationAlertPresenter = nil
+            self.activeQuitConfirmationOwnsTerminateRequest = false
+            completion(response, suppressionState)
+        }
+        activeQuitConfirmationOwnsTerminateRequest = ownsTerminateRequest
+        activeQuitConfirmationAlertPresenter = presenter
+        presenter.present()
+    }
+
+    private func handleApplicationTerminateQuitConfirmationResponse(
+        _ response: NSApplication.ModalResponse,
+        suppressionState: NSControl.StateValue
+    ) {
+        if suppressionState == .on {
+            QuitConfirmationStore(defaults: .standard).setEnabled(false)
+        }
+
+        let shouldQuit = response == .alertFirstButtonReturn
+        if shouldQuit {
+            prepareForConfirmedAppTermination()
+            isQuitWarningConfirmed = true
+            closeAllWebInspectorsBeforeAppTeardown()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
+            if deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
+                return
+            }
+        } else {
+            // Reset so that the next quit attempt can show the dialog again.
+            isTerminatingApp = false
+            clearMarkedRemoteTmuxKills()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
+        }
+        replyToTerminateOnce(shouldQuit)
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // A re-entrant terminate must wait for the in-flight owner of the pending reply.
-        if isAwaitingTerminateKills || isAwaitingTerminateQuitConfirmation {
-            return .terminateLater
+        if let reply = Self.pendingTerminateReply(
+            isAwaitingTerminateKills: isAwaitingTerminateKills,
+            hasActiveQuitConfirmation: activeQuitConfirmationAlertPresenter != nil,
+            activeQuitConfirmationOwnsTerminateRequest: activeQuitConfirmationOwnsTerminateRequest
+        ) {
+            return reply
         }
         let buildFlavor = BuildFlavor.current
         let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
@@ -1872,9 +1923,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "quitWarningEnabled": quitConfirmationStore.isEnabled ? "1" : "0"
             ]
         )
-        isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
         // or policy skips the warning, avoid a second alert.
@@ -1883,6 +1931,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             isDevBuild: buildFlavor == .dev
         ) {
+            prepareForConfirmedAppTermination()
             closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
             if isQuitWarningConfirmed {
@@ -1903,69 +1952,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
         // then reply asynchronously so we can return .terminateLater now.
-        isAwaitingTerminateQuitConfirmation = true
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
-            alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
-            alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
-            alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-            alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
-
-            let response = alert.runModal()
-            if alert.suppressionButton?.state == .on {
-                QuitConfirmationStore(defaults: .standard).setEnabled(false)
-            }
-
-            let shouldQuit = response == .alertFirstButtonReturn
-            self.isAwaitingTerminateQuitConfirmation = false
-            if shouldQuit {
-                self.isQuitWarningConfirmed = true
-                self.closeAllWebInspectorsBeforeAppTeardown()
-                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
-                if self.deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
-                    return
-                }
-            } else {
-                // Reset so that the next quit attempt can show the dialog again.
-                self.isTerminatingApp = false
-                self.clearMarkedRemoteTmuxKills()
-                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
-            }
-            self.replyToTerminateOnce(shouldQuit)
+        presentQuitConfirmationAlert(ownsTerminateRequest: true) { [weak self] response, suppressionState in
+            self?.handleApplicationTerminateQuitConfirmationResponse(
+                response,
+                suppressionState: suppressionState
+            )
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
-    }
-
-    private func hasQuitConfirmationDirtyWorkspaces() -> Bool {
-        var visitedManagers = Set<ObjectIdentifier>()
-
-        func managerHasDirtyWorkspace(_ manager: TabManager?) -> Bool {
-            guard let manager else { return false }
-            let managerId = ObjectIdentifier(manager)
-            guard visitedManagers.insert(managerId).inserted else { return false }
-            return manager.tabs.contains(where: { $0.needsConfirmClose() })
-        }
-
-        for context in mainWindowContexts.values {
-            if managerHasDirtyWorkspace(context.tabManager) {
-                return true
-            }
-        }
-
-        if managerHasDirtyWorkspace(tabManager) {
-            return true
-        }
-
-        for route in recoverableMainWindowRoutes() {
-            if managerHasDirtyWorkspace(route.tabManager) {
-                return true
-            }
-        }
-        return false
     }
 
     @discardableResult
@@ -12464,6 +12458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning() -> Bool {
+        guard activeQuitConfirmationAlertPresenter == nil else { return true }
         if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
@@ -12473,25 +12468,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
-        alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
-        alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
+        presentQuitConfirmationAlert(ownsTerminateRequest: false) { [weak self] response, suppressionState in
+            if suppressionState == .on {
+                QuitConfirmationStore(defaults: .standard).setEnabled(false)
+            }
 
-        let response = alert.runModal()
-        if alert.suppressionButton?.state == .on {
-            QuitConfirmationStore(defaults: .standard).setEnabled(false)
-        }
-
-        if response == .alertFirstButtonReturn {
-            // Mark as confirmed so applicationShouldTerminate does not show a
-            // second alert when NSApp.terminate re-enters the delegate callback.
-            isQuitWarningConfirmed = true
-            NSApp.terminate(nil)
+            if response == .alertFirstButtonReturn {
+                // Mark as confirmed so applicationShouldTerminate does not show a
+                // second alert when NSApp.terminate re-enters the delegate callback.
+                self?.isQuitWarningConfirmed = true
+                NSApp.terminate(nil)
+            }
         }
         return true
     }

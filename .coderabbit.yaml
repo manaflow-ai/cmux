@@ -64,6 +64,15 @@ reviews:
     - path: "CHANGELOG.md"
       instructions: |
         Apply `.github/review-bot-rules/full-internationalization.md` during review. Verify changelog copy rendered on the docs site has matching localized message coverage for every locale listed in `web/i18n/routing.ts`.
+    - path: "README.md"
+      instructions: |
+        Apply `.github/review-bot-rules/readme-site-feature-parity.md` during review. When the "## Features" section changes, flag feature names or factual claims that now contradict the homepage feature list (`home.feature.*` in `web/messages/en.json`) or FAQ (`home.faq*`). The README may stay the detailed superset; only shared features must use consistent names and non-contradicting claims.
+    - path: "web/app/[locale]/page.tsx"
+      instructions: |
+        Apply `.github/review-bot-rules/readme-site-feature-parity.md` during review. When the homepage feature list or FAQ structure changes, flag feature names or claims that contradict `README.md`'s "## Features" section.
+    - path: "web/messages/en.json"
+      instructions: |
+        Apply `.github/review-bot-rules/readme-site-feature-parity.md` during review. When `home.feature.*` or `home.faq*` copy changes, flag feature names or factual claims that contradict `README.md`'s "## Features" section (for example one surface says "Scriptable" and the other "Programmable"). Localization-only edits that preserve the English source meaning pass.
 
   pre_merge_checks:
     custom_checks:
