@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 import CmuxSettings
 
 #if canImport(cmux_DEV)
@@ -8,83 +8,39 @@ import CmuxSettings
 @testable import cmux
 #endif
 
-@discardableResult
-private func waitForTitleCondition(
-    timeout: TimeInterval = 3.0,
-    pollInterval: TimeInterval = 0.05,
-    file: StaticString = #filePath,
-    line: UInt = #line,
-    _ condition: @escaping () -> Bool
-) -> Bool {
-    if condition() {
-        return true
-    }
-
-    let expectation = XCTestExpectation(description: "wait for title condition")
-    let deadline = Date().addingTimeInterval(timeout)
-
-    func poll() {
-        if condition() {
-            expectation.fulfill()
-            return
-        }
-        guard Date() < deadline else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) {
-            poll()
-        }
-    }
-
-    DispatchQueue.main.async {
-        poll()
-    }
-
-    let result = XCTWaiter().wait(for: [expectation], timeout: timeout + pollInterval + 0.1)
-    if result != .completed {
-        XCTFail("Timed out waiting for title condition", file: file, line: line)
-        return false
-    }
-    return true
-}
-
 @MainActor
-final class TabManagerTitleUpdateTests: XCTestCase {
-    func testCoalescerReschedulesWhenDelayChangesMidBurst() {
+@Suite(.serialized)
+struct TabManagerTitleUpdateTests {
+    @Test
+    func coalescerReschedulesWhenDelayChangesMidBurst() async {
         let coalescer = NotificationBurstCoalescer(delay: 0.02)
-        let flushed = XCTestExpectation(description: "flush after updated delay")
         var flushCount = 0
 
         coalescer.signal {
             flushCount += 1
-            flushed.fulfill()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) {
-            coalescer.signal(delay: 0.25) {
-                flushCount += 1
-                flushed.fulfill()
-            }
+        try? await Task.sleep(nanoseconds: nanoseconds(for: 0.005))
+        coalescer.signal(delay: 0.25) {
+            flushCount += 1
         }
 
-        let oldDelayWindowPassed = XCTestExpectation(description: "old delay window passed")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
-            oldDelayWindowPassed.fulfill()
-        }
-        XCTAssertEqual(XCTWaiter().wait(for: [oldDelayWindowPassed], timeout: 1.0), .completed)
-        XCTAssertEqual(flushCount, 0)
-        XCTAssertEqual(XCTWaiter().wait(for: [flushed], timeout: 1.0), .completed)
-        XCTAssertEqual(flushCount, 1)
+        try? await Task.sleep(nanoseconds: nanoseconds(for: 0.10))
+        #expect(flushCount == 0)
+        #expect(await waitForTitleCondition(timeout: 1.0) { flushCount == 1 })
     }
 
-    func testTitleCoalescingDelayUsesCurrentSettingsAtNotificationTime() throws {
+    @Test
+    func titleCoalescingDelayUsesCurrentSettingsAtNotificationTime() async throws {
         let suiteName = "TabManagerTitleCoalescingSettings.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let catalog = SettingCatalog()
         let manager = TabManager(settings: settings)
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
 
         settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
         settings.set(300, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
@@ -99,25 +55,22 @@ final class TabManagerTitleUpdateTests: XCTestCase {
             ]
         )
 
-        let earlyFlush = XCTestExpectation(description: "wait before configured coalescing delay")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            earlyFlush.fulfill()
-        }
-        XCTAssertEqual(XCTWaiter().wait(for: [earlyFlush], timeout: 1.0), .completed)
-        XCTAssertNotEqual(workspace.panelTitles[focusedPanelId], "Runtime Delay - grok")
-        XCTAssertNotEqual(workspace.title, "Runtime Delay - grok")
+        try? await Task.sleep(nanoseconds: nanoseconds(for: 0.12))
+        #expect(workspace.panelTitles[focusedPanelId] != "Runtime Delay - grok")
+        #expect(workspace.title != "Runtime Delay - grok")
 
-        XCTAssertTrue(
-            waitForTitleCondition(timeout: 1.0) {
+        #expect(
+            await waitForTitleCondition(timeout: 1.0) {
                 workspace.panelTitles[focusedPanelId] == "Runtime Delay - grok" &&
                     workspace.title == "Runtime Delay - grok"
             }
         )
     }
 
-    func testTitleNotificationIgnoredWhenWorkspaceIsNotOwnedByManager() throws {
+    @Test
+    func titleNotificationIgnoredWhenWorkspaceIsNotOwnedByManager() async throws {
         let suiteName = "TabManagerTitleOwnership.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -127,11 +80,11 @@ final class TabManagerTitleUpdateTests: XCTestCase {
         settings.set(100, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
 
         let manager = TabManager(settings: settings)
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
         let originalPanelTitle = workspace.panelTitles[focusedPanelId]
 
-        XCTAssertTrue(workspace.owningTabManager === manager)
+        #expect(workspace.owningTabManager === manager)
         workspace.owningTabManager = nil
         defer { workspace.owningTabManager = manager }
 
@@ -145,19 +98,16 @@ final class TabManagerTitleUpdateTests: XCTestCase {
             ]
         )
 
-        let delayedFlush = XCTestExpectation(description: "wait past configured title coalescing delay")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            delayedFlush.fulfill()
-        }
-        XCTAssertEqual(XCTWaiter().wait(for: [delayedFlush], timeout: 1.0), .completed)
-        XCTAssertEqual(workspace.panelTitles[focusedPanelId], originalPanelTitle)
-        XCTAssertNotEqual(workspace.panelTitles[focusedPanelId], "Ignored Non Owner - grok")
-        XCTAssertNotEqual(workspace.title, "Ignored Non Owner - grok")
+        try? await Task.sleep(nanoseconds: nanoseconds(for: 0.25))
+        #expect(workspace.panelTitles[focusedPanelId] == originalPanelTitle)
+        #expect(workspace.panelTitles[focusedPanelId] != "Ignored Non Owner - grok")
+        #expect(workspace.title != "Ignored Non Owner - grok")
     }
 
-    func testTitleCoalescingDelayIsDefaultOffAndClampedWhenEnabled() throws {
+    @Test
+    func titleCoalescingDelayIsDefaultOffAndClampedWhenEnabled() throws {
         let suiteName = "TabManagerTitleCoalescingClamp.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -165,17 +115,43 @@ final class TabManagerTitleUpdateTests: XCTestCase {
         let catalog = SettingCatalog()
 
         settings.set(1_000, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
-        XCTAssertEqual(
-            PanelTitleUpdateCoalescingSettings.delay(settings: settings),
-            PanelTitleUpdateCoalescingSettings.defaultDelay,
-            accuracy: 0.000_1
+        #expect(
+            abs(
+                PanelTitleUpdateCoalescingSettings.delay(settings: settings) -
+                    PanelTitleUpdateCoalescingSettings.defaultDelay
+            ) < 0.000_1
         )
 
         settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
         settings.set(1, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
-        XCTAssertEqual(PanelTitleUpdateCoalescingSettings.delay(settings: settings), 0.033, accuracy: 0.000_1)
+        #expect(abs(PanelTitleUpdateCoalescingSettings.delay(settings: settings) - 0.033) < 0.000_1)
 
         settings.set(10_000, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
-        XCTAssertEqual(PanelTitleUpdateCoalescingSettings.delay(settings: settings), 5.0, accuracy: 0.000_1)
+        #expect(abs(PanelTitleUpdateCoalescingSettings.delay(settings: settings) - 5.0) < 0.000_1)
+    }
+
+    private func waitForTitleCondition(
+        timeout: TimeInterval = 3.0,
+        pollInterval: TimeInterval = 0.05,
+        _ condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        if condition() {
+            return true
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: nanoseconds(for: pollInterval))
+        }
+        return condition()
+    }
+
+    private func nanoseconds(for delay: TimeInterval) -> UInt64 {
+        let nanoseconds = delay * 1_000_000_000
+        guard nanoseconds.isFinite, nanoseconds > 0 else { return 0 }
+        return UInt64(min(nanoseconds.rounded(.up), Double(UInt64.max)))
     }
 }
