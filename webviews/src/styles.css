@@ -954,6 +954,21 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   overflow: clip;
   contain: layout paint style;
 }
+/* Per-file diff header at small widths: the @pierre/diffs header is a flex
+   space-between of the file-path side (`[data-header-content]`, already
+   min-width:0 + truncating) and the diffstat side (`[data-metadata]`: the status
+   icon + `+N`/`-N` counts). The library leaves [data-metadata] flex-shrinkable
+   with white-space:nowrap and no overflow handling, so when the panel is narrow
+   it is squished below its content and its text spills LEFT, overlapping the
+   change-status icon. Principled fix, same priority+ idea as the toolbar: pin the
+   diffstat (never shrink it) so the path side absorbs all the shrinking and
+   truncates, and clip the header as a hard no-overlap safety net. */
+#viewer diffs-container [data-diffs-header] {
+  overflow-x: clip;
+}
+#viewer diffs-container [data-diffs-header=default] [data-metadata] {
+  flex-shrink: 0;
+}
 #loading-layer {
   grid-area: viewer;
   position: absolute;
