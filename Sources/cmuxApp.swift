@@ -540,6 +540,17 @@ struct cmuxApp: App {
                     appDelegate.openDebugStressWorkspacesWithLoadedSurfaces(nil)
                 }
 
+                Button(
+                    String(
+                        localized: "debug.menu.showCanvasCommandScrollHint",
+                        defaultValue: "Show Canvas Scroll Hint"
+                    )
+                ) {
+                    guard let workspace = activeTabManager.selectedWorkspace else { return }
+                    CanvasActionExecutor(workspace: workspace).perform(.showCommandScrollHint)
+                }
+                .disabled(activeTabManager.selectedWorkspace?.layoutMode != .canvas)
+
                 Divider()
                 Menu("Debug Windows") {
                     Button("Background Debug…") {

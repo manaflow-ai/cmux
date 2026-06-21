@@ -2235,6 +2235,7 @@ class TerminalController {
             "debug.notification.focus",
             "debug.flash.count",
             "debug.flash.reset",
+            "debug.canvas.command_scroll_hint",
             "debug.panel_snapshot",
             "debug.panel_snapshot.reset",
             "debug.session_snapshot_benchmark",

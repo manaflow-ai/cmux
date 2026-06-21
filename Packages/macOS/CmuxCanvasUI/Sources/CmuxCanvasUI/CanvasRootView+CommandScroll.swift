@@ -117,8 +117,28 @@ extension CanvasRootView {
     }
 
     func presentCommandScrollHint() {
-        guard !Self.didShowCommandScrollHintThisSession, commandScrollHintHost == nil else { return }
-        Self.didShowCommandScrollHintThisSession = true
+        presentCommandScrollHint(markSessionShown: true, replacingExisting: false)
+    }
+
+#if DEBUG
+    public func debugShowCommandScrollHint() {
+        commandScrollHintTask?.cancel()
+        presentCommandScrollHint(markSessionShown: false, replacingExisting: true)
+    }
+#endif
+
+    private func presentCommandScrollHint(markSessionShown: Bool, replacingExisting: Bool) {
+        if replacingExisting {
+            commandScrollHintHost?.removeFromSuperview()
+            commandScrollHintHost = nil
+        } else {
+            guard commandScrollHintHost == nil else { return }
+        }
+
+        if markSessionShown {
+            guard !Self.didShowCommandScrollHintThisSession else { return }
+            Self.didShowCommandScrollHintThisSession = true
+        }
 
         let host = NSHostingView(rootView: CanvasCommandScrollHint(text: commandScrollHintText))
         host.translatesAutoresizingMaskIntoConstraints = false

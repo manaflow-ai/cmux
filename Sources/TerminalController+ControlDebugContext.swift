@@ -99,6 +99,21 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugCaptureScreenshot(label: String) -> String { captureScreenshot(label) }
 
+    func controlDebugShowCanvasCommandScrollHint(
+        routing: ControlRoutingSelectors
+    ) -> ControlCanvasActionResolution {
+        guard let workspace = resolveCanvasWorkspace(routing: routing) else {
+            return .workspaceNotFound
+        }
+        guard workspace.layoutMode == .canvas else {
+            return .notCanvasMode
+        }
+        guard CanvasActionExecutor(workspace: workspace).perform(.showCommandScrollHint) else {
+            return .viewportUnavailable
+        }
+        return .ok(mode: workspace.layoutMode.rawValue)
+    }
+
     // MARK: - debug.type
 
     func controlDebugTypeText(_ text: String) -> ControlDebugTypeResolution {

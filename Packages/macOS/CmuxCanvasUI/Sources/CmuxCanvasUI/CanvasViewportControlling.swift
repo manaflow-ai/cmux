@@ -28,4 +28,9 @@ public protocol CanvasViewportControlling: AnyObject {
     /// Re-reads the model after an external mutation (palette command,
     /// automation verb) and animates pane views to their new frames.
     func modelDidChangeExternally(animated: Bool)
+#if DEBUG
+    /// Shows the Command+scroll discovery hint for debug-menu and automation
+    /// testing, without consuming the production one-time scroll trigger.
+    func debugShowCommandScrollHint()
+#endif
 }
