@@ -2891,6 +2891,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `SessionPersistenceTests` that drive each branch) stay byte-identical.
     private nonisolated static let sessionPersistenceDecisionPolicy = SessionPersistenceDecisionPolicy()
 
+    /// Pure session-snapshot window-assembly + autosave-fingerprint folding
+    /// policy, lifted to ``CmuxWorkspaces/SessionSnapshotBuilder``. A stateless
+    /// value, so a shared constant. `buildSessionSnapshot` and
+    /// `sessionAutosaveFingerprint` flatten the live registered-window state into
+    /// the builder's value-typed inputs (the irreducible read stays here) and
+    /// forward the prune / cap / fold to this instance.
+    private nonisolated static let sessionSnapshotBuilder = SessionSnapshotBuilder()
+
     /// Maps the app's `Codable` display DTO into the resolver's runtime input.
     private nonisolated static func sessionSourceDisplaySnapshot(
         from snapshot: SessionDisplaySnapshot?
@@ -3043,41 +3051,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Int? {
         guard !includeScrollback else { return nil }
 
-        var hasher = Hasher()
         let contexts = registeredMainWindows.sorted { lhs, rhs in
             lhs.windowId.uuidString < rhs.windowId.uuidString
         }
-        hasher.combine(contexts.count)
 
-        for context in contexts.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
-            hasher.combine(context.windowId)
-            hasher.combine(
-                context.tabManager.sessionAutosaveFingerprint(
-                    restorableAgentIndex: restorableAgentIndex,
-                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        // Flatten only the windows that survive the cap; the legacy body read
+        // `contexts.count` for the count but only did per-window work for
+        // `contexts.prefix(maxWindows)`.
+        let cappedInputs = contexts.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+            .map { context -> SessionSnapshotFingerprintWindowInput in
+                let fingerprintSidebarState = sidebarState(for: context)
+                let sidebarSelectionTag: Int
+                switch sidebarSelectionState(for: context).selection {
+                case .tabs:
+                    sidebarSelectionTag = 0
+                case .notifications:
+                    sidebarSelectionTag = 1
+                }
+                let window = context.window ?? windowForMainWindowId(context.windowId)
+                let frame = window?.frame
+                return SessionSnapshotFingerprintWindowInput(
+                    windowId: context.windowId,
+                    tabManagerFingerprint: context.tabManager.sessionAutosaveFingerprint(
+                        restorableAgentIndex: restorableAgentIndex,
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    ),
+                    sidebarIsVisible: fingerprintSidebarState.isVisible,
+                    quantizedSidebarWidth: Int(
+                        SessionPersistencePolicy.sanitizedSidebarWidth(Double(fingerprintSidebarState.persistedWidth)).rounded()
+                    ),
+                    sidebarSelectionTag: sidebarSelectionTag,
+                    foldFrame: { hasher in
+                        if let frame {
+                            Self.sessionPersistenceDecisionPolicy.hashFrame(frame, into: &hasher)
+                        } else {
+                            hasher.combine(-1)
+                        }
+                    }
                 )
-            )
-            let fingerprintSidebarState = sidebarState(for: context)
-            hasher.combine(fingerprintSidebarState.isVisible)
-            hasher.combine(
-                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(fingerprintSidebarState.persistedWidth)).rounded())
-            )
-
-            switch sidebarSelectionState(for: context).selection {
-            case .tabs:
-                hasher.combine(0)
-            case .notifications:
-                hasher.combine(1)
             }
 
-            if let window = context.window ?? windowForMainWindowId(context.windowId) {
-                Self.sessionPersistenceDecisionPolicy.hashFrame(window.frame, into: &hasher)
-            } else {
-                hasher.combine(-1)
-            }
-        }
-
-        return hasher.finalize()
+        return Self.sessionSnapshotBuilder.fingerprint(
+            cappedInputs: cappedInputs,
+            windowCount: contexts.count
+        )
     }
 
     @discardableResult
@@ -3384,26 +3401,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !contexts.isEmpty else { return nil }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
-        let windows = Array(
-            contexts.lazy.compactMap { context -> SessionWindowSnapshot? in
-                let snapshot = self.sessionWindowSnapshot(
-                    for: context,
-                    includeScrollback: includeScrollback,
-                    restorableAgentIndex: restorableAgentIndex,
-                    surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
-                )
-                // A dedicated remote-tmux mirror window needs a live SSH control
-                // connection and should not restore as an empty shell. If the user
-                // dragged local workspaces into that window, keep those local
-                // workspaces: TabManager already prunes remote mirror workspaces
-                // from its snapshot.
-                if self.remoteTmuxController.isDedicatedRemoteWindow(context.windowId),
-                   snapshot.tabManager.workspaces.isEmpty {
-                    return nil
-                }
-                return snapshot
-            }
-            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+        // `lazy` so per-window snapshots beyond the window cap are not built,
+        // matching the legacy `contexts.lazy.compactMap { ... }.prefix(...)`.
+        let inputs = contexts.lazy.map { context -> SessionSnapshotWindowInput<SessionWindowSnapshot> in
+            let snapshot = self.sessionWindowSnapshot(
+                for: context,
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            )
+            // A dedicated remote-tmux mirror window needs a live SSH control
+            // connection and should not restore as an empty shell. If the user
+            // dragged local workspaces into that window, keep those local
+            // workspaces: TabManager already prunes remote mirror workspaces
+            // from its snapshot.
+            let dropsWhenEmptyDedicatedRemoteWindow =
+                self.remoteTmuxController.isDedicatedRemoteWindow(context.windowId)
+                    && snapshot.tabManager.workspaces.isEmpty
+            return SessionSnapshotWindowInput(
+                snapshot: snapshot,
+                dropsWhenEmptyDedicatedRemoteWindow: dropsWhenEmptyDedicatedRemoteWindow
+            )
+        }
+
+        let windows = Self.sessionSnapshotBuilder.assembleWindows(
+            from: inputs,
+            maxWindows: SessionPersistencePolicy.maxWindowsPerSnapshot
         )
 
         guard !windows.isEmpty else { return nil }
