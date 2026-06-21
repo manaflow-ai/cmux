@@ -32,7 +32,7 @@ struct CanvasViewportZoomTests {
 
         root.zoom(by: 0.8)
 
-        #expect(root.pendingDiscreteZoomAnimation == nil)
+        #expect(!root.isDiscreteZoomAnimationActive)
         #expect(abs(root.currentMagnification - 0.8) < 0.0001)
         #expect(abs(root.currentCenterInCanvas.x - centerBefore.x) < 0.5)
         #expect(abs(root.currentCenterInCanvas.y - centerBefore.y) < 0.5)

@@ -87,7 +87,12 @@ extension CanvasRootView: CanvasViewportControlling {
         applyViewport(center: center, magnification: magnification, notifySettled: notifySettled)
     }
 
-    private func applyViewport(center: CGPoint, magnification: CGFloat?, notifySettled: Bool) {
+    private func applyViewport(
+        center: CGPoint,
+        magnification: CGFloat?,
+        notifySettled: Bool,
+        notifyGeometry: Bool = true
+    ) {
         let targetMagnification: CGFloat
         if let magnification {
             targetMagnification = min(
@@ -116,7 +121,9 @@ extension CanvasRootView: CanvasViewportControlling {
         scrollView.contentView.setBoundsOrigin(targetOrigin)
         scrollView.reflectScrolledClipView(scrollView.contentView)
         updateMinimap(reveal: true)
-        callbacks.onViewportGeometryChanged(window)
+        if notifyGeometry {
+            callbacks.onViewportGeometryChanged(window)
+        }
         if notifySettled {
             callbacks.onViewportSettled(window)
         }
@@ -164,7 +171,7 @@ extension CanvasRootView: CanvasViewportControlling {
         }
 
         let sourceVisibleCanvas = canvasRect(fromDocument: scrollView.contentView.documentVisibleRect)
-        applyViewport(center: center, magnification: magnification, notifySettled: false)
+        applyViewport(center: center, magnification: magnification, notifySettled: false, notifyGeometry: false)
         recomputeDocumentGeometry()
         applyAllPaneFrames()
 
