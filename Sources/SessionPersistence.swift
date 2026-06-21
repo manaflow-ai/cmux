@@ -2,6 +2,7 @@ import CoreGraphics
 import CmuxCore
 import Foundation
 import Bonsplit
+import CmuxSettings
 import CmuxWorkspaces
 #if canImport(CryptoKit)
 import CryptoKit
@@ -156,12 +157,19 @@ enum SessionRestorePolicy {
 
     static func shouldAttemptRestore(
         arguments: [String] = CommandLine.arguments,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        restoreMode: SessionRestoreMode = .ask
     ) -> Bool {
         if environment["CMUX_DISABLE_SESSION_RESTORE"] == "1" {
             return false
         }
         if isRunningUnderAutomatedTests(environment: environment) {
+            return false
+        }
+        // `never` opts out entirely; `always` and `ask` both load the snapshot
+        // here. `ask` is gated later by a launch-time prompt before the
+        // snapshot is applied.
+        if restoreMode == .never {
             return false
         }
 

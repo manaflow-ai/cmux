@@ -13,6 +13,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case account
     case app
     case terminal
+    /// Session restore behavior and per-tab shell history.
+    case session
     case textBox
     /// Mobile pairing and sync settings.
     case mobile
@@ -37,6 +39,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .account: return "Account"
         case .app: return "App"
         case .terminal: return "Terminal"
+        case .session: return String(localized: "settings.section.session", defaultValue: "Sessions")
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .sidebarAppearance: return "Sidebar"
@@ -59,6 +62,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .account: return "person.crop.circle"
         case .app: return "gearshape"
         case .terminal: return "terminal"
+        case .session: return "clock.arrow.circlepath"
         case .textBox: return "textformat"
         case .mobile: return "iphone"
         case .sidebarAppearance: return "sidebar.left"
@@ -83,6 +87,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .account: return "sign in team sync user profile"
         case .app: return "appearance language workspace notifications menu bar telemetry"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
+        case .session: return "session restore reopen previous launch shell history histfile per tab project command history ask always never"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .mobile: return "ios iphone ipad mobile pairing local network sync"
         case .sidebarAppearance: return "sidebar details branches material terminal background"

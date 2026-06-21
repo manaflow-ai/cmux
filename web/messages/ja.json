@@ -914,6 +914,10 @@
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。"
         },
+        "session": {
+          "restoreMode": "前回のセッションがある状態で cmux を起動したときの動作です。\"always\" は確認せずに復元し、\"ask\" は復元する前に確認します（既定）。\"never\" は新規状態で開始します（前回のセッションは「ファイル > 前回の起動を復元」からいつでも復元できます）。",
+          "persistShellHistory": "各ターミナルタブにプロジェクトディレクトリ単位の独立したシェル履歴（上矢印 / Ctrl-R）を持たせ、タブごとに cmux のコマンド履歴を記録します。オフの場合、タブはシェル通常のグローバル履歴（例: ~/.zsh_history）を使用します。"
+        },
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",

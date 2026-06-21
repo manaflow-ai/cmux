@@ -181,6 +181,19 @@ extension TerminalSurface {
             ) {
                 if baseConfig.command?.isEmpty != false { baseConfig.command = command }
             }
+
+            // Per-tab shell history: inject CMUX_SHELL_HISTFILE so the cmux
+            // shell-integration prompt hook can point HISTFILE at this tab's
+            // project-scoped file after the user's rc runs. Gated inside the
+            // shell-integration block because that hook is what applies it.
+            if spawnPolicy.persistShellHistory {
+                Self.applyManagedShellHistoryEnvironment(
+                    shell: shell,
+                    surfaceID: id,
+                    to: &env,
+                    protectedKeys: &protectedStartupEnvironmentKeys
+                )
+            }
         }
         env = Self.mergedStartupEnvironment(
             base: env,

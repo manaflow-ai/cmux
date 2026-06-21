@@ -47,6 +47,11 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// Whether sidebar pull-request watching is enabled (`CMUX_NO_PR_WATCH`).
     public var showPullRequestsEnabled: Bool
 
+    /// Whether per-tab shell history is enabled (the `session.persistShellHistory`
+    /// setting). When true, the spawn injects `CMUX_SHELL_HISTFILE` so the tab
+    /// keeps its own project-scoped history.
+    public var persistShellHistory: Bool
+
     /// Creates a spawn policy snapshot.
     public init(
         claudeHooksEnabled: Bool,
@@ -60,7 +65,8 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         ampHooksEnabled: Bool,
         shellIntegrationEnabled: Bool,
         watchGitStatusEnabled: Bool,
-        showPullRequestsEnabled: Bool
+        showPullRequestsEnabled: Bool,
+        persistShellHistory: Bool
     ) {
         self.claudeHooksEnabled = claudeHooksEnabled
         self.customClaudePath = customClaudePath
@@ -74,5 +80,6 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         self.shellIntegrationEnabled = shellIntegrationEnabled
         self.watchGitStatusEnabled = watchGitStatusEnabled
         self.showPullRequestsEnabled = showPullRequestsEnabled
+        self.persistShellHistory = persistShellHistory
     }
 }

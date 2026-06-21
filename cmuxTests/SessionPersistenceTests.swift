@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxCore
 import CmuxFoundation
+import CmuxSettings
 import CmuxWorkspaces
 import Darwin
 import XCTest
@@ -436,6 +437,60 @@ final class SessionPersistenceTests: XCTestCase {
         let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
             environment: ["XCTestConfigurationFilePath": "/tmp/xctest.xctestconfiguration"]
+        )
+
+        XCTAssertFalse(shouldRestore)
+    }
+
+    func testRestorePolicyNeverModeSkipsRestoreOnCleanLaunch() {
+        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
+            environment: [:],
+            restoreMode: .never
+        )
+
+        XCTAssertFalse(shouldRestore)
+    }
+
+    func testRestorePolicyNeverModeSkipsEvenForFinderStyleLaunch() {
+        // `never` overrides the default clean-launch restore even without the
+        // legacy CMUX_DISABLE_SESSION_RESTORE env var.
+        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "-psn_0_12345"],
+            environment: [:],
+            restoreMode: .never
+        )
+
+        XCTAssertFalse(shouldRestore)
+    }
+
+    func testRestorePolicyAlwaysModeRestoresOnCleanLaunch() {
+        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
+            environment: [:],
+            restoreMode: .always
+        )
+
+        XCTAssertTrue(shouldRestore)
+    }
+
+    func testRestorePolicyAskModePassesPolicyAndDefersToPrompt() {
+        // `ask` reaches the snapshot-load path like `always`; the prompt that
+        // gates whether the snapshot is applied lives in AppDelegate, not here.
+        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
+            environment: [:],
+            restoreMode: .ask
+        )
+
+        XCTAssertTrue(shouldRestore)
+    }
+
+    func testRestorePolicyNeverModeStillHonorsExplicitArguments() {
+        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+            arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "--window", "window:1"],
+            environment: [:],
+            restoreMode: .always
         )
 
         XCTAssertFalse(shouldRestore)

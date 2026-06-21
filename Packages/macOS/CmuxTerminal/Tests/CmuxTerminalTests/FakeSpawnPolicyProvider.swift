@@ -15,7 +15,8 @@ final class FakeSpawnPolicyProvider: TerminalSurfaceSpawnPolicyProviding {
             ampHooksEnabled: true,
             shellIntegrationEnabled: false,
             watchGitStatusEnabled: false,
-            showPullRequestsEnabled: false
+            showPullRequestsEnabled: false,
+            persistShellHistory: false
         )
     }
 

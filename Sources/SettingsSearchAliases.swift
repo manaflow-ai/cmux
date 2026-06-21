@@ -9,6 +9,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.app", defaultValue: "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry")
         case .terminal:
             return localized("settings.search.alias.section.terminal", defaultValue: "shell scrollback scrollbar scroll bar ghostty tty pty")
+        case .session:
+            return localized("settings.search.alias.section.session", defaultValue: "session restore reopen previous launch relaunch shell history histfile per tab project command history ask always never start fresh")
         case .textBox:
             return localized("settings.search.alias.section.textBox", defaultValue: "textbox text box rich input prompt beta focus composer compose attachments")
         case .mobile:

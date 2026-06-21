@@ -45,6 +45,30 @@ public struct OSC133CommandParser {
     /// Creates an empty parser.
     public init() {}
 
+    /// Removes and returns all completed (non-running) blocks, keeping any
+    /// still-open block so streaming continues uninterrupted.
+    ///
+    /// A long-lived consumer (e.g. per-tab command-history recording) calls
+    /// this after ``consume(_:)`` to drain finished commands and bound memory,
+    /// instead of retaining every block's output for the whole session. The
+    /// `id` counter keeps advancing, so drained and future blocks never collide.
+    /// The chat transcript view does not call this (it reads ``blocks``
+    /// cumulatively), so its own parser instance is unaffected.
+    public mutating func takeCompletedBlocks() -> [TerminalCommandBlock] {
+        guard let openIndex else {
+            let all = blocks
+            blocks = []
+            return all
+        }
+        // The open block is always the last element; everything before it is
+        // completed and safe to hand off.
+        let completed = Array(blocks[..<openIndex])
+        let open = blocks[openIndex]
+        blocks = [open]
+        self.openIndex = 0
+        return completed
+    }
+
     /// Feeds a chunk of raw terminal output through the state machine.
     ///
     /// - Parameter text: A slice of the PTY stream, any length.

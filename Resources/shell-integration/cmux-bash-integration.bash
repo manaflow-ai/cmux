@@ -1480,6 +1480,22 @@ _cmux_bash_preexec_hook_subshell() {
 
 _cmux_prompt_command() {
     local last_status=$?
+    # Per-tab shell history: point HISTFILE at this tab's project-scoped file
+    # once, after the user's rc has set its own HISTFILE (PROMPT_COMMAND runs
+    # post-rc). cmux exports CMUX_SHELL_HISTFILE at spawn when
+    # session.persistShellHistory is on.
+    if [[ -n "${CMUX_SHELL_HISTFILE:-}" ]]; then
+        if [[ -z "${_CMUX_HISTFILE_APPLIED:-}" ]]; then
+            _CMUX_HISTFILE_APPLIED=1
+            export HISTFILE="$CMUX_SHELL_HISTFILE"
+            shopt -s histappend 2>/dev/null || true
+            # Load this tab's prior history so ↑ / Ctrl-R recall it after reopen.
+            history -r "$HISTFILE" 2>/dev/null || true
+        fi
+        # Append new commands to this tab's file each prompt, so a hard quit
+        # still persists history.
+        history -a "$HISTFILE" 2>/dev/null || true
+    fi
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0

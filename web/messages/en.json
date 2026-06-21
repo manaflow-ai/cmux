@@ -955,6 +955,10 @@
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
           "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         },
+        "session": {
+          "restoreMode": "When cmux launches with a previous session available: \"always\" restores it silently, \"ask\" prompts before restoring (the default), and \"never\" starts fresh (the previous session stays reopenable via File > Restore Previous Launch).",
+          "persistShellHistory": "Give each terminal tab its own shell history (up-arrow / Ctrl-R) namespaced by project directory, and record a cmux command history per tab. When off, tabs use your shell's normal global history (e.g. ~/.zsh_history)."
+        },
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",

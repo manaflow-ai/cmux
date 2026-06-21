@@ -150,6 +150,10 @@ public let cmuxMobileTerminalByteTeeCallback: @convention(c) (
     bytes.withMemoryRebound(to: UInt8.self, capacity: count) { rebound in
         let buffer = UnsafeBufferPointer(start: rebound, count: count)
         MobileTerminalByteTee.shared.append(surfaceID: box.surfaceID, bytes: buffer)
+        // Per-tab command-history capture shares this single PTY tee. Its
+        // append is O(1) when recording is disabled, so the desktop hot path
+        // pays nothing extra unless session.persistShellHistory is on.
+        TerminalCommandHistoryRecorder.shared.append(surfaceID: box.surfaceID, bytes: buffer)
     }
 }
 

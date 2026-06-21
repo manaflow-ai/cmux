@@ -992,6 +992,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isFirstResponder: Bool
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
+    /// Test seam: when set, ``confirmRestorePreviousSession()`` returns this
+    /// instead of running the modal restore prompt, so launch-restore tests can
+    /// drive the Restore/Start-Fresh decision without UI.
+    var debugRestoreSessionConfirmationHandler: (() -> Bool)?
     /// Test seam: when set, ``openDiffViewerForFocusedWorkspace(for:)`` invokes this
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
     /// assert routing without launching a subprocess.
@@ -1045,6 +1049,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
+    /// The session-restore behavior resolved at launch from
+    /// `session.restoreMode`. `.ask` defers to a prompt before applying the
+    /// snapshot; `.always`/`.never` are handled by ``SessionRestorePolicy``.
+    private var startupRestoreMode: SessionRestoreMode = .ask
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
@@ -2032,6 +2040,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
+        TerminalCommandHistoryRecorder.shared.setEnabled(Self.resolvedPersistShellHistory())
         agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSession(titleChange: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
@@ -3165,8 +3174,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
         sessionSnapshotStore.syncManualRestoreSnapshotCache()
-        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        startupRestoreMode = Self.resolvedSessionRestoreMode()
+        guard SessionRestorePolicy.shouldAttemptRestore(restoreMode: startupRestoreMode) else { return }
         startupSessionSnapshot = sessionSnapshotStore.loadStartupSnapshot()
+    }
+
+    /// Resolves the configured session restore behavior from
+    /// `~/.config/cmux/cmux.json`. Read synchronously off the main actor at
+    /// launch, before any window exists, from the same file the
+    /// Settings ▸ Sessions pane writes.
+    private static func resolvedSessionRestoreMode() -> SessionRestoreMode {
+        JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+            .snapshotValue(for: SettingCatalog().session.restoreMode)
+    }
+
+    /// Reads `session.persistShellHistory` from `~/.config/cmux/cmux.json`
+    /// (the per-tab shell-history master toggle) for the command-history
+    /// recorder's launch-time gate.
+    static func resolvedPersistShellHistory() -> Bool {
+        JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+            .snapshotValue(for: SettingCatalog().session.persistShellHistory)
+    }
+
+    /// Asks whether to restore the previous session. Mirrors
+    /// ``confirmCloseMainWindow(_:)`` including the DEBUG test seam. Returns
+    /// `true` to restore, `false` to start fresh.
+    private func confirmRestorePreviousSession() -> Bool {
+#if DEBUG
+        if let debugRestoreSessionConfirmationHandler {
+            return debugRestoreSessionConfirmationHandler()
+        }
+#endif
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(
+            localized: "dialog.restoreSession.title",
+            defaultValue: "Restore previous session?"
+        )
+        alert.informativeText = String(
+            localized: "dialog.restoreSession.message",
+            defaultValue: "cmux can reopen the windows, tabs, and panes from your last session."
+        )
+        alert.addButton(withTitle: String(localized: "dialog.restoreSession.restore", defaultValue: "Restore"))
+        alert.addButton(withTitle: String(localized: "dialog.restoreSession.startFresh", defaultValue: "Start Fresh"))
+
+        let alertWindow = alert.window
+        if let restoreButton = alert.buttons.first {
+            alertWindow.defaultButtonCell = restoreButton.cell as? NSButtonCell
+            alertWindow.initialFirstResponder = restoreButton
+            DispatchQueue.main.async {
+                _ = alertWindow.makeFirstResponder(restoreButton)
+            }
+        }
+
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
@@ -3263,6 +3324,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didAttemptStartupSessionRestore = true
         guard !didHandleExplicitOpenIntentAtStartup else { return false }
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
+
+        if startupRestoreMode == .ask, startupSessionSnapshot != nil, !confirmRestorePreviousSession() {
+            // Start Fresh: drop the in-memory snapshot so launch proceeds like a
+            // normal fresh start (still applying last-known window geometry
+            // below). The on-disk snapshot is kept, so File ▸ Restore Previous
+            // Launch can still reopen it.
+            startupSessionSnapshot = nil
+        }
 
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
@@ -6443,6 +6512,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return nil
+    }
+
+    /// Shared action: opens the command-history window for the focused tab's
+    /// terminal surface. The surface lookup + presentation live here so every
+    /// entrypoint (command palette today; menu/shortcut later) routes through
+    /// one path, per the shared-behavior policy.
+    @MainActor
+    func showCommandHistoryForFocusedSurface(preferredWindow: NSWindow? = nil) {
+        guard
+            let target = resolveFocusedNotificationTarget(preferredWindow: preferredWindow),
+            let surfaceId = target.surfaceId
+        else {
+            NSSound.beep()
+            return
+        }
+        let entries = TerminalCommandHistoryRecorder.load(surfaceID: surfaceId)
+        CommandHistoryWindowController.shared.show(entries: entries)
     }
 
     private func focusedTerminalShortcutContext(preferredWindow: NSWindow? = nil) -> FocusedTerminalShortcutContext? {
@@ -12393,6 +12479,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func reloadCmuxConfigStores(source: String) {
         configStoreReloadCoordinator.reload(source: source)
+        // Keep the command-history recorder's gate in sync when
+        // session.persistShellHistory is toggled at runtime. (The HISTFILE
+        // injection is already read live per spawn by the spawn-policy bridge.)
+        TerminalCommandHistoryRecorder.shared.setEnabled(Self.resolvedPersistShellHistory())
     }
 
     var reloadableConfigStores: [any CmuxConfigStoreReloading] {

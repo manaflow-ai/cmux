@@ -6384,6 +6384,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.showCommandHistory",
+                title: constant(String(localized: "command.showCommandHistory.title", defaultValue: "Show Command History")),
+                subtitle: constant(String(localized: "command.showCommandHistory.subtitle", defaultValue: "Terminal")),
+                keywords: ["command", "history", "shell", "commands", "log", "tab", "recent", "previous"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newTerminalTab",
                 title: constant(String(localized: "command.newTerminalTab.title", defaultValue: "New Tab (Terminal)")),
                 subtitle: constant(String(localized: "command.newTerminalTab.subtitle", defaultValue: "Tab")),
@@ -7585,6 +7593,11 @@ struct ContentView: View {
             if AppDelegate.shared?.reopenPreviousSession() != true {
                 NSSound.beep()
             }
+        }
+        registry.register(commandId: "palette.showCommandHistory") {
+            AppDelegate.shared?.showCommandHistoryForFocusedSurface(
+                preferredWindow: AppDelegate.shared?.mainWindow(for: windowId)
+            )
         }
         registry.register(commandId: "palette.newWindow") {
             guard let appDelegate = AppDelegate.shared else { return }

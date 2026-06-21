@@ -1655,6 +1655,22 @@ _cmux_preexec() {
 
 _cmux_precmd() {
     local last_status=$?
+    # Per-tab shell history: point HISTFILE at this tab's project-scoped file
+    # once, after the user's rc and /etc/zshrc have set their own HISTFILE
+    # (precmd runs post-rc, so this is the only place that wins). cmux exports
+    # CMUX_SHELL_HISTFILE at spawn when session.persistShellHistory is on.
+    if [[ -z "${_CMUX_HISTFILE_APPLIED:-}" && -n "${CMUX_SHELL_HISTFILE:-}" ]]; then
+        typeset -g _CMUX_HISTFILE_APPLIED=1
+        export HISTFILE="$CMUX_SHELL_HISTFILE"
+        : "${SAVEHIST:=10000}"
+        : "${HISTSIZE:=10000}"
+        # Write each command to this tab's file as it runs, so a hard quit
+        # (not a clean shell exit) still persists history for ↑ recall.
+        setopt INC_APPEND_HISTORY
+        # Load this tab's prior history into the live session so ↑ / Ctrl-R
+        # immediately recall it after a reopen.
+        fc -R "$HISTFILE" 2>/dev/null || true
+    fi
     # Handle cases where Ghostty integration initializes after this file. This
     # is pure function-body patching, so it remains safe under job saturation.
     _cmux_patch_ghostty_job_table_guard

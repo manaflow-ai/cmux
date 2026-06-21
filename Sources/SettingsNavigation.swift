@@ -4,6 +4,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
     case app
     case terminal
+    case session
     case textBox
     case mobile
     case sidebarAppearance
@@ -28,6 +29,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.app", defaultValue: "App")
         case .terminal:
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
+        case .session:
+            return String(localized: "settings.section.session", defaultValue: "Sessions")
         case .textBox:
             return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .mobile:
@@ -65,6 +68,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "gearshape"
         case .terminal:
             return "terminal"
+        case .session:
+            return "clock.arrow.circlepath"
         case .textBox:
             return "textformat"
         case .mobile:
@@ -102,6 +107,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) appearance language workspace notifications menu bar telemetry default terminal"
         case .terminal:
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
+        case .session:
+            return "\(title) session restore reopen previous launch relaunch shell history histfile per tab project command history ask always never start fresh"
         case .textBox:
             return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
         case .mobile:

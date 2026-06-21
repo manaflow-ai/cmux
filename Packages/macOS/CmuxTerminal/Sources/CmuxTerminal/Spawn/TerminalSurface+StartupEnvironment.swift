@@ -74,6 +74,43 @@ extension TerminalSurface {
         protectedKeys.insert("CMUX_NO_PR_WATCH")
     }
 
+    /// Sets `CMUX_SHELL_HISTFILE` to this tab's per-project history file so the
+    /// cmux shell-integration prompt hook can point `HISTFILE` at it *after*
+    /// the user's rc runs (the only place that reliably wins, since the user's
+    /// rc and `/etc/zshrc` set `HISTFILE` themselves). Only zsh and bash use a
+    /// `HISTFILE`; fish and unknown shells are left untouched. Creates the
+    /// per-project directory (`0700`) so the shell can create the file on first
+    /// write. The key is protected so user/override env cannot clobber it.
+    public static func applyManagedShellHistoryEnvironment(
+        shell: String,
+        surfaceID: UUID,
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>,
+        appSupportDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) {
+        let shellName = URL(fileURLWithPath: shell).lastPathComponent
+        let fileExtension: String
+        switch shellName {
+        case "zsh": fileExtension = "zsh_history"
+        case "bash": fileExtension = "bash_history"
+        default: return
+        }
+        guard let historyURL = ShellHistoryLocator.historyFileURL(
+            surfaceID: surfaceID,
+            fileExtension: fileExtension,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        ) else { return }
+        try? fileManager.createDirectory(
+            at: historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        environment["CMUX_SHELL_HISTFILE"] = historyURL.path
+        protectedKeys.insert("CMUX_SHELL_HISTFILE")
+    }
+
     /// Prepends `directory` to a `PATH`-style string exactly once.
     public static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)

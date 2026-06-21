@@ -46,6 +46,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()
     public let account = AccountCatalogSection()
+    /// Settings for session restore and per-tab shell history (the `session.*` keys).
+    public let session = SessionCatalogSection()
 
     public init() {}
 }

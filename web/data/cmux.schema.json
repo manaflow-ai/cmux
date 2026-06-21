@@ -390,6 +390,27 @@
         }
       }
     },
+    "session": {
+      "title": "session",
+      "description": "Session restore and per-tab shell history settings from Settings > Sessions.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "restoreMode": {
+          "type": "string",
+          "enum": ["always", "ask", "never"],
+          "default": "ask",
+          "descriptionKey": "schemaDescriptions.session.restoreMode",
+          "description": "When cmux launches with a previous session available: \"always\" restores it silently, \"ask\" prompts before restoring (the default), and \"never\" starts fresh (the previous session stays reopenable via File > Restore Previous Launch)."
+        },
+        "persistShellHistory": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.session.persistShellHistory",
+          "description": "Give each terminal tab its own shell history (up-arrow / Ctrl-R) namespaced by project directory, and record a cmux command history per tab. When off, tabs use your shell's normal global history (e.g. ~/.zsh_history)."
+        }
+      }
+    },
     "terminal": {
       "title": "terminal",
       "description": "Terminal presentation settings from Settings > Terminal.",
