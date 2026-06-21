@@ -12,7 +12,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
-    private let session: MobileCoreRPCSession
+    // `internal` (not `private`) so `@testable import` can reach the session's
+    // writer-queue state from the test target, instead of exposing a debug/test
+    // hook in this production source file.
+    let session: MobileCoreRPCSession
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
