@@ -145,7 +145,7 @@ extension CanvasRootView: CanvasViewportControlling {
         cancelDiscreteZoomAnimation()
         guard magnification != scrollView.magnification else { return }
         let center = currentCenterInCanvas
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if shouldReduceMotionForDiscreteZoom() {
             applyViewport(center: center, magnification: magnification, notifySettled: true)
             return
         }
