@@ -134,6 +134,79 @@ import Testing
     #expect(delivered.map(\.frame.stateSeq) == [30, 40])
 }
 
+@Test func terminalRenderSessionBoundsLiveBufferWhileAwaitingSnapshot() throws {
+    let surfaceID = "terminal"
+    var session = TerminalRenderSession()
+    session.beginSnapshot()
+
+    for seq in 1...100 {
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: surfaceID,
+            stateSeq: UInt64(seq),
+            columns: 16,
+            rows: 2,
+            text: "live-\(seq)",
+            full: false,
+            changedRows: [0]
+        )
+        #expect(session.receiveLive(try .viewportDelta(frame)).isEmpty)
+    }
+
+    #expect(session.bufferedLiveCount == 64)
+
+    let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 90,
+        columns: 16,
+        rows: 2,
+        text: "snapshot"
+    )
+    let delivered = session.receiveSnapshot(try .snapshot(snapshotFrame))
+
+    #expect(delivered.map(\.frame.stateSeq) == [90] + Array(91...100))
+}
+
+@Test func terminalRenderSessionCoalescesReplaceableLiveDeltaWhileAwaitingSnapshot() throws {
+    let surfaceID = "terminal"
+    var session = TerminalRenderSession()
+    session.beginSnapshot()
+
+    let partial = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 10,
+        columns: 16,
+        rows: 2,
+        text: "partial",
+        full: false,
+        changedRows: [0]
+    )
+    var replaceable = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 20,
+        columns: 16,
+        rows: 2,
+        text: "replaceable",
+        full: false,
+        changedRows: [0, 1]
+    )
+    replaceable.clearedRows = [0, 1]
+
+    #expect(session.receiveLive(try .viewportDelta(partial)).isEmpty)
+    #expect(session.receiveLive(try .viewportDelta(replaceable)).isEmpty)
+    #expect(session.bufferedLiveCount == 1)
+
+    let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 15,
+        columns: 16,
+        rows: 2,
+        text: "snapshot"
+    )
+    let delivered = session.receiveSnapshot(try .snapshot(snapshotFrame))
+
+    #expect(delivered.map(\.frame.stateSeq) == [15, 20])
+}
+
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

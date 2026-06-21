@@ -2,6 +2,8 @@ import CMUXMobileCore
 
 /// Orders render-grid replay and live deltas for one mounted terminal surface.
 struct TerminalRenderSession: Sendable {
+    private static let maxBufferedLiveEnvelopes = 64
+
     enum Phase: Equatable, Sendable {
         case awaitingSnapshot
         case live(baseSeq: UInt64)
@@ -41,7 +43,13 @@ struct TerminalRenderSession: Sendable {
     ) -> [MobileTerminalRenderGridEnvelope] {
         switch phase {
         case .awaitingSnapshot:
+            if envelope.isReplaceableViewportDelta {
+                bufferedLiveEnvelopes.removeAll(keepingCapacity: true)
+            }
             bufferedLiveEnvelopes.append(envelope)
+            if bufferedLiveEnvelopes.count > Self.maxBufferedLiveEnvelopes {
+                bufferedLiveEnvelopes.removeFirst(bufferedLiveEnvelopes.count - Self.maxBufferedLiveEnvelopes)
+            }
             return []
         case .live(let baseSeq):
             guard envelope.frame.stateSeq > baseSeq else { return [] }

@@ -33,12 +33,28 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 @MainActor
 @Observable
 public final class MobileShellComposite: MobileTerminalOutputSinking {
-    private static let terminalEventTopics = [
-        "workspace.updated",
-        "terminal.render_grid",
-        "notification.dismissed",
-        "notification.badge",
-    ]
+    private enum TerminalOutputTransport: Equatable {
+        case renderGrid
+        case rawBytes
+
+        var eventTopics: [String] {
+            switch self {
+            case .renderGrid:
+                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"]
+            case .rawBytes:
+                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge"]
+            }
+        }
+
+        var debugName: String {
+            switch self {
+            case .renderGrid:
+                return "render_grid"
+            case .rawBytes:
+                return "raw_bytes"
+            }
+        }
+    }
 
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
 
@@ -587,6 +603,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalReplaySurfaceIDsPendingRetry: Set<String>
     private var terminalRenderSessionsBySurfaceID: [String: TerminalRenderSession]
     private var terminalReplaySurfaceIDsPendingWorkspaceMapping: Set<String>
+    private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
@@ -718,6 +735,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplaySurfaceIDsPendingRetry = []
         self.terminalRenderSessionsBySurfaceID = [:]
         self.terminalReplaySurfaceIDsPendingWorkspaceMapping = []
+        self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
@@ -3586,6 +3604,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
         supportedHostCapabilities = []
+        terminalOutputTransport = .rawBytes
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -4441,8 +4460,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             scheduleHostIdentityAdoptionIfNeeded(client: client)
             if payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" {
+                terminalOutputTransport = .renderGrid
                 MobileDebugLog.anchormux("sync.host_status ok reason=\(reason) fidelity=render_grid")
             } else {
+                terminalOutputTransport = .rawBytes
                 MobileDebugLog.anchormux("sync.host_status legacy reason=\(reason)")
             }
         } catch {
@@ -4463,12 +4484,62 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionRefreshTask = Task { @MainActor [weak self] in
             defer { self?.terminalSubscriptionRefreshTask = nil }
             guard let self else { return }
-            let topics = Self.terminalEventTopics
+            let topics = self.terminalEventTopicsForCurrentHost()
             _ = await self.requestTerminalEventSubscription(
                 client: client,
                 reason: reason,
                 topics: topics
             )
+        }
+    }
+
+    private func terminalEventTopicsForCurrentHost() -> [String] {
+        terminalOutputTransport.eventTopics
+    }
+
+    private func resolveTerminalOutputTransport(client: MobileCoreRPCClient) async -> TerminalOutputTransport {
+        let fallback = terminalOutputTransport
+        let request: Data
+        do {
+            request = try MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:])
+        } catch {
+            return fallback
+        }
+        do {
+            let data = try await client.sendRequest(
+                request,
+                timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
+            )
+            guard remoteClient === client else { return fallback }
+            guard let payload = try? MobileHostStatusResponse.decode(data) else {
+                scheduleHostIdentityAdoptionIfNeeded(client: client)
+                MobileDebugLog.anchormux("sync.host_status decode_failed reason=event_listener_start")
+                return fallback
+            }
+            supportedHostCapabilities = Set(payload.capabilities)
+            await applyHostReportedIdentity(
+                client: client,
+                deviceID: payload.macDeviceID,
+                displayName: payload.macDisplayName
+            )
+            scheduleHostIdentityAdoptionIfNeeded(client: client)
+            if payload.capabilities.contains(Self.terminalRenderGridCapability) ||
+                payload.terminalFidelity == "render_grid" {
+                MobileDebugLog.anchormux("sync.host_status ok reason=event_listener_start fidelity=render_grid")
+                terminalOutputTransport = .renderGrid
+                return .renderGrid
+            }
+            MobileDebugLog.anchormux("sync.host_status legacy reason=event_listener_start")
+            terminalOutputTransport = .rawBytes
+            return .rawBytes
+        } catch {
+            guard remoteClient === client else { return fallback }
+            scheduleHostIdentityAdoptionIfNeeded(client: client)
+            MobileDebugLog.anchormux("sync.host_status failed reason=event_listener_start")
+            if fallback == .rawBytes {
+                MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
+            }
+            return fallback
         }
     }
 
@@ -4499,15 +4570,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
 
-            MobileDebugLog.anchormux("sync.transport=render_grid")
-            Task { @MainActor [weak self] in
-                await self?.refreshHostStatus(
-                    client: client,
-                    reason: "event_listener_start",
-                    timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
-                )
-            }
-            let topics = Self.terminalEventTopics
+            let outputTransport = await self?.resolveTerminalOutputTransport(client: client) ?? .rawBytes
+            MobileDebugLog.anchormux("sync.transport=\(outputTransport.debugName)")
+            let topics = outputTransport.eventTopics
             let stream = await client.subscribe(to: Set(topics))
             // Kick off the server-side enable handshake CONCURRENTLY with
             // consumption. The old structure awaited the ack here, which
@@ -4522,7 +4587,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 client: client,
                 listenerID: listenerID,
                 topics: topics,
-                transportName: "render_grid"
+                transportName: outputTransport.debugName
             )
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
@@ -4537,6 +4602,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
+                } else if event.topic == "terminal.bytes" {
+                    self.handleTerminalBytesEvent(event)
                 } else if event.topic == "notification.dismissed" {
                     await self.handleNotificationDismissedEvent(event)
                 } else if event.topic == "notification.badge" {
@@ -4738,7 +4805,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard renderGridLivenessProbeTask == nil else { return }
         let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
             ?? 3_000_000_000
-        let topics = Self.terminalEventTopics
+        let topics = terminalEventTopicsForCurrentHost()
         let probeID = UUID()
         renderGridLivenessProbeID = probeID
         renderGridLivenessProbeTask = Task { @MainActor [weak self] in
@@ -5326,6 +5393,54 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
         let envelopes = terminalRenderLiveEnvelopes(envelope, surfaceID: renderGrid.surfaceID)
         deliverTerminalRenderGridEnvelopes(envelopes, surfaceID: renderGrid.surfaceID, source: "event")
+    }
+
+    private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = MobileTerminalBytesEvent.decode(json)
+        else {
+            return
+        }
+        let surfaceID = payload.surfaceID
+        let bytes = payload.bytes
+        #if DEBUG
+        let debugSeq = payload.sequence ?? 0
+        mobileShellLog.info("CMUX_REPLAY live bytes surface=\(surfaceID, privacy: .public) byteCount=\(bytes.count, privacy: .public) seq=\(debugSeq, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")
+        #endif
+        guard hasTerminalOutputSink(surfaceID: surfaceID) else { return }
+        guard let seq = payload.sequence else {
+            deliverTerminalBytes(bytes, surfaceID: surfaceID)
+            return
+        }
+        let endSeq = seq &+ UInt64(bytes.count)
+        if let deliveredSeq = deliveredTerminalOutputSeqBySurfaceID[surfaceID] {
+            if seq > deliveredSeq {
+                MobileDebugLog.anchormux("sync.byte_gap surface=\(surfaceID) delivered=\(deliveredSeq) next=\(seq)")
+                diagnosticLog?.record(DiagnosticEvent(
+                    .byteGap,
+                    surface: Self.diagnosticSurfaceHandle(surfaceID),
+                    a: Int(clamping: deliveredSeq),
+                    b: Int(clamping: seq)
+                ))
+                resyncTerminalOutput(
+                    reason: "seq_gap",
+                    restartEventStream: false,
+                    surfaceIDs: [surfaceID]
+                )
+                return
+            }
+            if endSeq <= deliveredSeq {
+                return
+            }
+            let overlap = deliveredSeq - seq
+            let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
+            deliverTerminalBytes(deliverBytes, surfaceID: surfaceID)
+            markTerminalOutputDelivered(surfaceID: surfaceID, endSeq: endSeq)
+            return
+        }
+        deliverTerminalBytes(bytes, surfaceID: surfaceID)
+        markTerminalOutputDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 
     private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
