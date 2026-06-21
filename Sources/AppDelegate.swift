@@ -1358,6 +1358,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let windowCoordinator: any WindowManaging = WindowCoordinator()
     private var windowCoordinatorClosureTask: Task<Void, Never>?
 
+    /// Ordered ``WindowID``-keyed ledger of recoverable main-window routes,
+    /// peeled out of the rejected `MainWindowContext` aggregate (owner ruling
+    /// 2026-06-18: per-window state is domain-owned and `WindowID`-keyed). This
+    /// is the constructor-held replacement for the legacy
+    /// `objc_getAssociatedObject` association that hid a `MainWindowRouteLedger`
+    /// class on the `AppDelegate` singleton: ``RecoverableWindowRouteLedger``
+    /// owns the bookkeeping (the `[WindowID: route]` storage, the monotonic order
+    /// issued per remembered route, and the most-recently-remembered-first sort),
+    /// while the app-side methods in `AppDelegate+RecoverableMainWindowRoutes`
+    /// keep the route-resolution logic that reaches into app-target
+    /// window/tab/surface state.
+    let recoverableMainWindowRouteLedger = RecoverableWindowRouteLedger<RecoverableMainWindowRoute>()
+
     /// Per-window config stores, keyed by ``WindowID`` (first domain peeled out
     /// of the rejected `MainWindowContext` aggregate; owner ruling 2026-06-18).
     /// A passive dictionary: its slice is dropped by the window teardown paths

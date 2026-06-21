@@ -1,7 +1,7 @@
 import AppKit
 import CmuxTerminalCore
 import CmuxTerminal
-import ObjectiveC.runtime
+import CmuxWindowing
 
 @MainActor
 final class RecoverableMainWindowRoute {
@@ -19,24 +19,11 @@ final class RecoverableMainWindowRoute {
 }
 
 @MainActor
-private final class MainWindowRouteLedger {
-    var routesByWindowId: [UUID: RecoverableMainWindowRoute] = [:]
-    private var nextOrder: UInt64 = 0
-
-    func issueOrder() -> UInt64 {
-        defer { nextOrder &+= 1 }
-        return nextOrder
-    }
-}
-
-@MainActor
 private struct MainWindowRouteSnapshot {
     let windowId: UUID
     let tabManager: TabManager
     let window: NSWindow?
 }
-
-private var mainWindowRouteLedgerKey: UInt8 = 0
 
 // The retire sweep is the MainWindowRouteRetiring witness: the terminal
 // surface registry (CmuxTerminalEngine) calls it through the seam instead of
@@ -44,15 +31,6 @@ private var mainWindowRouteLedgerKey: UInt8 = 0
 extension AppDelegate: MainWindowRouteRetiring {}
 
 extension AppDelegate {
-    private var mainWindowRouteLedger: MainWindowRouteLedger {
-        if let ledger = objc_getAssociatedObject(self, &mainWindowRouteLedgerKey) as? MainWindowRouteLedger {
-            return ledger
-        }
-        let ledger = MainWindowRouteLedger()
-        objc_setAssociatedObject(self, &mainWindowRouteLedgerKey, ledger, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        return ledger
-    }
-
     private func tabManagerHasRegisteredTerminalSurface(_ manager: TabManager) -> Bool {
         for workspace in manager.tabs {
             for panel in workspace.panels.values {
@@ -70,16 +48,11 @@ extension AppDelegate {
     }
 
     private func sortedRecoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
-        mainWindowRouteLedger.routesByWindowId.values.sorted { lhs, rhs in
-            if lhs.order != rhs.order {
-                return lhs.order > rhs.order
-            }
-            return lhs.windowId.uuidString < rhs.windowId.uuidString
-        }
+        recoverableMainWindowRouteLedger.sortedByMostRecentFirst()
     }
 
     private func recoverableMainWindowRouteSnapshot(windowId: UUID) -> MainWindowRouteSnapshot? {
-        guard let route = mainWindowRouteLedger.routesByWindowId[windowId],
+        guard let route = recoverableMainWindowRouteLedger.route(for: WindowID(windowId)),
               let manager = route.tabManager,
               let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else {
             return nil
@@ -109,14 +82,14 @@ extension AppDelegate {
     }
 
     func retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: String) {
-        let before = mainWindowRouteLedger.routesByWindowId.count
-        mainWindowRouteLedger.routesByWindowId = mainWindowRouteLedger.routesByWindowId.filter { _, route in
+        let before = recoverableMainWindowRouteLedger.count
+        recoverableMainWindowRouteLedger.retainRoutes { _, route in
             guard let manager = route.tabManager else { return false }
             guard let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else { return false }
             route.window = window
             return tabManagerHasRegisteredTerminalSurface(manager)
         }
-        let after = mainWindowRouteLedger.routesByWindowId.count
+        let after = recoverableMainWindowRouteLedger.count
 #if DEBUG
         if after != before {
             cmuxDebugLog("recoverableRoute.prune reason=\(reason) removed=\(before - after) remaining=\(after)")
@@ -125,7 +98,7 @@ extension AppDelegate {
     }
 
     func forgetRecoverableMainWindowRoute(windowId: UUID) {
-        if mainWindowRouteLedger.routesByWindowId.removeValue(forKey: windowId) != nil {
+        if recoverableMainWindowRouteLedger.remove(WindowID(windowId)) != nil {
 #if DEBUG
             cmuxDebugLog("recoverableRoute.forget windowId=\(String(windowId.uuidString.prefix(8)))")
 #endif
@@ -135,11 +108,16 @@ extension AppDelegate {
     func rememberRecoverableMainWindowRoute(windowId: UUID, tabManager: TabManager, window: NSWindow?) {
         guard let window = liveRecoverableMainWindow(windowId: windowId, cachedWindow: window) else { return }
         guard tabManagerHasRegisteredTerminalSurface(tabManager) else { return }
-        mainWindowRouteLedger.routesByWindowId[windowId] = RecoverableMainWindowRoute(
-            windowId: windowId,
-            tabManager: tabManager,
-            window: window,
-            order: mainWindowRouteLedger.issueOrder()
+        let order = recoverableMainWindowRouteLedger.issueOrder()
+        recoverableMainWindowRouteLedger.setRoute(
+            RecoverableMainWindowRoute(
+                windowId: windowId,
+                tabManager: tabManager,
+                window: window,
+                order: order
+            ),
+            order: order,
+            for: WindowID(windowId)
         )
 #if DEBUG
         cmuxDebugLog("recoverableRoute.remember windowId=\(String(windowId.uuidString.prefix(8)))")
@@ -148,7 +126,7 @@ extension AppDelegate {
 
     func recoverableMainWindowRoute(windowId: UUID) -> RecoverableMainWindowRoute? {
         guard recoverableMainWindowRouteSnapshot(windowId: windowId) != nil else { return nil }
-        return mainWindowRouteLedger.routesByWindowId[windowId]
+        return recoverableMainWindowRouteLedger.route(for: WindowID(windowId))
     }
 
     func recoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
