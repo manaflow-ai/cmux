@@ -13700,6 +13700,7 @@ struct TabItemView: View, Equatable {
         }
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
+                guard !isEditing else { return }
                 beginInlineRename()
             }
         )
