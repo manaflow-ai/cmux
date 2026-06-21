@@ -2022,9 +2022,28 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
         lock.lock()
         pruneExpiredSessionsLocked(now: now)
+        let hasSession = sessions[token] != nil
         let file = sessions[token]?.filesByPath[requestPath]
         lock.unlock()
-        return file
+        if let file {
+            return file
+        }
+
+        // Miss on an active session: the on-disk manifest may have grown
+        // out-of-band since the session was cached. The branch picker's
+        // regenerate route runs the bundled CLI in a CHILD process, which writes
+        // the new page and appends it to `.manifest-<token>.json` without
+        // updating this handler's in-memory allowlist; the redirect then targets
+        // a path this cache has never seen. Reload the manifest from disk once
+        // and retry so freshly regenerated pages resolve instead of 404ing.
+        // (registerFromManifest takes the lock itself, so call it unlocked.)
+        guard hasSession, registerFromManifest(token: token, now: now) else {
+            return nil
+        }
+        lock.lock()
+        let refreshed = sessions[token]?.filesByPath[requestPath]
+        lock.unlock()
+        return refreshed
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
