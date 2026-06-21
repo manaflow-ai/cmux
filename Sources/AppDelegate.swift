@@ -1387,7 +1387,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isAwaitingTerminateKills = false
     private var terminateKillWatchdogTask: Task<Void, Never>?
     private var didInstallLifecycleSnapshotObservers = false
-    private var didDisableSuddenTermination = false
+    /// Owns the control-socket listener lifecycle policy (configuration
+    /// resolution, start/ensure/restart sequencing, the sudden-termination
+    /// latch); the live listener and tab-manager resolution stay here behind the
+    /// `SocketListenerLifecycleHost` seam this delegate conforms to.
+    private lazy var socketListenerLifecycle = SocketListenerLifecycleCoordinator(host: self)
     /// Owns the per-window command-palette state (visibility, pending-open,
     /// escape suppression, selection, debug snapshot). This delegate resolves
     /// `NSWindow` values to identifiers and forwards into the store.
@@ -2843,84 +2847,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Internal (not private) so the DEBUG `MultiWindowNotificationUITestScaffold`
     // can resolve the socket configuration it probes for the socket-sanity stage.
+    // Forwards to `SocketListenerLifecycleCoordinator`, adapting its DTO back to
+    // the tuple shape the remaining UI-test/menu callers read.
     func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
-        let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
-            ?? SocketControlSettings.defaultMode.rawValue
-        let userMode = SocketControlSettings.migrateMode(raw)
-        let mode = SocketControlSettings.effectiveMode(userMode: userMode)
-        guard mode != .off else { return nil }
-        return (mode: mode, path: SocketControlSettings.socketPath())
+        guard let config = socketListenerLifecycle.configurationIfEnabled() else { return nil }
+        return (mode: config.mode, path: config.path)
     }
 
     private func reserveInitialSocketPathIfNeeded() {
-        guard let config = socketListenerConfigurationIfEnabled() else { return }
-        let startupPath = SocketControlSettings.initialSocketPathBeforeListenerStart(
-            preferredPath: config.path,
-            stableDefaultSocketCanBeReclaimed: socketTransport.pathCanBeReclaimedForStartup
-        )
-        TerminalController.shared.reserveStartupSocketPath(startupPath)
+        socketListenerLifecycle.reserveInitialSocketPathIfNeeded()
     }
 
     private func startSocketListenerIfEnabled(tabManager: TabManager, source: String) {
-        guard let config = socketListenerConfigurationIfEnabled() else {
-            TerminalController.shared.stop()
-            return
-        }
-        let path = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        sentryBreadcrumb("socket.listener.start", category: "socket", data: [
-            "mode": config.mode.rawValue,
-            "path": path,
-            "source": source
-        ])
-        TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
+        socketListenerLifecycle.start(target: tabManager, source: source)
     }
 
     private func ensureSocketListenerIfEnabled(tabManager: TabManager, source: String) {
-        guard let config = socketListenerConfigurationIfEnabled() else {
-            TerminalController.shared.stop()
-            return
-        }
-
-        let path = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
-        guard !health.isHealthy else { return }
-
-        sentryBreadcrumb("socket.listener.ensure", category: "socket", data: [
-            "mode": config.mode.rawValue,
-            "path": path,
-            "source": source,
-            "failureSignals": health.failureSignals.joined(separator: ",")
-        ])
-        TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
+        socketListenerLifecycle.ensure(target: tabManager, source: source)
     }
 
     // Internal (not private) so the DEBUG `MultiWindowNotificationUITestScaffold`
     // can restart the listener while it waits for the socket to come up.
     func restartSocketListenerIfEnabled(source: String) {
-        guard let manager = tabManager
-            ?? preferredRegisteredMainWindowContext()?.tabManager
-            ?? mainWindowContexts.values.first?.tabManager,
-              let config = socketListenerConfigurationIfEnabled() else { return }
-        let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
-            "mode": config.mode.rawValue,
-            "path": restartPath,
-            "source": source
-        ])
-        TerminalController.shared.stop()
-        TerminalController.shared.start(tabManager: manager, socketPath: restartPath, accessMode: config.mode)
+        socketListenerLifecycle.restart(source: source)
     }
 
     private func disableSuddenTerminationIfNeeded() {
-        guard !didDisableSuddenTermination else { return }
-        ProcessInfo.processInfo.disableSuddenTermination()
-        didDisableSuddenTermination = true
+        socketListenerLifecycle.disableSuddenTerminationIfNeeded()
     }
 
     private func enableSuddenTerminationIfNeeded() {
-        guard didDisableSuddenTermination else { return }
-        ProcessInfo.processInfo.enableSuddenTermination()
-        didDisableSuddenTermination = false
+        socketListenerLifecycle.enableSuddenTerminationIfNeeded()
     }
 
     private func sessionAutosaveFingerprint(
