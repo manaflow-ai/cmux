@@ -211,11 +211,13 @@ struct LastSurfaceClosePreferenceTests {
         let originalWarnBeforeClosingTabXButton = warningDefaults.object(
             forKey: catalog.warnBeforeClosingTabXButton.userDefaultsKey
         )
+        ClosedItemHistoryStore.shared.removeAll()
         warningDefaults.set(false, forKey: catalog.warnBeforeClosingTab.userDefaultsKey)
         warningDefaults.set(false, forKey: catalog.warnBeforeClosingTabXButton.userDefaultsKey)
         defer {
             restore(originalWarnBeforeClosingTab, forKey: catalog.warnBeforeClosingTab.userDefaultsKey)
             restore(originalWarnBeforeClosingTabXButton, forKey: catalog.warnBeforeClosingTabXButton.userDefaultsKey)
+            ClosedItemHistoryStore.shared.removeAll()
         }
         try run(TabManager(settings: settings))
     }

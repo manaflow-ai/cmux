@@ -3431,8 +3431,7 @@ final class Workspace: Identifiable, ObservableObject {
             markCloseHistoryEligible(panelId: panelId)
         }
 
-        let closed = requestCloseTab(tabId, force: force)
-        return closed
+        return requestCloseTab(tabId, force: force)
     }
 
     /// Non-interactive socket/API close path. Remote-tmux mirror tabs must be
@@ -3482,6 +3481,7 @@ final class Workspace: Identifiable, ObservableObject {
     func markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(surfaceId: TabID, tabStripClose: Bool, tabCloseButton: Bool) -> Bool {
         let shouldClose = shouldCloseWorkspaceOnLastSurface(for: surfaceId, tabStripClose: tabStripClose)
         remoteTmuxWorkspaceCloseButtonByTabId[surfaceId] = shouldClose ? Optional(tabCloseButton) : nil
+        if shouldClose { clearCloseHistoryEligibility(tabId: surfaceId) }
         return shouldClose
     }
 
