@@ -11193,7 +11193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard flags.contains(.command) else { return false }
 
         let staleDefaultActions = KeyboardShortcutSettings.Action.allCases.filter { action in
-            isMenuBackedShortcutAction(action) &&
+            action.isMenuBacked &&
                 matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut)
         }
         guard !staleDefaultActions.isEmpty else { return false }
@@ -11204,7 +11204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if staleDefaultActions.contains(where: isCloseShortcutAction) {
+        if staleDefaultActions.contains(where: \.isCloseAction) {
             return true
         }
 
@@ -11225,19 +11225,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return numberedShortcutDigit(event: event, shortcut: currentShortcut) != nil
         }
         return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
-    }
-
-    private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows && action != .globalSearch && action != .clearScreenKeepScrollback
-    }
-
-    private func isCloseShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        switch action {
-        case .closeTab, .closeWorkspace, .closeWindow:
-            return true
-        default:
-            return false
-        }
     }
 
     private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {

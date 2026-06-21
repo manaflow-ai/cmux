@@ -138,6 +138,31 @@ extension KeyboardShortcutSettings.Action {
             return .application
         }
     }
+
+    /// Whether this action is also surfaced as an `NSMenuItem` key equivalent.
+    ///
+    /// The stale-menu-shortcut suppressor (``AppDelegate/shouldSuppressStaleCmuxMenuShortcut(event:)``)
+    /// only needs to suppress a remapped-away *default* binding for actions that
+    /// have a menu item still carrying the old key equivalent; the three
+    /// non-menu actions below are routed purely in code, so their default
+    /// binding can never reach the menu and never needs suppression.
+    var isMenuBacked: Bool {
+        self != .showHideAllWindows && self != .globalSearch && self != .clearScreenKeepScrollback
+    }
+
+    /// Whether this action closes a tab, workspace, or window.
+    ///
+    /// The stale-shortcut suppressor treats close actions specially: a stale
+    /// default ⌘W must be suppressed even when no current binding matches, so a
+    /// menu close item does not fire on a key the user has rebound away.
+    var isCloseAction: Bool {
+        switch self {
+        case .closeTab, .closeWorkspace, .closeWindow:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 extension Notification.Name {
