@@ -32,6 +32,26 @@ extension MobileShellComposite {
         ))
     }
 
+    public func scrollTerminalToBottom(surfaceID: String) async {
+        guard let client = remoteClient,
+              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            return
+        }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.terminal.scroll_to_bottom",
+                params: [
+                    "workspace_id": workspaceID.rawValue,
+                    "surface_id": surfaceID,
+                    "client_id": clientID,
+                ]
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            terminalScrollDeliveryLog.error("scroll-to-bottom failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
     private func enqueueTerminalScroll(_ delivery: TerminalScrollDelivery) {
         guard delivery.lines != 0 else { return }
         let queueToken = terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] ?? UUID()

@@ -110,3 +110,18 @@ import Testing
     var queueAfterStaleCompletion = try #require(store.terminalScrollQueuesBySurfaceID[surfaceID])
     #expect(queueAfterStaleCompletion.completeInFlight() == pending)
 }
+
+@MainActor
+@Test func scrollToBottomSendsAbsoluteMobileRPC() async throws {
+    let router = RoutingHostRouter()
+    let store = try await makeRoutingConnectedStore(router: router)
+
+    await store.scrollTerminalToBottom(surfaceID: RoutingHostRouter.terminalA)
+
+    let requests = await router.recordedScrollToBottomRequests()
+    let request = try #require(requests.first)
+    #expect(requests.count == 1)
+    #expect(request.workspaceID == RoutingHostRouter.workspaceID)
+    #expect(request.surfaceID == RoutingHostRouter.terminalA)
+    #expect(!request.clientID.isEmpty)
+}

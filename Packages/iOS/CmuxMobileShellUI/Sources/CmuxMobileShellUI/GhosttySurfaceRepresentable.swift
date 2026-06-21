@@ -311,6 +311,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        func ghosttySurfaceViewDidRequestScrollToBottom(_ surfaceView: GhosttySurfaceView) {
+            // Forward to the Mac's real surface so the phone's mirror and the
+            // authoritative Mac viewport agree after the local preview jumps.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.store?.scrollTerminalToBottom(surfaceID: self.surfaceID)
+            }
+        }
+
         func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {
             // The "customize" button on the keyboard toolbar. The editor view
             // lives in this UI package, so present it here (the terminal package

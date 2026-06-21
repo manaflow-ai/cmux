@@ -51,6 +51,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// Invoked when the composer accessory button is tapped. The host toggles
     /// the iMessage-style composer above the terminal.
     var onToggleComposer: (() -> Void)?
+    /// Invoked when the scroll-to-bottom accessory button is tapped. The host
+    /// owns the surface binding because this responder has no Ghostty surface.
+    var onScrollToBottom: (() -> Void)?
     /// Fired by the pinned HIDE button: temporarily hides the toolbar + composer
     /// until the next terminal tap.
     var onHideChrome: (() -> Void)?
@@ -1062,6 +1065,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             disarmAllModifiers()
             refreshAccessoryButtonStyles()
             onZoom?(zoomDirection)
+            return
+        }
+
+        if action == .scrollToBottom {
+            disarmAllModifiers()
+            refreshAccessoryButtonStyles()
+            onScrollToBottom?()
             return
         }
 

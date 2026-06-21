@@ -4540,6 +4540,23 @@
         }
       }
     },
+    "terminal.input_accessory.scroll_to_bottom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll to Bottom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一番下までスクロール"
+          }
+        }
+      }
+    },
     "mobile.pairing.accountMismatch": {
       "extractionState": "manual",
       "localizations": {
@@ -6185,6 +6202,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ページダウン"
+          }
+        }
+      }
+    },
+    "terminal.shortcut.name.scrollToBottom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll to Bottom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一番下までスクロール"
           }
         }
       }
