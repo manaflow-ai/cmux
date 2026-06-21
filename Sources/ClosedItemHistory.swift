@@ -126,10 +126,44 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
-    static let shared = ClosedItemHistoryStore(
+    /// Records that the composition root (``AppDelegate``) has claimed ownership
+    /// of the single recently-closed-history store, so the tail call sites
+    /// reaching ``shared`` and the root's own ``AppDelegate/closedItemHistory``
+    /// reference resolve to the same object. `nonisolated(unsafe)`: written
+    /// exactly once at startup before any concurrent reader exists. Retires with
+    /// ``shared`` once every call site is injected.
+    nonisolated(unsafe) private static var compositionRootInstance: ClosedItemHistoryStore?
+
+    /// The single instance, lazily constructed on first access. A `static let`
+    /// of a `@MainActor` type is nonisolated-readable and its initializer runs
+    /// the `@MainActor` `init`, the same contract the legacy eager
+    /// `static let shared` had. In a normal launch the composition root resolves
+    /// and installs this first (via ``installCompositionRootInstance(_:)``) and
+    /// holds it as ``AppDelegate/closedItemHistory``.
+    private static let instance = ClosedItemHistoryStore(
         capacity: nil,
         fileURL: defaultHistoryFileURL()
     )
+
+    /// Transitional accessor for the de-singletonization (CONVENTIONS §5
+    /// `static let shared` → construct-and-inject). The type no longer
+    /// self-vivifies an eager `static let shared`; ownership lives at the
+    /// composition root (``AppDelegate/closedItemHistory``), which constructs and
+    /// holds the instance and uses it directly at the AppDelegate call sites. The
+    /// tail of call sites (`Workspace`, `TabManager`, the `cmuxApp` history menu)
+    /// still reach the same single object here while they are migrated to the
+    /// injected reference; dropping ``shared`` is the end state.
+    static var shared: ClosedItemHistoryStore {
+        compositionRootInstance ?? instance
+    }
+
+    /// Called once by ``AppDelegate`` at startup to record composition-root
+    /// ownership of the single instance. Idempotent (keeps the first installed
+    /// instance).
+    static func installCompositionRootInstance(_ instance: ClosedItemHistoryStore) {
+        guard compositionRootInstance == nil else { return }
+        compositionRootInstance = instance
+    }
 
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []

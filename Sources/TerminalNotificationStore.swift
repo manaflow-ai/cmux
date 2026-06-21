@@ -236,7 +236,41 @@ final class TerminalNotificationStore: ObservableObject {
         var latestByTabId: [UUID: TerminalNotification] = [:]
     }
 
-    static let shared = TerminalNotificationStore()
+    /// Records that the composition root has claimed ownership of the single
+    /// terminal-notification store, so the tail call sites reaching ``shared``
+    /// and the root's injected reference resolve to the same object.
+    /// `nonisolated(unsafe)`: written exactly once at startup (in
+    /// ``AppDelegate/configure`` with the cmuxApp-owned `@StateObject`) before any
+    /// concurrent reader exists. Retires with ``shared`` once every call site is
+    /// injected.
+    nonisolated(unsafe) private static var compositionRootInstance: TerminalNotificationStore?
+
+    /// The single instance, lazily constructed on first access. The cmuxApp
+    /// `@StateObject` resolves this (via ``shared``) and AppDelegate installs the
+    /// same object as the composition-root instance, so there is exactly one
+    /// store.
+    private static let instance = TerminalNotificationStore()
+
+    /// Transitional accessor for the de-singletonization (CONVENTIONS §5
+    /// `static let shared` → construct-and-inject). The type no longer
+    /// self-vivifies an eager `static let shared`; the cmuxApp `@StateObject`
+    /// owns the single instance and injects it into `AppDelegate` (which records
+    /// ownership via ``installCompositionRootInstance(_:)``). The tail of call
+    /// sites (`GhosttyTerminalView`, the `TerminalController` `+*Context` seams,
+    /// `TabManager`, `ContentView`, `Feed`, the notification queue) still reach
+    /// the same single object here while they are migrated to the injected
+    /// reference; dropping ``shared`` is the end state.
+    static var shared: TerminalNotificationStore {
+        compositionRootInstance ?? instance
+    }
+
+    /// Called once by ``AppDelegate`` (in `configure`, with the cmuxApp-owned
+    /// `@StateObject`) to record composition-root ownership of the single
+    /// instance. Idempotent (keeps the first installed instance).
+    static func installCompositionRootInstance(_ instance: TerminalNotificationStore) {
+        guard compositionRootInstance == nil else { return }
+        compositionRootInstance = instance
+    }
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"

@@ -2,7 +2,7 @@ import AppKit
 
 extension AppDelegate {
     func clearRecentlyClosedHistory(preferredTabManager: TabManager? = nil) {
-        ClosedItemHistoryStore.shared.removeAll()
+        closedItemHistory.removeAll()
 
         var clearedManagers: Set<ObjectIdentifier> = []
         func clear(_ manager: TabManager?) {
@@ -28,7 +28,7 @@ extension AppDelegate {
     ) -> Bool {
         var failedStoreRecordIds: Set<UUID> = []
         let restoreStoreItem: (Date?) -> Bool = { cutoff in
-            ClosedItemHistoryStore.shared.restoreFirstRestorable(
+            self.closedItemHistory.restoreFirstRestorable(
                 newerThan: cutoff,
                 excluding: failedStoreRecordIds,
                 onFailure: { failedStoreRecordIds.insert($0) },
@@ -142,8 +142,8 @@ extension AppDelegate {
                 hasLivePanels: hasLivePanels
             ) else {
                 if let originalWindowId {
-                    ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: windowId, to: originalWindowId)
-                    ClosedItemHistoryStore.shared.flushPendingSaves()
+                    closedItemHistory.remapWorkspaceWindowIds(from: windowId, to: originalWindowId)
+                    closedItemHistory.flushPendingSaves()
                 }
                 discardMainWindowWithoutClosedHistory(windowId: windowId)
                 return false
@@ -162,7 +162,7 @@ extension AppDelegate {
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool = true
     ) -> Bool {
-        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
+        guard let removed = closedItemHistory.removeRecord(id: id) else {
             return false
         }
 
@@ -174,7 +174,7 @@ extension AppDelegate {
             return true
         }
 
-        ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
+        closedItemHistory.insert(removed.record, at: removed.index)
         return false
     }
 
