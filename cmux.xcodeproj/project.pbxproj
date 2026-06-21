@@ -539,6 +539,8 @@
 		E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
 		C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */; };
 		284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */; };
+		ACA7C4B000000000000000B1 /* MobileChatRPCHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4B000000000000000B2 /* MobileChatRPCHandler.swift */; };
+		ACA7C4B000000000000000A1 /* MobileChatRPCHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4B000000000000000A2 /* MobileChatRPCHost.swift */; };
 		6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */; };
 		C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
@@ -1575,6 +1577,8 @@
 		E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
 		C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/MinimalModeSidebarControls.swift; sourceTree = "<group>"; };
 		8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileAttachTicketStore.swift; sourceTree = "<group>"; };
+		ACA7C4B000000000000000B2 /* MobileChatRPCHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileChatRPCHandler.swift"; sourceTree = "<group>"; };
+		ACA7C4B000000000000000A2 /* MobileChatRPCHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileChatRPCHost.swift"; sourceTree = "<group>"; };
 		9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationTests.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostBuildIdentity.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
@@ -2247,6 +2251,8 @@
 				ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */,
 				ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */,
 				ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */,
+				ACA7C4B000000000000000A2 /* MobileChatRPCHost.swift */,
+				ACA7C4B000000000000000B2 /* MobileChatRPCHandler.swift */,
 			);
 			name = AgentChat;
 			path = AgentChat;
@@ -3925,6 +3931,8 @@
 				3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */,
 				C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */,
 				284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */,
+				ACA7C4B000000000000000B1 /* MobileChatRPCHandler.swift in Sources */,
+				ACA7C4B000000000000000A1 /* MobileChatRPCHost.swift in Sources */,
 				C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */,
 				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,
