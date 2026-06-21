@@ -266,7 +266,7 @@ esac`}</CodeBlock>
           ),
         })}
       </p>
-      <CodeBlock title="~/.copilot/config.json" lang="json">{`{
+      <CodeBlock title="~/.copilot/hooks/cmux.json" lang="json">{`{
   "hooks": {
     "userPromptSubmitted": [
       {
