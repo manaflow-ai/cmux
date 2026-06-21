@@ -82,7 +82,20 @@ export interface PairedMacBackupRecord {
 }
 
 export type PairedMacBackupOp =
-  | { kind: "upsert"; id: string; record: PairedMacBackupRecord }
+  | {
+      kind: "upsert";
+      id: string;
+      record: PairedMacBackupRecord;
+      /** Which customization keys the upload actually CARRIED (were present in the
+       * JSON `record`), regardless of value. iOS uploads always carry all three
+       * (authoritative; `null` = the user reset that field to Auto). The Mac's
+       * route-publish never carries them — it does not know the user's
+       * customizations — so the server preserves the stored values for any key
+       * NOT provided, instead of clobbering them to empty on every heartbeat.
+       * Absent here (e.g. a hand-built op) is treated as "all provided", i.e. the
+       * record's custom fields are authoritative as-is. */
+      providedCustom?: { name: boolean; color: boolean; icon: boolean };
+    }
   | { kind: "delete"; id: string };
 
 export type PairedMacBackupParse =
@@ -141,7 +154,15 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
       return { ok: false, error: "invalid_display_name" };
     }
     // User customizations: opaque strings, bounded like the display name. Over-long
-    // values are rejected rather than silently truncated.
+    // values are rejected rather than silently truncated. Track whether each key was
+    // PRESENT in the upload (vs absent) so the server can preserve a stored value
+    // when the Mac route-publish omits it, while still letting an iOS upload clear
+    // it (iOS always sends the key, `null` when reset to Auto). See `applyOps`.
+    const providedCustom = {
+      name: "customName" in r,
+      color: "customColor" in r,
+      icon: "customIcon" in r,
+    };
     const customName = trimmedString(r.customName);
     const customColor = trimmedString(r.customColor);
     const customIcon = trimmedString(r.customIcon);
@@ -173,6 +194,7 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
     ops.push({
       kind: "upsert",
       id,
+      providedCustom,
       record: {
         macDeviceID: id,
         displayName: displayName || undefined,
@@ -264,11 +286,25 @@ export async function applyBackupOps(
       // preferred-first leniency elsewhere. Existing records still update.
       continue;
     }
+    // Preserve stored customizations for any custom key this upload did NOT carry.
+    // The Mac's route-publish never sends them, so without this a Mac heartbeat
+    // would mint a new rev that wipes the name/color/icon the user set from iOS,
+    // and the next restore would clear them. iOS always sends all three keys (it is
+    // authoritative, including a `null` reset-to-Auto), so its uploads keep full
+    // control. Only meaningful when there is a live existing record to inherit from.
+    const record = { ...op.record };
+    const provided = op.providedCustom ?? { name: true, color: true, icon: true };
+    if (existing !== undefined && !existing.deleted) {
+      const prev = existing.payload;
+      if (!provided.name) record.customName = prev.customName;
+      if (!provided.color) record.customColor = prev.customColor;
+      if (!provided.icon) record.customIcon = prev.customIcon;
+    }
     const res = await upsertRecord<PairedMacBackupRecord>(
       storage,
       collection,
       op.id,
-      op.record,
+      record,
       nowMs,
       pairedMacShapeEqual,
       // Refresh `lastSeenAt` in place on a same-shape republish (no rev/delta), so

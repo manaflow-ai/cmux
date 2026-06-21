@@ -168,6 +168,84 @@ describe("applyBackupOps", () => {
     expect(live.find((r) => r.macDeviceID === "mac-a")?.customName).toBe("Studio at home");
   });
 
+  it("a Mac route-publish (no custom keys) preserves iOS-set customizations", async () => {
+    const storage = new FakeStorage();
+    // iOS sets a name/color/icon (all custom keys provided -> authoritative).
+    const set = {
+      ...record("mac-a", "10.0.0.1", 22),
+      customName: "Studio",
+      customColor: "palette:3",
+      customIcon: "🛠️",
+    };
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [
+        {
+          kind: "upsert",
+          id: "mac-a",
+          record: set,
+          providedCustom: { name: true, color: true, icon: true },
+        },
+      ],
+      T0,
+    );
+
+    // The Mac then republishes a NEW route, carrying NO custom keys. This must NOT
+    // wipe the customizations (the regression: a heartbeat clobbering name/color/icon).
+    const macPublish = {
+      ...record("mac-a", "10.0.0.99", 22),
+      customName: undefined,
+      customColor: undefined,
+      customIcon: undefined,
+    };
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [
+        {
+          kind: "upsert",
+          id: "mac-a",
+          record: macPublish,
+          providedCustom: { name: false, color: false, icon: false },
+        },
+      ],
+      T0 + 1000,
+    );
+
+    const afterMac = (await listLiveBackup(storage, "user-1")).find((r) => r.macDeviceID === "mac-a");
+    expect(afterMac?.customName).toBe("Studio");
+    expect(afterMac?.customColor).toBe("palette:3");
+    expect(afterMac?.customIcon).toBe("🛠️");
+    // ...and the new route from the Mac DID apply.
+    expect(afterMac?.routes).toEqual(macPublish.routes);
+
+    // An iOS reset-to-Auto (key PRESENT, value empty/undefined) DOES clear it.
+    const cleared = {
+      ...record("mac-a", "10.0.0.99", 22),
+      customName: undefined,
+      customColor: undefined,
+      customIcon: undefined,
+    };
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [
+        {
+          kind: "upsert",
+          id: "mac-a",
+          record: cleared,
+          providedCustom: { name: true, color: true, icon: true },
+        },
+      ],
+      T0 + 2000,
+    );
+    const afterClear = (await listLiveBackup(storage, "user-1")).find((r) => r.macDeviceID === "mac-a");
+    expect(afterClear?.customName).toBeUndefined();
+    expect(afterClear?.customColor).toBeUndefined();
+    expect(afterClear?.customIcon).toBeUndefined();
+  });
+
   it("per-user paired-Mac tombstones are discoverable and GC-able (no unbounded growth)", async () => {
     const storage = new FakeStorage();
     await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "192.168.1.50", 22) }], T0);

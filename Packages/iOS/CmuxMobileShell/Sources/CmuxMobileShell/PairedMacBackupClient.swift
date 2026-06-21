@@ -43,6 +43,33 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         self.customColor = customColor
         self.customIcon = customIcon
     }
+
+    enum CodingKeys: String, CodingKey {
+        case macDeviceID, displayName, routes, createdAt, lastSeenAt, isActive
+        case customName, customColor, customIcon
+    }
+
+    /// Custom encode so an iOS upload is AUTHORITATIVE over customizations: the
+    /// three custom keys are ALWAYS emitted (as `null` when cleared/Auto), never
+    /// omitted. The server preserves a record's customizations only when an upload
+    /// OMITS these keys — which is exactly what the Mac's route-publish does (it
+    /// never knows the user's customizations). So "iOS reset a field to Auto" (key
+    /// present, null) stays distinguishable from "a Mac refreshed its route" (key
+    /// absent), and a Mac heartbeat can no longer clobber the user's saved
+    /// name/color/icon. (Synthesized encoding would use `encodeIfPresent` and drop
+    /// nil keys, making an iOS clear indistinguishable from a Mac publish.)
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(macDeviceID, forKey: .macDeviceID)
+        try c.encodeIfPresent(displayName, forKey: .displayName)
+        try c.encode(routes, forKey: .routes)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(lastSeenAt, forKey: .lastSeenAt)
+        try c.encode(isActive, forKey: .isActive)
+        try c.encode(customName, forKey: .customName)
+        try c.encode(customColor, forKey: .customColor)
+        try c.encode(customIcon, forKey: .customIcon)
+    }
 }
 
 /// A single backup mutation: upsert a record, or tombstone one by id.

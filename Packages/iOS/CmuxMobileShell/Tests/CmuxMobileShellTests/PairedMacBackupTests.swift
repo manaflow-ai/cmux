@@ -276,6 +276,43 @@ private actor MutableBackup: PairedMacBackingUp {
         #expect(mac?.resolvedName == "Home Studio")
     }
 
+    @Test func recordEncodesCustomKeysEvenWhenNil() throws {
+        // The iOS upload must be AUTHORITATIVE over customizations: the three custom
+        // keys are always emitted (null when cleared), so the server can tell an iOS
+        // reset-to-Auto (key present, null) from a Mac route-publish (key absent ->
+        // preserve). A synthesized encoder would drop nil keys and let a Mac
+        // heartbeat clobber the user's saved name/color/icon.
+        let cleared = PairedMacBackupRecord(
+            macDeviceID: "mac-a", displayName: "Mini", routes: [],
+            createdAt: 1, lastSeenAt: 2, isActive: true,
+            customName: nil, customColor: nil, customIcon: nil
+        )
+        let json = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(cleared)) as? [String: Any]
+        let keys = json ?? [:]
+        // Present as keys...
+        #expect(keys.keys.contains("customName"))
+        #expect(keys.keys.contains("customColor"))
+        #expect(keys.keys.contains("customIcon"))
+        // ...with explicit JSON null (NSNull), not omitted.
+        #expect(keys["customName"] is NSNull)
+        #expect(keys["customColor"] is NSNull)
+        #expect(keys["customIcon"] is NSNull)
+
+        // A set value round-trips as the string, and decode is lossless either way.
+        let set = PairedMacBackupRecord(
+            macDeviceID: "mac-a", displayName: "Mini", routes: [],
+            createdAt: 1, lastSeenAt: 2, isActive: true,
+            customName: "Studio", customColor: "palette:3", customIcon: "🖥️"
+        )
+        let decoded = try JSONDecoder().decode(
+            PairedMacBackupRecord.self, from: try JSONEncoder().encode(set))
+        #expect(decoded == set)
+        let decodedCleared = try JSONDecoder().decode(
+            PairedMacBackupRecord.self, from: try JSONEncoder().encode(cleared))
+        #expect(decodedCleared == cleared)
+    }
+
     @Test func setCustomizationPersistsAndPreservesMacData() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -1248,7 +1248,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectPreviewHost()
     }
 
-    public func connectManualHost(name: String, host: String, port: Int) async {
+    /// - Parameter pairedMacDeviceID: the REAL paired-Mac device id when the caller
+    ///   knows it (switch/reconnect/device-row paths). A manual host whose Mac lacks
+    ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;
+    ///   passing the real id keys the foreground aggregate state under it instead of
+    ///   the synthetic id. `nil` for a genuinely manual/unknown host.
+    public func connectManualHost(
+        name: String, host: String, port: Int, pairedMacDeviceID: String? = nil
+    ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
@@ -1292,7 +1299,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 port: port
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
-            let noThrowFailure = try await connect(ticket: ticket, allowsStackAuthFallback: true)
+            let noThrowFailure = try await connect(
+                ticket: ticket, allowsStackAuthFallback: true, pairedMacDeviceID: pairedMacDeviceID)
             guard isCurrentPairingAttempt(attemptID) else { return }
             if connectionState == .connected {
                 recordPairingSucceeded()
@@ -1432,7 +1440,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   let (host, port) = reachableRoute(mac) else { break }
             // Best-effort registry refresh for this Mac in the background.
             refreshRoutesFromRegistry(for: mac, stackUserID: stackUserID)
-            await connectManualHost(name: mac.displayName ?? host, host: host, port: port)
+            await connectManualHost(
+                name: mac.displayName ?? host, host: host, port: port,
+                pairedMacDeviceID: mac.macDeviceID)
             if connectionState == .connected { break }
         }
         restoringDeadline.cancel()
@@ -1913,7 +1923,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // stale/offline. Excluding it would strand the user on a same-device tag
         // switch failure.
         let previousActive = pairedMacs.first { $0.isActive }
-        await connectManualHost(name: device.displayName ?? host, host: host, port: port)
+        await connectManualHost(
+            name: device.displayName ?? host, host: host, port: port,
+            pairedMacDeviceID: device.deviceId)
         // Persist as the active paired Mac only when the live connection is to
         // THIS route (a switch tapped while this connect was in flight could win
         // the connection; matching the live route avoids persisting a stale
@@ -2090,7 +2102,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
             return false
         }
-        await connectManualHost(name: refreshedTarget.displayName ?? host, host: host, port: port)
+        await connectManualHost(
+            name: refreshedTarget.displayName ?? host, host: host, port: port,
+            pairedMacDeviceID: macDeviceID)
         // The switch succeeded only if the live connection is to THIS Mac's route.
         // A different switch tapped while this connect was in flight supersedes it
         // via `beginPairingAttempt`, leaving `connectionState` `.connected` for the
@@ -4070,9 +4084,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// when it returned without connecting and without throwing
     /// (`.noSupportedRoute`), so callers record the matching analytics reason.
     @discardableResult
+    /// The id to key the foreground Mac under. A real paired-Mac id `hint` from the
+    /// caller wins over a synthetic `manual-…` / empty ticket id: a Mac reached via
+    /// the manual-host fallback (host lacks `mobile.attach_ticket.create`, so the
+    /// connect synthesizes a `manual-<host>:<port>` ticket even on success) still
+    /// keys its foreground state under the REAL device id that aggregation, filters,
+    /// Computers rows, and mutation routing use — otherwise the same machine shows
+    /// as a separate offline entry and can spawn a duplicate secondary connection.
+    /// Falls back to the ticket's own id (real for an attach-ticket Mac), then empty
+    /// (anonymous).
+    private static func resolveForegroundMacID(ticket: CmxAttachTicket, hint: String?) -> String {
+        if let hint, !hint.isEmpty, !hint.hasPrefix("manual-") { return hint }
+        return ticket.macDeviceID
+    }
+
     private func connect(
         ticket: CmxAttachTicket,
-        allowsStackAuthFallback: Bool? = nil
+        allowsStackAuthFallback: Bool? = nil,
+        pairedMacDeviceID: String? = nil
     ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
         connectionAttemptGeneration = generation
@@ -4156,10 +4185,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // foreground Mac (or the anonymous key). Otherwise switching
                     // from Mac A to Mac B writes B's workspaces under A's key, and
                     // once the id flips the derived list reads a stale/empty B
-                    // snapshot. Anonymous (empty-id) tickets keep the anonymous key.
+                    // snapshot. Anonymous (empty-id) tickets keep the anonymous key. A
+                    // manual fallback ticket carries a synthetic `manual-…` id, so
+                    // prefer the caller's real paired-Mac id when it is known.
+                    let resolvedForegroundMacID = Self.resolveForegroundMacID(
+                        ticket: ticket, hint: pairedMacDeviceID)
                     let previousForegroundKey = foregroundMacKey
-                    if !ticket.macDeviceID.isEmpty {
-                        foregroundMacDeviceID = ticket.macDeviceID
+                    if !resolvedForegroundMacID.isEmpty {
+                        foregroundMacDeviceID = resolvedForegroundMacID
                     }
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
                     // Drop the now-stale previous-foreground/anonymous snapshot so it
@@ -4171,10 +4204,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     markMacConnectionHealthy()
                     // Record this as the foreground entry in the per-Mac
                     // connection pool (P2). Anonymous (empty-id) tickets are not
-                    // pooled, since a per-Mac key is required to aggregate.
-                    if !ticket.macDeviceID.isEmpty {
-                        connections[ticket.macDeviceID] = MacConnection(
-                            macDeviceID: ticket.macDeviceID,
+                    // pooled, since a per-Mac key is required to aggregate. Keyed by
+                    // the resolved real id (not the synthetic manual ticket id) so the
+                    // pool entry matches the foreground/aggregation key.
+                    if !resolvedForegroundMacID.isEmpty {
+                        connections[resolvedForegroundMacID] = MacConnection(
+                            macDeviceID: resolvedForegroundMacID,
                             ticket: ticket,
                             route: firstRoute,
                             client: client,
@@ -6137,18 +6172,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// open" timer. The online dots come from the live presence subscription and
     /// secondary workspace lists come from their live read-only subscriptions —
     /// both push-driven — so this only re-reads the local paired-Mac rows (cheap
-    /// SQLite) and, when the foreground Mac is already connected, runs the
-    /// coalesced workspace refresh. It deliberately does NOT dial a
-    /// disconnected/offline Mac or re-establish secondary connections on the
-    /// timer: that recovery is driven by presence-push (a Mac re-announcing kicks
-    /// a reconnect) and by the explicit pull-to-refresh / per-Mac Reconnect
-    /// button, so an open Computers sheet can't fan out a reconnect storm to
-    /// every saved Mac on a fixed interval.
+    /// SQLite) and re-fetches the FOREGROUND Mac's own list.
+    ///
+    /// It deliberately does NOT call `refreshWorkspaces()`: that fans out to
+    /// `refreshSecondaryMacWorkspaces()`, which re-fetches every saved Mac and
+    /// re-establishes/re-dials missing (including offline) subscriptions — exactly
+    /// the every-10-seconds reconnect storm this screen must avoid. Recovering a
+    /// dropped/offline Mac is driven by presence-push (a Mac re-announcing kicks a
+    /// reconnect) and by the explicit pull-to-refresh / per-Mac Reconnect button.
+    /// If a pull-to-refresh is already aggregating, ride its result rather than
+    /// start a duplicate foreground fetch.
     public func refreshComputersScreen() async {
         await loadPairedMacs()
-        if connectionState == .connected {
-            await refreshWorkspaces()
+        guard connectionState == .connected, remoteClient != nil else { return }
+        if let inFlight = pullToRefreshTask {
+            await inFlight.value
+            return
         }
+        await reloadWorkspaceListFromMac()
     }
 
     public func refreshWorkspaces() async {
