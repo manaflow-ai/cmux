@@ -10237,6 +10237,7 @@ struct VerticalTabsSidebar: View {
             targetTabId: nil,
             tabManager: tabManager,
             workspaceGroupIdByWorkspaceId: renderContext.workspaceGroupIdByWorkspaceId,
+            visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds,
             dragState: dragState,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
@@ -10601,6 +10602,7 @@ struct VerticalTabsSidebar: View {
                                 targetTabId: firstWorkspaceId,
                                 tabManager: tabManager,
                                 workspaceGroupIdByWorkspaceId: renderContext.workspaceGroupIdByWorkspaceId,
+                                visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds,
                                 dragState: dragState,
                                 selectedTabIds: $selectedTabIds,
                                 lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
@@ -12118,6 +12120,7 @@ struct VerticalTabsSidebar: View {
                 targetTabId: tabId,
                 tabManager: tabManager,
                 workspaceGroupIdByWorkspaceId: renderContext.workspaceGroupIdByWorkspaceId,
+                visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds,
                 dragState: dragState,
                 selectedTabIds: selectedTabIds,
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
@@ -15398,6 +15401,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
     let tabManager: TabManager
     let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
+    let visibleWorkspaceRowIds: [UUID]
     let dragState: SidebarDragState
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -15709,7 +15713,7 @@ struct SidebarTabDropDelegate: DropDelegate {
                   pointerX: pointerX,
                   targetLeadingIndent: SidebarWorkspaceGroupingMetrics.memberIndent
               ),
-              let previous = workspaceBefore(targetTabId),
+              let previous = visibleGroupedMemberBefore(targetTabId),
               let previousGroupId = previous.groupId,
               canDragWorkspace(draggedTabId, intoGroupTargetedBy: previous.id) else {
             return nil
@@ -15727,12 +15731,23 @@ struct SidebarTabDropDelegate: DropDelegate {
         })
     }
 
-    private func workspaceBefore(_ workspaceId: UUID) -> Workspace? {
-        guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId }),
+    private func visibleWorkspaceBefore(_ workspaceId: UUID) -> Workspace? {
+        guard let index = visibleWorkspaceRowIds.firstIndex(of: workspaceId),
               index > 0 else {
             return nil
         }
-        return tabManager.tabs[index - 1]
+        let previousId = visibleWorkspaceRowIds[index - 1]
+        return tabManager.tabs.first { $0.id == previousId }
+    }
+
+    private func visibleGroupedMemberBefore(_ workspaceId: UUID) -> Workspace? {
+        guard let previous = visibleWorkspaceBefore(workspaceId),
+              let groupId = previous.groupId,
+              let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }),
+              group.anchorWorkspaceId != previous.id else {
+            return nil
+        }
+        return previous
     }
 
     private func groupScopedBoundaryIndicator(
@@ -15758,7 +15773,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         }
         if edge == .top,
            (workspaceGroupIdByWorkspaceId[targetTabId] ?? nil) == nil,
-           let previous = workspaceBefore(targetTabId),
+           let previous = visibleGroupedMemberBefore(targetTabId),
            previous.groupId == explicitGroupId {
             return SidebarDropIndicator(tabId: previous.id, edge: .bottom)
         }

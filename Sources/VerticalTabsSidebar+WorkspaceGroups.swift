@@ -57,6 +57,7 @@ extension VerticalTabsSidebar {
             anchorId = group.anchorWorkspaceId,
             firstMemberWorkspaceId = group.isCollapsed ? nil : memberWorkspaceIds.first { $0 != group.anchorWorkspaceId },
             workspaceGroupIdByWorkspaceId = renderContext.workspaceGroupIdByWorkspaceId,
+            visibleWorkspaceRowIds = renderContext.visibleWorkspaceRowIds,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
         ] rowHeight in
@@ -64,6 +65,7 @@ extension VerticalTabsSidebar {
                 targetTabId: anchorId,
                 tabManager: tabManager,
                 workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
+                visibleWorkspaceRowIds: visibleWorkspaceRowIds,
                 dragState: dragState,
                 selectedTabIds: selectedTabIds,
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
@@ -77,6 +79,7 @@ extension VerticalTabsSidebar {
                     targetTabId: memberId,
                     tabManager: tabManager,
                     workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
+                    visibleWorkspaceRowIds: visibleWorkspaceRowIds,
                     dragState: dragState,
                     selectedTabIds: selectedTabIds,
                     lastSidebarSelectionIndex: lastSidebarSelectionIndex,
