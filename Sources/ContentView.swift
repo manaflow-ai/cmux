@@ -190,7 +190,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @State private var commandPaletteVisibleResultsFingerprint: Int?
     // cachedCommandPaletteScope / cachedCommandPaletteFingerprint now live on
     // `commandPaletteCoordinator` (cachedCorpusScope / cachedCorpusFingerprint).
-    @State private var cachedDefaultTerminalIsDefault = DefaultTerminalUserAction.currentStatus().isDefault
+    @State private var cachedDefaultTerminalIsDefault = AppDelegate.defaultTerminalRegistrationStatus().isDefault
     // Post-dismiss focus-restore lifecycle (pending dismiss target + bounded
     // timeout) now lives on `commandPaletteFocusRestoreController`, replacing the
     // former `DispatchWorkItem`+`asyncAfter` deadline with an injected-Clock Task.
@@ -3786,7 +3786,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: Bool = true) {
-        let isDefault = DefaultTerminalUserAction.currentStatus().isDefault
+        let isDefault = AppDelegate.defaultTerminalRegistrationStatus().isDefault
         guard cachedDefaultTerminalIsDefault != isDefault else { return }
 
         cachedDefaultTerminalIsDefault = isDefault
@@ -4632,7 +4632,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
         registerAuthCommandHandlers(&registry)
         registry.register(commandId: "palette.makeDefaultTerminal") {
-            DefaultTerminalUserAction.setAsDefault(debugSource: "palette.makeDefaultTerminal")
+            AppDelegate.makeDefaultTerminal(debugSource: "palette.makeDefaultTerminal")
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
