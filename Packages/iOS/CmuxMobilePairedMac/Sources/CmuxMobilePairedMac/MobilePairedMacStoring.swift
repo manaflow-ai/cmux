@@ -42,9 +42,12 @@ public protocol MobilePairedMacStoring: Sendable {
     ///   - teamID: When set, scopes the lookup to that team (plus team-less rows).
     func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac?
 
-    /// Mark the given Mac as the single active pairing.
-    /// - Parameter macDeviceID: Mac to activate.
-    func setActive(macDeviceID: String) async throws
+    /// Mark the given Mac as the single active pairing in one owner scope.
+    /// - Parameters:
+    ///   - macDeviceID: Mac to activate.
+    ///   - stackUserID: Owning Stack Auth user, if any.
+    ///   - teamID: Stack team this activation belongs to, if any.
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws
 
     /// Set the user's per-Mac customizations (synced per user). Leaves the
     /// Mac-reported name, routes, and active flag untouched, and bumps
@@ -60,12 +63,17 @@ public protocol MobilePairedMacStoring: Sendable {
         customName: String?,
         customColor: String?,
         customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
         now: Date
     ) async throws
 
-    /// Remove a single paired Mac.
-    /// - Parameter macDeviceID: Mac to forget.
-    func remove(macDeviceID: String) async throws
+    /// Remove a single paired Mac in one owner scope.
+    /// - Parameters:
+    ///   - macDeviceID: Mac to forget.
+    ///   - stackUserID: Owning Stack Auth user, if any.
+    ///   - teamID: Stack team this pairing belongs to, if any.
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws
 
     /// Remove all paired Macs.
     func removeAll() async throws
@@ -132,5 +140,38 @@ extension MobilePairedMacStoring {
     /// Return the active paired Mac across every Stack user and team scope, if any.
     public func activeMac() async throws -> MobilePairedMac? {
         try await activeMac(stackUserID: nil, teamID: nil)
+    }
+
+    /// Mark the given Mac active without an explicit owner scope. Implementations
+    /// may use this only for legacy/unscoped rows; team-aware callers should pass
+    /// the captured scope through the full requirement.
+    public func setActive(macDeviceID: String) async throws {
+        try await setActive(macDeviceID: macDeviceID, stackUserID: nil, teamID: nil)
+    }
+
+    /// Persist customizations without an explicit owner scope. Team-aware callers
+    /// should pass the captured scope through the full requirement.
+    public func setCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        now: Date
+    ) async throws {
+        try await setCustomization(
+            macDeviceID: macDeviceID,
+            customName: customName,
+            customColor: customColor,
+            customIcon: customIcon,
+            stackUserID: nil,
+            teamID: nil,
+            now: now
+        )
+    }
+
+    /// Remove a Mac without an explicit owner scope. Team-aware callers should
+    /// pass the captured scope through the full requirement.
+    public func remove(macDeviceID: String) async throws {
+        try await remove(macDeviceID: macDeviceID, stackUserID: nil, teamID: nil)
     }
 }

@@ -114,6 +114,8 @@ public struct PairedMacRestore: Sendable {
                     customName: record.customName,
                     customColor: record.customColor,
                     customIcon: record.customIcon,
+                    stackUserID: accountID,
+                    teamID: teamID,
                     now: backupDate
                 )
                 restored += 1

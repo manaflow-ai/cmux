@@ -56,21 +56,21 @@ actor GatedUpsertStore: MobilePairedMacStoring {
         try await inner.activeMac(stackUserID: stackUserID, teamID: teamID)
     }
 
-    func setActive(macDeviceID: String) async throws {
-        try await inner.setActive(macDeviceID: macDeviceID)
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await inner.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
     }
 
     func setCustomization(
         macDeviceID: String, customName: String?, customColor: String?,
-        customIcon: String?, now: Date
+        customIcon: String?, stackUserID: String?, teamID: String?, now: Date
     ) async throws {
         try await inner.setCustomization(
             macDeviceID: macDeviceID, customName: customName, customColor: customColor,
-            customIcon: customIcon, now: now)
+            customIcon: customIcon, stackUserID: stackUserID, teamID: teamID, now: now)
     }
 
-    func remove(macDeviceID: String) async throws {
-        try await inner.remove(macDeviceID: macDeviceID)
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
     }
 
     func removeAll() async throws {

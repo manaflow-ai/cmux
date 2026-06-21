@@ -96,7 +96,7 @@ import Testing
         try await store.upsert(macDeviceID: "mac-b", displayName: nil, routes: [route], markActive: true, stackUserID: "user-2", now: Date())
 
         // Switching user-1's active Mac must not disturb user-2's active pairing.
-        try await store.setActive(macDeviceID: "mac-a1")
+        try await store.setActive(macDeviceID: "mac-a1", stackUserID: "user-1", teamID: nil)
 
         let activeUser1 = try await store.loadAll(stackUserID: "user-1").filter(\.isActive)
         #expect(activeUser1.map(\.macDeviceID) == ["mac-a1"])
@@ -255,6 +255,8 @@ import Testing
             customName: "My Studio",
             customColor: "palette:3",
             customIcon: "🛠️",
+            stackUserID: "user-1",
+            teamID: nil,
             now: Date()
         )
         let updated = try await reopened.loadAll(stackUserID: "user-1")
@@ -325,7 +327,7 @@ import Testing
         var stmt: OpaquePointer?
         #expect(sqlite3_prepare_v2(check, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK)
         #expect(sqlite3_step(stmt) == SQLITE_ROW)
-        #expect(sqlite3_column_int(stmt, 0) == 3)
+        #expect(sqlite3_column_int(stmt, 0) == MobilePairedMacStore.currentSchemaVersion)
         sqlite3_finalize(stmt)
         sqlite3_close(check)
     }
@@ -354,8 +356,45 @@ import Testing
         // setActive on a second Mac added to team-a deactivates only team-a's Mac.
         try await store.upsert(macDeviceID: "mac-a2", displayName: "A2", routes: [routeA],
             markActive: false, stackUserID: "user-1", teamID: "team-a", now: Date())
-        try await store.setActive(macDeviceID: "mac-a2")
+        try await store.setActive(macDeviceID: "mac-a2", stackUserID: "user-1", teamID: "team-a")
         #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.macDeviceID == "mac-a2")
         #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-b")?.macDeviceID == "mac-b")
+    }
+
+    @Test func sameMacDeviceIDCanExistInMultipleTeams() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let routeA = try CmxAttachRoute(id: "a", kind: .tailscale, endpoint: .hostPort(host: "10.0.0.1", port: 22))
+        let routeB = try CmxAttachRoute(id: "b", kind: .tailscale, endpoint: .hostPort(host: "10.0.0.2", port: 22))
+
+        try await store.upsert(macDeviceID: "shared-mac", displayName: "Team A Mac", routes: [routeA],
+            markActive: true, stackUserID: "user-1", teamID: "team-a", now: Date(timeIntervalSince1970: 1))
+        try await store.setCustomization(
+            macDeviceID: "shared-mac",
+            customName: "A custom",
+            customColor: "palette:1",
+            customIcon: "desktopcomputer",
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        try await store.upsert(macDeviceID: "shared-mac", displayName: "Team B Mac", routes: [routeB],
+            markActive: true, stackUserID: "user-1", teamID: "team-b", now: Date(timeIntervalSince1970: 3))
+
+        let teamA = try await store.loadAll(stackUserID: "user-1", teamID: "team-a")
+        let teamB = try await store.loadAll(stackUserID: "user-1", teamID: "team-b")
+
+        #expect(teamA.map(\.macDeviceID) == ["shared-mac"])
+        #expect(teamB.map(\.macDeviceID) == ["shared-mac"])
+        #expect(teamA.first?.displayName == "Team A Mac")
+        #expect(teamB.first?.displayName == "Team B Mac")
+        #expect(teamA.first?.routes.first?.id == "a")
+        #expect(teamB.first?.routes.first?.id == "b")
+        #expect(teamA.first?.customColor == "palette:1")
+        #expect(teamB.first?.customColor == nil)
+        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.routes.first?.id == "a")
+        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-b")?.routes.first?.id == "b")
     }
 }

@@ -234,6 +234,7 @@ public struct CMUXMobileRootScene: View {
 
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
+        let coordinator = auth.coordinator
         let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
         let deviceRegistry = makeDeviceRegistry()
         let backedUpPairedMacStore = makeBackedUpPairedMacStore()
@@ -248,6 +249,7 @@ public struct CMUXMobileRootScene: View {
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
+            teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
             analytics: analytics,
             diagnosticLog: diagnosticLog,
@@ -262,6 +264,7 @@ public struct CMUXMobileRootScene: View {
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
+            teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
             analytics: analytics,
             feedbackEmailSubmitter: feedbackEmailSubmitter,

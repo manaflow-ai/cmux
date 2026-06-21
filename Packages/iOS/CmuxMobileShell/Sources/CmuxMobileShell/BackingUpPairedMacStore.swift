@@ -112,18 +112,17 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         customIcon: String?,
         now: Date
     ) async throws {
-        try await inner.setCustomization(
+        let team = await teamIDProvider()
+        let account = try? await accountForMac(macDeviceID, teamID: team)
+        try await setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
+            stackUserID: account,
+            teamID: team,
             now: now
         )
-        // Mirror the customization to the DO so it appears on the user's other
-        // signed-in devices. Best-effort, like every other backup write.
-        guard let account = try? await accountForMac(macDeviceID) else { return }
-        lastSignedInAccount = account
-        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account)
     }
 
     /// Load paired Macs after ensuring the signed-in account/team backup was restored.
@@ -144,15 +143,20 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     }
 
     /// Mark one paired Mac active and mirror the changed active flags to backup.
-    public func setActive(macDeviceID: String) async throws {
+    public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         // Resolve the scope and the previously-active host BEFORE the flip, so we can
         // mirror exactly the two records that change. Scoped to the current team
         // (single-active is per (account, team)).
-        let account = try? await accountForMac(macDeviceID)
-        let team = await teamIDProvider()
+        let team = await resolvedTeam(teamID)
+        let account: String?
+        if let stackUserID {
+            account = stackUserID
+        } else {
+            account = try? await accountForMac(macDeviceID, teamID: team)
+        }
         let previouslyActive = (account != nil)
             ? try? await inner.activeMac(stackUserID: account, teamID: team) : nil
-        try await inner.setActive(macDeviceID: macDeviceID)
+        try await inner.setActive(macDeviceID: macDeviceID, stackUserID: account, teamID: team)
         // setActive flips the active flag for one host (and clears the previously-
         // active one in its scope) without going through `upsert`. Mirror ONLY those
         // two changed records to the DO so a "select host but don't connect, then
@@ -161,18 +165,57 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // DO (local rows carry no team id to filter by).
         guard let account else { return }
         lastSignedInAccount = account
-        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account)
+        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account, teamID: team)
         if let previouslyActive, previouslyActive.macDeviceID != macDeviceID {
-            await uploadCurrentRecord(macDeviceID: previouslyActive.macDeviceID, account: account)
+            await uploadCurrentRecord(macDeviceID: previouslyActive.macDeviceID, account: account, teamID: team)
         }
     }
 
+    /// Persist local customizations in one explicit owner scope, then mirror the
+    /// complete scoped row to backup.
+    public func setCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        try await inner.setCustomization(
+            macDeviceID: macDeviceID,
+            customName: customName,
+            customColor: customColor,
+            customIcon: customIcon,
+            stackUserID: stackUserID,
+            teamID: team,
+            now: now
+        )
+        let account: String?
+        if let stackUserID {
+            account = stackUserID
+        } else {
+            account = try? await accountForMac(macDeviceID, teamID: team)
+        }
+        guard let account else { return }
+        lastSignedInAccount = account
+        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account, teamID: team)
+    }
+
     /// Remove one paired Mac locally and tombstone it in backup when signed in.
-    public func remove(macDeviceID: String) async throws {
-        try await inner.remove(macDeviceID: macDeviceID)
+    public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        let team = await resolvedTeam(teamID)
+        let account: String?
+        if let stackUserID {
+            account = stackUserID
+        } else {
+            account = try? await accountForMac(macDeviceID, teamID: team)
+        }
+        try await inner.remove(macDeviceID: macDeviceID, stackUserID: account, teamID: team)
         // Only mirror the delete while signed in; an anonymous removal has no
         // per-user backup to delete and would just fail auth and log noise.
-        guard lastSignedInAccount != nil else { return }
+        guard account != nil || lastSignedInAccount != nil else { return }
         await backup.upload(ops: [.delete(macDeviceID: macDeviceID)])
     }
 
@@ -260,8 +303,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// Resolve the owning Stack account of a paired Mac, or nil if unknown. Reads
     /// across ALL teams (find-by-id) so a Mac is resolvable regardless of which team
     /// is selected.
-    private func accountForMac(_ macDeviceID: String) async throws -> String? {
-        let all = try await inner.loadAll(stackUserID: nil)
+    private func accountForMac(_ macDeviceID: String, teamID: String?) async throws -> String? {
+        let all = try await inner.loadAll(stackUserID: nil, teamID: teamID)
         return all.first { $0.macDeviceID == macDeviceID }?.stackUserID
     }
 
@@ -285,8 +328,9 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
 
     /// Upload the current complete record for one Mac (read back from the local
     /// store so customizations are preserved). Best-effort.
-    private func uploadCurrentRecord(macDeviceID: String, account: String) async {
-        guard let mac = (try? await inner.loadAll(stackUserID: account))?
+    private func uploadCurrentRecord(macDeviceID: String, account: String, teamID: String? = nil) async {
+        let team = await resolvedTeam(teamID)
+        guard let mac = (try? await inner.loadAll(stackUserID: account, teamID: team))?
             .first(where: { $0.macDeviceID == macDeviceID }) else { return }
         await backup.upload(ops: [.upsert(Self.backupRecord(from: mac))])
     }

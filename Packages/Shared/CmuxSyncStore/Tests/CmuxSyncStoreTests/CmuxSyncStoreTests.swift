@@ -399,12 +399,12 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
             return macs.filter { $0.stackUserID == stackUserID }
         }
         func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
-        func setActive(macDeviceID: String) async throws {}
+        func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {}
         func setCustomization(
             macDeviceID: String, customName: String?, customColor: String?,
-            customIcon: String?, now: Date
+            customIcon: String?, stackUserID: String?, teamID: String?, now: Date
         ) async throws {}
-        func remove(macDeviceID: String) async throws {}
+        func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {}
         func removeAll() async throws {}
     }
 

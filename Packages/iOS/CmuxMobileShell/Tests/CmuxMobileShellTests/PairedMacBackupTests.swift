@@ -301,7 +301,8 @@ import Testing
         )
         try await inner.setCustomization(
             macDeviceID: "mac-a", customName: "Studio", customColor: "#FF8800",
-            customIcon: "desktopcomputer", now: Date(timeIntervalSince1970: 2_000)
+            customIcon: "desktopcomputer", stackUserID: "user-1", teamID: nil,
+            now: Date(timeIntervalSince1970: 2_000)
         )
         let mac = try await inner.loadAll(stackUserID: "user-1").first
         #expect(mac?.customName == "Studio")

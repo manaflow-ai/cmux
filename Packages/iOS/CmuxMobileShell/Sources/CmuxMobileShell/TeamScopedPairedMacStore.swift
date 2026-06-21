@@ -61,9 +61,16 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         try await inner.activeMac(stackUserID: stackUserID, teamID: await resolvedTeam(teamID))
     }
 
-    /// Mark one paired Mac active in its own stored user/team scope.
-    public func setActive(macDeviceID: String) async throws {
-        try await inner.setActive(macDeviceID: macDeviceID)
+    /// Mark one paired Mac active in the selected team scope.
+    public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        let team = await resolvedTeam(teamID)
+        let scopedMac = try await inner.loadAll(stackUserID: stackUserID, teamID: team)
+            .first { $0.macDeviceID == macDeviceID }
+        try await inner.setActive(
+            macDeviceID: macDeviceID,
+            stackUserID: scopedMac?.stackUserID ?? stackUserID,
+            teamID: scopedMac?.teamID ?? team
+        )
     }
 
     /// Persist local customizations without changing the row's team scope.
@@ -72,20 +79,32 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         customName: String?,
         customColor: String?,
         customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
         now: Date
     ) async throws {
+        let team = await resolvedTeam(teamID)
         try await inner.setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
+            stackUserID: stackUserID,
+            teamID: team,
             now: now
         )
     }
 
-    /// Remove one paired Mac.
-    public func remove(macDeviceID: String) async throws {
-        try await inner.remove(macDeviceID: macDeviceID)
+    /// Remove one paired Mac in the selected team scope.
+    public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        let team = await resolvedTeam(teamID)
+        let scopedMac = try await inner.loadAll(stackUserID: stackUserID, teamID: team)
+            .first { $0.macDeviceID == macDeviceID }
+        try await inner.remove(
+            macDeviceID: macDeviceID,
+            stackUserID: scopedMac?.stackUserID ?? stackUserID,
+            teamID: scopedMac?.teamID ?? team
+        )
     }
 
     /// Remove all paired Macs.
