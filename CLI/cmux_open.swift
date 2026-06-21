@@ -4465,7 +4465,10 @@ extension CMUXCLI {
             if let url = fileURLs[source] {
                 var pageContext = selectedContext
                 if source == .branch {
-                    pageContext.branchBaseRef = branchBaseForOptions
+                    // Use the smart-resolved base so this deferred Branch page
+                    // renders its diff against the SAME ref its picker advertises
+                    // (selectedBranchBase), not the legacy origin/HEAD fallback.
+                    pageContext.branchBaseRef = selectedBranchBase?.ref ?? branchBaseForOptions
                 } else {
                     pageContext.branchBaseRef = nil
                 }
@@ -5122,7 +5125,7 @@ extension CMUXCLI {
             "repoRoot": repoRoot,
             "headRef": headRef,
             "currentRef": base.ref,
-            "currentReason": base.reason,
+            "currentReason": diffBranchBaseReasonLabel(base.reason),
             "confidence": base.confidence,
             "refsURL": refsURL,
             "regenerateURLTemplate": regenerateTemplate

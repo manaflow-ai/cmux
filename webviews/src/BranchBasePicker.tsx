@@ -354,7 +354,10 @@ function BranchPickerRowView({
   selected: boolean;
 }) {
   const { row } = entry;
-  const secondary = row.reason ?? row.worktreeDir ?? row.secondary ?? "";
+  // Prefer the backend's localized `secondary` (e.g. the localized reason label
+  // for Suggested rows) over the raw English `reason` contract tag so non-English
+  // diff viewers don't show "fork point" / "created from" verbatim.
+  const secondary = row.secondary ?? row.worktreeDir ?? row.reason ?? "";
   return (
     <>
       {entry.firstInGroup ? (
