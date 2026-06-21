@@ -599,7 +599,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalOutputSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalOutputSeqBySurfaceID: [String: UInt64]
-    private var terminalReplaySurfaceIDsInFlight: Set<String>
+    private var terminalReplayInFlightTokensBySurfaceID: [String: UUID]
     private var terminalReplaySurfaceIDsPendingRetry: Set<String>
     private var terminalReplayRetryAttemptsBySurfaceID: [String: Int]
     private var terminalRenderSessionsBySurfaceID: [String: TerminalRenderSession]
@@ -732,7 +732,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.reportedViewportSizesByTerminalKey = [:]
         self.deliveredTerminalOutputSeqBySurfaceID = [:]
         self.pendingTerminalOutputSeqBySurfaceID = [:]
-        self.terminalReplaySurfaceIDsInFlight = []
+        self.terminalReplayInFlightTokensBySurfaceID = [:]
         self.terminalReplaySurfaceIDsPendingRetry = []
         self.terminalReplayRetryAttemptsBySurfaceID = [:]
         self.terminalRenderSessionsBySurfaceID = [:]
@@ -3596,7 +3596,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resetTerminalOutputTracking() {
         deliveredTerminalOutputSeqBySurfaceID = [:]
         pendingTerminalOutputSeqBySurfaceID = [:]
-        terminalReplaySurfaceIDsInFlight = []
+        terminalReplayInFlightTokensBySurfaceID = [:]
         terminalReplaySurfaceIDsPendingRetry = []
         terminalReplayRetryAttemptsBySurfaceID = [:]
         terminalRenderSessionsBySurfaceID = [:]
@@ -5071,7 +5071,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalOutputSeqBySurfaceID.removeValue(forKey: surfaceID)
-        terminalReplaySurfaceIDsInFlight.remove(surfaceID)
+        terminalReplayInFlightTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplaySurfaceIDsPendingRetry.remove(surfaceID)
         terminalReplayRetryAttemptsBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderSessionsBySurfaceID.removeValue(forKey: surfaceID)
@@ -5256,7 +5256,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileDebugLog.anchormux(
             "CMUX_REPLAY retry_scheduled surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq) attempt=\(attempts + 1)"
         )
-        guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else { return }
+        guard terminalReplayInFlightTokensBySurfaceID[surfaceID] == nil else { return }
         terminalReplaySurfaceIDsPendingRetry.remove(surfaceID)
         requestTerminalReplay(surfaceID: surfaceID)
     }
@@ -5278,8 +5278,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    private func finishTerminalReplayRequest(surfaceID: String, streamToken: UUID?) {
-        terminalReplaySurfaceIDsInFlight.remove(surfaceID)
+    private func finishTerminalReplayRequest(surfaceID: String, replayToken: UUID, streamToken: UUID?) {
+        guard terminalReplayInFlightTokensBySurfaceID[surfaceID] == replayToken else {
+            MobileDebugLog.anchormux("CMUX_REPLAY stale_task surface=\(surfaceID) action=drop_cleanup")
+            return
+        }
+        terminalReplayInFlightTokensBySurfaceID.removeValue(forKey: surfaceID)
         let tokenMatches = streamToken == nil || terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken
         guard terminalReplaySurfaceIDsPendingRetry.remove(surfaceID) != nil else {
             return
@@ -5375,19 +5379,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         terminalReplaySurfaceIDsPendingWorkspaceMapping.remove(surfaceID)
-        guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
+        guard terminalReplayInFlightTokensBySurfaceID[surfaceID] == nil else {
             terminalReplaySurfaceIDsPendingRetry.insert(surfaceID)
             #if DEBUG
             mobileShellLog.info("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=in_flight")
             #endif
             return
         }
-        terminalReplaySurfaceIDsInFlight.insert(surfaceID)
+        let replayToken = UUID()
+        terminalReplayInFlightTokensBySurfaceID[surfaceID] = replayToken
         beginTerminalRenderSnapshot(surfaceID: surfaceID)
         let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID]
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.finishTerminalReplayRequest(surfaceID: surfaceID, streamToken: streamToken) }
+            defer {
+                self.finishTerminalReplayRequest(
+                    surfaceID: surfaceID,
+                    replayToken: replayToken,
+                    streamToken: streamToken
+                )
+            }
             do {
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
@@ -5401,6 +5412,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 let data = try await client.sendRequest(request)
                 guard self.remoteClient === client else { return }
+                guard self.terminalReplayInFlightTokensBySurfaceID[surfaceID] == replayToken else {
+                    MobileDebugLog.anchormux("CMUX_REPLAY stale_task surface=\(surfaceID) action=drop_response")
+                    return
+                }
                 guard streamToken == nil || self.terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_stream surface=\(surfaceID) action=drop")
                     return
@@ -5481,6 +5496,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.deliverTerminalBytes(deliverBytes, surfaceID: surfaceID)
                 self.cancelTerminalRenderSnapshot(surfaceID: surfaceID, baseSeq: replaySeq)
             } catch {
+                guard self.remoteClient === client,
+                      self.terminalReplayInFlightTokensBySurfaceID[surfaceID] == replayToken else {
+                    MobileDebugLog.anchormux("CMUX_REPLAY stale_task surface=\(surfaceID) action=drop_failure")
+                    return
+                }
                 if self.expectsRenderGridTerminalOutput {
                     self.invalidateTerminalRenderSnapshotAndRetry(
                         surfaceID: surfaceID,
@@ -5495,7 +5515,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // definitive auth failure here (after the RPC layer's
                 // force-refresh-and-retry already gave up) must drive the re-auth
                 // prompt instead of silently leaving a stale frame.
-                guard self.remoteClient === client else { return }
                 _ = self.disconnectForAuthorizationFailureIfNeeded(error)
             }
         }
