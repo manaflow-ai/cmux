@@ -54,13 +54,11 @@ extension CanvasRootView: CanvasViewportControlling {
             scrollView.maxMagnification
         )
         setMagnification(target)
-        updateMinimap(reveal: true)
     }
 
     public func resetZoom() {
         overviewRestore = nil
         setMagnification(1.0)
-        updateMinimap(reveal: true)
     }
 
     public var currentMagnification: CGFloat {
@@ -131,29 +129,14 @@ extension CanvasRootView: CanvasViewportControlling {
         updateMinimap(reveal: true)
     }
 
-    /// Animates to `magnification`, keeping the current viewport center
-    /// fixed (explicit origin math; `setMagnification(centeredAt:)` drifts
-    /// on large deltas).
+    /// Applies `magnification`, keeping the current viewport center fixed.
     private func setMagnification(_ magnification: CGFloat) {
         guard magnification != scrollView.magnification else { return }
-        let visible = scrollView.contentView.documentVisibleRect
-        let center = CGPoint(x: visible.midX, y: visible.midY)
-        let viewportSize = scrollView.contentSize
-        let clipSize = CGSize(
-            width: viewportSize.width / magnification,
-            height: viewportSize.height / magnification
-        )
-        let targetOrigin = CGPoint(
-            x: center.x - clipSize.width / 2,
-            y: center.y - clipSize.height / 2
-        )
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            context.allowsImplicitAnimation = true
-            scrollView.animator().magnification = magnification
-            scrollView.contentView.animator().setBoundsOrigin(targetOrigin)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
+        // Keyboard/palette/socket zoom is a discrete viewport command. AppKit's
+        // animated magnification path relayouts the full hierarchy each frame
+        // and gets visibly slower at low zoom. Commit the centered viewport in
+        // one pass; pinch and option-scroll still use native continuous zoom.
+        setViewport(center: currentCenterInCanvas, magnification: magnification, notifySettled: false)
     }
 
     public func toggleOverview() {
