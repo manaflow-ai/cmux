@@ -4153,14 +4153,41 @@ extension CMUXCLI {
         let explicitBranchBaseRef = normalizedDiffSourceValue(context.branchBaseRef)
         var selectedSource = requestedSource
         let shouldDeferSelectedSource = requestedSource != .lastTurn
+        // Smart branch base is the single source of truth for the rendered branch
+        // diff AND the embedded picker, so the toolbar's advertised base always
+        // equals the base the diff was actually computed against. When an explicit
+        // `--base` was passed it stays "manual"/high-confidence and is honored
+        // verbatim. With no explicit base, the heuristic resolver (cmuxBase -> PR
+        // base -> fork point -> origin/HEAD fallback) picks the ref; the legacy
+        // `resolvedGitBranchDiffBaseRef` is only the resolver's own last-resort
+        // fallback, so it never independently overrides the smart choice here.
+        // Cache per repoRoot so the heuristic (which can shell out to `gh`) runs at
+        // most once per repo and the primary repo's full DiffBranchBase (with its
+        // reason/confidence) is reused for the picker payload.
+        var smartBranchBaseByRepo: [String: DiffBranchBase] = [:]
+        func smartBranchBase(in repoRoot: String) -> DiffBranchBase? {
+            if let cached = smartBranchBaseByRepo[repoRoot] { return cached }
+            guard let resolved = try? resolvedDiffBranchBase(explicitBranchBaseRef, in: repoRoot) else {
+                return nil
+            }
+            smartBranchBaseByRepo[repoRoot] = resolved
+            return resolved
+        }
         func sourceContext(for source: DiffSource, repoRoot: String) throws -> DiffSourceContext {
             var sourceContext = context
             sourceContext.repoRoot = repoRoot
             if source == .branch {
-                sourceContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(
-                    sourceContext.branchBaseRef,
-                    in: repoRoot
-                )
+                // Prefer the smart-resolved base so the rendered diff agrees with
+                // the picker's currentRef; fall back to the legacy resolver only if
+                // the smart resolver yields nothing.
+                if let smart = smartBranchBase(in: repoRoot) {
+                    sourceContext.branchBaseRef = smart.ref
+                } else {
+                    sourceContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(
+                        sourceContext.branchBaseRef,
+                        in: repoRoot
+                    )
+                }
             } else {
                 sourceContext.branchBaseRef = nil
             }
@@ -4307,7 +4334,12 @@ extension CMUXCLI {
         var selectedBranchBase: DiffBranchBase?
         var sessionPersisted = false
         if branchBaseForOptions != nil {
-            selectedBranchBase = try? resolvedDiffBranchBase(explicitBranchBaseRef, in: repoRoot)
+            // Reuse the exact DiffBranchBase that drove `selectedContext` (and thus
+            // the rendered diff) so the picker's `currentRef` is byte-identical to
+            // the base the diff was computed against, never a separately-resolved
+            // ref. Falls back to a fresh smart resolve only if the cache missed.
+            selectedBranchBase = smartBranchBase(in: repoRoot)
+                ?? (try? resolvedDiffBranchBase(explicitBranchBaseRef, in: repoRoot))
             // Invert repoFileURLsBySource ([DiffSource: [repoRoot: URL]]) into
             // [repoRoot: [DiffSource.slug: basename]] so the regenerate endpoint
             // can rebuild the source/repo switchers from the already-written
@@ -5210,11 +5242,14 @@ extension CMUXCLI {
             throw CLIError(message: "__diff-viewer-branch requires --group, --repo, and --base")
         }
         let rootDirectory = try diffViewerDirectory()
-        guard diffViewerRepoIsAllowed(repo, rootDirectory: rootDirectory),
+        let session = try readDiffViewerBranchSession(groupID: group, rootDirectory: rootDirectory)
+        // Authorize the repo against THIS group's session only, not the global
+        // allow-list, so a request for one group cannot regenerate a page for a
+        // repo allow-listed solely by some other active session.
+        guard diffViewerSessionAllowsRepo(session, repoRoot: repo),
               gitRefExists(base, in: repo) else {
             throw CLIError(message: "Invalid diff viewer branch regenerate request")
         }
-        let session = try readDiffViewerBranchSession(groupID: group, rootDirectory: rootDirectory)
         // The request token must own this group's session, so one active token
         // cannot drive regeneration for another branch session whose group it
         // happens to know. No token (HTTP server origin path) keeps prior
@@ -6040,6 +6075,25 @@ extension CMUXCLI {
         return false
     }
 
+    /// Whether `repoRoot` is in the allow-list of the SPECIFIC `session` (not any
+    /// other active session). The regenerate routes carry a `group`, so they must
+    /// authorize against the requested group's session alone; otherwise a request
+    /// for group A could regenerate a page for repo B merely because some other
+    /// active session allow-lists B. Normalizes both sides exactly like
+    /// `diffViewerRepoIsAllowed` (standardize + resolve symlinks).
+    private func diffViewerSessionAllowsRepo(_ session: DiffViewerBranchSession, repoRoot: String) -> Bool {
+        let normalized = URL(fileURLWithPath: repoRoot, isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath().path
+        for allowed in session.allowedRepoRoots {
+            let allowedNormalized = URL(fileURLWithPath: allowed, isDirectory: true)
+                .standardizedFileURL.resolvingSymlinksInPath().path
+            if allowedNormalized == normalized {
+                return true
+            }
+        }
+        return false
+    }
+
     private func diffViewerRepoIsAllowed(_ repoRoot: String, rootDirectory: URL) -> Bool {
         let normalized = URL(fileURLWithPath: repoRoot, isDirectory: true)
             .standardizedFileURL.resolvingSymlinksInPath().path
@@ -6108,8 +6162,11 @@ extension CMUXCLI {
         guard let groupID = query["group"], diffViewerGroupIDIsValid(groupID),
               let repoRoot = query["repo"], !repoRoot.isEmpty,
               let base = query["base"], !base.isEmpty,
-              diffViewerRepoIsAllowed(repoRoot, rootDirectory: rootDirectory),
-              let session = try? readDiffViewerBranchSession(groupID: groupID, rootDirectory: rootDirectory) else {
+              let session = try? readDiffViewerBranchSession(groupID: groupID, rootDirectory: rootDirectory),
+              // Authorize the repo against THIS group's session only, not the
+              // global allow-list, so a request for one group cannot regenerate a
+              // page for a repo allow-listed solely by some other active session.
+              diffViewerSessionAllowsRepo(session, repoRoot: repoRoot) else {
             try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: omitBody)
             return
         }
