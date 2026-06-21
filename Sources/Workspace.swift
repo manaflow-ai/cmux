@@ -2261,15 +2261,29 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         get { surfaceRegistry.surfaceTTYNames }
         set { surfaceRegistry.surfaceTTYNames = newValue }
     }
-    private var remoteSessionController: RemoteSessionCoordinator?
+    // Internal (not private) so the `Workspace+RemoteSurfaceHosting.swift`
+    // witness can resolve the active session coordinator for the lifted
+    // remote-PTY/port-scan/upload commands.
+    var remoteSessionController: RemoteSessionCoordinator?
+    /// Orchestrates the workspace-facing remote *surface* commands (remote PTY
+    /// bridge list/start/resize/detach, remote port-scan kick/sync/enablement,
+    /// dropped-file upload) and the child-exit surface-tracking predicates.
+    /// Lifted to `CmuxRemoteSession`; the workspace forwards each former inline
+    /// method to this coordinator and conforms to `RemoteSurfaceHosting`
+    /// (witnessed in `Workspace+RemoteSurfaceHosting.swift`) for the small slice
+    /// of live state those bodies read. Held by `Workspace`, references the host
+    /// weakly, so there is no retain cycle.
+    let remoteSurfaceCoordinator = RemoteSurfaceCoordinator<Workspace>()
     private var pendingRemoteForegroundAuthToken: String?
     var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
     private var remoteLastDaemonErrorFingerprint: String?
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
-    private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
-    private var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
+    // Internal (not private) so the `Workspace+RemoteSurfaceHosting.swift`
+    // witness can read these surface-tracking sets for the lifted predicates.
+    var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
@@ -2881,6 +2895,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         self.splitDetach = SplitDetachCoordinator(splitLayout: splitLayout)
         self.agentHibernationCoordinator = AgentHibernationCoordinator(model: agentHibernation)
         agentHibernationCoordinator.attach(host: self)
+        remoteSurfaceCoordinator.attach(host: self)
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         surfaceLifecycle.attach(host: self)
@@ -3271,7 +3286,9 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     private var activeDetachCloseTransactions: Int {
         splitLayout.activeDetachCloseTransactions
     }
-    private var isDetachingCloseTransaction: Bool { splitLayout.isDetachingCloseTransaction }
+    // Internal (not private) so the `Workspace+RemoteSurfaceHosting.swift`
+    // witness can read the detach-close flag for the session-ended predicate.
+    var isDetachingCloseTransaction: Bool { splitLayout.isDetachingCloseTransaction }
     /// True while ``reorderRemoteTmuxMirrorTabs(toPanelOrder:)`` is rearranging tabs.
     /// bonsplit's `reorderTab`/`selectTab`/`focusPane` fire `didSelectTab` /
     /// `didFocusPane`, each of which runs the full `applyTabSelection` activation
@@ -4734,35 +4751,22 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 
     @MainActor
     func isRemoteTerminalSurface(_ panelId: UUID) -> Bool {
-        activeRemoteTerminalSurfaceIds.contains(panelId)
+        remoteSurfaceCoordinator.isRemoteTerminalSurface(panelId)
     }
 
     @MainActor
     func markRemoteTerminalSessionClosingIfLast(surfaceId: UUID) {
-        guard !isDetachingCloseTransaction,
-              activeRemoteTerminalSurfaceIds.count == 1,
-              activeRemoteTerminalSurfaceIds.contains(surfaceId) else {
-            return
-        }
-        let relayPort: Int?
-        if remoteConfiguration?.transport == .ssh {
-            relayPort = remoteConfiguration?.relayPort
-        } else {
-            relayPort = nil
-        }
-        markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+        remoteSurfaceCoordinator.markRemoteTerminalSessionClosingIfLast(surfaceId: surfaceId)
     }
 
     @MainActor
     func shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(_ panelId: UUID) -> Bool {
-        guard remoteConfiguration?.preserveAfterTerminalExit == true else { return false }
-        return activeRemoteTerminalSurfaceIds.contains(panelId) ||
-            endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
+        remoteSurfaceCoordinator.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(panelId)
     }
 
     @MainActor
     func shouldDemoteWorkspaceAfterChildExit(surfaceId: UUID) -> Bool {
-        isRemoteWorkspace || pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
+        remoteSurfaceCoordinator.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
     }
 
     var remoteDisplayTarget: String? {
@@ -4779,33 +4783,19 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         operation: TerminalImageTransferOperation,
         completion: @escaping (Result<[String], Error>) -> Void
     ) {
-        guard let controller = remoteSessionController else {
-            completion(.failure(RemoteDropUploadError.unavailable))
-            return
-        }
-        // The coordinator pins the legacy contract of invoking the completion
-        // on the main queue (see RemoteSessionCoordinator.uploadDroppedFiles),
-        // so the non-Sendable completion never runs off the caller's main
-        // thread even though the coordinator's parameter is `@Sendable`.
-        nonisolated(unsafe) let completion = completion
-        controller.uploadDroppedFiles(fileURLs, operation: operation) { result in
-            completion(result)
-        }
+        remoteSurfaceCoordinator.uploadDroppedFiles(fileURLs, operation: operation, completion: completion)
     }
 
     func syncRemotePortScanTTYs() {
-        guard isRemoteWorkspace else { return }
-        remoteSessionController?.updateRemotePortScanTTYs(surfaceTTYNames)
+        remoteSurfaceCoordinator.syncRemotePortScanTTYs()
     }
 
     func remotePTYSessionControllerForSocketCommand() -> RemoteSessionCoordinator? {
-        remoteSessionController
+        remoteSurfaceCoordinator.remotePTYSessionControllerForSocketCommand()
     }
 
     func kickRemotePortScan(panelId: UUID, reason: PortScanKickReason = .command) {
-        guard isRemoteWorkspace else { return }
-        syncRemotePortScanTTYs()
-        remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
+        remoteSurfaceCoordinator.kickRemotePortScan(panelId: panelId, reason: reason)
     }
 
     /// Whether remote listening-port discovery may run, derived from the global
@@ -4821,25 +4811,15 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// Pushes the current remote port-scanning enablement to this workspace's
     /// active remote session, if any. No-op for non-remote workspaces.
     func applyRemotePortScanningEnabled(_ enabled: Bool) {
-        remoteSessionController?.updateRemotePortScanningEnabled(enabled)
+        remoteSurfaceCoordinator.applyRemotePortScanningEnabled(enabled)
     }
 
     func listRemotePTYSessions() throws -> [[String: Any]] {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        return try controller.listPTYSessions()
+        try remoteSurfaceCoordinator.listRemotePTYSessions()
     }
 
     func closeRemotePTYSession(sessionID: String) throws {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 11, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        try controller.closePTYSession(sessionID: sessionID)
+        try remoteSurfaceCoordinator.closeRemotePTYSession(sessionID: sessionID)
     }
 
     func startRemotePTYBridge(
@@ -4848,12 +4828,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         command: String?,
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 12, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        return try controller.startPTYBridge(
+        try remoteSurfaceCoordinator.startRemotePTYBridge(
             sessionID: sessionID,
             attachmentID: attachmentID,
             command: command,
@@ -4862,12 +4837,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func resizeRemotePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 13, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        try controller.resizePTY(
+        try remoteSurfaceCoordinator.resizeRemotePTY(
             sessionID: sessionID,
             attachmentID: attachmentID,
             attachmentToken: attachmentToken,
@@ -4877,12 +4847,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func detachRemotePTYAttachment(sessionID: String, attachmentID: String, attachmentToken: String) throws {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 14, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        try controller.detachPTYSession(
+        try remoteSurfaceCoordinator.detachRemotePTYAttachment(
             sessionID: sessionID,
             attachmentID: attachmentID,
             attachmentToken: attachmentToken
