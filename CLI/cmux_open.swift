@@ -1929,19 +1929,21 @@ extension CMUXCLI {
             return DiffBranchBase(ref: prBase, reason: DiffBranchBaseReason.prBase, confidence: "high")
         }
 
-        // 3. Fork point against the configured upstream (survives rebases).
-        if let forkPoint = try? gitSingleLine(
-            ["merge-base", "--fork-point", "@{upstream}", "HEAD"],
+        // 3. Configured upstream, but ONLY when it is an INTEGRATION branch, not
+        // the branch's OWN remote tracking ref. A feature branch pushed with
+        // `git push -u origin feature` has @{upstream} = origin/feature; using it
+        // as the base would compare the branch against itself and hide every
+        // already-pushed commit (showing only local unpushed work). Skip that
+        // case and fall through to the default base. The rendered diff computes
+        // `merge-base HEAD <base>` regardless, so a real integration upstream
+        // still yields fork-point semantics.
+        if let upstream = try? gitSingleLine(
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
             in: repoRoot
-        ), !forkPoint.isEmpty {
-            // Prefer a human-readable upstream ref over the raw fork-point SHA.
-            if let upstream = try? gitSingleLine(
-                ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
-                in: repoRoot
-            ), !upstream.isEmpty, gitRefExists(upstream, in: repoRoot) {
-                return DiffBranchBase(ref: upstream, reason: DiffBranchBaseReason.forkPoint, confidence: "high")
-            }
-            return DiffBranchBase(ref: forkPoint, reason: DiffBranchBaseReason.forkPoint, confidence: "high")
+        ), !upstream.isEmpty,
+           upstream.split(separator: "/").last.map(String.init) != branchName,
+           gitRefExists(upstream, in: repoRoot) {
+            return DiffBranchBase(ref: upstream, reason: DiffBranchBaseReason.forkPoint, confidence: "high")
         }
 
         // 4. origin/HEAD -> origin/main -> master fallback. Low confidence: a guess.
@@ -5193,7 +5195,12 @@ extension CMUXCLI {
                 URLQueryItem(name: "base", value: "__CMUX_REF__")
             ]
         )
-        return withSentinel.replacingOccurrences(of: "__CMUX_REF__", with: "{ref}")
+        // Scope the replacement to the `base` query value. A bare global replace
+        // of the sentinel would also rewrite an occurrence inside the `repo` path
+        // (arbitrary user path), leaving `base=__CMUX_REF__` unfilled and breaking
+        // regeneration. `base` is the last query item, so `base=__CMUX_REF__`
+        // appears verbatim and uniquely.
+        return withSentinel.replacingOccurrences(of: "base=__CMUX_REF__", with: "base={ref}")
     }
 
     // MARK: - Headless picker commands (for the in-app custom-scheme handler)
