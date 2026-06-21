@@ -165,6 +165,34 @@ struct LastSurfaceClosePreferenceTests {
     }
 
     @Test
+    func remoteTmuxSessionEndKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() throws {
+        try withManager(closeWorkspaceOnLastSurface: false) { manager in
+            let firstWorkspace = manager.tabs[0]
+            let secondWorkspace = manager.addWorkspace()
+            manager.selectWorkspace(secondWorkspace)
+
+            let secondPanelId = try #require(secondWorkspace.focusedPanelId)
+            let secondSurfaceId = try #require(secondWorkspace.surfaceIdFromPanelId(secondPanelId))
+
+            secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
+            #expect(!secondWorkspace.markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(
+                surfaceId: secondSurfaceId,
+                tabStripClose: true,
+                tabCloseButton: true
+            ))
+            #expect(secondWorkspace.handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded())
+            drainMainQueue()
+            drainMainQueue()
+
+            #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
+            #expect(manager.selectedTabId == secondWorkspace.id)
+            #expect(secondWorkspace.panels[secondPanelId] == nil)
+            #expect(secondWorkspace.panels.count == 1)
+            #expect(secondWorkspace.focusedPanelId != secondPanelId)
+        }
+    }
+
+    @Test
     func remoteTmuxWindowCloseCreatesReplacementWhenWorkspaceCloseIsCanceled() throws {
         try withManager(closeWorkspaceOnLastSurface: true) { manager in
             let firstWorkspace = manager.tabs[0]

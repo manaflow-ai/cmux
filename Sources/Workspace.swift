@@ -2454,9 +2454,7 @@ final class Workspace: Identifiable, ObservableObject {
         let reconnectCommand: String?
     }
 
-    /// Display target and reconnect command for the remote terminal that just disconnected.
-    /// Set right before `createReplacementTerminalPanel()` so the replacement terminal stays
-    /// visibly disconnected instead of falling through to a local login shell.
+    /// Remote disconnect metadata used by `createReplacementTerminalPanel()`.
     private var pendingRemoteDisconnectReplacement: PendingRemoteDisconnectReplacement?
     var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
 
@@ -3302,6 +3300,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var suppressClosedPanelHistory = false
     private var tabStripCloseButtonByTabId: [TabID: Bool] = [:]
     private var remoteTmuxWorkspaceCloseButtonByTabId: [TabID: Bool] = [:]
+    private var remoteTmuxKeepWorkspaceOpenTabIds: Set<TabID> = []
     /// Deterministic tab selection to apply after a tab closes, keyed by closing tab ID.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
     private var postCloseClearSplitZoomTabIds: Set<TabID> = []
@@ -3434,10 +3433,8 @@ final class Workspace: Identifiable, ObservableObject {
         return requestCloseTab(tabId, force: force)
     }
 
-    /// Non-interactive socket/API close path. Remote-tmux mirror tabs must be
-    /// routed to tmux before a local forced close is attempted; otherwise
-    /// `forceCloseTabIds` bypasses `shouldCloseTab` and removes the cmux tab
-    /// while leaving the remote tmux window alive.
+    /// Non-interactive socket/API close path; remote-tmux mirrors route to tmux
+    /// before any local forced close can bypass `shouldCloseTab`.
     @discardableResult
     func requestNonInteractiveCloseTabRecordingHistory(_ tabId: TabID) -> Bool {
         switch routeRemoteTmuxNonInteractiveTabCloseIfNeeded(tabId) {
@@ -3481,8 +3478,22 @@ final class Workspace: Identifiable, ObservableObject {
     func markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(surfaceId: TabID, tabStripClose: Bool, tabCloseButton: Bool) -> Bool {
         let shouldClose = shouldCloseWorkspaceOnLastSurface(for: surfaceId, tabStripClose: tabStripClose)
         remoteTmuxWorkspaceCloseButtonByTabId[surfaceId] = shouldClose ? Optional(tabCloseButton) : nil
-        if shouldClose { clearCloseHistoryEligibility(tabId: surfaceId) }
+        if shouldClose {
+            remoteTmuxKeepWorkspaceOpenTabIds.remove(surfaceId); clearCloseHistoryEligibility(tabId: surfaceId)
+        } else if tabStripClose { remoteTmuxKeepWorkspaceOpenTabIds.insert(surfaceId) }
         return shouldClose
+    }
+
+    func handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() -> Bool {
+        let panelIds = remoteTmuxKeepWorkspaceOpenTabIds.compactMap { panelIdFromSurfaceId($0) }
+        guard !panelIds.isEmpty else { remoteTmuxKeepWorkspaceOpenTabIds.removeAll(); return false }
+        remoteTmuxKeepWorkspaceOpenTabIds.removeAll()
+        for panelId in panelIds { _ = closePanel(panelId, force: true) }
+        return true
+    }
+
+    private func clearRemoteTmuxWorkspaceCloseIntent(tabId: TabID) {
+        remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId); remoteTmuxKeepWorkspaceOpenTabIds.remove(tabId)
     }
 
     private func recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: Bool, tabId: TabID, panelId: UUID, explicitUserClose: Bool, tabStripClose: Bool, tabCloseButton: Bool) {
@@ -3493,7 +3504,7 @@ final class Workspace: Identifiable, ObservableObject {
                 tabCloseButton: tabCloseButton
             )
         } else {
-            remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
+            clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
             if !routed {
                 clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
             }
@@ -7068,13 +7079,9 @@ final class Workspace: Identifiable, ObservableObject {
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil
     ) -> TerminalPanelCreationOutcome {
-        // In a remote tmux mirror workspace, a new tab means "create a tmux
-        // window" — route it to the remote and let the resulting %window-add
-        // notification add the tab (one source of truth). NEVER create a local
-        // terminal here, even when the remote route can't be taken (dead/missing
-        // connection): a local tab would be an orphan the mirror can't reconcile,
-        // breaking the 1:1 invariant (symmetric with newBrowserSurface). A dead
-        // mirror workspace is torn down separately via handleSessionEndedRemotely.
+        // In a remote tmux mirror, a new tab means "create a tmux window"; never
+        // create a local orphan the mirror can't reconcile. Dead mirrors are
+        // torn down via handleSessionEndedRemotely.
         if isRemoteTmuxMirror {
             let routed = AppDelegate.shared?.remoteTmuxController
                 .handleMirrorNewTabRequested(workspaceId: id) ?? false
@@ -8314,8 +8321,7 @@ final class Workspace: Identifiable, ObservableObject {
         return filePreviewPanel
     }
 
-    /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
-    /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
+    /// Tear down all panels before removing the workspace.
     func teardownAllPanels() {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
@@ -11621,8 +11627,7 @@ extension Workspace: BonsplitDelegate {
         let tabStripClose = tabCloseButtonClose != nil
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabStripClose
 
-        // Remote tmux mirror tab closes are routed to tmux and removed locally
-        // when tmux reports %window-close.
+        // Remote tmux mirror tab closes route to tmux; tmux reports local removal.
         if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
            let panelId = panelIdFromSurfaceId(tab.id),
            let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
@@ -11643,7 +11648,7 @@ extension Workspace: BonsplitDelegate {
                     ?? AppDelegate.shared?.tabManagerFor(tabId: id)
                     ?? AppDelegate.shared?.tabManager
                 if let confirmationManager, confirmationManager.isCloseConfirmationInFlight {
-                    remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tab.id)
+                    clearRemoteTmuxWorkspaceCloseIntent(tabId: tab.id)
                     clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
                     return false
                 }
@@ -11654,7 +11659,7 @@ extension Workspace: BonsplitDelegate {
                     guard let self else { return }
                     if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
                         self.pendingCloseConfirmTabIds.remove(tabId)
-                        self.remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
+                        self.clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
                         self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                         return
                     }
@@ -11663,20 +11668,17 @@ extension Workspace: BonsplitDelegate {
                             self.pendingCloseConfirmTabIds.remove(tabId)
                             confirmationManager?.endCloseConfirmationSession()
                         }
-
                         guard self.panelIdFromSurfaceId(tabId) != nil else {
-                            self.remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
+                            self.clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
                             self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                             return
                         }
-
                         let confirmed = await self.confirmClosePanel(for: tabId, nameOverride: commandName)
                         guard confirmed else {
-                            self.remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
+                            self.clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
                             self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                             return
                         }
-
                         let routed = remoteTmuxController.handleMirrorTabCloseRequested(
                             workspaceId: self.id, panelId: panelId
                         )
@@ -11698,7 +11700,7 @@ extension Workspace: BonsplitDelegate {
                     guard let self else { return }
                     guard self.panelIdFromSurfaceId(tabId) != nil else {
                         self.pendingCloseConfirmTabIds.remove(tabId)
-                        self.remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
+                        self.clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
                         self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                         return
                     }
@@ -11825,6 +11827,7 @@ extension Workspace: BonsplitDelegate {
         forceCloseTabIds.remove(tabId)
         tabStripCloseButtonByTabId.removeValue(forKey: tabId)
         let remoteTmuxWorkspaceCloseButton = remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
+        remoteTmuxKeepWorkspaceOpenTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
@@ -11989,13 +11992,8 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
-        // In a remote tmux mirror, a split (button or any bonsplit-level split)
-        // becomes a tmux `split-window`; the new pane arrives via %layout-change.
-        // Local workspaces split normally. ALWAYS veto the local split in a
-        // mirror — even when the route can't be taken (tab lookup failed, or
-        // the connection is reconnecting and can't deliver the command) — a
-        // local pane would be an orphan the mirror's rebuild() never
-        // reconciles, breaking the 1:1 invariant.
+        // In a remote tmux mirror, split means tmux `split-window`; always veto
+        // local splits so the mirror never gains an orphan pane.
         guard isRemoteTmuxMirror else { return true }
         if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
            let panelId = panelIdFromSurfaceId(tabId) {

@@ -760,9 +760,8 @@ final class RemoteTmuxController {
         }
         connectionsByHostSession.removeValue(forKey: key)?.stop()
         let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
-        // The dedicated window for this host, captured before the bindings are torn
-        // down. `nil` once other sessions remain — losing one of several sessions
-        // closes only its workspace, never the shared window.
+        // Capture the dedicated window before teardown; if other sessions remain,
+        // losing one session only closes its workspace.
         let dedicatedWindowId = hostHasOtherMirrors ? nil : windowRegistry.windowId(forHostHash: host.connectionHash)
         // Decide the UI action BEFORE tearing down persistence/bindings, so the
         // persistence decision can depend on whether the dedicated window is
@@ -798,14 +797,8 @@ final class RemoteTmuxController {
             otherMainWindowCount: otherMainWindowCount
         )
         if !hostHasOtherMirrors {
-            // The host's last session is gone, so close its shared SSH ControlMaster
-            // now — but only if no other control connection (e.g. a
-            // remote.tmux.attach for the same endpoint) is still multiplexing
-            // over it. We must do it here rather than rely on the window's onClose
-            // hook: clearing the binding just below makes handleRemoteWindowClosed a
-            // no-op, and the dedicated window may be closed programmatically (the
-            // `.closeDedicatedWindow` path), so the hook can't be the one to tear the
-            // master down.
+            // Last session for this host: close the ControlMaster here if no other
+            // connection still multiplexes it; window onClose may not run this hook.
             let hostHasOtherConnections = connectionsByHostSession.values
                 .contains { $0.host.connectionHash == host.connectionHash }
             if !hostHasOtherConnections {
@@ -825,6 +818,9 @@ final class RemoteTmuxController {
             "ownedByEndingHost=\(ownedByEndingHost) otherWindows=\(otherMainWindowCount) action=\(action)"
         )
         #endif
+        if AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
+            .tabs.first(where: { $0.id == workspaceId })?
+            .handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() == true { return }
         switch action {
         case let .closeDedicatedWindow(windowId):
             // Tear down the whole dedicated window (true detach UX). Uses
