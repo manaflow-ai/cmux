@@ -8807,17 +8807,13 @@ private struct SidebarHelpMenuButton: View {
     }
 
     var body: some View {
-        Button {
+        SidebarFooterIconButton(
+            systemImage: "questionmark.circle",
+            iconSize: iconSize,
+            buttonSize: buttonSize
+        ) {
             isPopoverPresented.toggle()
-        } label: {
-            Image(systemName: "questionmark.circle")
-                .symbolRenderingMode(.monochrome)
-                .cmuxSymbolRasterSize(iconSize, weight: .medium)
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                .frame(width: buttonSize, height: buttonSize, alignment: .center)
         }
-        .buttonStyle(SidebarFooterIconButtonStyle())
-        .frame(width: buttonSize, height: buttonSize, alignment: .center)
         .background(ArrowlessPopoverAnchor(
             isPresented: $isPopoverPresented,
             preferredEdge: .maxY,
@@ -8833,13 +8829,13 @@ private struct SidebarHelpMenuButton: View {
 
     private var helpPopover: some View {
         VStack(alignment: .leading, spacing: 2) {
-            helpOptionButton(
+            helpOptionRow(
                 title: String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!"),
                 action: .welcome,
                 accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false
             )
-            helpOptionButton(
+            helpOptionRow(
                 title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
                 action: .sendFeedback,
                 accessibilityIdentifier: "SidebarHelpMenuOptionSendFeedback",
@@ -8847,20 +8843,20 @@ private struct SidebarHelpMenuButton: View {
                 shortcutHint: sendFeedbackShortcutHint,
                 trailingSystemImage: "bubble.left.and.text.bubble.right"
             )
-            helpOptionButton(
+            helpOptionRow(
                 title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
                 action: .keyboardShortcuts,
                 accessibilityIdentifier: "SidebarHelpMenuOptionKeyboardShortcuts",
                 isExternalLink: false
             )
-            helpOptionButton(
+            helpOptionRow(
                 title: String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
                 action: .importBrowserData,
                 accessibilityIdentifier: "SidebarHelpMenuOptionImportBrowserData",
                 isExternalLink: false
             )
             if docsURL != nil {
-                helpOptionButton(
+                helpOptionRow(
                     title: String(localized: "about.docs", defaultValue: "Docs"),
                     action: .docs,
                     accessibilityIdentifier: "SidebarHelpMenuOptionDocs",
@@ -8868,7 +8864,7 @@ private struct SidebarHelpMenuButton: View {
                 )
             }
             if changelogURL != nil {
-                helpOptionButton(
+                helpOptionRow(
                     title: String(localized: "sidebar.help.changelog", defaultValue: "Changelog"),
                     action: .changelog,
                     accessibilityIdentifier: "SidebarHelpMenuOptionChangelog",
@@ -8876,7 +8872,7 @@ private struct SidebarHelpMenuButton: View {
                 )
             }
             if githubURL != nil {
-                helpOptionButton(
+                helpOptionRow(
                     title: String(localized: "about.github", defaultValue: "GitHub"),
                     action: .github,
                     accessibilityIdentifier: "SidebarHelpMenuOptionGitHub",
@@ -8884,7 +8880,7 @@ private struct SidebarHelpMenuButton: View {
                 )
             }
             if githubIssuesURL != nil {
-                helpOptionButton(
+                helpOptionRow(
                     title: String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"),
                     action: .githubIssues,
                     accessibilityIdentifier: "SidebarHelpMenuOptionGitHubIssues",
@@ -8892,14 +8888,14 @@ private struct SidebarHelpMenuButton: View {
                 )
             }
             if discordURL != nil {
-                helpOptionButton(
+                helpOptionRow(
                     title: String(localized: "sidebar.help.discord", defaultValue: "Discord"),
                     action: .discord,
                     accessibilityIdentifier: "SidebarHelpMenuOptionDiscord",
                     isExternalLink: true
                 )
             }
-            helpOptionButton(
+            helpOptionRow(
                 title: String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates"),
                 action: .checkForUpdates,
                 accessibilityIdentifier: "SidebarHelpMenuOptionCheckForUpdates",
@@ -8910,7 +8906,7 @@ private struct SidebarHelpMenuButton: View {
         .frame(minWidth: 200)
     }
 
-    private func helpOptionButton(
+    private func helpOptionRow(
         title: String,
         action: SidebarHelpMenuAction,
         accessibilityIdentifier: String,
@@ -8918,45 +8914,16 @@ private struct SidebarHelpMenuButton: View {
         shortcutHint: String? = nil,
         trailingSystemImage: String? = nil
     ) -> some View {
-        Button {
+        SidebarHelpMenuOptionRow(
+            title: title,
+            isExternalLink: isExternalLink,
+            shortcutHint: shortcutHint,
+            trailingSystemImage: trailingSystemImage,
+            accessibilityIdentifier: accessibilityIdentifier
+        ) {
             isPopoverPresented = false
             perform(action)
-        } label: {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 12))
-                Spacer(minLength: 0)
-                if let shortcutHint {
-                    helpOptionShortcutHint(text: shortcutHint)
-                }
-                if let trailingSystemImage {
-                    helpOptionTrailingIcon(systemName: trailingSystemImage)
-                }
-                if isExternalLink {
-                    helpOptionTrailingIcon(systemName: "arrow.up.right", size: 8)
-                }
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 24)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(accessibilityIdentifier)
-    }
-
-    private func helpOptionShortcutHint(text: String) -> some View {
-        Text(text)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .font(.system(size: 10, weight: .regular, design: .rounded))
-            .monospacedDigit()
-            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-    }
-
-    private func helpOptionTrailingIcon(systemName: String, size: CGFloat = 13) -> some View {
-        Image(systemName: systemName)
-            .cmuxSymbolRasterSize(size)
-            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
     }
 
     private func perform(_ action: SidebarHelpMenuAction) {
