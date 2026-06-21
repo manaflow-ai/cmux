@@ -781,8 +781,20 @@ jobs:
           path: GhosttyKit.xcframework
           key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
 
+      - name: Validate cached GhosttyKit.xcframework
+        id: validate-ghosttykit-package-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f GhosttyKit.xcframework/Info.plist ]; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          else
+            rm -rf GhosttyKit.xcframework
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.cache-ghosttykit-package-tests.outputs.cache-hit != 'true'
+        if: steps.validate-ghosttykit-package-tests.outputs.valid != 'true'
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
@@ -812,6 +824,7 @@ jobs:
           # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
+            CmuxCanvasUI
             CmuxCore
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
@@ -849,16 +862,16 @@ jobs:
             echo "::group::swift test $pkgdir"
             case "$pkg" in
             CmuxTerminal|CmuxTerminalCore)
-              status=0
-              output="$(swift test --package-path "$pkgdir" 2>&1)" || status=$?
+              test_status=0
+              output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
-              if [ "$status" -ne 0 ]; then
+              if [ "$test_status" -ne 0 ]; then
                 if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
                   && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
                   && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
                   echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
                 else
-                  exit "$status"
+                  exit "$test_status"
                 fi
               fi
               ;;
