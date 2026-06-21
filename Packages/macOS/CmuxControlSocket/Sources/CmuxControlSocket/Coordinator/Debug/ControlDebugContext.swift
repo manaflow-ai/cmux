@@ -151,6 +151,19 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The insertion outcome.
     func controlDebugTypeText(_ text: String) -> ControlDebugTypeResolution
 
+    /// Drives the focused terminal view's `setMarkedText` for
+    /// `debug.terminal.simulate_marked_text`, exercising the IME preedit hot path
+    /// (`terminal.setMarkedText`) without a real input method. DEBUG test seam.
+    ///
+    /// - Parameter text: The marked (preedit) text to set.
+    /// - Returns: `.inserted` on success, `.noWindow`/`.noFirstResponder` when no
+    ///   terminal view is focused.
+    func controlDebugSimulateMarkedText(_ text: String) -> ControlDebugTypeResolution
+
+    /// Commits/clears the focused terminal view's IME preedit via `unmarkText`
+    /// for `debug.terminal.simulate_unmark_text`, exercising `terminal.unmarkText`.
+    func controlDebugSimulateUnmarkText() -> ControlDebugTypeResolution
+
     /// Whether the controller's primary `TabManager` is available (the
     /// `guard let tabManager` precondition several legacy debug bodies ran
     /// before parsing their params).
