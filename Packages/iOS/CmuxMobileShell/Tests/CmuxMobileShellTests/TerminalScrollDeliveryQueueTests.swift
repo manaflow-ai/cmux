@@ -93,7 +93,7 @@ import Testing
 
     let maybeCoalesced = queue.completeInFlight()
     let coalesced = try #require(maybeCoalesced)
-    #expect(coalesced.lines == 0)
+    #expect(coalesced.lines == 5)
     #expect(coalesced.col == 3)
     #expect(coalesced.row == 3)
     #expect(coalesced.maxScrollbackRows == MobileTerminalScrollbackBudget.fullReplayRows)

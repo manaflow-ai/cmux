@@ -13,7 +13,7 @@ struct TerminalScrollDelivery: Equatable, Sendable {
         let shouldHydrate =
             delivery.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope
             || scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope
-        lines = shouldHydrate ? 0 : lines + delivery.lines
+        lines += delivery.lines
         col = delivery.col
         row = delivery.row
         switch (maxScrollbackRows, delivery.maxScrollbackRows) {

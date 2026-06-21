@@ -40,7 +40,7 @@ extension MobileShellComposite {
         terminalScrollbackPrefetchStatesBySurfaceID[surfaceID] = prefetchState
         enqueueTerminalScroll(TerminalScrollDelivery(
             surfaceID: surfaceID,
-            lines: hydrateScrollback ? 0 : lines,
+            lines: lines,
             col: col,
             row: row,
             maxScrollbackRows: maxScrollbackRows,
