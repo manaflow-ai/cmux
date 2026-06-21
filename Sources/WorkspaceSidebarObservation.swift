@@ -15,7 +15,7 @@ private struct SidebarPanelObservationState: Equatable {
 /// summary, folded across every ``BrowserPanel`` in a ``Workspace``. Drives the
 /// Chrome-style media-activity glyphs on the sidebar workspace row.
 struct BrowserMediaActivity: Equatable {
-    /// Any browser pane is producing audible audio (private `_isPlayingAudio`).
+    /// Any browser pane has actively-playing media.
     var isPlayingAudio: Bool = false
     /// Any browser pane is capturing the microphone.
     var isUsingMicrophone: Bool = false
