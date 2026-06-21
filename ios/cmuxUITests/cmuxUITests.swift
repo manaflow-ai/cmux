@@ -382,7 +382,7 @@ final class cmuxUITests: XCTestCase {
             hideKeyboardButton.tap()
         }
 
-        let baselineStrongPixels = try waitForStrongTerminalTextPixelCount(in: app, timeout: 3)
+        let baselineStrongPixels = try waitForStrongTerminalTextPixelCount(in: surface, timeout: 3)
         XCTAssertGreaterThanOrEqual(
             baselineStrongPixels,
             11,
@@ -394,7 +394,7 @@ final class cmuxUITests: XCTestCase {
         for _ in 0..<10 {
             Thread.sleep(forTimeInterval: 0.35)
             let currentLine = stressLineNumber(in: lineProbe) ?? lastLine
-            let strongPixels = try strongTerminalTextPixelCount(in: app)
+            let strongPixels = try strongTerminalTextPixelCount(in: surface)
             lastLine = max(lastLine, currentLine)
             minimumStrongPixels = min(minimumStrongPixels, strongPixels)
             if currentLine > (firstLine ?? 0) + 10, strongPixels <= 10 {
@@ -441,7 +441,7 @@ final class cmuxUITests: XCTestCase {
 
         var lastProducedLine = firstLine ?? 0
         var lastRenderedLine = renderedStressLineNumber(in: surface) ?? 0
-        let baselineStrongPixels = try waitForStrongTerminalTextPixelCount(in: app, timeout: 3)
+        let baselineStrongPixels = try waitForStrongTerminalTextPixelCount(in: surface, timeout: 3)
         XCTAssertGreaterThanOrEqual(
             baselineStrongPixels,
             11,
@@ -466,7 +466,7 @@ final class cmuxUITests: XCTestCase {
             while Date() < deadline {
                 let produced = stressLineNumber(in: lineProbe) ?? lastProducedLine
                 let rendered = renderedStressLineNumber(in: surface) ?? lastRenderedLine
-                let strongPixels = try strongTerminalTextPixelCount(in: app)
+                let strongPixels = try strongTerminalTextPixelCount(in: surface)
                 lastStrongPixels = strongPixels
                 lastProducedLine = max(lastProducedLine, produced)
                 lastRenderedLine = max(lastRenderedLine, rendered)
@@ -534,9 +534,9 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func strongTerminalTextPixelCount(in app: XCUIApplication) throws -> Int {
-        guard let cg = app.screenshot().image.cgImage else {
-            throw XCTSkip("Could not capture app screenshot")
+    private func strongTerminalTextPixelCount(in surface: XCUIElement) throws -> Int {
+        guard let cg = surface.screenshot().image.cgImage else {
+            throw XCTSkip("Could not capture terminal surface screenshot")
         }
         let pixels = BitmapPixels(cg)
         var strong = 0
@@ -552,13 +552,13 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func waitForStrongTerminalTextPixelCount(
-        in app: XCUIApplication,
+        in surface: XCUIElement,
         timeout: TimeInterval
     ) throws -> Int {
         let deadline = Date().addingTimeInterval(timeout)
         var best = 0
         while Date() < deadline {
-            let count = try strongTerminalTextPixelCount(in: app)
+            let count = try strongTerminalTextPixelCount(in: surface)
             best = max(best, count)
             if count >= 11 {
                 return count
