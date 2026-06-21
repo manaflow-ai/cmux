@@ -104,7 +104,13 @@ body {
   position: relative;
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(124px, 0.9fr) auto;
+  /* Every track is shrinkable to zero so no cell can be starved into
+     overflowing its neighbor. The actions track is `auto` but its contents have
+     min-width:0 and the cell clips, so even a momentarily-too-wide actions row
+     cannot overlay the left cell. The JS priority-overflow keeps the actions
+     within budget; this template + `overflow: clip` on the cells is the hard
+     no-overlap guarantee that holds even if a measurement is briefly stale. */
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, auto);
   align-items: center;
   /* When the Files sidebar is shown, JumpSelect is not rendered (it duplicates
      the sidebar's file navigation). Collapse the centered middle track so
@@ -126,7 +132,7 @@ body {
    re-declares its own template and overrides this for its range. */
 @media (min-width: 521px) {
   body[data-files-hidden="false"] #toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
   }
   body[data-files-hidden="false"] .toolbar-middle {
     display: none;
@@ -138,6 +144,17 @@ body {
   display: flex;
   align-items: center;
   min-width: 0;
+  /* Safety net: grid cells do not clip by default, so a cell whose content is
+     wider than its track would visually overflow into the neighboring cell and
+     overlay it. Clip HORIZONTAL overflow so any residual width spill disappears
+     cleanly instead of overlapping, while leaving the VERTICAL axis visible so
+     the Base picker and options popovers (which drop below the toolbar) still
+     escape. `overflow-x: clip` + `overflow-y: visible` is a safe pair: neither
+     value is coerced, so vertical stays truly visible. The JS priority-overflow
+     keeps content within the track in practice; this is the guarantee, not the
+     mechanism. */
+  overflow-x: clip;
+  overflow-y: visible;
 }
 .toolbar-left,
 .toolbar-middle {
@@ -404,12 +421,20 @@ body {
   }
 }
 .base-picker-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
+     `.toolbar-left`'s `overflow-x: clip` AND its `container-type: inline-size`:
+     a container-query container is the containing block for `position: fixed`
+     descendants and still clips them, so a fixed popover left inside the cell
+     would be positioned against (and clipped by) the cell, not the viewport.
+     `#app` likewise has `contain: strict`, which is also a fixed-positioning
+     containing block, so the popover is mounted on `document.body` (outside both)
+     in `BranchBasePicker`. `top` / `bottom` / `left` / `max-height` are set
+     inline by JS from the Base button's rect, clamped to the viewport (see
+     computePopoverStyle); `body` spans the full viewport and does not clip the
+     clamped fixed element. */
+  position: fixed;
   width: 320px;
   max-width: min(86vw, 360px);
-  max-height: min(60vh, 420px);
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
@@ -521,7 +546,7 @@ body {
 }
 @media (max-width: 760px) {
   #toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
     grid-template-areas:
       "source actions"
       "jump actions";
@@ -936,6 +961,21 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   display: block;
   overflow: clip;
   contain: layout paint style;
+}
+/* Per-file diff header at small widths: the @pierre/diffs header is a flex
+   space-between of the file-path side (`[data-header-content]`, already
+   min-width:0 + truncating) and the diffstat side (`[data-metadata]`: the status
+   icon + `+N`/`-N` counts). The library leaves [data-metadata] flex-shrinkable
+   with white-space:nowrap and no overflow handling, so when the panel is narrow
+   it is squished below its content and its text spills LEFT, overlapping the
+   change-status icon. Principled fix, same priority+ idea as the toolbar: pin the
+   diffstat (never shrink it) so the path side absorbs all the shrinking and
+   truncates, and clip the header as a hard no-overlap safety net. */
+#viewer diffs-container [data-diffs-header] {
+  overflow-x: clip;
+}
+#viewer diffs-container [data-diffs-header=default] [data-metadata] {
+  flex-shrink: 0;
 }
 #loading-layer {
   grid-area: viewer;

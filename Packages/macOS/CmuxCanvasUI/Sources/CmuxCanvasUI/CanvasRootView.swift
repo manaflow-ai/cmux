@@ -50,7 +50,7 @@ public final class CanvasRootView: NSView {
     var commandScrollHintHost: NSHostingView<CanvasCommandScrollHint>?
     /// A saved viewport waiting for contentSize to settle. Cleared when applied.
     private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
-    var pendingDiscreteZoomAnimation: (canvasCenter: CGPoint, magnification: CGFloat)?
+    var isDiscreteZoomAnimationActive = false
     var discreteZoomAnimationGeneration: UInt64 = 0
     var shouldReduceMotionForDiscreteZoom: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     /// True while programmatically applying a saved viewport, so the scroll
@@ -188,7 +188,7 @@ public final class CanvasRootView: NSView {
         clipBoundsObserver = nil
         scrollSettleObservers.forEach { NotificationCenter.default.removeObserver($0) }
         scrollSettleObservers = []
-        cancelDiscreteZoomAnimation(commitPending: false)
+        cancelDiscreteZoomAnimation()
         commandScrollHintTask?.cancel()
         commandScrollHintTask = nil
         resetMinimapVisibility()
