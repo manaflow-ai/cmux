@@ -291,6 +291,65 @@ import Testing
         #expect(decodedCleared == cleared)
     }
 
+    @Test func backupDecodeDropsUnsupportedRoutesAndMalformedRecords() throws {
+        let data = Data("""
+        {
+          "records": [
+            {
+              "macDeviceID": "mac-a",
+              "displayName": "Studio",
+              "routes": [
+                {
+                  "id": "manual",
+                  "kind": "tailscale",
+                  "endpoint": { "type": "host_port", "host": "10.0.0.1", "port": 22 },
+                  "priority": 0
+                },
+                {
+                  "id": "future",
+                  "kind": "future-route",
+                  "endpoint": { "type": "future_endpoint", "value": "opaque" },
+                  "priority": 1
+                }
+              ],
+              "createdAt": 1,
+              "lastSeenAt": 2,
+              "isActive": true
+            },
+            {
+              "macDeviceID": 42,
+              "routes": [],
+              "createdAt": 1,
+              "lastSeenAt": 2,
+              "isActive": false
+            },
+            {
+              "macDeviceID": "mac-b",
+              "displayName": "Mini",
+              "routes": [
+                {
+                  "id": "manual",
+                  "kind": "debug_loopback",
+                  "endpoint": { "type": "host_port", "host": "127.0.0.1", "port": 9222 },
+                  "priority": 0
+                }
+              ],
+              "createdAt": 3,
+              "lastSeenAt": 4,
+              "isActive": false
+            }
+          ]
+        }
+        """.utf8)
+
+        let decoded = try JSONDecoder().decode(PairedMacBackupListResponse.self, from: data)
+
+        #expect(decoded.records.map(\.macDeviceID) == ["mac-a", "mac-b"])
+        #expect(decoded.records[0].routes.map(\.id) == ["manual"])
+        #expect(decoded.records[0].routes.first?.endpoint == .hostPort(host: "10.0.0.1", port: 22))
+        #expect(decoded.records[1].routes.first?.endpoint == .hostPort(host: "127.0.0.1", port: 9222))
+    }
+
     @Test func setCustomizationPersistsAndPreservesMacData() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }

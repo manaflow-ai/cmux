@@ -50,6 +50,22 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         case customName, customColor, customIcon
     }
 
+    /// Decode one saved-host backup record, dropping unsupported route entries
+    /// while preserving the rest of the record for restore.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        macDeviceID = try c.decode(String.self, forKey: .macDeviceID)
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
+        routes = try c.decodeIfPresent([PairedMacBackupFailableRoute].self, forKey: .routes)?
+            .compactMap(\.value) ?? []
+        createdAt = try c.decode(Double.self, forKey: .createdAt)
+        lastSeenAt = try c.decode(Double.self, forKey: .lastSeenAt)
+        isActive = try c.decode(Bool.self, forKey: .isActive)
+        customName = try c.decodeIfPresent(String.self, forKey: .customName)
+        customColor = try c.decodeIfPresent(String.self, forKey: .customColor)
+        customIcon = try c.decodeIfPresent(String.self, forKey: .customIcon)
+    }
+
     /// Encode custom override keys even when they are `nil`, so clears sync.
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
