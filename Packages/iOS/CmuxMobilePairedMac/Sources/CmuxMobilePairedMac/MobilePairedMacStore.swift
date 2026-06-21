@@ -328,16 +328,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try ensureReady()
         try transaction {
             if markActive {
-                // Clear the active flag only within the SAME (Stack user, team)
-                // scope: activating a host in team A must not deactivate team B's
-                // active host (single-active is per (user, team)). `IS` is SQLite's
-                // null-safe equality, so a NULL user/team clears only NULL-scoped rows.
-                try exec(
-                    "UPDATE paired_macs SET is_active = 0 WHERE stack_user_id IS ? AND team_id IS ?;",
-                    binding: [
-                        stackUserID.map(BindValue.text) ?? .null,
-                        teamID.map(BindValue.text) ?? .null,
-                    ])
+                try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
             }
             let ownerKey = pairedMacOwnerKey(stackUserID: stackUserID, teamID: teamID)
             let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey)
@@ -405,16 +396,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try ensureReady()
         let ownerKey = pairedMacOwnerKey(stackUserID: stackUserID, teamID: teamID)
         try transaction {
-            // Clear the active flag only within the target Mac's own (Stack user,
-            // team) scope, mirroring the scoped clear in `upsert`. On a shared
-            // device (more than one Stack user/team has pairings), switching hosts
-            // in one scope must not wipe another scope's active Mac, or that scope
-            // fails to auto-reconnect.
-            try exec("""
-                UPDATE paired_macs SET is_active = 0
-                WHERE owner_key = ?;
-                """,
-                binding: [.text(ownerKey)])
+            try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
             try exec("UPDATE paired_macs SET is_active = 1 WHERE mac_device_id = ? AND owner_key = ?;",
                      binding: [.text(macDeviceID), .text(ownerKey)])
         }
@@ -566,6 +548,24 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             .real(lastSeenAt.timeIntervalSince1970),
             .int(isActive ? 1 : 0),
         ])
+    }
+
+    private func clearActiveMacs(stackUserID: String?, teamID: String?) throws {
+        let stackBinding = stackUserID.map(BindValue.text) ?? .null
+        if let teamID {
+            // The visible team scope includes legacy NULL-team rows until their
+            // next upsert claims them, so they must share the same active-row
+            // invariant as explicit team rows.
+            try exec("""
+                UPDATE paired_macs SET is_active = 0
+                WHERE stack_user_id IS ? AND (team_id IS ? OR team_id IS NULL);
+            """, binding: [stackBinding, .text(teamID)])
+        } else {
+            try exec("""
+                UPDATE paired_macs SET is_active = 0
+                WHERE stack_user_id IS ? AND team_id IS NULL;
+            """, binding: [stackBinding])
+        }
     }
 
     private func moveMacRowScope(
