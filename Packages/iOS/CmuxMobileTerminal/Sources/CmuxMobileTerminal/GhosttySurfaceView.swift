@@ -807,7 +807,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// adding the old ~0.5s tail before the Mac reflows and re-sends. ~0.07s at
     /// 120Hz / 0.13s at 60Hz.
     private static let viewportReportSettleThreshold = 8
-    private var lastSnapshotFallbackHTML: String?
     private static let snapshotFallbackZPosition: CGFloat = 900
     /// Daemon-authoritative effective grid (min across attached devices). When
     /// set, the Ghostty surface is pinned to this cols×rows inside the
@@ -3325,35 +3324,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSnapshotFallback() {
-        if hasVisibleGhosttyRendererLayer(), !shouldKeepSnapshotFallbackActive {
+        guard shouldKeepSnapshotFallbackActive else {
             snapshotFallbackView.isHidden = true
             return
         }
 
-        let snapshot = renderedTextForTesting() ?? ""
-        guard !snapshot.isEmpty else {
-            lastSnapshotFallbackHTML = nil
-            snapshotFallbackView.attributedText = nil
-            snapshotFallbackView.text = ""
-            snapshotFallbackView.isHidden = true
+        let hasCachedSnapshot = !(snapshotFallbackView.attributedText?.string.isEmpty ?? true)
+            || !snapshotFallbackView.text.isEmpty
+        guard hasCachedSnapshot else {
             return
-        }
-
-        let html = renderedHTMLForTesting()
-        if let html,
-           html != lastSnapshotFallbackHTML,
-           let attributedSnapshot = makeSnapshotAttributedText(from: html) {
-            lastSnapshotFallbackHTML = html
-            snapshotFallbackView.attributedText = attributedSnapshot
-            applySnapshotFallbackTheme(from: attributedSnapshot)
-        } else if snapshotFallbackView.attributedText?.string != snapshot {
-            lastSnapshotFallbackHTML = nil
-            snapshotFallbackView.attributedText = nil
-            snapshotFallbackView.text = snapshot
-        }
-
-        if snapshotFallbackView.text != snapshot && snapshotFallbackView.attributedText == nil {
-            snapshotFallbackView.text = snapshot
         }
 
         snapshotFallbackView.setContentOffset(.zero, animated: false)
