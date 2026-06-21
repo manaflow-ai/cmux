@@ -567,16 +567,15 @@ function Toolbar({
     typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? payload.externalURL : null;
   const toolbarRef = useRef<HTMLElement>(null);
   const toolbarWidth = useToolbarWidth(toolbarRef);
-  // Optional toolbar controls, HIGH priority first (last = first to overflow).
-  // Drop order at narrowing: external link -> layout toggle -> files toggle ->
-  // repo select (the most critical optional control, dropped last). The source
-  // select, Base picker, and "..." button are always present and are not in this
-  // list. Estimated widths include each control's ~4px inter-item gap. The "..."
-  // menu always lists the secondary actions (layout, external, files), so an
-  // overflowed bar button stays reachable; the repo select cannot live in the
-  // menu (native <select>), so it simply hides and returns when wider.
+  // Optional ACCESSORY controls, HIGH priority first (last = first to overflow).
+  // Drop order at narrowing: external link -> layout toggle -> files toggle. Each
+  // has a canonical copy in the "..." menu, so overflowing one only hides its
+  // duplicate bar icon and it stays reachable from the menu. The source select,
+  // repo select, and Base picker are NOT in this list: they are always rendered
+  // in the bar (a native <select> has no menu equivalent, so the repo select must
+  // never be dropped — it shrinks/ellipsizes in place instead). Estimated widths
+  // include each control's ~4px inter-item gap.
   const overflowItems = [
-    { id: "repo-select" as const, width: hasRepoSelect(payload) ? 110 : 0 },
     { id: "files-toggle" as const, width: TOOLBAR_ICON_SLOT },
     { id: "layout-toggle" as const, width: TOOLBAR_ICON_SLOT },
     ...(externalURL ? [{ id: "external-link" as const, width: TOOLBAR_ICON_SLOT }] : []),
@@ -587,20 +586,21 @@ function Toolbar({
       : new Set(
           resolveToolbarOverflow({
             available: toolbarWidth,
-            // Always-present zone: source select + Base picker + "..." button +
-            // horizontal padding. Generous so we shed before, not after, overlap;
-            // the CSS clip covers any residual under-estimate.
-            reserved: TOOLBAR_ALWAYS_PRESENT_WIDTH,
+            // Always-present zone: source select + repo select + Base picker +
+            // "..." button + horizontal padding. Generous so we shed before, not
+            // after, overlap; the CSS clip covers any residual under-estimate. The
+            // repo select is always in the bar now, so reserve its slot too (it
+            // shrinks in place rather than overflowing).
+            reserved: TOOLBAR_ALWAYS_PRESENT_WIDTH + (hasRepoSelect(payload) ? TOOLBAR_REPO_SELECT_MIN : 0),
             items: overflowItems,
           }).overflow,
         );
-  const showRepoSelect = !overflow.has("repo-select");
   const showFilesToggle = !overflow.has("files-toggle");
   const showLayoutToggle = !overflow.has("layout-toggle");
   const showExternalLink = externalURL != null && !overflow.has("external-link");
   return (
     <header id="toolbar" ref={toolbarRef}>
-      <SourceControls label={label} onNavigate={onNavigate} payload={payload} showRepoSelect={showRepoSelect} />
+      <SourceControls label={label} onNavigate={onNavigate} payload={payload} />
       {/* The jump-to-file select duplicates the Files sidebar (both scroll to a
           file). It is the only file-jump control when the sidebar is hidden, so
           it always renders, but its centered middle grid track is collapsed via
@@ -689,6 +689,10 @@ const TOOLBAR_ICON_SLOT = 28;
 // "..." button + horizontal padding/gaps). Deliberately generous: the optional
 // controls shed early rather than allowing the always-present zone to overflow.
 const TOOLBAR_ALWAYS_PRESENT_WIDTH = 248;
+// Min width the always-present repo select can shrink to (its CSS `min-width`
+// floor of 56px + ~4px gap). It ellipsizes in place down to this floor rather
+// than overflowing, so reserve only the floor, not its full natural width.
+const TOOLBAR_REPO_SELECT_MIN = 60;
 
 function hasRepoSelect(payload: any): boolean {
   return Array.isArray(payload?.repoOptions) && payload.repoOptions.length >= 2;
@@ -698,12 +702,10 @@ function SourceControls({
   label,
   onNavigate,
   payload,
-  showRepoSelect,
 }: {
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
   payload: any;
-  showRepoSelect: boolean;
 }) {
   return (
     <div className="toolbar-left flex min-w-0 items-center gap-1.5">
@@ -714,15 +716,16 @@ function SourceControls({
         options={payload.sourceOptions}
         onNavigate={onNavigate}
       />
-      {showRepoSelect ? (
-        <NavigationSelect
-          ariaLabel={label("repoPath")}
-          fallbackValue={payload.repoRoot ?? ""}
-          id="repo-select"
-          options={payload.repoOptions}
-          onNavigate={onNavigate}
-        />
-      ) : null}
+      {/* The repo select is ALWAYS rendered (a native <select> has no "..." menu
+          equivalent, so dropping it would strand multi-repo users). It shrinks
+          and ellipsizes in place via field-sizing + the .toolbar-left clip. */}
+      <NavigationSelect
+        ariaLabel={label("repoPath")}
+        fallbackValue={payload.repoRoot ?? ""}
+        id="repo-select"
+        options={payload.repoOptions}
+        onNavigate={onNavigate}
+      />
       <BaseControl label={label} onNavigate={onNavigate} payload={payload} />
     </div>
   );

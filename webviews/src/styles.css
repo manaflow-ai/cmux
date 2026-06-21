@@ -421,12 +421,16 @@ body {
   }
 }
 .base-picker-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  /* Viewport-anchored so it escapes `.toolbar-left`'s `overflow-x: clip` (the
+     toolbar controls' no-overlap guarantee) and renders fully over the diff
+     content. `top` / `bottom` / `left` / `max-height` are set inline by JS from
+     the Base button's rect, clamped to the viewport (see computePopoverStyle).
+     `#app` is `contain: strict` but spans the full viewport, so fixed
+     positioning resolves against it == the viewport, and the clamped popover is
+     never clipped. */
+  position: fixed;
   width: 320px;
   max-width: min(86vw, 360px);
-  max-height: min(60vh, 420px);
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
