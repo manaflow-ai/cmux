@@ -1487,7 +1487,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        guard isSignedIn else {
+        guard isSignedIn,
+              let scope = await currentScopeSnapshot(userID: stackUserID) else {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
@@ -1497,7 +1498,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // this a stale port makes the auto-connect fail and the app falls back to
         // the Mac picker, the screen we want to avoid showing.
         if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
-            await refresher.refreshFromBackup(stackUserID: stackUserID)
+            await refresher.refreshFromBackup(stackUserID: scope.userID)
+        }
+        guard await isScopeCurrent(scope) else {
+            finishStoredMacReconnectAttempt(generation: generation)
+            return false
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         func reachableRoute(_ mac: MobilePairedMac) -> (String, Int)? {
@@ -1510,13 +1515,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let activeMac: MobilePairedMac?
         let allMacs: [MobilePairedMac]
         do {
-            activeMac = try await pairedMacStore.activeMac(stackUserID: stackUserID)
-            allMacs = try await pairedMacStore.loadAll(stackUserID: stackUserID)
+            activeMac = try await pairedMacStore.activeMac(stackUserID: scope.userID, teamID: scope.teamID)
+            allMacs = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
         } catch {
             mobileShellLog.error("paired mac store read failed: \(String(describing: error), privacy: .public)")
             // A read failure means "couldn't determine," not "no mac": keep the
             // hint so a transient SQLite error doesn't erase a returning user's
             // paired state.
+            finishStoredMacReconnectAttempt(generation: generation)
+            return false
+        }
+        guard await isScopeCurrent(scope) else {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
@@ -1573,9 +1582,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // blocks the others.
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,
+                  await isScopeCurrent(scope),
                   let (host, port) = reachableRoute(mac) else { break }
             // Best-effort registry refresh for this Mac in the background.
-            refreshRoutesFromRegistry(for: mac, stackUserID: stackUserID)
+            refreshRoutesFromRegistry(for: mac, scope: scope)
             await connectManualHost(
                 name: mac.displayName ?? host, host: host, port: port,
                 pairedMacDeviceID: mac.macDeviceID)
@@ -1620,7 +1630,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Mac at its current address after it moved networks or changed port. A
     /// missing registry, an unauthorized call, or no-change routes are no-ops, so
     /// a registry outage never disturbs the locally stored routes.
-    private func refreshRoutesFromRegistry(for mac: MobilePairedMac, stackUserID: String?) {
+    private func refreshRoutesFromRegistry(for mac: MobilePairedMac, scope: MobileShellScopeSnapshot) {
         guard let deviceRegistry, let pairedMacStore else { return }
         let macDeviceID = mac.macDeviceID
         let localRoutes = mac.routes
@@ -1636,19 +1646,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // switched accounts, forgotten this Mac, or switched the active Mac
             // meanwhile. Re-evaluate against the *current* store/identity before
             // the `markActive: true` upsert, so a stale refresh can never
-            // resurrect or reactivate a pairing the user removed. Mirrors the
-            // user-switch guard in `loadPairedMacs`.
+            // resurrect or reactivate a pairing the user removed. Pass the
+            // captured account/team scope through every store call so a team
+            // switch cannot make this old-team refresh write into the new team.
+            guard await self.isScopeCurrent(scope) else { return }
             let activeMacID: String?
             do {
-                activeMacID = try await pairedMacStore.activeMac(stackUserID: stackUserID)?.macDeviceID
+                activeMacID = try await pairedMacStore.activeMac(
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID
+                )?.macDeviceID
             } catch {
                 mobileShellLog.debug("registry refresh active-mac recheck failed: \(String(describing: error), privacy: .public)")
                 return
             }
+            guard await self.isScopeCurrent(scope) else { return }
             guard DeviceRegistryService.shouldApplyRegistryRefresh(
                 isSignedIn: self.isSignedIn,
-                capturedUserID: stackUserID,
-                currentUserID: self.identityProvider?.currentUserID,
+                capturedUserID: scope.userID,
+                currentUserID: self.identityProvider?.currentUserID ?? scope.userID,
                 activeMacID: activeMacID,
                 targetMacID: macDeviceID
             ) else { return }
@@ -1658,13 +1674,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     displayName: displayName,
                     routes: updated,
                     markActive: true,
-                    stackUserID: stackUserID
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID,
+                    now: Date()
                 )
             } catch {
                 mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
                 return
             }
-            await self.loadPairedMacs()
+            if await self.isScopeCurrent(scope) {
+                await self.loadPairedMacs()
+            }
         }
     }
 
@@ -1722,11 +1742,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return nil
     }
 
-    /// Capture the current signed-in account/team scope for async list loads.
-    private func currentScopeSnapshot() async -> MobileShellScopeSnapshot? {
+    /// Capture the current signed-in account/team scope for async list loads and
+    /// route writes.
+    private func currentScopeSnapshot(userID explicitUserID: String? = nil) async -> MobileShellScopeSnapshot? {
         guard isSignedIn,
-              let userID = identityProvider?.currentUserID,
+              let userID = explicitUserID ?? identityProvider?.currentUserID,
               !userID.isEmpty else {
+            return nil
+        }
+        if let currentUserID = identityProvider?.currentUserID,
+           currentUserID != userID {
             return nil
         }
         return MobileShellScopeSnapshot(
@@ -1739,8 +1764,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Whether a previously-captured list-load scope is still current.
     private func isScopeCurrent(_ scope: MobileShellScopeSnapshot) async -> Bool {
         guard isSignedIn,
-              identityProvider?.currentUserID == scope.userID,
               secondaryAggregationScopeGeneration == scope.generation else {
+            return false
+        }
+        if let currentUserID = identityProvider?.currentUserID,
+           currentUserID != scope.userID {
             return false
         }
         return await teamIDProvider() == scope.teamID
@@ -1871,11 +1899,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             var backoff: Duration = .seconds(1)
             while !Task.isCancelled {
                 do {
+                    guard let scope = await self?.currentScopeSnapshot() else { return }
                     let stream = try await presence.subscribe()
                     for try await update in stream {
-                        guard let self, !Task.isCancelled else { return }
+                        guard let self,
+                              !Task.isCancelled,
+                              await self.isScopeCurrent(scope) else { return }
                         backoff = .seconds(1)
-                        self.applyPresenceUpdate(update)
+                        self.applyPresenceUpdate(update, scope: scope)
                     }
                 } catch is CancellationError {
                     return
@@ -1891,13 +1922,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func applyPresenceUpdate(_ update: PresenceUpdate) {
+    private func applyPresenceUpdate(_ update: PresenceUpdate, scope: MobileShellScopeSnapshot) {
         presenceMap.apply(update)
         switch update {
         case .routes(let instance), .online(let instance):
             // Both events can carry fresh attach routes (online = a host that
             // re-announced after moving networks while the phone was watching).
-            syncPushedRoutes(from: instance)
+            syncPushedRoutes(from: instance, scope: scope)
         case .snapshot(let snapshot):
             // The snapshot is the reconcile-on-(re)subscribe path: a port that
             // changed while the phone was offline lands here. One batch (not
@@ -1905,7 +1936,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // deterministic order and kicks at most one reconnect.
             syncPushedRoutes(from: snapshot.devices.flatMap { device in
                 device.instances.filter(\.online)
-            })
+            }, scope: scope)
         case .offline, .seen:
             break
         }
@@ -1920,27 +1951,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// pairing. A live, healthy connection is never torn down here: if the
     /// route the live session uses disappeared, the transport notices on its
     /// own and the next reconnect picks up the stored fresh routes.
-    private func syncPushedRoutes(from instance: PresenceInstance) {
-        syncPushedRoutes(from: [instance])
+    private func syncPushedRoutes(from instance: PresenceInstance, scope: MobileShellScopeSnapshot) {
+        syncPushedRoutes(from: [instance], scope: scope)
     }
 
     /// Batch form: one sequential task for the whole delivery (a snapshot can
     /// carry several online instances, including multiple tags on one Mac),
     /// so route upserts apply in deterministic order and the reconnect kick
     /// fires at most once per delivery instead of once per instance.
-    private func syncPushedRoutes(from instances: [PresenceInstance]) {
+    private func syncPushedRoutes(from instances: [PresenceInstance], scope: MobileShellScopeSnapshot) {
         let candidates = instances.filter { $0.platform.lowercased() != "ios" }
         guard !candidates.isEmpty else { return }
-        let stackUserID = identityProvider?.currentUserID
-        // Every await below suspends the main actor, so re-check after
-        // each one that the frame's user is still the signed-in user: a
-        // stale presence frame from a previous account must never write
-        // routes into, or kick reconnects for, the next session (mirrors
-        // refreshRegistryDevices' account-switch guard).
-        let userIsCurrent: () -> Bool = { [weak self] in
-            guard let self else { return false }
-            return self.isSignedIn && self.identityProvider?.currentUserID == stackUserID
-        }
+        // Every await below suspends the main actor, so keep carrying the
+        // account/team scope captured for the subscription that delivered this
+        // frame and re-check it before each route mutation. A stale frame from a
+        // previous account or team must never write routes into, or kick
+        // reconnects for, the next scope.
         // Serialized on the paired-Mac write chain: a (re)subscribe delivers
         // a snapshot immediately followed by online/routes events for the
         // same device, and two concurrent deliveries would race their
@@ -1949,22 +1975,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // strictly in arrival order.
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performSerializedPairedMacWrite(ifStillCurrent: userIsCurrent) {
+            await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
                 [weak self] in
                 guard let self else { return }
+                guard await self.isScopeCurrent(scope) else { return }
                 if self.pairedMacs.isEmpty {
                     // A presence frame can land before the first paired-Mac
                     // load (snapshot arrives fast on launch); resolve the
                     // pairing list before deciding these devices are unknown.
                     await self.loadPairedMacs()
                 }
+                guard await self.isScopeCurrent(scope) else { return }
                 var onlineDeviceIds: Set<String> = []
                 for instance in candidates {
-                    guard userIsCurrent() else { return }
+                    guard await self.isScopeCurrent(scope) else { return }
                     if instance.online { onlineDeviceIds.insert(instance.deviceId) }
-                    await self.applyPushedRoutes(from: instance, stackUserID: stackUserID)
+                    await self.applyPushedRoutes(from: instance, scope: scope)
                 }
-                guard userIsCurrent() else { return }
+                guard await self.isScopeCurrent(scope) else { return }
                 // The Mac this phone wants is online and we are not
                 // connected: reconnect now instead of waiting for the user to
                 // pull Retry. Unambiguous pushes were persisted above, so the
@@ -1982,10 +2010,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Per-instance store/registry write-through for the batch sync above.
-    private func applyPushedRoutes(from instance: PresenceInstance, stackUserID: String?) async {
+    private func applyPushedRoutes(from instance: PresenceInstance, scope: MobileShellScopeSnapshot) async {
         // `nil` means the host did not announce routes on this record
         // ("unchanged" on the wire); an explicit `[]` is a live clear.
         guard let routes = instance.routes else { return }
+        guard await isScopeCurrent(scope) else { return }
         let deviceId = instance.deviceId
         guard let mac = pairedMacs.first(where: { $0.macDeviceID == deviceId }) else {
             return
@@ -2012,6 +2041,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let sole = presenceMap.soleRouteAdvertisingInstance(deviceId: deviceId),
               sole.tag == instance.tag,
               let pairedMacStore,
+              await isScopeCurrent(scope),
               let updated = DeviceRegistryService.selectReconnectRoutes(
                   local: mac.routes,
                   registry: routes
@@ -2022,9 +2052,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: mac.displayName,
                 routes: updated,
                 markActive: mac.isActive,
-                stackUserID: stackUserID
+                stackUserID: scope.userID,
+                teamID: scope.teamID,
+                now: Date()
             )
-            await loadPairedMacs()
+            if await isScopeCurrent(scope) {
+                await loadPairedMacs()
+            }
         } catch {
             mobileShellLog.debug(
                 "presence route upsert failed: \(String(describing: error), privacy: .public)"
