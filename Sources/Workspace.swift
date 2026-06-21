@@ -11827,7 +11827,7 @@ extension Workspace: BonsplitDelegate {
         forceCloseTabIds.remove(tabId)
         tabStripCloseButtonByTabId.removeValue(forKey: tabId)
         let remoteTmuxWorkspaceCloseButton = remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
-        remoteTmuxKeepWorkspaceOpenTabIds.remove(tabId)
+        let remoteTmuxKeepWorkspaceOpen = remoteTmuxKeepWorkspaceOpenTabIds.remove(tabId) != nil
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
@@ -11940,8 +11940,14 @@ extension Workspace: BonsplitDelegate {
                 let appDelegate = AppDelegate.shared
                 let windowCloseCanVeto = (manager?.tabs.count ?? 0) <= 1 && appDelegate?.mainWindowContexts.count == 1 && appDelegate?.mainWindowContexts.values.contains(where: { $0.tabManager === manager }) == true
                 if closeRequested && (!windowCloseCanVeto || manager?.tabs.contains(where: { $0.id == id }) == false) { scheduleTerminalGeometryReconcile(); return }
-                remoteTmuxKeepWorkspaceOpenAfterSessionEnd = true; isRemoteTmuxMirror = false
+                remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
                 remoteTmuxWindowMirrors.removeAll()
+                AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
+            }
+            if remoteTmuxKeepWorkspaceOpen {
+                pendingRemoteDisconnectReplacement = nil; remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
+                remoteTmuxWindowMirrors.removeAll()
+                AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
             }
 
             #if DEBUG

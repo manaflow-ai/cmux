@@ -941,10 +941,14 @@ final class RemoteTmuxController {
         }
     }
 
-    /// Handles user-initiated close of a mirrored session workspace: detaches the
-    /// control connection and kills the session on the remote. (The app-quit path
-    /// uses ``killMarkedSessionsBeforeTerminate(timeout:)`` instead, which awaits the
-    /// kill so it lands before cmux exits.)
+    func detachMirrorWorkspaceKeptOpenLocally(workspaceId: UUID) {
+        guard let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId }) else { return }
+        let host = entry.value.host; sessionMirrors.removeValue(forKey: entry.key); entry.value.detachObserver(); connectionsByHostSession.removeValue(forKey: entry.key)?.stop()
+        let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
+        if !stillUsed { windowRegistry.unbind(hostHash: host.connectionHash); transportRegistry.remove(connectionHash: host.connectionHash); RemoteTmuxSSHTransport.spawnControlMasterExit(host: host) }
+    }
+
+    /// User-initiated mirrored workspace close detaches locally and kills the remote session.
     func handleWorkspaceClosed(workspaceId: UUID) {
         guard let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId })
         else { return }
