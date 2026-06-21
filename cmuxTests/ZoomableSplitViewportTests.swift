@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,25 +9,26 @@ import XCTest
 #endif
 
 @MainActor
-final class ZoomableSplitViewportTests: XCTestCase {
-    func testZoomOutClampsAtExactFit() {
+@Suite("Zoomable split viewport")
+struct ZoomableSplitViewportTests {
+    @Test func zoomOutClampsAtExactFit() {
         let root = makeRoot()
         defer { root.teardown() }
 
         root.setViewport(center: CGPoint(x: 400, y: 250), magnification: 0.25)
 
-        XCTAssertEqual(root.currentMagnification, 1.0, accuracy: 0.0001)
+        #expect(abs(root.currentMagnification - 1.0) < 0.0001)
         root.zoom(by: 0.5)
-        XCTAssertEqual(root.currentMagnification, 1.0, accuracy: 0.0001)
+        #expect(abs(root.currentMagnification - 1.0) < 0.0001)
     }
 
-    func testZoomInRemainsAvailableBeyondFit() {
+    @Test func zoomInRemainsAvailableBeyondFit() {
         let root = makeRoot()
         defer { root.teardown() }
 
         root.zoom(by: 1.25)
 
-        XCTAssertEqual(root.currentMagnification, 1.25, accuracy: 0.0001)
+        #expect(abs(root.currentMagnification - 1.25) < 0.0001)
     }
 
     private func makeRoot() -> ZoomableSplitRootView {
