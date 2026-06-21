@@ -204,6 +204,10 @@ final class CanvasPaneView: NSView {
         return nil
     }
 
+    func containsBodyPoint(_ point: CGPoint) -> Bool {
+        bounds.contains(point) && hitRegion(at: point) == nil
+    }
+
     /// The pane owns every event over the resize rim AND the tab bar: drags
     /// stay on the fast AppKit path and tab clicks resolve deterministically
     /// against the reported hit regions (SwiftUI gesture recognizers fought
@@ -221,7 +225,8 @@ final class CanvasPaneView: NSView {
     override func mouseDown(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
         guard let region = hitRegion(at: local) else {
-            delegate?.paneViewDidRequestFocus(self)
+            // Body clicks are focused by CanvasRootView's local monitor before
+            // terminal content receives the same mouse-down.
             super.mouseDown(with: event)
             return
         }
