@@ -53,6 +53,14 @@ if [[ -z "$BASE" ]] || ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev
   exit 0
 fi
 
+# Base must be an ancestor of HEAD, or "BASE..HEAD" is not a meaningful "since the
+# previous beta" range (e.g. the caller fed a SHA from an unrelated branch). Fail
+# closed to the fallback line rather than emit notes for a bogus commit range.
+if ! git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null; then
+  fallback
+  exit 0
+fi
+
 # iOS-affecting paths: mirror the push-trigger filter in ios-testflight.yml so the
 # notes only mention changes that could be in this build.
 PATHS="ios Packages/iOS Packages/Shared Sources/Mobile vendor/stack-auth-swift-sdk-prerelease scripts/ghosttykit-checksums.txt"

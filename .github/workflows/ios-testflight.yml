@@ -73,17 +73,24 @@ jobs:
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const { owner, repo } = context.repo;
 
-            // The head_sha of the most recent successful run of this workflow is
-            // the last uploaded beta commit. We always resolve it: the schedule
-            // SHA-compare uses it to skip an already-uploaded HEAD, AND the upload
-            // job uses it as the base of the "What to Test" commit range so each
-            // build's notes reflect what changed since the previous beta.
+            // The head_sha of the most recent successful run of this workflow on
+            // main is the last uploaded beta commit. We always resolve it: the
+            // schedule SHA-compare uses it to skip an already-uploaded HEAD, AND
+            // the upload job uses it as the base of the "What to Test" commit range
+            // so each build's notes reflect what changed since the previous beta.
+            // branch:'main' is required: the upload job is gated on
+            // github.ref == 'refs/heads/main', so a workflow_dispatch run on a
+            // feature branch SUCCEEDS without uploading anything. Without this
+            // filter its branch SHA would become last_uploaded_sha and poison the
+            // next real beta's notes base (the generator also fails closed to a
+            // fallback line when the base is not an ancestor of HEAD).
             let lastUploadedSha = null;
             try {
               const runs = await github.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
                 workflow_id: 'ios-testflight.yml',
+                branch: 'main',
                 status: 'success',
                 per_page: 1,
               });

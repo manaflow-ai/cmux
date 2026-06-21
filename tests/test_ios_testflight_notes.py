@@ -89,6 +89,19 @@ def main():
         bogus = _gen(repo, "deadbeefdeadbeef", "internal")
         _check("no notable iOS changes" in bogus, "unreachable base -> fallback line")
 
+        # A base that is a real commit but NOT an ancestor of HEAD (e.g. a SHA from
+        # an unrelated branch) must fail closed to the fallback, not emit notes for
+        # a bogus range.
+        _git(repo, "checkout", "-q", "-b", "side", base)
+        _commit(repo, "ios/cmux/Side.swift", "ios: side-branch only change (#900)")
+        side = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        _git(repo, "checkout", "-q", "main")
+        non_ancestor = _gen(repo, side, "internal")
+        _check("no notable iOS changes" in non_ancestor,
+               "non-ancestor base -> fallback line")
+        _check("side-branch only change" not in non_ancestor,
+               "non-ancestor base does not leak unrelated commits")
+
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
         sys.exit(1)
