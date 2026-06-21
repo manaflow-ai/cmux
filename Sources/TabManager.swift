@@ -238,6 +238,14 @@ class TabManager: ObservableObject {
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false
+    /// The snapshot decoded from disk for the in-progress restore. The
+    /// `SessionSnapshotRestoreCoordinator` owns the ordering and calls back through
+    /// `SessionSnapshotRestoreHosting` for the god-coupled steps; the
+    /// `buildRestoredWorkspaces()` witness reads this to construct the workspaces.
+    /// Set for the duration of one synchronous restore turn and cleared in the
+    /// same turn. Lives in the class body (not the session-persistence extension)
+    /// because extensions cannot hold stored properties.
+    private var pendingSessionRestoreSnapshot: SessionTabManagerSnapshot?
     /// Background-workspace-load + cycle-hot bookkeeping (CmuxWorkspaces). The
     /// `@Observable` sub-model is the single observation source of truth: app
     /// observers (ContentView, the background-prime coordinator) track these via
@@ -491,6 +499,15 @@ class TabManager: ObservableObject {
     // requires (CmuxWorkspaces); the app shell applies each op to the closed-
     // item history store and flushes once.
     let closedPanelHistoryRemapPlanner = ClosedPanelHistoryRemapPlanner()
+    // Owns the whole-window session-snapshot restore ordering (CmuxWorkspaces):
+    // reset → off-publish build → resolve selection/groups → atomic @Published
+    // commit → prune/release/schedule/remap/post. Shares the same group-snapshot
+    // and history-remap collaborators so save and restore stay one source of
+    // truth; this TabManager is its SessionSnapshotRestoreHosting witness.
+    lazy var sessionSnapshotRestore = SessionSnapshotRestoreCoordinator<Workspace>(
+        groupCoordinator: sessionSnapshotGroups,
+        remapPlanner: closedPanelHistoryRemapPlanner
+    )
     // Reorder/pin flows over the workspaces model (CmuxWorkspaces); owns
     // the pure batch-reorder planner.
     let workspaceReordering: WorkspaceReorderCoordinator<Workspace>
@@ -670,6 +687,7 @@ class TabManager: ObservableObject {
         // git-metadata schedule, welcome send) reach the host with the legacy
         // in-class timing.
         workspaceCreating.attach(host: self)
+        sessionSnapshotRestore.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
@@ -5166,9 +5184,36 @@ extension TabManager {
         _ snapshot: SessionTabManagerSnapshot,
         remapClosedPanelHistory: Bool = true
     ) -> [[UUID: UUID]] {
+        pendingSessionRestoreSnapshot = snapshot
+        defer { pendingSessionRestoreSnapshot = nil }
+        return sessionSnapshotRestore.restore(
+            persistedGroupSnapshots: snapshot.workspaceGroups,
+            selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex,
+            remapClosedPanelHistory: remapClosedPanelHistory
+        )
+    }
+
+    // MARK: - SessionSnapshotRestoreHosting witnesses
+    // The god-coupled steps of a whole-window session-snapshot restore: the
+    // SessionSnapshotRestoreCoordinator (CmuxWorkspaces) owns the ordering and
+    // pure decisions; these perform the steps touching the Workspace god type,
+    // app-static port-ordinal state, ClosedItemHistoryStore.shared, and the
+    // @Published stored properties that cannot cross the module boundary. Bodies
+    // are lifted one-for-one from the former inline restoreSessionSnapshot body.
+
+    func beginSessionSnapshotRestore() {
         isRestoringSessionSnapshot = true
-        defer { isRestoringSessionSnapshot = false }
-        let previousTabs = tabs
+    }
+
+    func endSessionSnapshotRestore() {
+        isRestoringSessionSnapshot = false
+    }
+
+    func currentWorkspaces() -> [Workspace] {
+        tabs
+    }
+
+    func resetSubModels(previousTabs: [Workspace]) {
         for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)
         }
@@ -5187,15 +5232,17 @@ extension TabManager {
         workspaceSelection.resetWorkspaceCycleHotWindow()
         selectionSideEffectsGeneration &+= 1
         browserModel.clearRecentlyClosedBrowserPanels()
+    }
 
-        // Build the new workspace list locally to avoid intermediate @Published
-        // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
-        // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
+    func buildRestoredWorkspaces() -> SessionSnapshotRestoreBuild<Workspace> {
+        // The snapshot is set by `restoreSessionSnapshot` for the duration of the
+        // synchronous restore turn the coordinator drives.
+        let snapshot = pendingSessionRestoreSnapshot
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
-        let workspaceSnapshots = snapshot.workspaces
-            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         var restoredOriginalWorkspaceIds: [UUID?] = []
+        let workspaceSnapshots = (snapshot?.workspaces ?? [])
+            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         for workspaceSnapshot in workspaceSnapshots {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
@@ -5220,47 +5267,44 @@ extension TabManager {
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }
+        return SessionSnapshotRestoreBuild(
+            tabs: newTabs,
+            restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+            restoredOriginalWorkspaceIds: restoredOriginalWorkspaceIds
+        )
+    }
 
-        // Determine selection before mutating @Published properties.
-        let newSelectedId: UUID?
-        if let selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex,
-           newTabs.indices.contains(selectedWorkspaceIndex) {
-            newSelectedId = newTabs[selectedWorkspaceIndex].id
-        } else {
-            newSelectedId = newTabs.first?.id
-        }
-
+    func commitRestoredState(
+        tabs newTabs: [Workspace],
+        groups: [WorkspaceGroup],
+        knownGroupIds: Set<UUID>,
+        selectedTabId newSelectedId: UUID?
+    ) {
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
-        let workspaceIdsByGroupId: [UUID: [UUID]] = {
-            var map: [UUID: [UUID]] = [:]
-            for workspace in newTabs {
-                if let gid = workspace.groupId {
-                    map[gid, default: []].append(workspace.id)
-                }
-            }
-            return map
-        }()
-        let restoredGroups = sessionSnapshotGroups.restoreGroups(
-            groupSnapshots: snapshot.workspaceGroups,
-            memberIdsByGroupId: workspaceIdsByGroupId
-        )
-        // Clear any group references on restored workspaces that no longer correspond
-        // to a known group (older snapshots, manual edits, etc.).
-        let knownGroupIds = Set(restoredGroups.map(\.id))
+        // Clear any group references on restored workspaces that no longer
+        // correspond to a known group (older snapshots, manual edits, etc.).
         for workspace in newTabs where workspace.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
             workspace.groupId = nil
         }
-        workspaceGroups = restoredGroups
+        workspaceGroups = groups
         selectedTabId = newSelectedId
-        let existingIds = Set(newTabs.map(\.id))
+    }
+
+    func pruneBackgroundLoadsAndSelection(existingIds: Set<UUID>) {
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
         sidebarMultiSelection.intersectSelection(with: existingIds)
+    }
+
+    func releaseAwayWorkspaces(_ previousTabs: [Workspace]) {
         for workspace in previousTabs {
             releaseRestoredAwayWorkspace(workspace)
         }
-        for workspace in newTabs {
+    }
+
+    func scheduleInitialGitMetadata(for tabs: [Workspace]) {
+        for workspace in tabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
             for terminalPanel in terminalPanels {
                 scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
@@ -5269,21 +5313,14 @@ extension TabManager {
                 )
             }
         }
-        if remapClosedPanelHistory {
-            remapClosedPanelHistoryAfterSessionRestore(
-                originalWorkspaceIds: restoredOriginalWorkspaceIds,
-                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
-            )
-        }
+    }
 
-        if let selectedTabId {
-            NotificationCenter.default.post(
-                name: .ghosttyDidFocusTab,
-                object: nil,
-                userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
-            )
-        }
-        return restoredPanelIdsByWorkspaceIndex
+    func postDidFocusTab(selectedTabId: UUID) {
+        NotificationCenter.default.post(
+            name: .ghosttyDidFocusTab,
+            object: nil,
+            userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
+        )
     }
 
     func remapClosedPanelHistoryAfterSessionRestore(
@@ -5314,7 +5351,9 @@ extension TabManager {
     // shared history store and flushes once when any op ran, matching the
     // legacy `didRequestHistoryRemap` gate. `ClosedItemHistoryStore.shared`
     // stays app-side; its de-singletonization is deferred to a later slice.
-    private func applyClosedPanelHistoryRemaps(
+    // Internal (not private) because it is the SessionSnapshotRestoreHosting
+    // witness for `applyClosedPanelHistoryRemaps(_:)`.
+    func applyClosedPanelHistoryRemaps(
         _ operations: [ClosedPanelHistoryRemapOperation]
     ) {
         guard !operations.isEmpty else { return }
@@ -5333,6 +5372,7 @@ extension TabManager {
 // DEBUG state); these extensions only bind the conformances.
 extension TabManager: WorkspacesHosting {}
 extension TabManager: WorkspaceGroupHosting {}
+extension TabManager: SessionSnapshotRestoreHosting {}
 extension TabManager: CloseConfirming {}
 extension TabManager: WorkspaceCloseHosting {}
 extension TabManager: SurfaceMetadataTitleHosting {}
