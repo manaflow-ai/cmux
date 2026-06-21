@@ -768,7 +768,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         view.textContainer.lineFragmentPadding = 0
         view.isEditable = false
         view.isSelectable = false
-        view.isScrollEnabled = true
+        view.isScrollEnabled = false
         view.isUserInteractionEnabled = false
         view.showsVerticalScrollIndicator = false
         view.showsHorizontalScrollIndicator = false
@@ -3322,10 +3322,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             snapshotFallbackView.text = snapshot
         }
 
-        let visibleTextLength = snapshotFallbackView.attributedText?.string.utf16.count ?? snapshotFallbackView.text.utf16.count
-        if visibleTextLength > 0 {
-            snapshotFallbackView.scrollRangeToVisible(NSRange(location: max(0, visibleTextLength - 1), length: 1))
-        }
+        snapshotFallbackView.setContentOffset(.zero, animated: false)
         snapshotFallbackView.isHidden = false
         flushSnapshotFallbackPresentation()
     }
@@ -3336,10 +3333,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             snapshotFallbackView.attributedText = nil
             snapshotFallbackView.text = snapshot
         }
-        let visibleTextLength = snapshotFallbackView.text.utf16.count
-        if visibleTextLength > 0 {
-            snapshotFallbackView.scrollRangeToVisible(NSRange(location: max(0, visibleTextLength - 1), length: 1))
-        }
+        snapshotFallbackView.setContentOffset(.zero, animated: false)
         snapshotFallbackView.isHidden = false
         flushSnapshotFallbackPresentation()
     }
