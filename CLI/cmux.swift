@@ -19687,15 +19687,19 @@ struct CMUXCLI {
                 responseTimeout: 10
             )
             let threadIds = loaded["data"] as? [String] ?? []
+            var transientResumeError: Error?
             for threadId in threadIds {
                 do {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
                 } catch {
                     cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
                     if isTransientThreadResumeError(error) {
-                        throw error
+                        transientResumeError = error
                     }
                 }
+            }
+            if let transientResumeError {
+                throw transientResumeError
             }
         }
 

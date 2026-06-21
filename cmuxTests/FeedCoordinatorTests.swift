@@ -658,6 +658,36 @@ struct FeedCoordinatorTests {
         #expect(recoveredConnection.threadResumeRequestCount == 1)
     }
 
+    @Test func codexTeamsWatcherBackfillContinuesAfterTransientRolloutMiss() throws {
+        let transientFailure: Result<[String: Any], Error> = .failure(
+            CMUXCLI.CodexTeamsAppServerRequestError(
+                code: nil,
+                message: "no rollout found for thread id thread-missing"
+            )
+        )
+        let failingConnection = CodexTeamsBackfillConnectionMock(
+            loadedThreadIds: ["thread-missing", "thread-ready"],
+            resumeResults: Array(repeating: transientFailure, count: 4)
+                + [.success(["thread": ["id": "thread-ready"]])]
+        )
+        let watcher = Self.makeCodexTeamsWatcher()
+
+        do {
+            try watcher.backfillLoadedThreads(connection: failingConnection)
+            Issue.record("transient rollout miss should force reconnect after processing later threads")
+        } catch {
+            #expect((error as? CMUXCLI.CodexTeamsAppServerRequestError)?.isMissingRollout == true)
+        }
+        #expect(failingConnection.threadResumeRequestCount == 5)
+
+        let recoveredConnection = CodexTeamsBackfillConnectionMock(
+            loadedThreadIds: ["thread-missing", "thread-ready"],
+            resumeResults: [.success(["thread": ["id": "thread-missing"]])]
+        )
+        try watcher.backfillLoadedThreads(connection: recoveredConnection)
+        #expect(recoveredConnection.threadResumeRequestCount == 1)
+    }
+
     private static func makeCodexTeamsWatcher() -> CMUXCLI.CodexTeamsWatcher {
         CMUXCLI.CodexTeamsWatcher(
             appServerURL: "ws://127.0.0.1:1",
@@ -727,10 +757,15 @@ private final class NotificationRequestRecorder: @unchecked Sendable {
 }
 
 private final class CodexTeamsBackfillConnectionMock: CMUXCLI.CodexTeamsAppServerConnecting {
+    private let loadedThreadIds: [String]
     private var resumeResults: [Result<[String: Any], Error>]
     private(set) var requestedMethods: [String] = []
 
-    init(resumeResults: [Result<[String: Any], Error>]) {
+    init(
+        loadedThreadIds: [String] = ["thread-1"],
+        resumeResults: [Result<[String: Any], Error>]
+    ) {
+        self.loadedThreadIds = loadedThreadIds
         self.resumeResults = resumeResults
     }
 
@@ -762,9 +797,10 @@ private final class CodexTeamsBackfillConnectionMock: CMUXCLI.CodexTeamsAppServe
         requestedMethods.append(method)
         switch method {
         case "thread/loaded/list":
-            return ["data": ["thread-1"]]
+            return ["data": loadedThreadIds]
         case "thread/resume":
-            guard params?["threadId"] as? String == "thread-1" else {
+            guard let threadId = params?["threadId"] as? String,
+                  loadedThreadIds.contains(threadId) else {
                 throw CLIError(message: "unexpected thread/resume params: \(params ?? [:])")
             }
             guard params?["excludeTurns"] as? Bool == true else {
