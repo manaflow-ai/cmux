@@ -487,32 +487,47 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
     // The target-inventory and content-type assertions moved to
     // CmuxWindowingTests (DefaultTerminalRegistrar targetInventory /
     // resolvesKnownContentType) when DefaultTerminalRegistration was lifted into
-    // CmuxWindowing as DefaultTerminalRegistrar. This case retains only the
-    // app-target scheduling behavior, which has no package equivalent.
+    // CmuxWindowing as DefaultTerminalRegistrar. The scheduling behavior itself
+    // now lives in CmuxWindowing's AppLaunchBootstrap (covered by
+    // AppLaunchBootstrapTests); this case retains coverage that AppDelegate's
+    // app-target forwarding shim still hands register work to the scheduler.
+    private final class CallCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func increment() { lock.lock(); value += 1; lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    }
+    private final class WorkBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: (@Sendable () -> Void)?
+        func store(_ work: @escaping @Sendable () -> Void) { lock.lock(); stored = work; lock.unlock() }
+        var work: (@Sendable () -> Void)? { lock.lock(); defer { lock.unlock() }; return stored }
+    }
+
     func testScheduleLaunchServicesRegistrationDefersRegisterWork() {
         _ = NSApplication.shared
         let app = AppDelegate()
 
-        var scheduledWork: (@Sendable () -> Void)?
-        var registerCallCount = 0
+        let workBox = WorkBox()
+        let registerCounter = CallCounter()
 
         app.scheduleLaunchServicesBundleRegistrationForTesting(
             bundleURL: URL(fileURLWithPath: "/tmp/../tmp/cmux-launch-services-test.app"),
             scheduler: { work in
-                scheduledWork = work
+                workBox.store(work)
             },
             register: { _ in
-                registerCallCount += 1
+                registerCounter.increment()
                 return noErr
             }
         )
 
-        XCTAssertEqual(registerCallCount, 0, "Registration should not run inline on the startup call path")
-        XCTAssertNotNil(scheduledWork, "Registration work should be handed to the scheduler")
+        XCTAssertEqual(registerCounter.count, 0, "Registration should not run inline on the startup call path")
+        XCTAssertNotNil(workBox.work, "Registration work should be handed to the scheduler")
 
-        scheduledWork?()
+        workBox.work?()
 
-        XCTAssertEqual(registerCallCount, 1)
+        XCTAssertEqual(registerCounter.count, 1)
     }
 }
 
