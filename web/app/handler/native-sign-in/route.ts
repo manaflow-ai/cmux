@@ -15,23 +15,18 @@ function firstHeaderValue(value: string | null): string | null {
   return value?.split(",")[0]?.trim() || null;
 }
 
-function requestProtocol(request: NextRequest): string {
-  return firstHeaderValue(request.headers.get("x-forwarded-proto"))
-    ?? request.nextUrl.protocol.replace(/:$/, "")
-    ?? "http";
+function requestProtocol(request: NextRequest): "http" | "https" {
+  const forwardedProto = firstHeaderValue(request.headers.get("x-forwarded-proto"))?.toLowerCase();
+  if (forwardedProto === "http" || forwardedProto === "https") return forwardedProto;
+  return request.nextUrl.protocol === "https:" ? "https" : "http";
 }
 
 function requestOriginCandidates(request: NextRequest): Set<string> {
   const origins = new Set<string>([request.nextUrl.origin]);
-  const protocol = requestProtocol(request);
-  const hostValues = [
-    firstHeaderValue(request.headers.get("host")),
-    firstHeaderValue(request.headers.get("x-forwarded-host")),
-  ];
-  for (const host of hostValues) {
-    if (!host) continue;
+  const host = firstHeaderValue(request.headers.get("host"));
+  if (host) {
     try {
-      origins.add(new URL(`${protocol}://${host}`).origin);
+      origins.add(new URL(`${requestProtocol(request)}://${host}`).origin);
     } catch {}
   }
   return origins;
@@ -72,7 +67,7 @@ export function GET(request: NextRequest) {
       maxAge: 10 * 60,
       path: "/handler/after-sign-in",
       sameSite: "lax",
-      secure: request.nextUrl.protocol === "https:",
+      secure: requestProtocol(request) === "https",
     });
   }
   return response;

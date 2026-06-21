@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -74,11 +75,23 @@ import Testing
 
     let replayChunk = try #require(await iterator.next())
     #expect(replayChunk.scrollbackRows == 123)
+    switch replayChunk.payload {
+    case .bytes:
+        Issue.record("render-grid replay was downgraded to bytes before the surface boundary")
+    case .renderGrid(let envelope):
+        #expect(envelope == replayEnvelope)
+    }
     #expect(String(decoding: replayChunk.data, as: UTF8.self).contains("replay-base"))
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
 
     let liveChunk = try #require(await iterator.next())
     #expect(liveChunk.scrollbackRows == nil)
+    switch liveChunk.payload {
+    case .bytes:
+        Issue.record("live render-grid delta was downgraded to bytes before the surface boundary")
+    case .renderGrid(let envelope):
+        #expect(envelope == liveEnvelope)
+    }
     #expect(String(decoding: liveChunk.data, as: UTF8.self).contains("live-after"))
 }
 
@@ -168,7 +181,7 @@ import Testing
 
     let maybeDelivered = queue.completeInFlight()
     let delivered = try #require(maybeDelivered)
-    let vt = try #require(String(data: delivered.bytes, encoding: .utf8))
+    let vt = try #require(String(data: delivered.chunk(streamToken: UUID()).data, encoding: .utf8))
     #expect(vt.contains("latest"))
     #expect(!vt.contains("old"))
 }
@@ -199,18 +212,21 @@ import Testing
     let delivery = TerminalOutputDelivery(renderGrid: envelope, replaceable: false)
     let deltaDelivery = TerminalOutputDelivery(renderGrid: deltaEnvelope, replaceable: false)
     let rawDelivery = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
+    let deliveryChunk = delivery.chunk(streamToken: UUID())
+    let deltaChunk = deltaDelivery.chunk(streamToken: UUID())
+    let rawChunk = rawDelivery.chunk(streamToken: UUID())
 
-    #expect(delivery.activeScreen == MobileTerminalRenderGridFrame.Screen.primary)
-    #expect(delivery.scrollbackRows == 42)
-    #expect(delivery.replayColumns == 12)
-    #expect(delivery.replayRows == 2)
-    #expect(deltaDelivery.scrollbackRows == nil)
-    #expect(deltaDelivery.replayColumns == nil)
-    #expect(deltaDelivery.replayRows == nil)
-    #expect(rawDelivery.activeScreen == nil)
-    #expect(rawDelivery.scrollbackRows == nil)
-    #expect(rawDelivery.replayColumns == nil)
-    #expect(rawDelivery.replayRows == nil)
+    #expect(deliveryChunk.activeScreen == MobileTerminalRenderGridFrame.Screen.primary)
+    #expect(deliveryChunk.scrollbackRows == 42)
+    #expect(deliveryChunk.replayColumns == 12)
+    #expect(deliveryChunk.replayRows == 2)
+    #expect(deltaChunk.scrollbackRows == nil)
+    #expect(deltaChunk.replayColumns == nil)
+    #expect(deltaChunk.replayRows == nil)
+    #expect(rawChunk.activeScreen == nil)
+    #expect(rawChunk.scrollbackRows == nil)
+    #expect(rawChunk.replayColumns == nil)
+    #expect(rawChunk.replayRows == nil)
 }
 
 @Test func terminalOutputQueuePreservesNonreplaceableBarriers() {

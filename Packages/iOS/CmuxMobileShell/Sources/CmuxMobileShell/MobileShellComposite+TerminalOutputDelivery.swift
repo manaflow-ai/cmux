@@ -31,16 +31,7 @@ extension MobileShellComposite {
         let immediate = queue.enqueue(delivery)
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if let immediate {
-            continuation.yield(
-                MobileTerminalOutputChunk(
-                    data: immediate.bytes,
-                    streamToken: streamToken,
-                    activeScreen: immediate.activeScreen,
-                    scrollbackRows: immediate.scrollbackRows,
-                    replayColumns: immediate.replayColumns,
-                    replayRows: immediate.replayRows
-                )
-            )
+            continuation.yield(immediate.chunk(streamToken: streamToken))
         }
     }
 
@@ -55,13 +46,6 @@ extension MobileShellComposite {
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
             return
         }
-        continuation.yield(MobileTerminalOutputChunk(
-            data: next.bytes,
-            streamToken: streamToken,
-            activeScreen: next.activeScreen,
-            scrollbackRows: next.scrollbackRows,
-            replayColumns: next.replayColumns,
-            replayRows: next.replayRows
-        ))
+        continuation.yield(next.chunk(streamToken: streamToken))
     }
 }

@@ -622,6 +622,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var shouldScrollInitialOutputToBottom = true
     var activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
     var localScrollbackModel = MobileTerminalLocalScrollbackModel()
+    var renderGridSnapshot: MobileTerminalRenderGridSnapshot?
     private let scrollForwardingPolicy = MobileTerminalScrollForwardingPolicy()
     public var decouplePrimaryScreenScroll: Bool = true
     /// Serial background queue for `ghostty_surface_process_output`, which
@@ -817,7 +818,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `ghostty_surface_size` measurement. Used to translate an effective
     /// cols×rows pin into a pixel box without re-round-tripping through
     /// Ghostty. Zero until the first layout has measured.
-    private var cellPixelSize: CGSize = .zero
+    var cellPixelSize: CGSize = .zero
     /// 1 px separator stroke drawn around the pinned surface rect when the
     /// container is larger than the render target (i.e., this device is
     /// not the smallest). Added lazily on first letterbox.
@@ -2354,6 +2355,57 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    /// Applies a typed render-grid envelope as one surface transaction.
+    ///
+    /// The shell keeps render-grid semantic until this boundary, because this
+    /// view owns the local mirror geometry, scrollback metadata, cursor overlay,
+    /// and semantic UIKit render pass.
+    public func processRenderGridEnvelopeAndWait(_ envelope: MobileTerminalRenderGridEnvelope) async {
+        let grid = envelope.replayGrid
+        await prepareForReplayViewport(columns: grid?.columns, rows: grid?.rows)
+        applyTerminalOutputMetadata(
+            activeScreen: envelope.frame.activeScreen,
+            scrollbackRows: envelope.scrollbackRowsForLocalMirror
+        )
+        applyRenderGridEnvelope(envelope)
+        await waitForSemanticRenderDisplayTransaction()
+    }
+
+    /// Keep render-grid delivery backpressure aligned with the actual display
+    /// transaction, not just the synchronous state mutation above. The shell's
+    /// output queue only collapses replaceable viewport deltas while a prior
+    /// chunk is in flight, so returning in the same main-actor turn made fast
+    /// live output repaint every intermediate semantic frame. A single queued
+    /// main turn is bounded, yields to newly arrived stream events, and preserves
+    /// the existing coalescing contract without delaying raw byte fallback.
+    private func waitForSemanticRenderDisplayTransaction() async {
+        guard !isDismantled else { return }
+        await Task.yield()
+    }
+
+    private func applyRenderGridEnvelope(_ envelope: MobileTerminalRenderGridEnvelope) {
+        if var snapshot = renderGridSnapshot {
+            snapshot.apply(envelope)
+            renderGridSnapshot = snapshot
+        } else {
+            renderGridSnapshot = MobileTerminalRenderGridSnapshot(frame: envelope.frame)
+        }
+        surfaceHasReceivedOutput = true
+        if let snapshot = renderGridSnapshot {
+            updateLocalScrollbackBounds(
+                total: UInt64(max(0, snapshot.totalRows)),
+                offset: UInt64(max(0, localScrollbackModel.rowOffset.rounded())),
+                len: UInt64(max(0, snapshot.visibleRowCount))
+            )
+        }
+        renderSemanticRenderGridSnapshot()
+        needsDraw = false
+        #if DEBUG
+        lastOutputAppliedTime = CACurrentMediaTime()
+        onOutputProcessedForTesting?()
+        #endif
+    }
+
     private func processOutput(
         _ data: Data,
         completion: (@MainActor @Sendable () -> Void)?
@@ -2362,6 +2414,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             completion?()
             return
         }
+        renderGridSnapshot = nil
+        snapshotFallbackView.isHidden = true
+        snapshotFallbackView.attributedText = nil
         #if DEBUG
         if lastInputTimestamp > 0 {
             let elapsed = (CACurrentMediaTime() - lastInputTimestamp) * 1000.0
@@ -2932,6 +2987,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func updateCursorOverlay() {
+        if let snapshot = renderGridSnapshot {
+            updateRenderGridCursorOverlay(snapshot)
+            return
+        }
         guard let surface,
               hostCursorVisible,
               isViewingLiveBottom,
@@ -2979,6 +3038,73 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         overlay.backgroundColor = cursorBlinkState.isVisible
             ? (configCursorColor ?? UIColor(red: 0xc0/255.0, green: 0xc1/255.0, blue: 0xb5/255.0, alpha: 1.0)).cgColor
             : (configBackgroundColor ?? backgroundColor ?? .black).cgColor
+        overlay.borderWidth = 0
+        overlay.isHidden = false
+    }
+
+    private func updateRenderGridCursorOverlay(_ snapshot: MobileTerminalRenderGridSnapshot) {
+        guard let cursor = snapshot.cursor,
+              cursor.visible,
+              isViewingLiveBottom,
+              window != nil,
+              !isHidden,
+              alpha > 0.01,
+              !lastRenderRect.isEmpty else {
+            cursorOverlayLayer?.isHidden = true
+            return
+        }
+        let scale = max(preferredScreenScale, 1)
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
+        let cellWidth = cellPixelSize.width > 0
+            ? max(cellPixelSize.width / scale, 1)
+            : max(visibleRenderRect.width / CGFloat(max(snapshot.columns, 1)), 1)
+        let cellHeight = cellPixelSize.height > 0
+            ? max(cellPixelSize.height / scale, 1)
+            : max(visibleRenderRect.height / CGFloat(max(snapshot.visibleRowCount, 1)), 1)
+        let cursorRow = min(max(cursor.row, 0), max(snapshot.visibleRowCount - 1, 0))
+        let cursorColumn = min(max(cursor.column, 0), max(snapshot.columns - 1, 0))
+        let overlay = ensureCursorOverlayLayer()
+        overlay.contentsScale = scale
+        let cursorFrame: CGRect
+        switch cursor.style {
+        case .bar:
+            cursorFrame = CGRect(
+                x: visibleRenderRect.minX + CGFloat(cursorColumn) * cellWidth,
+                y: visibleRenderRect.minY + CGFloat(cursorRow) * cellHeight,
+                width: max(1.0 / scale, min(CGFloat(1.5), cellWidth)),
+                height: cellHeight
+            )
+        case .underline:
+            cursorFrame = CGRect(
+                x: visibleRenderRect.minX + CGFloat(cursorColumn) * cellWidth,
+                y: visibleRenderRect.minY + CGFloat(cursorRow + 1) * cellHeight - max(1.0 / scale, 2),
+                width: cellWidth,
+                height: max(1.0 / scale, 2)
+            )
+        case .block, .blockHollow:
+            cursorFrame = CGRect(
+                x: visibleRenderRect.minX + CGFloat(cursorColumn) * cellWidth,
+                y: visibleRenderRect.minY + CGFloat(cursorRow) * cellHeight,
+                width: cellWidth,
+                height: cellHeight
+            )
+        }
+        let bottomClipTop = TerminalLetterboxGeometry.bottomOverscanCoverRect(
+            bounds: bounds.size,
+            visibleRenderRect: visibleRenderRect,
+            cellPixelSize: cellPixelSize,
+            scale: scale
+        ).minY
+        guard cursorFrame.minY + 0.5 < bottomClipTop else {
+            overlay.isHidden = true
+            return
+        }
+        overlay.frame = cursorFrame.integral
+        overlay.backgroundColor = cursorBlinkState.isVisible
+            ? (color(from: snapshot.terminalCursorColor) ?? configCursorColor ?? UIColor(red: 0xc0/255.0, green: 0xc1/255.0, blue: 0xb5/255.0, alpha: 1.0)).cgColor
+            : (color(from: snapshot.terminalBackground) ?? configBackgroundColor ?? backgroundColor ?? .black).cgColor
+        overlay.borderWidth = cursor.style == .blockHollow ? max(1.0 / scale, 1) : 0
+        overlay.borderColor = overlay.backgroundColor
         overlay.isHidden = false
     }
 
@@ -3585,6 +3711,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSnapshotFallback() {
+        if renderGridSnapshot != nil {
+            renderSemanticRenderGridSnapshot()
+            return
+        }
+
         // Once the Metal renderer is active (surface has received output),
         // keep the fallback hidden so the IOSurfaceLayer is visible.
         if surfaceHasReceivedOutput {
@@ -3631,6 +3762,193 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         snapshotFallbackView.isHidden = false
         flushSnapshotFallbackPresentation()
+    }
+
+    func renderSemanticRenderGridSnapshot() {
+        guard let snapshot = renderGridSnapshot else {
+            return
+        }
+
+        let fractionalOffset = snapshot.fractionalRowOffset(rowOffset: localScrollbackModel.rowOffset)
+        let visibleRows = snapshot.visibleRows(
+            rowOffset: localScrollbackModel.rowOffset,
+            extraRows: fractionalOffset > 0 ? 1 : 0
+        )
+        let visibleRect = lastVisibleRenderRect.isEmpty ? bounds : lastVisibleRenderRect
+        let background = color(from: snapshot.terminalBackground)
+            ?? configBackgroundColor
+            ?? backgroundColor
+            ?? .black
+        let foreground = color(from: snapshot.terminalForeground)
+            ?? snapshotFallbackView.textColor
+            ?? .white
+
+        snapshotFallbackView.frame = visibleRect
+        snapshotFallbackView.textContainerInset = .zero
+        snapshotFallbackView.textContainer.lineFragmentPadding = 0
+        snapshotFallbackView.isScrollEnabled = true
+        snapshotFallbackView.backgroundColor = background
+        bottomOverscanCoverView.backgroundColor = background
+
+        let attributed = NSMutableAttributedString()
+        let lineHeight = semanticRenderGridLineHeight()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = lineHeight
+        paragraph.maximumLineHeight = lineHeight
+        paragraph.lineBreakMode = .byClipping
+
+        for (rowIndex, row) in visibleRows.enumerated() {
+            appendSemanticRenderGridRow(
+                row,
+                columns: snapshot.columns,
+                foreground: foreground,
+                background: background,
+                paragraph: paragraph,
+                to: attributed
+            )
+            if rowIndex + 1 < visibleRows.count {
+                attributed.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: paragraph]))
+            }
+        }
+
+        snapshotFallbackView.attributedText = attributed
+        snapshotFallbackView.isHidden = false
+        flushSnapshotFallbackPresentation()
+        snapshotFallbackView.setContentOffset(CGPoint(x: 0, y: fractionalOffset * lineHeight), animated: false)
+        updateCursorOverlay()
+        #if DEBUG
+        debugAccessibilityProxy.accessibilityLabel = attributed.string
+        #endif
+    }
+
+    private func appendSemanticRenderGridRow(
+        _ row: MobileTerminalRenderGridSnapshotRow,
+        columns: Int,
+        foreground: UIColor,
+        background: UIColor,
+        paragraph: NSParagraphStyle,
+        to attributed: NSMutableAttributedString
+    ) {
+        var cellColumn = 0
+        let sortedSpans = row.spans.sorted { $0.column < $1.column }
+        for span in sortedSpans {
+            if cellColumn < span.column {
+                attributed.append(NSAttributedString(
+                    string: String(repeating: " ", count: span.column - cellColumn),
+                    attributes: semanticAttributes(
+                        style: .default,
+                        foreground: foreground,
+                        background: background,
+                        paragraph: paragraph
+                    )
+                ))
+                cellColumn = span.column
+            }
+            let paddedText = span.text + String(repeating: " ", count: max(0, span.cellWidth - span.text.count))
+            attributed.append(NSAttributedString(
+                string: paddedText,
+                attributes: semanticAttributes(
+                    style: span.style,
+                    foreground: foreground,
+                    background: background,
+                    paragraph: paragraph
+                )
+            ))
+            cellColumn += max(span.cellWidth, span.text.count)
+        }
+        if cellColumn < columns {
+            attributed.append(NSAttributedString(
+                string: String(repeating: " ", count: columns - cellColumn),
+                attributes: semanticAttributes(
+                    style: .default,
+                    foreground: foreground,
+                    background: background,
+                    paragraph: paragraph
+                )
+            ))
+        }
+    }
+
+    private func semanticAttributes(
+        style: MobileTerminalRenderGridFrame.Style,
+        foreground: UIColor,
+        background: UIColor,
+        paragraph: NSParagraphStyle
+    ) -> [NSAttributedString.Key: Any] {
+        var fg = color(from: style.foreground) ?? foreground
+        var bg = color(from: style.background)
+        if style.inverse {
+            let originalForeground = fg
+            fg = bg ?? background
+            bg = originalForeground
+        }
+        if style.invisible {
+            fg = bg ?? background
+        } else if style.faint {
+            fg = fg.withAlphaComponent(0.65)
+        }
+
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: semanticFont(style: style),
+            .foregroundColor: fg,
+            .paragraphStyle: paragraph,
+        ]
+        if let bg {
+            attributes[.backgroundColor] = bg
+        }
+        if style.underline || style.overline {
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
+        if style.strikethrough {
+            attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        return attributes
+    }
+
+    private func semanticFont(style: MobileTerminalRenderGridFrame.Style) -> UIFont {
+        var traits: UIFontDescriptor.SymbolicTraits = []
+        if style.bold {
+            traits.insert(.traitBold)
+        }
+        if style.italic {
+            traits.insert(.traitItalic)
+        }
+        let base = UIFont.monospacedSystemFont(ofSize: CGFloat(liveFontSize) * 1.35, weight: style.bold ? .bold : .regular)
+        guard !traits.isEmpty,
+              let descriptor = base.fontDescriptor.withSymbolicTraits(traits) else {
+            return base
+        }
+        return UIFont(descriptor: descriptor, size: base.pointSize)
+    }
+
+    private func semanticRenderGridLineHeight() -> CGFloat {
+        let scale = max(preferredScreenScale, 1)
+        if cellPixelSize.height > 0 {
+            return max(1, cellPixelSize.height / scale)
+        }
+        if let snapshot = renderGridSnapshot, snapshot.visibleRowCount > 0 {
+            let visibleRect = lastVisibleRenderRect.isEmpty ? bounds : lastVisibleRenderRect
+            return max(1, visibleRect.height / CGFloat(snapshot.visibleRowCount))
+        }
+        return max(1, snapshotFallbackView.font?.lineHeight ?? 16)
+    }
+
+    private func color(from hex: String?) -> UIColor? {
+        guard var value = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        if value.hasPrefix("#") {
+            value.removeFirst()
+        }
+        guard value.count == 6, let rgb = UInt32(value, radix: 16) else {
+            return nil
+        }
+        return UIColor(
+            red: CGFloat((rgb >> 16) & 0xff) / 255.0,
+            green: CGFloat((rgb >> 8) & 0xff) / 255.0,
+            blue: CGFloat(rgb & 0xff) / 255.0,
+            alpha: 1.0
+        )
     }
 
     private func flushSnapshotFallbackPresentation() {
@@ -3768,15 +4086,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // blank the terminal. The output queue is never concurrent with
         // `process_output`, so the read can't wedge. No `main.sync` runs on that
         // queue, so this `.sync` cannot deadlock.
+        var built: [String] = []
         var pending: [VisibleSnapshotRequest] = []
         for view in registeredSurfaceViews.values.compactMap(\.value) {
             guard view.window != nil, !view.isHidden, view.alpha > 0.01,
                   let surface = view.surface else { continue }
             let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
+            if view.renderGridSnapshot != nil {
+                built.append(
+                    "===== visible terminal · grid=\(grid) · font=\(Int(view.liveFontSize)) =====\n"
+                    + view.visibleSnapshotTextForTesting()
+                )
+                continue
+            }
             pending.append(VisibleSnapshotRequest(grid: grid, font: Int(view.liveFontSize), surface: surface))
         }
-        if pending.isEmpty {
+        if built.isEmpty, pending.isEmpty {
             return "===== visible terminal: (no on-screen surface) ====="
+        }
+        if pending.isEmpty {
+            return built.joined(separator: "\n\n")
         }
         // Read on the output queue, but bound the wait. If a render wedge has the
         // queue stuck mid-`process_output`, a plain `.sync` here would freeze the
@@ -3791,21 +4120,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // bounded wait, not a lock guarding shared state.
         let done = DispatchSemaphore(value: 0)
         outputQueue.async {
-            var built: [String] = []
+            var ghosttySections: [String] = []
             for item in pending {
                 let text = surfaceText(item.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
-                built.append(
+                ghosttySections.append(
                     "===== visible terminal · grid=\(item.grid) · font=\(item.font) =====\n"
                     + text
                 )
             }
-            holder.sections = built
+            holder.sections = ghosttySections
             done.signal()
         }
         if done.wait(timeout: .now() + 0.6) == .timedOut {
+            if !built.isEmpty {
+                return built.joined(separator: "\n\n")
+            }
             return "===== visible terminal: (snapshot skipped — render busy) ====="
         }
-        return holder.sections.joined(separator: "\n\n")
+        return (built + holder.sections).joined(separator: "\n\n")
     }
 
     private func handleBell() {

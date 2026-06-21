@@ -78,8 +78,6 @@
 		     ONLY WKWebView web content from ATS; the app's own API/auth/pairing
 		     traffic stays under ATS and still requires HTTPS. NSAllowsLocalNetworking
 		     alone would not cover routable private-LAN dev servers. -->
-			<key>NSAllowsArbitraryLoads</key>
-			<true/>
 			<key>NSAllowsArbitraryLoadsInWebContent</key>
 			<true/>
 	</dict>

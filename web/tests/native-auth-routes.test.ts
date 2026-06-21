@@ -33,6 +33,46 @@ describe("native auth routes", () => {
     )).toBe(true);
   });
 
+  test("rejects native sign-in origins supplied only by forwarded host", () => {
+    const afterSignIn = new URL("https://attacker.example/handler/after-sign-in");
+    const requestURL = new URL("https://cmux.example/handler/native-sign-in");
+    requestURL.searchParams.set("after_auth_return_to", afterSignIn.toString());
+
+    const response = nativeSignInGET(new NextRequest(requestURL, {
+      headers: {
+        host: "cmux.example",
+        "x-forwarded-host": "attacker.example",
+      },
+    }));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.example/");
+  });
+
+  test("preserves HTTPS host origin behind TLS offload", () => {
+    const nativeReturnTo = "cmux-dev-sc2://auth-callback?cmux_auth_state=state-1";
+    const afterSignIn = new URL("https://cmux.example/handler/after-sign-in");
+    afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
+    const requestURL = new URL("http://internal.local/handler/native-sign-in");
+    requestURL.searchParams.set("after_auth_return_to", afterSignIn.toString());
+
+    const response = nativeSignInGET(new NextRequest(requestURL, {
+      headers: {
+        host: "cmux.example",
+        "x-forwarded-host": "attacker.example",
+        "x-forwarded-proto": "https",
+      },
+    }));
+
+    expect(response.status).toBe(307);
+    const location = response.headers.get("location");
+    expect(location?.startsWith("https://cmux.example/handler/sign-in?")).toBe(true);
+    expect(new URL(location!).searchParams.get("after_auth_return_to")?.startsWith(
+      "https://cmux.example/handler/after-sign-in?"
+    )).toBe(true);
+    expect(response.headers.get("set-cookie")).toContain("Secure");
+  });
+
   test("allows configured per-tag native callback schemes from a dev LAN host", () => {
     const previousScheme = process.env.CMUX_AUTH_CALLBACK_SCHEME;
     process.env.CMUX_AUTH_CALLBACK_SCHEME = "cmux-dev-sc2";

@@ -82,7 +82,7 @@ extension TerminalController {
         guard requestedRows > 0 else {
             return Self.mobileReplayScrollbackLineBudget
         }
-        return requestedRows
+        return min(requestedRows, Self.mobileReplayScrollbackLineBudget)
     }
 
     private func mobileRequestedScrollbackRows(params: [String: Any]) -> Int {

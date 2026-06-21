@@ -2,6 +2,7 @@
 import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileTerminal
 import SwiftUI
 import UIKit
@@ -144,26 +145,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return }
                     guard let surfaceView else { return }
                     MobileDebugLog.anchormux(
-                        "replay.chunk.begin surface=\(surfaceID) bytes=\(chunk.data.count) "
+                        "replay.chunk.begin surface=\(surfaceID) bytes=\(chunk.debugByteCount) "
                         + "screen=\(chunk.activeScreen?.rawValue ?? "nil") "
                         + "scrollbackRows=\(chunk.scrollbackRows.map(String.init) ?? "nil") "
                         + "grid=\(chunk.replayColumns.map(String.init) ?? "nil")x\(chunk.replayRows.map(String.init) ?? "nil")"
                     )
-                    await surfaceView.prepareForReplayViewport(
-                        columns: chunk.replayColumns,
-                        rows: chunk.replayRows
-                    )
-                    // Replay metadata describes the bytes we are about to feed
-                    // into Ghostty. Apply it first so scrollbar callbacks
-                    // emitted during processing are classified against the same
-                    // replay window that produced the output chunk.
-                    surfaceView.applyTerminalOutputMetadata(
-                        activeScreen: chunk.activeScreen,
-                        scrollbackRows: chunk.scrollbackRows
-                    )
-                    await surfaceView.processOutputAndWait(chunk.data)
+                    switch chunk.payload {
+                    case .bytes(let data):
+                        await surfaceView.processOutputAndWait(data)
+                    case .renderGrid(let envelope):
+                        await surfaceView.processRenderGridEnvelopeAndWait(envelope)
+                    }
                     MobileDebugLog.anchormux(
-                        "replay.chunk.done surface=\(surfaceID) bytes=\(chunk.data.count) "
+                        "replay.chunk.done surface=\(surfaceID) bytes=\(chunk.debugByteCount) "
                         + "scrollbackRows=\(chunk.scrollbackRows.map(String.init) ?? "nil")"
                     )
                     store.terminalOutputDidProcess(

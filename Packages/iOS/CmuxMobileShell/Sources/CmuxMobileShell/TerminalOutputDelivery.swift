@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 
 /// One terminal-output chunk waiting to be applied by a mounted mobile surface.
@@ -21,48 +22,12 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replaceable = replaceable
     }
 
-    var bytes: Data {
+    func chunk(streamToken: UUID) -> MobileTerminalOutputChunk {
         switch payload {
-        case .bytes(let bytes):
-            bytes
+        case .bytes(let data):
+            MobileTerminalOutputChunk(data: data, streamToken: streamToken)
         case .renderGrid(let envelope):
-            envelope.frame.vtPatchBytes()
-        }
-    }
-
-    var activeScreen: MobileTerminalRenderGridFrame.Screen? {
-        switch payload {
-        case .bytes:
-            nil
-        case .renderGrid(let envelope):
-            envelope.frame.activeScreen
-        }
-    }
-
-    var scrollbackRows: Int? {
-        switch payload {
-        case .bytes:
-            nil
-        case .renderGrid(let envelope):
-            envelope.scrollbackRowsForLocalMirror
-        }
-    }
-
-    var replayColumns: Int? {
-        switch payload {
-        case .bytes:
-            nil
-        case .renderGrid(let envelope):
-            envelope.replayGrid?.columns
-        }
-    }
-
-    var replayRows: Int? {
-        switch payload {
-        case .bytes:
-            nil
-        case .renderGrid(let envelope):
-            envelope.replayGrid?.rows
+            MobileTerminalOutputChunk(renderGrid: envelope, streamToken: streamToken)
         }
     }
 }

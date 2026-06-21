@@ -54,6 +54,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         var bytes = Data()
         let stylesByID = Self.stylesByID(frame.styles)
         let defaultStyle = stylesByID[0] ?? .default
+        appendDynamicColorBytes(&bytes)
         let rowsToClear = Set(frame.clearedRows).union(frame.rowSpans.map(\.row)).sorted()
         for row in rowsToClear {
             bytes.append(Self.sgrBytes(for: defaultStyle))
@@ -96,9 +97,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
 
         // Dynamic default colors (OSC 10/11/12). Cells already carry explicit
         // RGB, so these mainly fix the cursor color and color queries.
-        if let osc = Self.oscColorBytes(10, frame.terminalForeground) { bytes.append(osc) }
-        if let osc = Self.oscColorBytes(11, frame.terminalBackground) { bytes.append(osc) }
-        if let osc = Self.oscColorBytes(12, frame.terminalCursorColor) { bytes.append(osc) }
+        appendDynamicColorBytes(&bytes)
 
         // Paint with autowrap and the cursor off so a full-width row plus an
         // explicit newline cannot wrap into a phantom blank line, and so the
@@ -213,6 +212,33 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         }
     }
 
+    private func appendDynamicColorBytes(_ bytes: inout Data) {
+        if let osc = renderGridOSCColorBytes(
+            ps: 10,
+            resetPs: 110,
+            hex: frame.terminalForeground,
+            isPresent: frame.terminalForegroundIsPresent
+        ) {
+            bytes.append(osc)
+        }
+        if let osc = renderGridOSCColorBytes(
+            ps: 11,
+            resetPs: 111,
+            hex: frame.terminalBackground,
+            isPresent: frame.terminalBackgroundIsPresent
+        ) {
+            bytes.append(osc)
+        }
+        if let osc = renderGridOSCColorBytes(
+            ps: 12,
+            resetPs: 112,
+            hex: frame.terminalCursorColor,
+            isPresent: frame.terminalCursorColorIsPresent
+        ) {
+            bytes.append(osc)
+        }
+    }
+
     private static func stylesByID(
         _ styles: [MobileTerminalRenderGridFrame.Style]
     ) -> [Int: MobileTerminalRenderGridFrame.Style] {
@@ -226,17 +252,6 @@ public struct MobileTerminalRenderGridReplay: Sendable {
     private static func modeBytes(_ mode: MobileTerminalRenderGridFrame.ModeSetting) -> Data {
         let prefix = mode.ansi ? "\u{1B}[" : "\u{1B}[?"
         return Data("\(prefix)\(mode.code)\(mode.on ? "h" : "l")".utf8)
-    }
-
-    private static func oscColorBytes(_ ps: Int, _ hex: String?) -> Data? {
-        guard let rgb = rgbComponents(hex) else { return nil }
-        let spec = String(
-            format: "rgb:%02x/%02x/%02x",
-            rgb.red,
-            rgb.green,
-            rgb.blue
-        )
-        return Data("\u{1B}]\(ps);\(spec)\u{1B}\\".utf8)
     }
 
     private static func vtPrintableBytes(_ text: String) -> Data {
@@ -294,4 +309,26 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         guard value.count == 6, let raw = Int(value, radix: 16) else { return nil }
         return ((raw >> 16) & 0xFF, (raw >> 8) & 0xFF, raw & 0xFF)
     }
+}
+
+private func renderGridOSCColorBytes(ps: Int, resetPs: Int, hex: String?, isPresent: Bool) -> Data? {
+    guard let rgb = renderGridRGBComponents(hex) else {
+        return isPresent ? Data("\u{1B}]\(resetPs)\u{1B}\\".utf8) : nil
+    }
+    let spec = String(
+        format: "rgb:%02x/%02x/%02x",
+        rgb.red,
+        rgb.green,
+        rgb.blue
+    )
+    return Data("\u{1B}]\(ps);\(spec)\u{1B}\\".utf8)
+}
+
+private func renderGridRGBComponents(_ value: String?) -> (red: Int, green: Int, blue: Int)? {
+    guard var value else { return nil }
+    if value.hasPrefix("#") {
+        value.removeFirst()
+    }
+    guard value.count == 6, let raw = Int(value, radix: 16) else { return nil }
+    return ((raw >> 16) & 0xFF, (raw >> 8) & 0xFF, raw & 0xFF)
 }

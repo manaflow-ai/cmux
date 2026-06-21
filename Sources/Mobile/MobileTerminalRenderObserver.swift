@@ -212,7 +212,14 @@ final class MobileTerminalRenderObserver {
                     cursor: snapshot.frame.cursor,
                     full: false,
                     styles: snapshot.frame.styles,
-                    rowSpans: []
+                    rowSpans: [],
+                    activeScreen: snapshot.frame.activeScreen,
+                    terminalForeground: snapshot.frame.terminalForeground,
+                    terminalBackground: snapshot.frame.terminalBackground,
+                    terminalCursorColor: snapshot.frame.terminalCursorColor,
+                    terminalForegroundIsPresent: snapshot.frame.terminalForegroundIsPresent,
+                    terminalBackgroundIsPresent: snapshot.frame.terminalBackgroundIsPresent,
+                    terminalCursorColorIsPresent: snapshot.frame.terminalCursorColorIsPresent
                 ) else {
                     return
                 }

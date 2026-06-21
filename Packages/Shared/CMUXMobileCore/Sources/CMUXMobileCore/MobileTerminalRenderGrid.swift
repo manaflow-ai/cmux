@@ -32,10 +32,22 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// etc.). Empty for delta frames.
     public var modes: [ModeSetting]
     /// Dynamic default foreground/background/cursor colors (OSC 10/11/12),
-    /// `nil` when the terminal still uses its configured defaults.
+    /// `nil` when the terminal still uses its configured defaults. These are
+    /// carried by both full snapshots and deltas because a viewport repaint
+    /// after resize must not lose the terminal's color state.
     public var terminalForeground: String?
+    /// Dynamic default background color (OSC 11), or `nil` for the configured default.
     public var terminalBackground: String?
+    /// Dynamic default cursor color (OSC 12), or `nil` for the configured default.
     public var terminalCursorColor: String?
+    /// Whether the corresponding dynamic color key was present on the wire.
+    /// A present `nil` means reset to the configured default; an absent key means
+    /// legacy/no color-state update.
+    public var terminalForegroundIsPresent: Bool
+    /// Whether ``terminalBackground`` was present on the wire.
+    public var terminalBackgroundIsPresent: Bool
+    /// Whether ``terminalCursorColor`` was present on the wire.
+    public var terminalCursorColorIsPresent: Bool
     /// Count of scrollback lines carried in ``scrollbackSpans`` (rows above the
     /// visible viewport, oldest first). Only meaningful on a full primary-screen
     /// snapshot; the alternate screen has no scrollback.
@@ -60,6 +72,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalForeground: String? = nil,
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
+        terminalForegroundIsPresent: Bool? = nil,
+        terminalBackgroundIsPresent: Bool? = nil,
+        terminalCursorColorIsPresent: Bool? = nil,
         scrollbackRows: Int = 0,
         scrollbackSpans: [RowSpan] = []
     ) throws {
@@ -136,6 +151,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalForeground = terminalForeground
         self.terminalBackground = terminalBackground
         self.terminalCursorColor = terminalCursorColor
+        self.terminalForegroundIsPresent = terminalForegroundIsPresent ?? (full || terminalForeground != nil)
+        self.terminalBackgroundIsPresent = terminalBackgroundIsPresent ?? (full || terminalBackground != nil)
+        self.terminalCursorColorIsPresent = terminalCursorColorIsPresent ?? (full || terminalCursorColor != nil)
         self.scrollbackRows = full ? resolvedScrollbackRows : 0
         self.scrollbackSpans = full ? scrollbackSpans : []
     }
@@ -154,8 +172,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let rowSpans = try container.decode([RowSpan].self, forKey: .rowSpans)
         let activeScreen = try container.decodeIfPresent(Screen.self, forKey: .activeScreen) ?? .primary
         let modes = try container.decodeIfPresent([ModeSetting].self, forKey: .modes) ?? []
+        let terminalForegroundIsPresent = container.contains(.terminalForeground)
         let terminalForeground = try container.decodeIfPresent(String.self, forKey: .terminalForeground)
+        let terminalBackgroundIsPresent = container.contains(.terminalBackground)
         let terminalBackground = try container.decodeIfPresent(String.self, forKey: .terminalBackground)
+        let terminalCursorColorIsPresent = container.contains(.terminalCursorColor)
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
@@ -175,11 +196,43 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalForeground: terminalForeground,
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
+            terminalForegroundIsPresent: terminalForegroundIsPresent,
+            terminalBackgroundIsPresent: terminalBackgroundIsPresent,
+            terminalCursorColorIsPresent: terminalCursorColorIsPresent,
             scrollbackRows: scrollbackRows,
             scrollbackSpans: scrollbackSpans
         )
     }
 
+    /// Encodes the frame while preserving explicit `null` dynamic-color resets.
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(format, forKey: .format)
+        try container.encode(surfaceID, forKey: .surfaceID)
+        try container.encode(stateSeq, forKey: .stateSeq)
+        try container.encode(columns, forKey: .columns)
+        try container.encode(rows, forKey: .rows)
+        try container.encodeIfPresent(cursor, forKey: .cursor)
+        try container.encode(full, forKey: .full)
+        try container.encode(clearedRows, forKey: .clearedRows)
+        try container.encode(styles, forKey: .styles)
+        try container.encode(rowSpans, forKey: .rowSpans)
+        try container.encode(activeScreen, forKey: .activeScreen)
+        try container.encode(modes, forKey: .modes)
+        if terminalForegroundIsPresent {
+            try container.encode(terminalForeground, forKey: .terminalForeground)
+        }
+        if terminalBackgroundIsPresent {
+            try container.encode(terminalBackground, forKey: .terminalBackground)
+        }
+        if terminalCursorColorIsPresent {
+            try container.encode(terminalCursorColor, forKey: .terminalCursorColor)
+        }
+        try container.encode(scrollbackRows, forKey: .scrollbackRows)
+        try container.encode(scrollbackSpans, forKey: .scrollbackSpans)
+    }
+
+    /// Builds a simple unstyled render-grid frame from plain text rows.
     public static func fromPlainRows(
         surfaceID: String,
         stateSeq: UInt64,
@@ -215,6 +268,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         )
     }
 
+    /// Returns the visible viewport rows as plain text.
     public func plainRows() -> [String] {
         var rows = Array(repeating: "", count: self.rows)
         for span in rowSpans.sorted(by: { lhs, rhs in
@@ -275,6 +329,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return "\(style.foreground ?? "-")/\(style.background ?? "-")/\(flags)"
     }
 
+    /// Returns a frame containing only the requested viewport rows.
     public func filteredRows(_ includedRows: Set<Int>, full: Bool) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
@@ -286,22 +341,28 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             clearedRows: full ? [] : Array(includedRows.sorted()),
             styles: styles,
             rowSpans: rowSpans.filter { includedRows.contains($0.row) },
-            // Full-state restore data only applies to a full snapshot; a delta
-            // frame just clears and repaints the changed viewport rows.
+            // Full history/mode restore data only applies to a full snapshot; a
+            // delta frame still carries dynamic terminal colors because they
+            // are part of the rendering state needed for a faithful repaint.
             activeScreen: activeScreen,
             modes: full ? modes : [],
-            terminalForeground: full ? terminalForeground : nil,
-            terminalBackground: full ? terminalBackground : nil,
-            terminalCursorColor: full ? terminalCursorColor : nil,
+            terminalForeground: terminalForeground,
+            terminalBackground: terminalBackground,
+            terminalCursorColor: terminalCursorColor,
+            terminalForegroundIsPresent: terminalForegroundIsPresent,
+            terminalBackgroundIsPresent: terminalBackgroundIsPresent,
+            terminalCursorColorIsPresent: terminalCursorColorIsPresent,
             scrollbackRows: full ? scrollbackRows : 0,
             scrollbackSpans: full ? scrollbackSpans : []
         )
     }
 
+    /// Splits plain terminal text into normalized rows.
     public static func normalizedPlainRows(from text: String, maxRows: Int) -> [String] {
         normalizedRows(from: text, maxRows: maxRows)
     }
 
+    /// Encodes the frame as a JSON object suitable for mobile RPC payloads.
     public func jsonObject() throws -> [String: Any] {
         let data = try JSONEncoder().encode(self)
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
