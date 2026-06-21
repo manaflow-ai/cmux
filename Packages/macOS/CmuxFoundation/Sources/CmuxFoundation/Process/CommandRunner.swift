@@ -1,4 +1,5 @@
 public import Foundation
+@preconcurrency import Dispatch
 import Darwin
 import os
 

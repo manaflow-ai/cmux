@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import Dispatch
 
 /// Watches a single file or directory for change events and exposes them as an
 /// `AsyncStream<Void>`.
