@@ -3827,14 +3827,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Reconcile the already-started runtime with the real window backing context.
         terminalSurface?.attachToView(self)
         if let terminalSurface {
-            NotificationCenter.default.post(
-                name: .terminalSurfaceHostedViewDidMoveToWindow,
-                object: terminalSurface,
-                userInfo: [
-                    "surfaceId": terminalSurface.id,
-                    "workspaceId": terminalSurface.tabId
-                ]
-            )
+            let userInfo: [AnyHashable: Any] = [
+                "surfaceId": terminalSurface.id,
+                "workspaceId": terminalSurface.tabId
+            ]
+            NotificationCenter.default.post(name: .surfaceHostedViewDidMoveToWindow, object: terminalSurface, userInfo: userInfo)
+            NotificationCenter.default.post(name: .terminalSurfaceHostedViewDidMoveToWindow, object: terminalSurface, userInfo: userInfo)
         }
 
         windowObserver = NotificationCenter.default.addObserver(

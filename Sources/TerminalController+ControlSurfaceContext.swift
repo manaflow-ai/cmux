@@ -168,6 +168,47 @@ extension TerminalController: ControlSurfaceContext {
         )
     }
 
+    func controlSurfaceWaitForInWindow(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) async -> Bool {
+        if controlSurfaceHealth(routing: routing)?
+            .surfaces
+            .first(where: { $0.surfaceID == surfaceID })?
+            .inWindow == true {
+            return true
+        }
+
+        let (surfaceIDs, surfaceIDContinuation) = AsyncStream<UUID>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .surfaceHostedViewDidMoveToWindow,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard let hostedSurfaceID = notification.userInfo?["surfaceId"] as? UUID else {
+                return
+            }
+            surfaceIDContinuation.yield(hostedSurfaceID)
+        }
+        defer {
+            surfaceIDContinuation.finish()
+            NotificationCenter.default.removeObserver(observer)
+        }
+
+        for await hostedSurfaceID in surfaceIDs {
+            if Task.isCancelled {
+                return false
+            }
+            guard hostedSurfaceID == surfaceID else {
+                continue
+            }
+            return true
+        }
+        return false
+    }
+
     // MARK: - focus
 
     func controlSurfaceFocus(

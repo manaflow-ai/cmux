@@ -7639,7 +7639,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             Self.installPortalAnchorView(portalAnchorView, in: host)
         }
         let activeOmnibarSuggestions = coordinator.desiredPortalVisibleInUI ? omnibarSuggestions : nil
-
         host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
             guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
@@ -7652,6 +7651,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 reason: "didMoveToWindow"
             ) else { return }
             guard host.window != nil else { return }
+            browserPanel.postSurfaceHostedViewDidMoveToWindow()
             Self.installPortalAnchorView(portalAnchorView, in: host)
             BrowserWindowPortalRegistry.bind(
                 webView: webView,

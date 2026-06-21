@@ -47,6 +47,20 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The health snapshot, or `nil` when no workspace resolves.
     func controlSurfaceHealth(routing: ControlRoutingSelectors) -> ControlSurfaceHealthSnapshot?
 
+    /// Waits until the app observes the requested surface's hosted view entering
+    /// a window. This is an event signal, not a polling delay; callers must
+    /// still verify the result with ``controlSurfaceHealth(routing:)`` before
+    /// reporting a surface as visible.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors.
+    ///   - surfaceID: The surface whose hosted view should enter a window.
+    /// - Returns: Whether the app observed the surface entering a window.
+    func controlSurfaceWaitForInWindow(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) async -> Bool
+
     /// The app-bundle-resolved localized error strings for `surface.respawn`. The
     /// app resolves each `String(localized:)` with the identical key + default
     /// value so the package never binds them to the wrong bundle.

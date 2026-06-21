@@ -352,7 +352,7 @@ extension ControlSurfaceContext {
     func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? { nil }
     func controlSurfaceCurrent(routing: ControlRoutingSelectors) -> ControlSurfaceCurrentSnapshot? { nil }
     func controlSurfaceHealth(routing: ControlRoutingSelectors) -> ControlSurfaceHealthSnapshot? { nil }
-
+    func controlSurfaceWaitForInWindow(routing: ControlRoutingSelectors, surfaceID: UUID) async -> Bool { false }
     func controlSurfaceFocus(
         routing: ControlRoutingSelectors,
         surfaceID: UUID

@@ -72,6 +72,7 @@ public final class ControlCommandCoordinator {
         if let result = handleFeed(request) { return result }
         if let result = handleNotification(request) { return result }
         if let result = handleWorkspaceGroup(request) { return result }
+        if let result = handleHelper(request) { return result }
         if let result = handlePane(request) { return result }
         if let result = handleCanvas(request) { return result }
         if let result = handleMobileHost(request) { return result }
@@ -87,6 +88,18 @@ public final class ControlCommandCoordinator {
         // handleSidebarV1 / handleBrowserPanelV1 are V1 string-command handlers;
         // the app's v1 dispatcher calls them directly with (command:args:).
         return nil
+    }
+
+    /// Runs one decoded request through an async-capable coordinator domain.
+    /// Synchronous domains still use ``handle(_:)``; domains that need to wait on
+    /// a real app event, such as `helper.visible`, are routed here by the socket
+    /// worker path so they can suspend instead of blocking the main actor.
+    ///
+    /// - Parameter request: The decoded request envelope.
+    /// - Returns: The command result, or `nil` if not owned here.
+    public func handleAsync(_ request: ControlRequest) async -> ControlCallResult? {
+        if let result = await handleHelperAsync(request) { return result }
+        return handle(request)
     }
 
     // MARK: - Handle registry (shared ref minting)

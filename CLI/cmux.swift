@@ -4222,6 +4222,9 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
+        case "visible-helper":
+            try runVisibleHelperCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+
         case "surface":
             try runSurfaceCommand(
                 commandArgs: commandArgs,
@@ -5355,6 +5358,7 @@ struct CMUXCLI {
         "unbind-key",
         "uninstall-hooks",
         "version",
+        "visible-helper",
         "vm",
         "vm-pty-attach",
         "vm-pty-connect",
@@ -6287,19 +6291,6 @@ struct CMUXCLI {
                 return "\(ref) (\(id))"
             }
             return ref ?? id
-        }
-    }
-
-    func printV2Payload(
-        _ payload: [String: Any],
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat,
-        fallbackText: String
-    ) {
-        if jsonOutput {
-            print(jsonString(formatIDs(payload, mode: idFormat)))
-        } else {
-            print(fallbackText)
         }
     }
 
@@ -15129,6 +15120,8 @@ struct CMUXCLI {
               cmux new-surface --type browser --pane pane:1 --url https://example.com
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
             """
+        case "visible-helper":
+            return Self.visibleHelperCommandHelp
         case "close-surface":
             return """
             Usage: cmux close-surface [flags]
@@ -34168,6 +34161,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
+          visible-helper [--type <terminal|browser>] [--url <url>] [--cwd <path>] [--working-directory <path>] [--command <text>] [--window <id|ref|index>] [--json] [-- <command>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
