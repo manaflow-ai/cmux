@@ -48,11 +48,11 @@ extension ContentView {
             workspaceId: workspaceId,
             panelId: panelId,
             isRemoteTerminal: isRemoteContext,
-            supportedPanelKeys: commandPaletteForkableAgentSupportedPanelKeys,
-            supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
-            snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
+            supportedPanelKeys: commandPaletteForkableAgentProbeCoordinator.supportedPanelKeys,
+            supportedRemoteContextsByPanelKey: commandPaletteForkableAgentProbeCoordinator.remoteContextsByPanelKey,
+            snapshotFingerprintsByPanelKey: commandPaletteForkableAgentProbeCoordinator.snapshotFingerprintsByPanelKey,
             fallbackSnapshot: fallbackSnapshot,
-            cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey]
+            cachedSnapshot: commandPaletteForkableAgentProbeCoordinator.snapshotsByPanelKey[panelKey]
         )
         guard let selection else {
             clearCommandPaletteForkableAgentCache(panelKey: panelKey)
@@ -62,14 +62,14 @@ extension ContentView {
         let snapshot = selection.snapshot
 
         let fallbackFingerprint = fallbackSnapshot.map(Self.commandPaletteForkSnapshotFingerprint)
-        commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
-        commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
-        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
+        commandPaletteForkableAgentProbeCoordinator.supportedPanelKeys.insert(panelKey)
+        commandPaletteForkableAgentProbeCoordinator.snapshotsByPanelKey[panelKey] = snapshot
+        commandPaletteForkableAgentProbeCoordinator.snapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
             snapshot: snapshot,
             fallbackFingerprint: fallbackFingerprint
         )
-        commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
-        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = selection.usedFallbackSnapshot
+        commandPaletteForkableAgentProbeCoordinator.remoteContextsByPanelKey[panelKey] = isRemoteContext
+        commandPaletteForkableAgentProbeCoordinator.resultHadFallbackByPanelKey[panelKey] = selection.usedFallbackSnapshot
 
         let didFork: Bool
         if let direction = destination.splitDirection {
@@ -135,11 +135,11 @@ extension ContentView {
     }
 
     private func clearCommandPaletteForkableAgentCache(panelKey: String) {
-        commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-        commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-        commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
-        commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeCoordinator.supportedPanelKeys.remove(panelKey)
+        commandPaletteForkableAgentProbeCoordinator.snapshotsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeCoordinator.snapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeCoordinator.remoteContextsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeCoordinator.resultHadFallbackByPanelKey.removeValue(forKey: panelKey)
     }
 }
 
