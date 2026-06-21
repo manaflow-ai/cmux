@@ -124,6 +124,42 @@ import Testing
     ])
 }
 
+@Test func renderGridSnapshotPreservesRepeatedFullViewportAdvance() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 3,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "same"),
+            .init(row: 1, column: 0, text: "same"),
+            .init(row: 2, column: 0, text: "same"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: full)
+    let deltaFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 3,
+        full: false,
+        clearedRows: [0, 1, 2],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "same"),
+            .init(row: 1, column: 0, text: "same"),
+            .init(row: 2, column: 0, text: "same"),
+        ]
+    )
+
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(deltaFrame))
+
+    #expect(snapshot.totalRows == 4)
+    #expect(snapshot.maxRowOffset == 1)
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == [
+        "same", "same", "same",
+    ])
+}
+
 @Test func renderGridSnapshotShrinkViewportPreservesRowsThatBecomeScrollback() throws {
     let full = try MobileTerminalRenderGridFrame(
         surfaceID: "surface-a",

@@ -170,6 +170,44 @@ import Testing
         #expect(envelope.ownsScrollback == false)
     }
 
+    @Test func renderGridEventRejectsTypedViewportDeltaWithFullFrame() throws {
+        let json = """
+        {
+          "role": "viewport_delta",
+          "render_grid": {
+            "format": "cmux.render-grid.v1",
+            "surface_id": "surface-4",
+            "state_seq": 7,
+            "columns": 4,
+            "rows": 1,
+            "full": true,
+            "row_spans": []
+          }
+        }
+        """
+
+        #expect(MobileTerminalRenderGridEvent.liveViewportEnvelope(from: Data(json.utf8)) == nil)
+    }
+
+    @Test func renderGridEventRejectsTypedSnapshotOnLiveTopic() throws {
+        let json = """
+        {
+          "role": "snapshot",
+          "render_grid": {
+            "format": "cmux.render-grid.v1",
+            "surface_id": "surface-5",
+            "state_seq": 8,
+            "columns": 4,
+            "rows": 1,
+            "full": true,
+            "row_spans": []
+          }
+        }
+        """
+
+        #expect(MobileTerminalRenderGridEvent.liveViewportEnvelope(from: Data(json.utf8)) == nil)
+    }
+
     @Test func renderGridEventHasNilFrameWhenUnwrapped() throws {
         let json = """
         {

@@ -13,6 +13,8 @@ public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
     public let envelope: MobileTerminalRenderGridEnvelope?
     /// The nested render-grid frame, if the payload used the wrapped form.
     public let frame: MobileTerminalRenderGridFrame?
+    /// Whether the payload opted into typed render-grid envelope semantics.
+    public let hasRole: Bool
 
     private enum CodingKeys: String, CodingKey {
         case role
@@ -21,7 +23,8 @@ public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if container.contains(.role) {
+        hasRole = container.contains(.role)
+        if hasRole {
             envelope = try? MobileTerminalRenderGridEnvelope(from: decoder)
         } else {
             envelope = nil
@@ -45,6 +48,12 @@ public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
     /// live event own scrollback metadata.
     public static func liveViewportEnvelope(from data: Data) -> MobileTerminalRenderGridEnvelope? {
         if let event = try? decode(data) {
+            if event.hasRole {
+                guard let envelope = event.envelope, envelope.role == .viewportDelta else {
+                    return nil
+                }
+                return envelope
+            }
             if let envelope = event.envelope, envelope.role == .viewportDelta {
                 return envelope
             }
@@ -56,10 +65,20 @@ public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
            envelope.role == .viewportDelta {
             return envelope
         }
+        if payloadContainsRole(data) {
+            return nil
+        }
         if let frame = try? MobileTerminalRenderGridFrame.decode(data) {
             return viewportDeltaEnvelope(fromLegacyFrame: frame)
         }
         return nil
+    }
+
+    private static func payloadContainsRole(_ data: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return object["role"] != nil
     }
 
     private static func viewportDeltaEnvelope(

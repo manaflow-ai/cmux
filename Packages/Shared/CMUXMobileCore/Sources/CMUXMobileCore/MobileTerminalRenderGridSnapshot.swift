@@ -114,9 +114,12 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
             visibleRowCount: trailingVisibleRowCount
         )
         if canAppendViewport,
-           let overlap = viewportOverlap(old: oldViewportRows, new: nextViewportRows),
-           overlap < nextViewportRows.count {
-            targetRows.append(contentsOf: nextViewportRows.dropFirst(overlap))
+           let overlap = viewportOverlap(old: oldViewportRows, new: nextViewportRows) {
+            if overlap < nextViewportRows.count {
+                targetRows.append(contentsOf: nextViewportRows.dropFirst(overlap))
+            } else if let repeatedRow = nextViewportRows.last {
+                targetRows.append(repeatedRow)
+            }
         } else if fullViewportReplacement {
             mergeFullViewport(
                 in: &targetRows,
