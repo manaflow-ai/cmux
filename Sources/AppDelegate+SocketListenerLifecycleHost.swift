@@ -21,9 +21,13 @@ extension AppDelegate: SocketListenerLifecycleHost {
     }
 
     func reserveStartupSocketPath(_ path: String) {
-        TerminalController.shared.reserveStartupSocketPath(path)
+        terminalControl.reserveStartupSocketPath(path)
     }
 
+    // `nonisolated`: cannot read the `@MainActor` `terminalControl` instance
+    // property, so these two witnesses keep the transitional `shared` accessor
+    // (it resolves to the same composition-root-owned instance) until the seam
+    // exposes a nonisolated handle.
     nonisolated func activeSocketPath(preferredPath: String) -> String {
         TerminalController.shared.activeSocketPath(preferredPath: preferredPath)
     }
@@ -44,11 +48,11 @@ extension AppDelegate: SocketListenerLifecycleHost {
         mode: SocketControlMode
     ) {
         guard let manager = target as? TabManager else { return }
-        TerminalController.shared.start(tabManager: manager, socketPath: socketPath, accessMode: mode)
+        terminalControl.start(tabManager: manager, socketPath: socketPath, accessMode: mode)
     }
 
     func stopListener() {
-        TerminalController.shared.stop()
+        terminalControl.stop()
     }
 
     func recordBreadcrumb(_ message: String, data: [String: String]) {

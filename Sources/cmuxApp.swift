@@ -1007,18 +1007,21 @@ struct cmuxApp: App {
     }
 
     private func updateSocketController() {
+        // Use the composition-root-owned instance (de-singletonization stage
+        // b72) rather than the transitional `TerminalController.shared` accessor.
+        let terminalControl = appDelegate.terminalControl
         let mode = SocketControlSettings.effectiveMode(userMode: currentSocketMode)
         if mode != .off {
-            let socketPath = TerminalController.shared.activeSocketPath(
+            let socketPath = terminalControl.activeSocketPath(
                 preferredPath: SocketControlSettings.socketPath()
             )
-            TerminalController.shared.start(
+            terminalControl.start(
                 tabManager: activeTabManager,
                 socketPath: socketPath,
                 accessMode: mode
             )
         } else {
-            TerminalController.shared.stop()
+            terminalControl.stop()
         }
     }
 

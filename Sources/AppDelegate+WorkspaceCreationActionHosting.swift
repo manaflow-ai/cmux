@@ -225,7 +225,7 @@ extension AppDelegate: WorkspaceCreationActionHosting {
         onCompletion: ((CloudVMActionCompletion) -> Void)?
     ) -> Bool {
         guard let context = mainWindowContext(for: windowToken) else { return false }
-        let socketPath = TerminalController.shared.activeSocketPath(
+        let socketPath = terminalControl.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
         return CloudVMActionLauncher.shared.start(
