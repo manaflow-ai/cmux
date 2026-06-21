@@ -180,7 +180,7 @@ extension AppDelegate {
 
         _ = focusMainWindow(windowId: windowID)
         tabManager.selectTab(workspace)
-        TerminalController.shared.setActiveTabManager(tabManager)
+        terminalControl.setActiveTabManager(tabManager)
 
         if let panelID = hit.panelID, workspace.panels[panelID] != nil {
             tabManager.focusSurface(tabId: workspace.id, surfaceId: panelID)

@@ -164,6 +164,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
+    /// The app-target composition owner for external programmatic control: the
+    /// socket-lifecycle ``SocketControlServer``, the ``ControlCommandCoordinator``,
+    /// and the ``ControlCommandContext`` conformance. Constructed once at the
+    /// composition root (`applicationDidFinishLaunching` calls
+    /// ``ensureTerminalControlInstalled()``) so the type no longer self-vivifies a
+    /// `static let shared`. This is the injected reference the AppDelegate call
+    /// sites use directly; the tail of call sites (cmuxApp, Workspace, the static
+    /// focus-allowance methods, the `+Control*Context` seams, tests) still reach
+    /// it through the transitional ``TerminalController/shared`` accessor, which
+    /// returns this same instance.
+    private(set) lazy var terminalControl: TerminalController = {
+        let instance = TerminalController.shared
+        TerminalController.installCompositionRootInstance(instance)
+        return instance
+    }()
+
+    /// Resolve + own the ``TerminalController`` composition owner at startup.
+    /// Idempotent (the `lazy` runs once); calling it from
+    /// `applicationDidFinishLaunching` makes ownership explicit at the
+    /// composition root and holds the single instance as ``terminalControl``,
+    /// which the AppDelegate call sites use directly. The tail call sites still
+    /// reach the same object through the transitional ``TerminalController/shared``
+    /// accessor, so there is exactly one instance.
+    func ensureTerminalControlInstalled() {
+        _ = terminalControl
+    }
     #if DEBUG
     /// DEBUG main-run-loop stall probe (CmuxTestSupport); composition-root owned,
     /// injected behind ``RunLoopStallMonitoring`` to retire the former
@@ -1789,6 +1815,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         appIconLaunchReporter.markDidFinishLaunching()
+        // Construct + own the external-control composition owner at the
+        // composition root (de-singletonization stage b72): the type no longer
+        // self-vivifies a `static let shared`.
+        ensureTerminalControlInstalled()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
@@ -2163,8 +2193,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return .disabled(expectedPath: env["CMUX_SOCKET_PATH"] ?? "")
         }
 
-        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
+        let socketPath = terminalControl.activeSocketPath(preferredPath: config.path)
+        let health = terminalControl.socketListenerHealth(expectedSocketPath: socketPath)
         let pingResponse = health.isHealthy
             ? socketTransport.probeCommand("ping", at: socketPath, timeout: 1.0)
             : nil
@@ -2486,7 +2516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CloudVMActionLauncher.shared.terminateAll()
         sshURLLaunchService.terminateAll()
         MobileHostService.shared.stop()
-        TerminalController.shared.stop()
+        terminalControl.stop()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
@@ -2530,12 +2560,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
-        TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
-        TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
+        terminalControl.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
+        terminalControl.agentChatTranscriptService = agentChatTranscriptService
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
-        agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSessions(workspaceID: $0) }
+        let terminalControl = terminalControl
+        agentChatTranscriptService.start { terminalControl.adoptDetectedAgentSessions(workspaceID: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded(notificationStore: notificationStore)
@@ -2622,8 +2653,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            let expectedPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-            let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: expectedPath)
+            let expectedPath = terminalControl.activeSocketPath(preferredPath: config.path)
+            let health = terminalControl.socketListenerHealth(expectedSocketPath: expectedPath)
             let pingResponse = health.isHealthy
                 ? socketTransport.probeCommand("ping", at: expectedPath, timeout: 1.0)
                 : nil
@@ -3846,7 +3877,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if focus {
                 destinationManager.focusTab(workspaceId, suppressFlash: true)
                 _ = focusMainWindow(windowId: windowId)
-                TerminalController.shared.setActiveTabManager(destinationManager)
+                terminalControl.setActiveTabManager(destinationManager)
             }
             return true
         }
@@ -3856,7 +3887,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if focus {
             _ = focusMainWindow(windowId: windowId)
-            TerminalController.shared.setActiveTabManager(destinationManager)
+            terminalControl.setActiveTabManager(destinationManager)
         }
         return true
     }
@@ -5142,7 +5173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             return false
         }
-        let socketPath = TerminalController.shared.activeSocketPath(
+        let socketPath = terminalControl.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
         let cwd = workspace.resolvedWorkingDirectory()
@@ -5319,7 +5350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState = sidebarState(for: context)
             sidebarSelectionState = sidebarSelectionState(for: context)
             fileExplorerState = fileExplorerState(for: context)
-            TerminalController.shared.setActiveTabManager(context.tabManager)
+            terminalControl.setActiveTabManager(context.tabManager)
         }
 #if DEBUG
         cmuxDebugLog(
@@ -6969,7 +7000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState = sidebarState(for: context)
             sidebarSelectionState = sidebarSelectionState(for: context)
             fileExplorerState = fileExplorerState(for: context)
-            TerminalController.shared.setActiveTabManager(context.tabManager)
+            terminalControl.setActiveTabManager(context.tabManager)
         }
 
 #if DEBUG
@@ -7399,7 +7430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         guard socketListenerConfigurationIfEnabled() != nil else {
-            TerminalController.shared.stop()
+            terminalControl.stop()
             NSSound.beep()
             return
         }
@@ -8189,7 +8220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC": "6",
         ]) { _, new in new }
 
-        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
+        let health = terminalControl.socketListenerHealth(expectedSocketPath: socketPath)
         guard health.socketPathExists else {
             writeMultiWindowNotificationTestData([
                 "windowRouteStatus": "0",
@@ -11909,14 +11940,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState = nil
             sidebarSelectionState = nil
             fileExplorerState = nil
-            TerminalController.shared.setActiveTabManager(nil)
+            terminalControl.setActiveTabManager(nil)
             return
         }
         tabManager = context.tabManager
         sidebarState = sidebarState(for: context)
         sidebarSelectionState = sidebarSelectionState(for: context)
         fileExplorerState = fileExplorerState(for: context)
-        TerminalController.shared.setActiveTabManager(context.tabManager)
+        terminalControl.setActiveTabManager(context.tabManager)
     }
 
     func setActiveMainWindow(_ window: NSWindow) {
@@ -13677,7 +13708,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     func updaterWillRelaunchApplication() {
         persistSessionForUpdateRelaunch()
-        TerminalController.shared.stop()
+        terminalControl.stop()
         NSApp.invalidateRestorableState()
         for window in NSApp.windows {
             window.invalidateRestorableState()

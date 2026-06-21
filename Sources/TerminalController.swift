@@ -45,9 +45,62 @@ nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) ->
 
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
+///
+/// This is the app-target composition owner for external programmatic control:
+/// it constructs and holds the package-owned ``SocketControlServer`` (socket
+/// lifecycle: bind/accept/listen, path/lock/generation state machine, backoff
+/// rearm), the ``ControlCommandCoordinator`` (RPC dispatch + handle registry),
+/// every worker-lane RPC handler, and conforms ``ControlCommandContext`` so the
+/// coordinator can read live window/workspace/tab state without importing the
+/// app target.
+///
+/// De-singletonization stage (b72): the former self-vivifying
+/// `static let shared = TerminalController()` is retired. The instance is now
+/// constructed once at the composition root (``AppDelegate`` in
+/// `applicationDidFinishLaunching`), which holds it as `terminalControl` and is
+/// its sole owner. ``shared`` is a transitional accessor that returns the
+/// composition-root instance (falling back to lazy construction only for unit
+/// tests / pre-launch access), kept while the tail of call sites is rewired to
+/// the injected reference. The eventual end state renames this type
+/// `TerminalControlComposition` and drops ``shared`` entirely.
 @MainActor
 class TerminalController: MobileViewportSurfaceLimiting {
-    static let shared = TerminalController()
+    /// Records that the composition root (``AppDelegate``) has claimed ownership
+    /// of the single instance, so the tail call sites reaching ``shared`` and the
+    /// root's own ``AppDelegate/terminalControl`` reference resolve to the same
+    /// object. `nonisolated(unsafe)`: written exactly once at startup (ahead of
+    /// the socket listener) before any concurrent reader exists. Retires with
+    /// ``shared`` once every call site is injected.
+    nonisolated(unsafe) private static var compositionRootInstance: TerminalController?
+
+    /// The single instance, lazily constructed on first access. A `static let` of
+    /// a `@MainActor` type is nonisolated-readable and its initializer runs the
+    /// `@MainActor` `init`, exactly the legacy `static let shared` contract that
+    /// the `nonisolated static` focus-allowance methods read. In a normal launch
+    /// the composition root resolves and installs this first (via
+    /// ``installCompositionRootInstance(_:)``) and holds it as
+    /// ``AppDelegate/terminalControl``.
+    private static let instance = TerminalController()
+
+    /// Transitional accessor for the de-singletonization. The type no longer
+    /// self-vivifies an eager `static let shared`; ownership lives at the
+    /// composition root (``AppDelegate/terminalControl``), which constructs and
+    /// holds the instance and uses it directly. The tail of call sites (cmuxApp,
+    /// Workspace, the `nonisolated static` focus-allowance methods, the
+    /// `+Control*Context` seams, tests) still reach the same single object here
+    /// while they are migrated to the injected reference; this accessor and the
+    /// type rename to `TerminalControlComposition` are the end state.
+    nonisolated static var shared: TerminalController {
+        compositionRootInstance ?? instance
+    }
+
+    /// Called once by ``AppDelegate`` at startup to record composition-root
+    /// ownership of the single instance. Idempotent (keeps the first installed
+    /// instance).
+    nonisolated static func installCompositionRootInstance(_ instance: TerminalController) {
+        guard compositionRootInstance == nil else { return }
+        compositionRootInstance = instance
+    }
 
     // `internal` (not `private`): the `workspace.remote.pty_*` worker-lane
     // availability wait + notify live in the sibling extension file
@@ -344,7 +397,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
         weak var controller: TerminalController?
     }
 
-    private init(
+    /// Constructed once at the composition root (``AppDelegate``); no longer
+    /// `private` so the composition root can build and own the instance instead
+    /// of the type self-vivifying it. Collaborators are constructor-injected
+    /// (password store, socket transport, listener policy, remote-proxy broker),
+    /// matching the no-singleton DI rule.
+    init(
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),

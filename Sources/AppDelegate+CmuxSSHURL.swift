@@ -100,7 +100,7 @@ extension AppDelegate {
     /// Stays app-side because it reaches the live `TerminalController` socket
     /// state, which the package does not own.
     func resolvedSSHURLSocketPath() -> String {
-        TerminalController.shared.activeSocketPath(
+        terminalControl.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
     }
