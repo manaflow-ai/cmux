@@ -3034,6 +3034,19 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
+        // Mirror of the `sidebarWidth` handler above for the RIGHT sidebar width.
+        // The right sidebar can host the Dock — a Bonsplit tree of portal-hosted
+        // terminals/browsers. Like the left sidebar, its width is a pure SwiftUI
+        // layout change, so portal surfaces need an explicit coalesced geometry
+        // resync each tick. Without this the Dock's surfaces miss the
+        // interactive-resize flush path and the width drag renders laggily
+        // compared to a native Bonsplit divider drag.
+        view = AnyView(view.onChange(of: fileExplorerWidth) { _ in
+            guard rightSidebarVisible else { return }
+            schedulePortalGeometrySynchronize()
+            updateSidebarResizerBandState()
+        })
+
         view = AnyView(view.onChange(of: sidebarMinimumWidthSetting) { _ in
             clampSidebarWidthIfNeeded()
             updateSidebarResizerBandState()

@@ -11,5 +11,6 @@ final class FakeSurfaceRegistry: TerminalSurfaceRegistering {
     func runtimeSurfaceOwnerId(_ surface: ghostty_surface_t) -> UUID? { nil }
     func surface(id: UUID) -> (any TerminalSurfacing)? { nil }
     func isRightSidebarDockSurface(id: UUID) -> Bool { false }
+    func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement) {}
     func allSurfaces() -> [any TerminalSurfacing] { [] }
 }

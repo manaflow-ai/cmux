@@ -5046,6 +5046,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         guard let located = locateBonsplitSurface(tabId: tabId) else {
+            // The tab isn't in any workspace pane tree — it may be a Dock tab
+            // being dragged out into the main split area. Route the live panel
+            // out of its Dock and into the destination workspace.
+            if let dockSource = locateDockSurface(tabId: tabId) {
+                return moveDockSurfaceToWorkspace(
+                    sourceDock: dockSource.dock,
+                    panelId: dockSource.panelId,
+                    toWorkspace: targetWorkspaceId,
+                    targetPane: targetPane,
+                    targetIndex: targetIndex,
+                    splitTarget: splitTarget,
+                    focus: focus,
+                    focusWindow: focusWindow
+                )
+            }
 #if DEBUG
             cmuxDebugLog(
                 "surface.moveBonsplit.fail tab=\(tabId.uuidString.prefix(5)) reason=tabNotFound " +

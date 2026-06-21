@@ -21,9 +21,12 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
-    private var panels: [UUID: any Panel] = [:]
-    private var surfaceIdToPanelId: [TabID: UUID] = [:]
-    private var panelCancellables: [UUID: AnyCancellable] = [:]
+    // Internal (not private) so the cross-container surface-transfer extension
+    // (`DockSplitStore+SurfaceTransfer`) can move a live panel in/out of the
+    // Dock's registry without tearing it down.
+    var panels: [UUID: any Panel] = [:]
+    var surfaceIdToPanelId: [TabID: UUID] = [:]
+    var panelCancellables: [UUID: AnyCancellable] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
     private var configurationIdentityTask: Task<Void, Never>?
@@ -60,6 +63,23 @@ final class DockSplitStore: BonsplitDelegate {
         }
         self.bonsplitController.onTabZoomToggleRequest = { [weak self] _, paneId in
             self?.toggleDockPaneZoom(inPane: paneId) ?? false
+        }
+        // Accept tabs dragged in from the main split area or another Dock. A
+        // drag that started in a different controller is "external" to this one,
+        // so Bonsplit routes it here; the live panel is moved (not copied).
+        self.bonsplitController.onExternalTabDrop = { [weak self] request in
+            guard let self else { return false }
+            return AppDelegate.shared?.moveSurfaceIntoDock(
+                sourceTabId: request.tabId.uuid,
+                destinationDock: self,
+                destination: request.destination
+            ) ?? false
+        }
+        // Offer the same tab "Move to…" destinations as the main area (existing
+        // workspaces + New Workspace), so a Dock tab can leave the Dock via its
+        // context menu, not only by dragging.
+        self.bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
+            self?.dockTabMoveDestinations(for: tabId) ?? []
         }
         // Drop the controller's default welcome tab so the root pane starts
         // empty and renders the in-app create affordance until config seeds it.
@@ -342,7 +362,7 @@ final class DockSplitStore: BonsplitDelegate {
         return panels.keys.first
     }
 
-    private func recordExplicitPanelCreation() {
+    func recordExplicitPanelCreation() {
         hasAppliedConfigurationSeed = true
         if configurationLoadTask != nil { configurationSeedSuppressionGeneration = configurationLoadGeneration }
     }
@@ -480,7 +500,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     // MARK: - Tab metadata subscriptions
 
-    private func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
+    func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let browser = panel as? BrowserPanel {
             let cancellable = Publishers.CombineLatest4(
                 browser.$pageTitle.removeDuplicates(),
