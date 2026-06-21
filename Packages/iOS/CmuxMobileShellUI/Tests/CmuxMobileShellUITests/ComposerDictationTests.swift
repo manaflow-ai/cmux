@@ -76,6 +76,12 @@ import Testing
         #expect(!state.isListening)
     }
 
+    @Test func deniedPermissionSettlesToStartableIdle() {
+        let state = ComposerDictationState.retryablePermissionDenied
+        #expect(state == .idle)
+        #expect(state.canStart)
+    }
+
     @Test func onlyRequestingPermissionCanCancelPendingStart() {
         // A second tap while authorization is resolving cancels the pending start;
         // every other state ignores cancellation (it has nothing to abort).

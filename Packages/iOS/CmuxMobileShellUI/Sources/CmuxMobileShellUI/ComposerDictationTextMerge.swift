@@ -6,8 +6,9 @@ import Foundation
 ///
 /// Flow: `idle` -> `requestingPermission` (first tap, while authorization is
 /// resolved) -> `listening` (engine running, partials streaming) -> `stopping`
-/// (tearing down the engine/task) -> `idle`. A denied or unavailable recognizer
-/// lands in `unavailable`, a terminal rest state that disables the mic button.
+/// (tearing down the engine/task) -> `idle`. A denied permission request returns
+/// to `idle` so the mic can request authorization again on the next tap; only an
+/// unavailable recognizer or failed audio setup lands in `unavailable`.
 enum ComposerDictationState: Equatable {
     /// Not listening; the mic button offers to start.
     case idle
@@ -19,8 +20,8 @@ enum ComposerDictationState: Equatable {
     case listening
     /// Teardown is in progress (engine stopping, task cancelling). Transient.
     case stopping
-    /// Speech recognition is unavailable on this device, or permission was denied
-    /// or restricted. The mic button is disabled in this state.
+    /// Speech recognition is unavailable on this device, or audio setup failed.
+    /// Permission denial is retryable and settles back to ``idle`` instead.
     case unavailable
 
     /// Whether the engine is actively capturing audio (drives the listening UI).
@@ -57,6 +58,11 @@ enum ComposerDictationState: Equatable {
     /// the session has not fully settled. Distinguishes a graceful stop's transient
     /// wait from both the active ``listening`` state and the resting ``idle``.
     var isStopping: Bool { self == .stopping }
+
+    /// Resting state after the user declines speech or microphone permission.
+    /// Keeping this retryable lets the next mic tap invoke the permission APIs
+    /// again instead of stranding the control in an unavailable state.
+    static var retryablePermissionDenied: ComposerDictationState { .idle }
 }
 
 /// Pure text-merge for live dictation, factored out so it is host-testable
