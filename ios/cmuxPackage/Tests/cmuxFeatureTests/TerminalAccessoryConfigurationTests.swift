@@ -42,6 +42,8 @@ struct TerminalAccessoryConfigurationTests {
         let tabIndex = try #require(order.firstIndex(of: id(.tab)))
         #expect(order[tabIndex + 1] == id(.escape))
         #expect(order[tabIndex + 2] == id(.returnKey))
+        let pageDownIndex = try #require(order.firstIndex(of: id(.pageDown)))
+        #expect(order[pageDownIndex + 1] == id(.scrollToBottom))
         // Everything is shown on a fresh install, including the now-configurable
         // modifiers (⇧ among them)/zoom/paste.
         for action in TerminalInputAccessoryAction.configurableActions {
@@ -78,9 +80,31 @@ struct TerminalAccessoryConfigurationTests {
         #expect(stored == "builtin.\(TerminalInputAccessoryAction.returnKey.rawValue)")
         let parsed = ToolbarItemID(storageKey: stored)
         #expect(parsed == id(.returnKey))
-        // Appended last: its raw value is the max across all cases.
+        #expect(TerminalInputAccessoryAction.scrollToBottom.rawValue > TerminalInputAccessoryAction.returnKey.rawValue)
+    }
+
+    // MARK: - Scroll to Bottom key
+
+    @Test("Scroll to Bottom is shown by default next to navigation keys and has no byte output")
+    func scrollToBottomDefaultsAndOutput() throws {
+        let config = TerminalAccessoryConfiguration(defaults: freshDefaults())
+        let order = config.displayOrder
+
+        let pageDownIndex = try #require(order.firstIndex(of: id(.pageDown)))
+        #expect(order[pageDownIndex + 1] == id(.scrollToBottom))
+        #expect(config.isEnabled(id(.scrollToBottom)))
+        #expect(TerminalInputAccessoryAction.scrollToBottom.output == nil)
+        #expect(TerminalInputAccessoryAction.scrollToBottom.isUserConfigurable)
+    }
+
+    @Test("Scroll to Bottom's persisted identifier is stable")
+    func scrollToBottomStableIdentifier() {
+        let stored = TerminalInputAccessoryAction.scrollToBottom.itemID.storageKey
+        #expect(stored == "builtin.\(TerminalInputAccessoryAction.scrollToBottom.rawValue)")
+        let parsed = ToolbarItemID(storageKey: stored)
+        #expect(parsed == id(.scrollToBottom))
         let maxRaw = TerminalInputAccessoryAction.allCases.map(\.rawValue).max()
-        #expect(TerminalInputAccessoryAction.returnKey.rawValue == maxRaw)
+        #expect(TerminalInputAccessoryAction.scrollToBottom.rawValue == maxRaw)
     }
 
     // MARK: - Reorder + hide/show round-trips
@@ -416,5 +440,52 @@ struct TerminalAccessoryConfigurationTests {
         #expect(config.isEnabled(id(.returnKey)))
         let escIndex = try #require(config.displayOrder.firstIndex(of: id(.escape)))
         #expect(config.displayOrder[escIndex + 1] == id(.returnKey))
+    }
+
+    // MARK: - Gating test #5: existing v3 layout gains Scroll to Bottom
+
+    @Test("an existing v3 layout without Scroll to Bottom gains it force-enabled after Page Down")
+    func migratesExistingV3LayoutForceEnablingScrollToBottom() throws {
+        let defaults = freshDefaults()
+        // A v3 layout persisted before Scroll to Bottom became configurable.
+        let preScroll: [TerminalInputAccessoryAction] = [
+            .control, .alternate, .command, .shift, .paste,
+            .tab, .escape, .returnKey,
+            .home, .end, .pageUp, .pageDown,
+            .zoomOut, .zoomIn,
+        ]
+        defaults.set(preScroll.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.order.v3")
+        defaults.set(preScroll.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.enabled.v3")
+
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+
+        #expect(config.displayOrder.contains(id(.scrollToBottom)))
+        #expect(config.isEnabled(id(.scrollToBottom)))
+        let pageDownIndex = try #require(config.displayOrder.firstIndex(of: id(.pageDown)))
+        #expect(config.displayOrder[pageDownIndex + 1] == id(.scrollToBottom))
+        for action in preScroll {
+            #expect(config.displayOrder.contains(id(action)))
+            #expect(config.isEnabled(id(action)))
+        }
+    }
+
+    @Test("Scroll to Bottom folded into a v3 layout stays hidden once the user hides it")
+    func foldedScrollToBottomHonorsLaterHide() {
+        let defaults = freshDefaults()
+        let preScroll: [TerminalInputAccessoryAction] = [
+            .control, .alternate, .command, .shift, .paste,
+            .tab, .escape, .returnKey,
+            .home, .end, .pageUp, .pageDown,
+        ]
+        defaults.set(preScroll.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.order.v3")
+        defaults.set(preScroll.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.enabled.v3")
+
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+        #expect(config.isEnabled(id(.scrollToBottom)))
+
+        config.setEnabled(id(.scrollToBottom), false)
+        let reloaded = TerminalAccessoryConfiguration(defaults: defaults)
+        #expect(!reloaded.isEnabled(id(.scrollToBottom)))
+        #expect(reloaded.displayOrder.contains(id(.scrollToBottom)))
     }
 }
