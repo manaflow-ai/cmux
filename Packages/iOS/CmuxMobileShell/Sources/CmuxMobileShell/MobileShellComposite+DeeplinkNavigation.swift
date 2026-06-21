@@ -62,7 +62,8 @@ extension CMUXMobileShellStore {
     /// Whether the visible selection matches a Mac-local workspace id owned by
     /// a specific Mac.
     public func selectedWorkspaceMatches(remoteWorkspaceID: String, macDeviceID: String?) -> Bool {
-        guard let selectedWorkspace,
+        guard let selectedWorkspaceID,
+              let selectedWorkspace = workspaces.first(where: { $0.id == selectedWorkspaceID }),
               selectedWorkspace.rpcWorkspaceID.rawValue == remoteWorkspaceID else {
             return false
         }

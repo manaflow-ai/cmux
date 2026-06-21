@@ -3097,6 +3097,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 } else {
                     existing.cancel()
                     secondaryMacSubscriptions[mac.macDeviceID] = nil
+                    markSecondaryMacUnavailable(mac.macDeviceID)
                     await establishSecondaryMacSubscription(
                         for: mac, scope: scope)
                 }
@@ -3117,8 +3118,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         scope: MobileShellScopeSnapshot
     ) async {
         let macID = mac.macDeviceID
-        guard secondaryMacSubscriptions[macID] == nil,
-              let handle = await makeSecondaryClient(for: mac) else { return }
+        guard secondaryMacSubscriptions[macID] == nil else { return }
+        guard let handle = await makeSecondaryClient(for: mac) else {
+            markSecondaryMacUnavailable(macID)
+            return
+        }
         let client = handle.client
         // Re-check after the async client build so a concurrent refresh cannot
         // open a duplicate connection, AND so a sign-out / account/team switch
@@ -3158,6 +3162,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 status: .connected,
                 actionCapabilities: subscription.actionCapabilities
             )
+        } else {
+            markSecondaryMacUnavailable(macID)
         }
         subscription.task = Task { @MainActor [weak self] in
             let stream = await client.subscribe(to: ["workspace.updated"])
@@ -3181,12 +3187,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // pull-to-refresh / foreground re-aggregate path re-establishes the Mac.
             guard let self, self.secondaryMacSubscriptions[macID]?.client === client else { return }
             self.secondaryMacSubscriptions[macID] = nil
-            if var state = self.workspacesByMac[macID] {
-                state.status = .unavailable
-                self.workspacesByMac[macID] = state
-            }
+            self.markSecondaryMacUnavailable(macID)
             await client.disconnect()
         }
+    }
+
+    /// Downgrade retained secondary rows without dropping them from the
+    /// aggregate. A failed refresh/reconnect should make stale rows visibly
+    /// unavailable, not leave them connected/actionable until a stream callback
+    /// happens to run.
+    private func markSecondaryMacUnavailable(_ macID: String) {
+        guard var state = workspacesByMac[macID] else { return }
+        state.status = .unavailable
+        workspacesByMac[macID] = state
     }
 
     /// Coalesced full-list refresh for a secondary Mac driven by
@@ -3470,6 +3483,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         self.foregroundMacDeviceID = foregroundMacDeviceID
         workspacesByMac = states
+    }
+
+    /// Test seam for the secondary-refresh failure path: stale rows should stay
+    /// visible but become unavailable when a secondary Mac cannot be reached.
+    func markSecondaryMacUnavailableForTesting(_ macID: String) {
+        markSecondaryMacUnavailable(macID)
     }
     #endif
 

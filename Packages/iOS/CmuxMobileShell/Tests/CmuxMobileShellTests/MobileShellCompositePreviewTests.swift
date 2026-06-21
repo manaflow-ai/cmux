@@ -401,6 +401,56 @@ import Testing
         #expect(store.workspaceID(matchingRemoteWorkspaceID: "shared", macDeviceID: "missing") == nil)
     }
 
+    @Test func foregroundNotificationSuppressionRequiresExplicitSelection() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let workspace = MobileWorkspacePreview(
+            id: "row-a",
+            macDeviceID: "mac-a",
+            name: "First",
+            terminals: [MobileTerminalPreview(id: "terminal-a", name: "a")]
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [workspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+        store.selectedWorkspaceID = nil
+
+        #expect(store.selectedWorkspace?.id.rawValue == "row-a")
+        #expect(!store.selectedWorkspaceMatches(remoteWorkspaceID: "row-a", macDeviceID: "mac-a"))
+
+        store.selectedWorkspaceID = "row-a"
+        #expect(store.selectedWorkspaceMatches(remoteWorkspaceID: "row-a", macDeviceID: "mac-a"))
+    }
+
+    @Test func secondaryUnavailableDowngradeKeepsRowsVisibleButInactive() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let workspace = MobileWorkspacePreview(
+            id: "secondary-row",
+            macDeviceID: "mac-b",
+            name: "Secondary",
+            terminals: [MobileTerminalPreview(id: "terminal-b", name: "b")]
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                displayName: "Mac B",
+                workspaces: [workspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: nil)
+
+        store.markSecondaryMacUnavailableForTesting("mac-b")
+
+        let downgraded = store.workspaces.first { $0.rpcWorkspaceID.rawValue == "secondary-row" }
+        #expect(downgraded?.macConnectionStatus == .unavailable)
+        #expect(downgraded?.name == "Secondary")
+    }
+
     @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
         let loopback = try hostPortRoute(
             kind: .debugLoopback,
