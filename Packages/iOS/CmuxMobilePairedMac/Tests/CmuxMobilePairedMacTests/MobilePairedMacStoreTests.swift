@@ -194,4 +194,80 @@ import Testing
         sqlite3_finalize(stmt)
         sqlite3_close(check)
     }
+
+    @Test func partialV2MigrationRecoversWithoutDuplicateColumn() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+
+        // Simulate a device left half-migrated by an earlier, non-transactional
+        // build of the v2 migration: the v1 table exists with ONE of the three
+        // additive custom columns added, but `user_version` is still 1 (the bump
+        // never ran). The old code would re-run `ADD COLUMN custom_name` here and
+        // fail with a duplicate-column error, bricking the store. The fixed
+        // migration must add only the missing columns and finish.
+        var handle: OpaquePointer?
+        #expect(sqlite3_open(url.path, &handle) == SQLITE_OK)
+        let seed = """
+            CREATE TABLE paired_macs (
+                mac_device_id TEXT PRIMARY KEY NOT NULL,
+                display_name TEXT,
+                stack_user_id TEXT,
+                created_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX idx_macs_stack_user ON paired_macs(stack_user_id);
+            CREATE TABLE mac_routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac_device_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                endpoint_json TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (mac_device_id) REFERENCES paired_macs(mac_device_id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_routes_device ON mac_routes(mac_device_id);
+            ALTER TABLE paired_macs ADD COLUMN custom_name TEXT;
+            INSERT INTO paired_macs
+                (mac_device_id, display_name, stack_user_id, created_at, last_seen_at, is_active, custom_name)
+                VALUES ('mac-1', 'Studio', 'user-1', 0, 0, 1, 'My Studio');
+            PRAGMA user_version = 1;
+        """
+        #expect(sqlite3_exec(handle, seed, nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(handle)
+
+        // First read triggers the lazy migration. It must complete (add the
+        // missing custom_color / custom_icon columns) without a duplicate-column
+        // failure on the already-present custom_name, and preserve the saved data.
+        let reopened = try MobilePairedMacStore(databaseURL: url)
+        let all = try await reopened.loadAll(stackUserID: "user-1")
+        #expect(all.count == 1)
+        #expect(all.first?.customName == "My Studio")
+        #expect(all.first?.customColor == nil)
+        #expect(all.first?.customIcon == nil)
+
+        // The newly-added columns are usable: a customization write/read round-trips.
+        try await reopened.setCustomization(
+            macDeviceID: "mac-1",
+            customName: "My Studio",
+            customColor: "palette:3",
+            customIcon: "🛠️",
+            now: Date()
+        )
+        let updated = try await reopened.loadAll(stackUserID: "user-1")
+        #expect(updated.first?.customColor == "palette:3")
+        #expect(updated.first?.customIcon == "🛠️")
+
+        var check: OpaquePointer?
+        #expect(sqlite3_open(url.path, &check) == SQLITE_OK)
+        var stmt: OpaquePointer?
+        #expect(sqlite3_prepare_v2(check, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK)
+        #expect(sqlite3_step(stmt) == SQLITE_ROW)
+        #expect(sqlite3_column_int(stmt, 0) == 2)
+        sqlite3_finalize(stmt)
+        sqlite3_close(check)
+    }
 }

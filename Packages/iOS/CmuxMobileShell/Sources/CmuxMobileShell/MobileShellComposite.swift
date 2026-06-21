@@ -6039,6 +6039,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Bounded periodic refresh for the Computers screen's "keep it live while
+    /// open" timer. The online dots come from the live presence subscription and
+    /// secondary workspace lists come from their live read-only subscriptions —
+    /// both push-driven — so this only re-reads the local paired-Mac rows (cheap
+    /// SQLite) and, when the foreground Mac is already connected, runs the
+    /// coalesced workspace refresh. It deliberately does NOT dial a
+    /// disconnected/offline Mac or re-establish secondary connections on the
+    /// timer: that recovery is driven by presence-push (a Mac re-announcing kicks
+    /// a reconnect) and by the explicit pull-to-refresh / per-Mac Reconnect
+    /// button, so an open Computers sheet can't fan out a reconnect storm to
+    /// every saved Mac on a fixed interval.
+    public func refreshComputersScreen() async {
+        await loadPairedMacs()
+        if connectionState == .connected {
+            await refreshWorkspaces()
+        }
+    }
+
     public func refreshWorkspaces() async {
         guard connectionState == .connected, remoteClient != nil else { return }
         if let inFlight = pullToRefreshTask {

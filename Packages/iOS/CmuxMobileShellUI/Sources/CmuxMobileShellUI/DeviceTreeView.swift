@@ -130,17 +130,21 @@ struct DeviceTreeView: View {
             }
             .refreshable { await reload() }
             .task {
-                // This screen is the user's connection-debug view, so while it is
-                // open keep the data live: reload once, then re-aggregate on a short
-                // interval so a Mac whose secondary connection dropped (or just came
-                // online) reconnects quickly and its dot / route / workspace count
-                // refresh. The `.task` is cancelled on dismiss, ending the loop.
+                // This screen is the user's connection-debug view. The online dots
+                // (presence) and secondary workspace counts already update live via
+                // push subscriptions, so keeping it "live" just needs a gentle,
+                // bounded refresh of the local rows + connected foreground state.
+                // `refreshComputersScreen()` deliberately does NOT dial offline Macs
+                // on the timer (that would fan out a reconnect storm to every saved
+                // Mac); presence-push recovery and the explicit pull-to-refresh /
+                // per-Mac Reconnect button handle reconnects. The loop is sequential
+                // (each refresh completes before the next sleep) and is cancelled on
+                // dismiss.
                 await reload()
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(4))
+                    try? await Task.sleep(for: .seconds(10))
                     if Task.isCancelled { break }
-                    await store.loadPairedMacs()
-                    await store.reconnectOrRefresh()
+                    await store.refreshComputersScreen()
                 }
             }
             .confirmationDialog(

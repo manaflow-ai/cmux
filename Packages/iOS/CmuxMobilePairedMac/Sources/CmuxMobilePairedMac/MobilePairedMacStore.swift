@@ -96,14 +96,24 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
 
     private func runMigrations() throws {
         let version = try userVersion()
+        // Each case applies its schema changes AND bumps `user_version` inside one
+        // transaction, so a kill / disk-full / SQLite error mid-migration rolls the
+        // whole step back (SQLite DDL and `PRAGMA user_version` are both
+        // transactional). The store then reopens at the prior version and retries
+        // the step cleanly instead of being stranded with a partially-applied
+        // schema whose `user_version` never advanced.
         switch version {
         case 0:
-            try migrateToV1()
-            try migrateToV2()
-            try setUserVersion(2)
+            try transaction {
+                try migrateToV1()
+                try migrateToV2()
+                try setUserVersion(2)
+            }
         case 1:
-            try migrateToV2()
-            try setUserVersion(2)
+            try transaction {
+                try migrateToV2()
+                try setUserVersion(2)
+            }
         case 2:
             break
         default:
@@ -153,10 +163,39 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
 
     /// v2: user-editable, per-user-synced customizations (additive columns, all
     /// nullable so older rows and older builds are unaffected).
+    ///
+    /// Idempotent: only adds columns that are missing. The transactional
+    /// `runMigrations` step already makes this restart-safe for new devices, but
+    /// the column check also recovers any device that ran an earlier,
+    /// non-transactional build of this migration and was left partially applied
+    /// (some columns added, `user_version` still 1) — re-running here just adds
+    /// the remaining columns instead of failing on a duplicate-column error.
     private func migrateToV2() throws {
-        for column in ["custom_name", "custom_color", "custom_icon"] {
+        let existing = try tableColumns("paired_macs")
+        for column in ["custom_name", "custom_color", "custom_icon"]
+        where !existing.contains(column) {
             try exec("ALTER TABLE paired_macs ADD COLUMN \(column) TEXT;")
         }
+    }
+
+    /// Column names defined on `table` (via `PRAGMA table_info`), used to make
+    /// additive column migrations idempotent.
+    private func tableColumns(_ table: String) throws -> Set<String> {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let rc = sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &statement, nil)
+        guard rc == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
+        }
+        var columns: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            // table_info columns: cid(0), name(1), type(2), notnull(3),
+            // dflt_value(4), pk(5).
+            if let name = sqlite3_column_text(statement, 1) {
+                columns.insert(String(cString: name))
+            }
+        }
+        return columns
     }
 
     // MARK: - Public API
