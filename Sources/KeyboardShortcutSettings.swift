@@ -132,13 +132,9 @@ enum KeyboardShortcutSettings {
         case splitBrowserDown
 
         // Canvas layout
-        case toggleCanvasLayout
-        case toggleZoomableSplitLayout
-        case canvasRevealFocusedPane
-        case canvasOverview
-        case canvasZoomIn
-        case canvasZoomOut
-        case canvasZoomReset
+        case toggleCanvasLayout, toggleZoomableSplitLayout
+        case canvasRevealFocusedPane, canvasOverview
+        case canvasZoomIn, canvasZoomOut, canvasZoomReset
         case canvasTidy
         case canvasAlignLeft
         case canvasAlignRight

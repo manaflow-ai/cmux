@@ -14058,20 +14058,16 @@ struct CMUXCLI {
 
             Subcommands:
               info                          Print layout mode and pane frames (z-order)
-              mode <canvas|zoomable-splits|splits|toggle>
-                                            Switch layout mode
+              mode <canvas|zoomable-splits|splits|toggle>  Switch layout mode
               set-frame <surface> --x <n> --y <n> --width <n> --height <n>
                                             Place one canvas pane at an explicit frame
               align <command>               tidy, align-left, align-right, align-top,
                                             align-bottom, equalize-widths, equalize-heights,
                                             distribute-horizontally, distribute-vertically
                                             (canvas layout only)
-              reveal [<surface>]            Scroll a pane into view (default: focused)
-                                            in canvas or zoomable split layout
-              overview                      Toggle fit-all overview zoom
-                                            in canvas or zoomable split layout
-              zoom <in|out|reset>           Step viewport magnification
-                                            in canvas or zoomable split layout
+              reveal [<surface>]            Scroll a pane into view (canvas or zoomable split)
+              overview                      Toggle fit-all overview zoom (canvas or zoomable split)
+              zoom <in|out|reset>           Step viewport magnification (canvas or zoomable split)
               set-viewport --x <n> --y <n> [--zoom <n>]
                                             Center the viewport on a layout point
                                             (optionally set magnification)
