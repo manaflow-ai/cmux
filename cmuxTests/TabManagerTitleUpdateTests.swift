@@ -230,6 +230,58 @@ struct TabManagerTitleUpdateTests {
     }
 
     @Test
+    func pendingTitleUpdateFlushesBeforeWorkspaceTransfer() async throws {
+        let suiteName = "TabManagerTitleTransfer.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(500, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let scheduler = ManualCoalescerScheduler()
+        let source = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let destination = TabManager(settings: settings)
+        let workspace = try #require(source.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let transferredTitle = "Moved Workspace - grok"
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: transferredTitle
+            ]
+        )
+
+        await drainMainQueue()
+        #expect(scheduler.delays == [0.5])
+        #expect(workspace.panelTitles[focusedPanelId] != transferredTitle)
+        #expect(workspace.title != transferredTitle)
+
+        let detached = try #require(source.detachWorkspace(tabId: workspace.id))
+        #expect(detached === workspace)
+        #expect(workspace.panelTitles[focusedPanelId] == transferredTitle)
+        #expect(workspace.title == transferredTitle)
+
+        destination.attachWorkspace(detached, select: true)
+        #expect(workspace.owningTabManager === destination)
+
+        scheduler.fire(at: 0)
+        #expect(workspace.panelTitles[focusedPanelId] == transferredTitle)
+        #expect(workspace.title == transferredTitle)
+    }
+
+    @Test
     func rawTitleRefreshGateKeepsDefaultBehaviorUntilCoalescingIsEnabled() throws {
         let suiteName = "TabManagerTitleRawRefreshGate.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

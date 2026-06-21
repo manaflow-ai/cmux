@@ -2067,6 +2067,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        flushPendingPanelTitleUpdates()
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: tabId)
         sidebarMultiSelection.removeFromSelection(tabId)
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
