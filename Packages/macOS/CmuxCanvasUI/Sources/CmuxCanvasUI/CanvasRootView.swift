@@ -51,6 +51,8 @@ public final class CanvasRootView: NSView {
     /// A saved viewport waiting to be applied once the scroll view is laid
     /// out (contentSize settled). Cleared when successfully applied.
     private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
+    var pendingDiscreteZoomAnimation: (canvasCenter: CGPoint, magnification: CGFloat)?
+    var discreteZoomAnimationGeneration: UInt64 = 0
     /// True while programmatically applying a saved viewport, so the scroll
     /// events that causes don't overwrite the saved value with transients.
     private var isApplyingSavedViewport = false
@@ -59,7 +61,6 @@ public final class CanvasRootView: NSView {
     private static let lifecycleMarginFraction: CGFloat = 0.5
     static let revealMargin: CGFloat = 24
     static let overviewPadding: CGFloat = 48
-
     struct DragSession {
         let paneID: CanvasPaneID
         let region: CanvasPaneHitRegion
@@ -187,6 +188,7 @@ public final class CanvasRootView: NSView {
         clipBoundsObserver = nil
         scrollSettleObservers.forEach { NotificationCenter.default.removeObserver($0) }
         scrollSettleObservers = []
+        cancelDiscreteZoomAnimation(commitPending: false)
         commandScrollHintTask?.cancel()
         commandScrollHintTask = nil
         resetMinimapVisibility()
@@ -449,7 +451,10 @@ public final class CanvasRootView: NSView {
     /// render; everything else stops (Ghostty occlusion). Frames never change
     /// while offscreen, so re-entry never reflows.
     func updateLifecycle() {
-        let visible = scrollView.contentView.documentVisibleRect
+        updateLifecycle(visibleRect: scrollView.contentView.documentVisibleRect)
+    }
+
+    func updateLifecycle(visibleRect visible: CGRect) {
         let margin = CGSize(
             width: visible.width * Self.lifecycleMarginFraction,
             height: visible.height * Self.lifecycleMarginFraction

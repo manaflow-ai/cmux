@@ -7,25 +7,30 @@ import CmuxCanvas
 @MainActor
 @Suite("Canvas viewport zoom")
 struct CanvasViewportZoomTests {
-    @Test func discreteZoomOutAppliesSynchronouslyAroundCurrentCenter() throws {
+    @Test func discreteZoomOutAnimatesThenCommitsAroundCurrentCenter() throws {
         let root = makeRoot()
         root.setViewport(center: CGPoint(x: 420, y: 180), magnification: 1, notifySettled: false)
         let centerBefore = root.currentCenterInCanvas
 
         root.zoom(by: 0.8)
 
+        #expect(root.currentMagnification == 1)
+        #expect(root.pendingDiscreteZoomAnimation?.magnification == 0.8)
+        root.finishDiscreteZoomAnimation()
+
         #expect(abs(root.currentMagnification - 0.8) < 0.0001)
         #expect(abs(root.currentCenterInCanvas.x - centerBefore.x) < 0.5)
         #expect(abs(root.currentCenterInCanvas.y - centerBefore.y) < 0.5)
     }
 
-    @Test func repeatedDiscreteZoomOutClampsAtMinimumSynchronously() throws {
+    @Test func repeatedDiscreteZoomOutClampsAtMinimumWithoutStackingAnimations() throws {
         let root = makeRoot()
         root.setViewport(center: CGPoint(x: 420, y: 180), magnification: 1, notifySettled: false)
 
         for _ in 0..<12 {
             root.zoom(by: 1 / 1.25)
         }
+        root.finishDiscreteZoomAnimation()
 
         #expect(abs(root.currentMagnification - root.scrollView.minMagnification) < 0.0001)
     }
