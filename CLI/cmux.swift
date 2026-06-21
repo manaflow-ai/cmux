@@ -19598,11 +19598,13 @@ struct CMUXCLI {
         private let readinessLock = NSLock()
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
+        private var subscribingThreadIds = Set<String>()
         private var subscribedThreadIds = Set<String>()
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
         private var suppressedApprovalOrder: [String] = []
+        private let transientThreadResumeRetryDelays: [TimeInterval] = [0, 0.15, 0.35]
 
         init(
             appServerURL: String,
@@ -19712,43 +19714,84 @@ struct CMUXCLI {
             _ threadId: String,
             connection: CodexTeamsAppServerConnecting
         ) throws {
-            stateLock.lock()
-            let inserted = subscribedThreadIds.insert(threadId).inserted
-            stateLock.unlock()
-            guard inserted else { return }
+            var retryIndex = 0
 
-            do {
-                let response = try connection.request(
-                    method: "thread/resume",
-                    params: [
-                        "threadId": threadId,
-                        "excludeTurns": true
-                    ],
-                    notificationHandler: { [weak self] message in
-                        try self?.handleAppServerMessage(
-                            message,
-                            connection: connection,
-                            allowThreadSubscribe: false
-                        )
-                    },
-                    responseTimeout: 10
-                )
+            while true {
+                guard claimThreadSubscription(threadId) else { return }
+
+                let response: [String: Any]
+                do {
+                    response = try connection.request(
+                        method: "thread/resume",
+                        params: [
+                            "threadId": threadId,
+                            "excludeTurns": true
+                        ],
+                        notificationHandler: { [weak self] message in
+                            try self?.handleAppServerMessage(
+                                message,
+                                connection: connection,
+                                allowThreadSubscribe: false
+                            )
+                        },
+                        responseTimeout: 10
+                    )
+                } catch {
+                    finishThreadSubscription(threadId, succeeded: false)
+                    guard isTransientThreadResumeError(error),
+                          retryIndex < transientThreadResumeRetryDelays.count else {
+                        throw error
+                    }
+                    let delay = transientThreadResumeRetryDelays[retryIndex]
+                    retryIndex += 1
+                    sleepBeforeThreadResumeRetry(delay)
+                    continue
+                }
+
+                finishThreadSubscription(threadId, succeeded: true)
                 if let threadObject = response["thread"] as? [String: Any],
                    let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
                     try observeThreadSafely(thread)
                 }
-            } catch {
-                stateLock.lock()
-                subscribedThreadIds.remove(threadId)
-                stateLock.unlock()
-                throw error
+                return
             }
         }
 
         private func resetConnectionSubscriptions() {
             stateLock.lock()
+            subscribingThreadIds.removeAll(keepingCapacity: true)
             subscribedThreadIds.removeAll(keepingCapacity: true)
             stateLock.unlock()
+        }
+
+        private func claimThreadSubscription(_ threadId: String) -> Bool {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard !subscribedThreadIds.contains(threadId),
+                  !subscribingThreadIds.contains(threadId) else {
+                return false
+            }
+            subscribingThreadIds.insert(threadId)
+            return true
+        }
+
+        private func finishThreadSubscription(_ threadId: String, succeeded: Bool) {
+            stateLock.lock()
+            subscribingThreadIds.remove(threadId)
+            if succeeded {
+                subscribedThreadIds.insert(threadId)
+            }
+            stateLock.unlock()
+        }
+
+        private func isTransientThreadResumeError(_ error: Error) -> Bool {
+            String(describing: error)
+                .localizedCaseInsensitiveContains("no rollout found for thread id")
+        }
+
+        private func sleepBeforeThreadResumeRetry(_ delay: TimeInterval) {
+            guard delay > 0 else { return }
+            usleep(useconds_t(delay * 1_000_000))
         }
 
         private func cacheApprovalItemIfPresent(_ message: [String: Any], method: String) {
