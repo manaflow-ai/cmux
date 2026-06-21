@@ -202,7 +202,7 @@ import Testing
     #expect(delivered.map(\.frame.stateSeq) == [30])
 }
 
-@Test func terminalRenderSessionBoundsLiveBufferWhileAwaitingSnapshot() throws {
+@Test func terminalRenderSessionInvalidatesSnapshotWhenLiveBufferOverflows() throws {
     let surfaceID = "terminal"
     var session = TerminalRenderSession()
     session.beginSnapshot()
@@ -220,7 +220,8 @@ import Testing
         #expect(session.receiveLive(try .viewportDelta(frame)).isEmpty)
     }
 
-    #expect(session.bufferedLiveCount == 64)
+    #expect(session.bufferedLiveCount == 0)
+    #expect(session.needsSnapshotReplay)
 
     let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: surfaceID,
@@ -231,7 +232,8 @@ import Testing
     )
     let delivered = session.receiveSnapshot(try .snapshot(snapshotFrame))
 
-    #expect(delivered.map(\.frame.stateSeq) == [90] + Array(90...100))
+    #expect(delivered.isEmpty)
+    #expect(session.needsSnapshotReplay)
 }
 
 @Test func terminalRenderSessionCoalescesReplaceableLiveDeltaWhileAwaitingSnapshot() throws {

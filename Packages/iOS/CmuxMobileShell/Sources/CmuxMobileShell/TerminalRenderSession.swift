@@ -5,19 +5,23 @@ struct TerminalRenderSession: Sendable {
     private static let maxBufferedLiveEnvelopes = 64
 
     enum Phase: Equatable, Sendable {
-        case awaitingSnapshot
+        case awaitingSnapshot(bufferValid: Bool)
         case live(baseSeq: UInt64)
     }
 
-    private(set) var phase: Phase = .awaitingSnapshot
+    private(set) var phase: Phase = .awaitingSnapshot(bufferValid: true)
     private var bufferedLiveEnvelopes: [MobileTerminalRenderGridEnvelope] = []
 
     var bufferedLiveCount: Int {
         bufferedLiveEnvelopes.count
     }
 
+    var needsSnapshotReplay: Bool {
+        phase == .awaitingSnapshot(bufferValid: false)
+    }
+
     mutating func beginSnapshot() {
-        phase = .awaitingSnapshot
+        phase = .awaitingSnapshot(bufferValid: true)
         bufferedLiveEnvelopes.removeAll(keepingCapacity: true)
     }
 
@@ -29,6 +33,10 @@ struct TerminalRenderSession: Sendable {
     mutating func receiveSnapshot(
         _ envelope: MobileTerminalRenderGridEnvelope
     ) -> [MobileTerminalRenderGridEnvelope] {
+        guard phase != .awaitingSnapshot(bufferValid: false) else {
+            bufferedLiveEnvelopes.removeAll(keepingCapacity: false)
+            return []
+        }
         let baseSeq = envelope.frame.stateSeq
         let buffered = bufferedLiveEnvelopes.filter { liveEnvelope in
             liveEnvelope.frame.stateSeq >= baseSeq
@@ -42,13 +50,16 @@ struct TerminalRenderSession: Sendable {
         _ envelope: MobileTerminalRenderGridEnvelope
     ) -> [MobileTerminalRenderGridEnvelope] {
         switch phase {
-        case .awaitingSnapshot:
+        case .awaitingSnapshot(bufferValid: false):
+            return []
+        case .awaitingSnapshot(bufferValid: true):
             if envelope.isReplaceableViewportDelta {
                 bufferedLiveEnvelopes.removeAll(keepingCapacity: true)
             }
             bufferedLiveEnvelopes.append(envelope)
             if bufferedLiveEnvelopes.count > Self.maxBufferedLiveEnvelopes {
-                bufferedLiveEnvelopes.removeFirst(bufferedLiveEnvelopes.count - Self.maxBufferedLiveEnvelopes)
+                bufferedLiveEnvelopes.removeAll(keepingCapacity: false)
+                phase = .awaitingSnapshot(bufferValid: false)
             }
             return []
         case .live(let baseSeq):

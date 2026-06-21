@@ -93,6 +93,9 @@ extension GhosttySurfaceView {
                     && candidate.window != nil && !candidate.isHidden
                     && candidate.alpha > 0.01
             }
+        if let snapshot = matchingView?.renderGridSnapshot {
+            return snapshot.plainText
+        }
         guard let surface = matchingView?.surface else { return nil }
         let handle = CopyableTextSurfaceHandle(surface: surface)
         return await withCheckedContinuation { continuation in

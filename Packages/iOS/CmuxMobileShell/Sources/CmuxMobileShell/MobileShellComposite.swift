@@ -5182,7 +5182,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> [MobileTerminalRenderGridEnvelope] {
         var session = terminalRenderSessionsBySurfaceID[surfaceID] ?? TerminalRenderSession()
         let envelopes = session.receiveLive(envelope)
+        let needsSnapshotReplay = session.needsSnapshotReplay
         terminalRenderSessionsBySurfaceID[surfaceID] = session
+        if needsSnapshotReplay {
+            MobileDebugLog.anchormux(
+                "CMUX_REPLAY live_buffer_overflow surface=\(surfaceID) seq=\(envelope.frame.stateSeq) action=retry_replay"
+            )
+            scheduleTerminalReplayRetry(
+                surfaceID: surfaceID,
+                deliveredSeq: envelope.frame.stateSeq,
+                replaySeq: envelope.frame.stateSeq
+            )
+        }
         #if DEBUG
         if envelopes.isEmpty {
             mobileShellLog.info(
@@ -5213,6 +5224,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileDebugLog.anchormux(
             "CMUX_REPLAY retry_scheduled surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)"
         )
+        guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else { return }
+        terminalReplaySurfaceIDsPendingRetry.remove(surfaceID)
+        requestTerminalReplay(surfaceID: surfaceID)
     }
 
     private func finishTerminalReplayRequest(surfaceID: String) {

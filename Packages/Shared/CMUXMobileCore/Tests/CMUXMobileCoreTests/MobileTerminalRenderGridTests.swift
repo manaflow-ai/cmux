@@ -81,6 +81,7 @@ import Testing
     #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["old-0", "old-1"])
     let bottom = snapshot.visibleRows(rowOffset: snapshot.maxRowOffset)
     #expect(bottom.map(\.plainText) == ["visible", ""])
+    #expect(snapshot.plainText == "old-0\nold-1\nvisible\n")
     #expect(bottom[0].spans.first?.style.foreground == "#FF0000")
     #expect(bottom[0].spans.first?.style.bold == true)
     #expect(snapshot.terminalBackground == "#101010")

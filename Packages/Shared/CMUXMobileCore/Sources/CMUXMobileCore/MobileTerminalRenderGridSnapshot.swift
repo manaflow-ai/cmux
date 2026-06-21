@@ -29,6 +29,11 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
         rows(for: activeScreen)
     }
 
+    /// Plain text for every retained row on the active screen.
+    public var plainText: String {
+        rows.map(\.plainText).joined(separator: "\n")
+    }
+
     private var primaryRows: [MobileTerminalRenderGridSnapshotRow]
     private var alternateRows: [MobileTerminalRenderGridSnapshotRow]
     private var primaryVisibleRowCount: Int
