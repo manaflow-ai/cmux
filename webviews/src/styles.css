@@ -165,6 +165,12 @@ body {
   height: 24px;
   min-width: 0;
   max-width: 100%;
+  /* When the selected value is longer than the available width (capped at the
+     track by max-width, or shrunk by flex pressure), truncate it with an
+     ellipsis instead of a hard clip. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   padding: 0 24px 0 9px;
   border: 1px solid transparent;
   border-radius: 6px;
