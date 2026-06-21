@@ -6,11 +6,6 @@ import QuartzCore
 import SwiftUI
 
 @MainActor
-private final class ZoomableSplitDocumentView: NSView {
-    override var isFlipped: Bool { true }
-}
-
-@MainActor
 final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private weak var workspace: Workspace?
     private var isWorkspaceInputActive: Bool
