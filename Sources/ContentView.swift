@@ -15609,6 +15609,11 @@ struct SidebarTabDropDelegate: DropDelegate {
             targetWorkspaceId: targetTabId,
             usesTopLevelRows: usesTopLevelRows
         )
+        let explicitGroupId = explicitDropTargetGroupId(
+            draggedTabId: draggedTabId,
+            usesTopLevelRows: usesTopLevelRows,
+            pointerX: info.location.x
+        )
         guard let fromIndex = reorderTabIds.firstIndex(of: draggedTabId) else {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.abort reason=draggedTabMissing tab=\(draggedTabId.uuidString.prefix(5))")
@@ -15651,13 +15656,37 @@ struct SidebarTabDropDelegate: DropDelegate {
             tabId: draggedTabId,
             toIndex: targetIndex,
             isDragOperation: true,
-            usesTopLevelRows: usesTopLevelRows
+            usesTopLevelRows: usesTopLevelRows,
+            explicitGroupId: explicitGroupId
         )
         syncSidebarSelection(
             preserving: selectionBeforeReorder,
             preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
         )
         return didReorder
+    }
+
+    private func explicitDropTargetGroupId(
+        draggedTabId: UUID,
+        usesTopLevelRows: Bool,
+        pointerX: CGFloat
+    ) -> UUID? {
+        guard !usesTopLevelRows,
+              SidebarWorkspaceGroupDropIntentPolicy.prefersGroupScope(
+                  pointerX: pointerX,
+                  memberIndent: SidebarWorkspaceGroupingMetrics.memberIndent
+              ),
+              let targetTabId,
+              let targetGroupId = workspaceGroupIdByWorkspaceId[targetTabId] ?? nil,
+              tabManager.tabs.contains(where: { $0.id == draggedTabId }) else {
+            return nil
+        }
+        guard !tabManager.workspaceGroups.contains(where: { group in
+            group.anchorWorkspaceId == draggedTabId || group.anchorWorkspaceId == targetTabId
+        }) else {
+            return nil
+        }
+        return targetGroupId
     }
 
     /// Move a workspace dragged in from another window into this window at the

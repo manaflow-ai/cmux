@@ -106,7 +106,12 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     /// Reorders one workspace to the clamped target index; drag operations
     /// additionally run neighbor-based group-membership inference.
     @discardableResult
-    public func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
+    public func reorderWorkspace(
+        tabId: UUID,
+        toIndex targetIndex: Int,
+        isDragOperation: Bool = false,
+        explicitGroupId: UUID? = nil
+    ) -> Bool {
         guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex) else { return false }
         // No-op reorders (single workspace, clamped to current index, etc.)
         // must not run group inference. Otherwise socket calls like
@@ -120,7 +125,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         let workspace = model.tabs.remove(at: plan.fromIndex)
         model.tabs.insert(workspace, at: plan.toIndex)
         if isDragOperation {
-            applyDragInferredGroupMembership(workspaceId: tabId)
+            applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
         } else if !model.workspaceGroups.isEmpty {
             if model.workspaceGroups.contains(where: { $0.anchorWorkspaceId == tabId }) {
                 model.syncWorkspaceGroupsOrderToAnchorOrder()
@@ -244,7 +249,8 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         tabId: UUID,
         toIndex targetIndex: Int,
         isDragOperation: Bool = false,
-        usesTopLevelRows: Bool = false
+        usesTopLevelRows: Bool = false,
+        explicitGroupId: UUID? = nil
     ) -> Bool {
         if usesTopLevelRows || model.isWorkspaceGroupAnchor(tabId) {
             return reorderTopLevelWorkspaceItem(
@@ -253,7 +259,12 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
                 promotesGroupedWorkspace: usesTopLevelRows
             )
         }
-        return reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: isDragOperation)
+        return reorderWorkspace(
+            tabId: tabId,
+            toIndex: targetIndex,
+            isDragOperation: isDragOperation,
+            explicitGroupId: explicitGroupId
+        )
     }
 
     @discardableResult
@@ -343,7 +354,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     /// Pinned workspaces may join a group when the same neighbor-based rules
     /// place them inside that group's section.
     /// Anchors keep their group: their lifecycle is gated by group existence.
-    private func applyDragInferredGroupMembership(workspaceId: UUID) {
+    private func applyDragInferredGroupMembership(workspaceId: UUID, explicitGroupId: UUID? = nil) {
         guard let index = model.tabs.firstIndex(where: { $0.id == workspaceId }) else { return }
         let tab = model.tabs[index]
         let isAnchor = model.workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspaceId })
@@ -354,6 +365,14 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             // order to the new anchor positions in tabs[] before normalize
             // rebuilds the section list.
             model.syncWorkspaceGroupsOrderToAnchorOrder()
+            model.normalizeWorkspaceGroupContiguity()
+            return
+        }
+        if let explicitGroupId,
+           model.workspaceGroups.contains(where: { $0.id == explicitGroupId }) {
+            if tab.groupId != explicitGroupId {
+                tab.groupId = explicitGroupId
+            }
             model.normalizeWorkspaceGroupContiguity()
             return
         }

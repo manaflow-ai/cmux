@@ -195,6 +195,71 @@ struct WorkspaceCoordinatorTests {
         #expect(model.tabs.allSatisfy { !$0.isPinned })
     }
 
+    @Test
+    func explicitGroupDropJoinsTargetGroupAtBoundarySlot() {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let dragged = CoordinatorStubTab()
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [dragged, child1, child2, outside]
+        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let group = try! #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: 3,
+            isDragOperation: true,
+            explicitGroupId: groupId
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == groupId)
+        #expect(model.tabs.map(\.id) == [
+            group.anchorWorkspaceId,
+            child1.id,
+            child2.id,
+            dragged.id,
+            outside.id,
+        ])
+    }
+
+    @Test
+    func boundaryDropWithoutExplicitGroupStaysTopLevel() {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let dragged = CoordinatorStubTab()
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [dragged, child1, child2, outside]
+        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let group = try! #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: 3,
+            isDragOperation: true
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == nil)
+        #expect(model.tabs.map(\.id) == [
+            group.anchorWorkspaceId,
+            child1.id,
+            child2.id,
+            dragged.id,
+            outside.id,
+        ])
+    }
+
     // MARK: Groups
 
     @Test
