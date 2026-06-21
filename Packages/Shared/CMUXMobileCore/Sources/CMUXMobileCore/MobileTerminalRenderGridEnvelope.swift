@@ -87,12 +87,12 @@ public struct MobileTerminalRenderGridEnvelope: Codable, Equatable, Sendable {
 
     /// Whether this envelope replaces the local mirror's scrollback history.
     public var ownsScrollback: Bool {
-        role == .snapshot && frame.activeScreen == .primary
+        role == .snapshot
     }
 
     /// Number of primary-screen scrollback rows carried by this envelope.
     public var scrollbackRowsForLocalMirror: Int? {
-        ownsScrollback ? frame.scrollbackRows : nil
+        role == .snapshot ? frame.scrollbackRows : nil
     }
 
     /// Full snapshot grid dimensions, when this envelope carries a snapshot.

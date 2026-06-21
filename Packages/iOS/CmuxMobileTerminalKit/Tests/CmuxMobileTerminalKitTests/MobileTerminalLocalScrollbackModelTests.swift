@@ -217,17 +217,31 @@ import Testing
     #expect(observation.maxScrollableOffset == 1634)
 }
 
-@Test func alternateScreenResetsLocalScrollbackState() {
+@Test func alternateScreenDisablesLocalScrollWithoutForgettingPrimaryReplayMetadata() {
     var model = MobileTerminalLocalScrollbackModel()
     _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 100)
     _ = model.updateBounds(total: 152, len: 52)
     _ = model.applyGesture(rowDelta: 10)
 
     _ = model.applyMetadata(activeScreen: .alternate, scrollbackRows: 0)
-    let bounds = model.updateBounds(total: 52, len: 52)
+    let alternateBounds = model.updateBounds(total: 52, len: 52)
 
-    #expect(bounds.maxRowOffset == 0)
-    #expect(bounds.rowOffset == 0)
+    #expect(alternateBounds.maxRowOffset == 0)
+    #expect(alternateBounds.rowOffset == 0)
     #expect(model.replayScrollbackRows == 0)
+    #expect(model.canServePrimaryScrollLocally == false)
+}
+
+@Test func alternateSnapshotMetadataHydratesRetainedPrimaryMirrorAfterTUIExit() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .alternate, scrollbackRows: 100)
+    _ = model.updateBounds(total: 52, len: 52)
+
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: nil)
+    let primaryBounds = model.updateBounds(total: 152, len: 52)
+
+    #expect(primaryBounds.maxRowOffset == 100)
+    #expect(model.replayScrollbackRows == 100)
+    #expect(model.mirrorHydration == .hydrated(retainedRows: 152))
     #expect(model.isViewingLiveBottom)
 }

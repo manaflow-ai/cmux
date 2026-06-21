@@ -221,11 +221,11 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         let wasAtBottom = boundsState == .unobserved
             || bottomAnchorPolicy.isAtBottom(offset: rowOffset, maxOffset: maxRowOffset)
         pendingAnchor = wasAtBottom ? .bottomOnNextBounds : .none
-        replayWindow = ReplayWindow(activeScreen: self.activeScreen, scrollbackRows: scrollbackRows)
+        replayWindow = ReplayWindow(activeScreen: .primary, scrollbackRows: scrollbackRows)
         if wasAtBottom, boundsState == .observed {
             rowOffset = maxRowOffset
         }
-        hasAuthoritativeReplayMetadata = self.activeScreen == .primary
+        hasAuthoritativeReplayMetadata = true
         if scrollbackRows != replayWindow.mirrorBudget.defaultReplayRows {
             hasRequestedFullScrollbackHydration = scrollbackRows > replayWindow.mirrorBudget.defaultReplayRows
         }
@@ -243,13 +243,13 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
 
     public mutating func updateBounds(observation: MirrorObservation) -> BoundsResult {
         guard activeScreen == .primary else {
-            resetForNonPrimaryScreen()
+            resetVisibleScrollForNonPrimaryScreen(observation: observation)
             return BoundsResult(
                 rowOffset: rowOffset,
                 maxRowOffset: maxRowOffset,
                 wasAtBottom: true,
-                expectedTotalRows: 0,
-                mirrorRetention: .complete,
+                expectedTotalRows: replayWindow.expectedTotalRows(visibleRows: observation.visibleRows),
+                mirrorRetention: mirrorRetention,
                 observation: observation
             )
         }
@@ -305,17 +305,12 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         )
     }
 
-    private mutating func resetForNonPrimaryScreen() {
+    private mutating func resetVisibleScrollForNonPrimaryScreen(observation: MirrorObservation) {
         rowOffset = 0
         maxRowOffset = 0
-        visibleRows = 0
-        observedTotalRows = 0
-        replayWindow = ReplayWindow(activeScreen: activeScreen, scrollbackRows: 0)
-        mirrorRetention = .complete
-        mirrorHydration = .unhydrated
+        visibleRows = observation.visibleRows
+        observedTotalRows = observation.totalRows
         boundsState = .unobserved
         pendingAnchor = .none
-        hasAuthoritativeReplayMetadata = false
-        hasRequestedFullScrollbackHydration = false
     }
 }

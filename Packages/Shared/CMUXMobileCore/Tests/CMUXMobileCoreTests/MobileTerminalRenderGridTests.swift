@@ -591,6 +591,30 @@ import Testing
     #expect(replacement.replayGrid == nil)
 }
 
+@Test func alternateSnapshotExposesCarriedPrimaryScrollbackMetadata() throws {
+    let alternateFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 12,
+        columns: 8,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "vim"),
+            .init(row: 1, column: 0, text: "status"),
+        ],
+        activeScreen: .alternate,
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old 1"),
+            .init(row: 1, column: 0, text: "old 2"),
+        ]
+    )
+
+    let snapshot = try MobileTerminalRenderGridEnvelope.snapshot(alternateFrame)
+
+    #expect(snapshot.ownsScrollback)
+    #expect(snapshot.scrollbackRowsForLocalMirror == 2)
+}
+
 @Test func renderGridEnvelopeRejectsAmbiguousFrameRoles() throws {
     let fullFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal-a",
