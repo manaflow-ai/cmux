@@ -221,6 +221,7 @@ struct TabManagerTitleUpdateTests {
         private var pendingFlushes: [PendingFlush] = []
         private(set) var delays: [TimeInterval] = []
 
+        @MainActor
         func schedule(
             delay: TimeInterval,
             action: @escaping @MainActor () -> Void
@@ -233,6 +234,7 @@ struct TabManagerTitleUpdateTests {
             }
         }
 
+        @MainActor
         func fire(at index: Int) {
             guard pendingFlushes.indices.contains(index), !pendingFlushes[index].isCancelled else { return }
             pendingFlushes[index].action()

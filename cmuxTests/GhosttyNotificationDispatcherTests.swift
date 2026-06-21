@@ -97,6 +97,7 @@ struct GhosttyDefaultBackgroundNotificationDispatcherTests {
 
         private var pendingFlushes: [PendingFlush] = []
 
+        @MainActor
         func schedule(
             delay _: TimeInterval,
             action: @escaping @MainActor () -> Void
@@ -108,6 +109,7 @@ struct GhosttyDefaultBackgroundNotificationDispatcherTests {
             }
         }
 
+        @MainActor
         func fire(at index: Int) {
             guard pendingFlushes.indices.contains(index), !pendingFlushes[index].isCancelled else { return }
             pendingFlushes[index].action()
