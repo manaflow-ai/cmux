@@ -30,12 +30,6 @@ final class NotificationBurstCoalescer {
         self.schedule = schedule
     }
 
-    deinit {
-        MainActor.assumeIsolated {
-            cancelScheduledFlush?()
-        }
-    }
-
     @MainActor
     func signal(delay newDelay: TimeInterval? = nil, _ action: @escaping @MainActor () -> Void) {
         precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
