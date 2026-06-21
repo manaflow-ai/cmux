@@ -122,7 +122,7 @@ struct CanvasSettingsFileStoreTests {
             )
 
             #expect(defaults.object(forKey: CanvasLayoutSettings.paneGapKey) == nil)
-            #expect(defaults.bool(forKey: CanvasLayoutSettings.snappingEnabledKey) == false)
+            #expect(defaults.object(forKey: CanvasLayoutSettings.snappingEnabledKey) as? Bool == false)
             #expect(defaults.integer(forKey: CanvasLayoutSettings.splitDividerThicknessKey) == 4)
         }
     }
