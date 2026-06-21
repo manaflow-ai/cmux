@@ -749,6 +749,34 @@ struct FeedCoordinatorTests {
         #expect(state.isSubscribed("thread-1"))
     }
 
+    @Test func codexTeamsThreadSubscriptionDoesNotRetryTransientObservationFailure() throws {
+        let state = CodexTeamsThreadSubscriptionProbe()
+        var resumeRequestCount = 0
+
+        do {
+            try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+                threadId: "thread-1",
+                claim: state.claim,
+                finish: state.finish,
+                isTransientError: { $0 is CodexTeamsRolloutMissingError },
+                resume: {
+                    resumeRequestCount += 1
+                    return ["thread": ["id": "thread-1"]]
+                },
+                observe: { _ in
+                    throw CodexTeamsRolloutMissingError()
+                }
+            )
+            Issue.record("observation failure should throw without retrying resume")
+        } catch {
+            #expect(error is CodexTeamsRolloutMissingError)
+        }
+
+        #expect(resumeRequestCount == 1)
+        #expect(!state.isSubscribed("thread-1"))
+        #expect(!state.isSubscribing("thread-1"))
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {

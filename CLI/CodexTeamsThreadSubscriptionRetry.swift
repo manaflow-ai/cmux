@@ -18,11 +18,9 @@ struct CodexTeamsThreadSubscriptionRetry {
         while true {
             guard claim(threadId) else { return }
 
+            let response: Response
             do {
-                let response = try resume()
-                try observe(response)
-                finish(threadId, true)
-                return
+                response = try resume()
             } catch {
                 finish(threadId, false)
                 guard isTransientError(error),
@@ -30,6 +28,16 @@ struct CodexTeamsThreadSubscriptionRetry {
                     throw error
                 }
                 retryCount += 1
+                continue
+            }
+
+            do {
+                try observe(response)
+                finish(threadId, true)
+                return
+            } catch {
+                finish(threadId, false)
+                throw error
             }
         }
     }
