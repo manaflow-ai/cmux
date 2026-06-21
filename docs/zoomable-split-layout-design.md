@@ -45,9 +45,12 @@ the viewport size and Bonsplit fills it. Zooming in magnifies the document and
 enables panning across the packed layout. Reset returns to 100 percent. Overview
 fits the packed document in the viewport, mirroring the canvas command shape.
 
-The wrapper schedules terminal and browser portal geometry synchronization when
-the viewport scrolls or magnifies so portal-hosted content follows the scaled
-split-tree anchors.
+The wrapper opts hosted pane content out of window portals while zoomable splits
+is active. Browser panes use the same inline hosting path canvas uses, and
+terminal panes parent their real `GhosttySurfaceScrollView` into the split host
+while reusing the existing terminal portal lease as a stale-host ownership guard.
+That makes the magnified split tree scale pane content itself instead of
+resizing placeholders and asking the portal layer to follow later.
 
 ## Scroll And Gesture Routing
 

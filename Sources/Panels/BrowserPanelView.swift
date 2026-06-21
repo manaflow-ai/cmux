@@ -7350,6 +7350,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             for: webView,
             relativeTo: host.window
         )
+        panel.canvasInlineHostingActive = true
         let didAttachWebViewToLocalHost =
             !isAlreadyInLocalHost && !shouldPreserveExternalFullscreenHost
 
@@ -7548,6 +7549,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
+        panel.canvasInlineHostingActive = false
         if panel.shouldUseLocalInlineDeveloperToolsHosting() {
             host.clearStaleHostedInspectorOwnershipState()
             host.releaseHostedWebViewConstraints()
