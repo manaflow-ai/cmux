@@ -78,7 +78,7 @@
     "faqAgentsQ": "What coding agents does cmux work with?",
     "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
-    "faqNotificationsA": "When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the <cliLink>cmux CLI</cliLink> and <hooksLink>Claude Code hooks</hooksLink>.",
+    "faqNotificationsA": "When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the <cliLink>cmux CLI</cliLink> and <hooksLink>agent hooks</hooksLink>. Any agent that supports hooks or OSC works, including Claude Code, Codex, OpenCode, and pi.",
     "faqShortcutsQ": "Can I customize keyboard shortcuts?",
     "faqShortcutsA": "Terminal keybindings are read from your Ghostty config file (<configPath>~/.config/ghostty/config</configPath>). cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the <link>default shortcuts</link> for a full list.",
     "faqTmuxQ": "How does it compare to tmux?",

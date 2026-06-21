@@ -78,7 +78,7 @@
     "faqAgentsQ": "cmuxはどのコーディングエージェントに対応していますか？",
     "faqAgentsA": "すべてに対応しています。cmuxはターミナルなので、ターミナルで動作するすべてのエージェントがそのまま使えます：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、その他コマンドラインから起動できるすべてのツール。",
     "faqNotificationsQ": "通知はどのように機能しますか？",
-    "faqNotificationsA": "プロセスが注意を必要とするとき、cmuxはペインに通知リング、サイドバーに未読バッジ、通知ポップオーバー、macOSデスクトップ通知を表示します。これらは標準的なターミナルエスケープシーケンス（OSC 9/99/777）で自動的に発火するほか、<cliLink>cmux CLI</cliLink>や<hooksLink>Claude Codeフック</hooksLink>で手動トリガーも可能です。",
+    "faqNotificationsA": "プロセスが注意を必要とするとき、cmuxはペインに通知リング、サイドバーに未読バッジ、通知ポップオーバー、macOSデスクトップ通知を表示します。これらは標準的なターミナルエスケープシーケンス（OSC 9/99/777）で自動的に発火するほか、<cliLink>cmux CLI</cliLink>や<hooksLink>エージェントのフック</hooksLink>で手動トリガーも可能です。フックまたはOSCに対応していれば、Claude Code、Codex、OpenCode、piなど、あらゆるエージェントで動作します。",
     "faqShortcutsQ": "キーボードショートカットはカスタマイズできますか？",
     "faqShortcutsA": "ターミナルのキーバインドはGhosttyの設定ファイル（<configPath>~/.config/ghostty/config</configPath>）から読み込まれます。cmux固有のショートカット（ワークスペース、分割、ブラウザ、通知）は設定画面でカスタマイズできます。全一覧は<link>デフォルトショートカット</link>をご覧ください。",
     "faqTmuxQ": "tmuxとの違いは？",
