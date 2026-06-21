@@ -3956,7 +3956,7 @@ private struct InertPushRegistration: PushRegistering {
 
     // Root view mounts: store binds already carrying the attached list.
     let store = deeplinkTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -3975,7 +3975,7 @@ private struct InertPushRegistration: PushRegistering {
     // Target not loaded yet: no navigation to an absent workspace.
     #expect(store.selectedWorkspaceID == nil)
 
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -3994,7 +3994,7 @@ private struct InertPushRegistration: PushRegistering {
 
     currentTime = currentTime.addingTimeInterval(121)
     let store = deeplinkTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == nil)
@@ -4015,7 +4015,7 @@ private struct InertPushRegistration: PushRegistering {
     // Nothing loaded yet: the tap must stay parked, not be spent.
     #expect(store.selectedTerminalID == nil)
 
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4032,16 +4032,16 @@ private struct InertPushRegistration: PushRegistering {
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
-    store.workspaces = [
+    store.setWorkspacesForTesting([
         MobileWorkspacePreview(id: "workspace-docs", name: "Docs", terminals: [])
-    ]
+    ])
     coordinator.workspacesDidChange()
 
     // Workspace navigation happens now; the absent terminal is not selected.
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == nil)
 
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
@@ -4054,7 +4054,7 @@ private struct InertPushRegistration: PushRegistering {
 @Test @MainActor func notificationTapEmitsConsumableCompactNavigationIntent() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
     let store = deeplinkTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: nil)

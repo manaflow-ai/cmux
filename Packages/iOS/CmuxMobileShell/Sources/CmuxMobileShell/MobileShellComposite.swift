@@ -3140,7 +3140,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         let key = foregroundMacKey
         let stamped = newWorkspaces.map { workspace -> MobileWorkspacePreview in
-            guard workspace.macDeviceID == nil, let id = foregroundMacDeviceID else { return workspace }
+            // These are the FOREGROUND Mac's workspaces, so stamp them ALL with the
+            // resolved foreground id — overriding any synthetic `manual-<host>:<port>`
+            // id the active ticket carried for a Mac without
+            // `mobile.attach_ticket.create`. Restamping only nil ids left those rows
+            // owned by the synthetic id while the aggregate key was the real Mac id,
+            // so the same machine looked like a different Mac (wrong counts /
+            // customizations, and `openWorkspace` trying to switch to a nonexistent
+            // Mac). When there is no foreground id (anonymous), leave rows unstamped
+            // to match the anonymous key.
+            guard let id = foregroundMacDeviceID else { return workspace }
             var copy = workspace
             copy.macDeviceID = id
             return copy
