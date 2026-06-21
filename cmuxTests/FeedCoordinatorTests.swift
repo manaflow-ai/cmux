@@ -622,7 +622,44 @@ struct FeedCoordinatorTests {
                 .success(["thread": ["id": "thread-1"]])
             ]
         )
-        let watcher = CMUXCLI.CodexTeamsWatcher(
+        let watcher = Self.makeCodexTeamsWatcher()
+
+        try watcher.backfillLoadedThreads(connection: connection)
+        #expect(connection.threadResumeRequestCount == 2)
+
+        try watcher.backfillLoadedThreads(connection: connection)
+        #expect(connection.threadResumeRequestCount == 2)
+    }
+
+    @Test func codexTeamsWatcherBackfillReconnectsAfterExhaustingTransientRolloutMiss() throws {
+        let transientFailure: Result<[String: Any], Error> = .failure(
+            CMUXCLI.CodexTeamsAppServerRequestError(
+                code: nil,
+                message: "no rollout found for thread id thread-1"
+            )
+        )
+        let failingConnection = CodexTeamsBackfillConnectionMock(
+            resumeResults: Array(repeating: transientFailure, count: 4)
+        )
+        let watcher = Self.makeCodexTeamsWatcher()
+
+        do {
+            try watcher.backfillLoadedThreads(connection: failingConnection)
+            Issue.record("exhausted transient rollout miss should force reconnect")
+        } catch {
+            #expect((error as? CMUXCLI.CodexTeamsAppServerRequestError)?.isMissingRollout == true)
+        }
+        #expect(failingConnection.threadResumeRequestCount == 4)
+
+        let recoveredConnection = CodexTeamsBackfillConnectionMock(
+            resumeResults: [.success(["thread": ["id": "thread-1"]])]
+        )
+        try watcher.backfillLoadedThreads(connection: recoveredConnection)
+        #expect(recoveredConnection.threadResumeRequestCount == 1)
+    }
+
+    private static func makeCodexTeamsWatcher() -> CMUXCLI.CodexTeamsWatcher {
+        CMUXCLI.CodexTeamsWatcher(
             appServerURL: "ws://127.0.0.1:1",
             workspaceId: "workspace-1",
             rootSurfaceId: "surface-1",
@@ -632,12 +669,6 @@ struct FeedCoordinatorTests {
             socketClient: SocketClient(path: "/tmp/cmux-debug-issue-6445.sock"),
             socketPassword: nil
         )
-
-        try watcher.backfillLoadedThreads(connection: connection)
-        #expect(connection.threadResumeRequestCount == 2)
-
-        try watcher.backfillLoadedThreads(connection: connection)
-        #expect(connection.threadResumeRequestCount == 2)
     }
 
     private static func resetFeedCoordinatorTestHooks() {

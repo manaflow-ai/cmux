@@ -19692,6 +19692,9 @@ struct CMUXCLI {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
                 } catch {
                     cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                    if isTransientThreadResumeError(error) {
+                        throw error
+                    }
                 }
             }
         }
