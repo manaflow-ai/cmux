@@ -10241,6 +10241,7 @@ struct VerticalTabsSidebar: View {
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             targetRowHeight: nil,
+            targetLeadingIndent: 0,
             dragAutoScrollController: dragAutoScrollController
         )
     }
@@ -10603,6 +10604,7 @@ struct VerticalTabsSidebar: View {
                                 selectedTabIds: $selectedTabIds,
                                 lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                                 targetRowHeight: nil,
+                                targetLeadingIndent: 0,
                                 dragAutoScrollController: dragAutoScrollController
                             ))
                     }
@@ -12106,6 +12108,7 @@ struct VerticalTabsSidebar: View {
         }
         let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
             tabId = tab.id,
+            targetLeadingIndent = tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
         ] rowHeight in
@@ -12117,6 +12120,7 @@ struct VerticalTabsSidebar: View {
                 selectedTabIds: selectedTabIds,
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
                 targetRowHeight: rowHeight,
+                targetLeadingIndent: targetLeadingIndent,
                 dragAutoScrollController: dragAutoScrollController
             )
         }
@@ -15395,6 +15399,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let targetRowHeight: CGFloat?
+    let targetLeadingIndent: CGFloat
     let dragAutoScrollController: SidebarDragAutoScrollController
 
     /// The identity of the workspace being dragged, resolved from this window's
@@ -15672,9 +15677,11 @@ struct SidebarTabDropDelegate: DropDelegate {
         pointerX: CGFloat
     ) -> UUID? {
         guard !usesTopLevelRows,
-              SidebarWorkspaceGroupDropIntentPolicy.prefersGroupScope(
-                  pointerX: pointerX,
+              SidebarWorkspaceGroupDropIntentPolicy(
                   memberIndent: SidebarWorkspaceGroupingMetrics.memberIndent
+              ).prefersGroupScope(
+                  pointerX: pointerX,
+                  targetLeadingIndent: targetLeadingIndent
               ),
               let targetTabId,
               let targetGroupId = workspaceGroupIdByWorkspaceId[targetTabId] ?? nil,

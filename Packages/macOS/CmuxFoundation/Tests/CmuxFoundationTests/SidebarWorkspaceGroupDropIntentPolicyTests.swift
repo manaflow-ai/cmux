@@ -4,11 +4,16 @@ import Testing
 
 @Suite struct SidebarWorkspaceGroupDropIntentPolicyTests {
     @Test func pointerInsideGroupIndentPrefersGroupScope() {
-        #expect(SidebarWorkspaceGroupDropIntentPolicy.prefersGroupScope(pointerX: 0, memberIndent: 12))
-        #expect(SidebarWorkspaceGroupDropIntentPolicy.prefersGroupScope(pointerX: -6, memberIndent: 12))
+        let policy = SidebarWorkspaceGroupDropIntentPolicy(memberIndent: 12)
+
+        #expect(policy.prefersGroupScope(pointerX: 6, targetLeadingIndent: 12))
+        #expect(policy.prefersGroupScope(pointerX: 12, targetLeadingIndent: 12))
     }
 
     @Test func pointerPastRootSideOfIndentDoesNotPreferGroupScope() {
-        #expect(!SidebarWorkspaceGroupDropIntentPolicy.prefersGroupScope(pointerX: -7, memberIndent: 12))
+        let policy = SidebarWorkspaceGroupDropIntentPolicy(memberIndent: 12)
+
+        #expect(!policy.prefersGroupScope(pointerX: 5, targetLeadingIndent: 12))
+        #expect(!policy.prefersGroupScope(pointerX: 20, targetLeadingIndent: 0))
     }
 }

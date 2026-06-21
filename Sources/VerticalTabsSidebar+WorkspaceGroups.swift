@@ -55,6 +55,7 @@ extension VerticalTabsSidebar {
         let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
             groupId = group.id,
             anchorId = group.anchorWorkspaceId,
+            firstMemberWorkspaceId = group.isCollapsed ? nil : memberWorkspaceIds.first { $0 != group.anchorWorkspaceId },
             workspaceGroupIdByWorkspaceId = renderContext.workspaceGroupIdByWorkspaceId,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
@@ -67,8 +68,22 @@ extension VerticalTabsSidebar {
                 selectedTabIds: selectedTabIds,
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
                 targetRowHeight: rowHeight,
+                targetLeadingIndent: 0,
                 dragAutoScrollController: dragAutoScrollController
             )
+            let firstMemberReorderDelegate = firstMemberWorkspaceId.map { memberId in
+                SidebarTabDropDelegate(
+                    targetTabId: memberId,
+                    tabManager: tabManager,
+                    workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
+                    dragState: dragState,
+                    selectedTabIds: selectedTabIds,
+                    lastSidebarSelectionIndex: lastSidebarSelectionIndex,
+                    targetRowHeight: rowHeight,
+                    targetLeadingIndent: SidebarWorkspaceGroupingMetrics.memberIndent,
+                    dragAutoScrollController: dragAutoScrollController
+                )
+            }
             return SidebarWorkspaceGroupHeaderDropDelegate(
                 targetGroupId: groupId,
                 targetAnchorWorkspaceId: anchorId,
@@ -76,7 +91,8 @@ extension VerticalTabsSidebar {
                 dragState: dragState,
                 targetRowHeight: rowHeight,
                 dragAutoScrollController: dragAutoScrollController,
-                reorderDelegate: reorderDelegate
+                reorderDelegate: reorderDelegate,
+                firstMemberReorderDelegate: firstMemberReorderDelegate
             )
         }
 

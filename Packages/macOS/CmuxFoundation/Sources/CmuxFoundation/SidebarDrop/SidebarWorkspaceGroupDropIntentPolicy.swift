@@ -1,10 +1,17 @@
 public import CoreGraphics
 
-public enum SidebarWorkspaceGroupDropIntentPolicy {
-    public static func prefersGroupScope(
+public struct SidebarWorkspaceGroupDropIntentPolicy: Sendable {
+    private let memberIndent: CGFloat
+
+    public init(memberIndent: CGFloat) {
+        self.memberIndent = memberIndent
+    }
+
+    public func prefersGroupScope(
         pointerX: CGFloat,
-        memberIndent: CGFloat
+        targetLeadingIndent: CGFloat
     ) -> Bool {
-        pointerX >= -(memberIndent / 2)
+        guard targetLeadingIndent > 0 else { return false }
+        return pointerX >= max(0, targetLeadingIndent - (memberIndent / 2))
     }
 }

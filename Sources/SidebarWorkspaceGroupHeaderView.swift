@@ -309,9 +309,19 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 enum SidebarWorkspaceGroupHeaderDropZone {
     static func isCenterDrop(locationY: CGFloat, rowHeight: CGFloat) -> Bool {
         let height = max(rowHeight, 1)
-        let edgeBand = min(max(height * 0.25, 4), height * 0.4)
         let y = min(max(locationY, 0), height)
-        return y > edgeBand && y < height - edgeBand
+        let band = edgeBand(rowHeight: height)
+        return y > band && y < height - band
+    }
+
+    static func isBottomEdgeDrop(locationY: CGFloat, rowHeight: CGFloat) -> Bool {
+        let height = max(rowHeight, 1)
+        let y = min(max(locationY, 0), height)
+        return y >= height - edgeBand(rowHeight: height)
+    }
+
+    private static func edgeBand(rowHeight: CGFloat) -> CGFloat {
+        min(max(rowHeight * 0.25, 4), rowHeight * 0.4)
     }
 }
 
@@ -397,25 +407,27 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     let targetRowHeight: CGFloat?
     let dragAutoScrollController: SidebarDragAutoScrollController
     let reorderDelegate: SidebarTabDropDelegate
+    let firstMemberReorderDelegate: SidebarTabDropDelegate?
 
     func validateDrop(info: DropInfo) -> Bool {
-        reorderDelegate.validateDrop(info: info) || groupHeaderCenterDropAction(info) != nil
+        edgeReorderDelegate(for: info).validateDrop(info: info) || groupHeaderCenterDropAction(info) != nil
     }
 
     func dropEntered(info: DropInfo) {
         if updateGroupHeaderCenterDrop(info) { return }
-        reorderDelegate.dropEntered(info: info)
+        edgeReorderDelegate(for: info).dropEntered(info: info)
     }
 
     func dropExited(info: DropInfo) {
         reorderDelegate.dropExited(info: info)
+        firstMemberReorderDelegate?.dropExited(info: info)
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         if updateGroupHeaderCenterDrop(info) {
             return DropProposal(operation: .move)
         }
-        return reorderDelegate.dropUpdated(info: info)
+        return edgeReorderDelegate(for: info).dropUpdated(info: info)
     }
 
     func performDrop(info: DropInfo) -> Bool {
@@ -424,7 +436,7 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
                 clearDropState()
                 return true
             }
-            return reorderDelegate.performDrop(info: info)
+            return edgeReorderDelegate(for: info).performDrop(info: info)
         }
         defer { clearDropState() }
         switch action {
@@ -434,6 +446,16 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
             break
         }
         return true
+    }
+
+    private func edgeReorderDelegate(for info: DropInfo) -> SidebarTabDropDelegate {
+        if SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(
+            locationY: info.location.y,
+            rowHeight: targetRowHeight ?? 1
+        ), let firstMemberReorderDelegate {
+            return firstMemberReorderDelegate
+        }
+        return reorderDelegate
     }
 
     private func updateGroupHeaderCenterDrop(_ info: DropInfo) -> Bool {
