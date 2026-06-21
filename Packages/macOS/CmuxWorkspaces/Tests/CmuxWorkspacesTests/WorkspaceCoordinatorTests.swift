@@ -255,6 +255,44 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func explicitGroupDropFromAnotherGroupPreservesTargetGroupSlot() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let dragged = CoordinatorStubTab()
+        let sourcePeer = CoordinatorStubTab()
+        let targetChild1 = CoordinatorStubTab()
+        let targetChild2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [dragged, sourcePeer, targetChild1, targetChild2, outside]
+        _ = try #require(groups.createWorkspaceGroup(name: "Source", childWorkspaceIds: [
+            dragged.id,
+            sourcePeer.id,
+        ]))
+        let targetGroupId = try #require(groups.createWorkspaceGroup(name: "Target", childWorkspaceIds: [
+            targetChild1.id,
+            targetChild2.id,
+        ]))
+        let targetGroup = try #require(model.workspaceGroups.first { $0.id == targetGroupId })
+        let targetLastIndex = try #require(model.tabs.indices.last { model.tabs[$0].groupId == targetGroupId })
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: targetLastIndex,
+            isDragOperation: true,
+            explicitGroupId: targetGroupId
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == targetGroupId)
+        #expect(model.tabs.filter { $0.groupId == targetGroupId }.map(\.id) == [
+            targetGroup.anchorWorkspaceId,
+            targetChild1.id,
+            targetChild2.id,
+            dragged.id,
+        ])
+    }
+
+    @Test
     func boundaryDropWithoutExplicitGroupStaysTopLevel() throws {
         let (model, host, groups, reorder) = makeWorld()
         _ = host

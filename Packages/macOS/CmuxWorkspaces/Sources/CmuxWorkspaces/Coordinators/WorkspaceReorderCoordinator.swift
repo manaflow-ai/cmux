@@ -112,7 +112,13 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         isDragOperation: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
-        guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex) else { return false }
+        let plan: WorkspaceReorderPlanItem?
+        if isDragOperation, explicitGroupId != nil {
+            plan = explicitGroupWorkspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
+        } else {
+            plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
+        }
+        guard let plan else { return false }
         // No-op reorders (single workspace, clamped to current index, etc.)
         // must not run group inference. Otherwise socket calls like
         // `workspace.action move_down` on the last ungrouped row would
@@ -154,6 +160,18 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     public func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil, isDragOperation: Bool = false) -> Bool {
         guard let plan = workspaceReorderPlan(tabId: tabId, before: beforeId, after: afterId) else { return false }
         return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex, isDragOperation: isDragOperation)
+    }
+
+    /// Explicit group drops are planned by the sidebar in the intended target
+    /// group's row-space. Preserve that slot here instead of reclamping against
+    /// the dragged workspace's current group or global pin tier.
+    private func explicitGroupWorkspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
+        guard let currentIndex = model.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        if model.tabs.count <= 1 {
+            return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: currentIndex)
+        }
+        let clamped = max(0, min(targetIndex, model.tabs.count - 1))
+        return WorkspaceReorderPlanItem(workspaceId: tabId, fromIndex: currentIndex, toIndex: clamped)
     }
 
     /// The clamped single-workspace reorder plan, or `nil` when unknown.
