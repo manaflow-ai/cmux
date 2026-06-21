@@ -6,6 +6,7 @@ import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
+import { BranchBasePicker, type BranchPickerPayload } from "./BranchBasePicker";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
 import {
   applyCommentAnnotations,
@@ -563,6 +564,12 @@ function Toolbar({
   return (
     <header id="toolbar">
       <SourceControls label={label} onNavigate={onNavigate} payload={payload} />
+      {/* The jump-to-file select duplicates the Files sidebar (both scroll to a
+          file). It is the only file-jump control when the sidebar is hidden, so
+          it always renders, but its centered middle grid track is collapsed via
+          CSS whenever the sidebar is actually visible (sidebar shown AND viewport
+          wide enough that the sidebar is not media-auto-hidden), letting
+          toolbar-left reclaim the space. */}
       <div className="toolbar-middle flex min-w-0 flex-1 items-center justify-center gap-1.5">
         <JumpSelect items={state.items} label={label} onJump={onJump} selectedItemId={state.activeItemId} />
       </div>
@@ -655,15 +662,109 @@ function SourceControls({
         options={payload.repoOptions}
         onNavigate={onNavigate}
       />
-      <NavigationSelect
-        ariaLabel={label("branchBase")}
-        fallbackValue={payload.branchBaseRef ?? ""}
-        id="base-select"
-        options={payload.baseOptions}
-        onNavigate={onNavigate}
-      />
+      <BaseControl label={label} onNavigate={onNavigate} payload={payload} />
     </div>
   );
+}
+
+/**
+ * Renders the searchable Base button+popover when the backend supplies
+ * `payload.branchPicker` (FROZEN CONTRACT). Falls back to the legacy capped
+ * `<select>` for older backends that only send `payload.baseOptions`.
+ */
+function BaseControl({
+  label,
+  onNavigate,
+  payload,
+}: {
+  label: DiffViewerLabelResolver;
+  onNavigate: (url: string) => void;
+  payload: any;
+}) {
+  const picker = resolveBranchPicker(payload);
+  if (picker) {
+    return <BranchBasePicker label={label} onNavigate={onNavigate} picker={picker} />;
+  }
+  return (
+    <NavigationSelect
+      ariaLabel={label("branchBase")}
+      fallbackValue={payload.branchBaseRef ?? ""}
+      id="base-select"
+      options={payload.baseOptions}
+      onNavigate={onNavigate}
+    />
+  );
+}
+
+// Reads the FROZEN CONTRACT `branchPicker` object. In dev, a `?cmuxBranchPickerMock=1`
+// query flag injects a local sample so the popover can be exercised without a
+// wired backend. Production behavior is unchanged when the flag is absent.
+function resolveBranchPicker(payload: any): BranchPickerPayload | null {
+  const value = payload?.branchPicker;
+  // Opt into the new picker only when the full FROZEN CONTRACT shape is present:
+  // refsURL and regenerateURLTemplate must be non-empty strings (selection does
+  // `regenerateURLTemplate.replace(...)`, which throws if it is missing), and
+  // currentRef/headRef must be strings (rendered in the button label). Anything
+  // missing falls back to the legacy <select>.
+  if (isValidBranchPickerPayload(value)) {
+    return value;
+  }
+  if (import.meta.env?.DEV && devBranchPickerMockEnabled()) {
+    return devBranchPickerMock();
+  }
+  return null;
+}
+
+function isValidBranchPickerPayload(value: any): value is BranchPickerPayload {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof value.refsURL === "string" && value.refsURL !== "" &&
+    typeof value.regenerateURLTemplate === "string" && value.regenerateURLTemplate !== "" &&
+    typeof value.currentRef === "string" &&
+    typeof value.headRef === "string",
+  );
+}
+
+function devBranchPickerMockEnabled(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get("cmuxBranchPickerMock") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function devBranchPickerMock(): BranchPickerPayload {
+  return {
+    repoRoot: "/tmp/mock-repo",
+    headRef: "feat-x",
+    currentRef: "main",
+    currentReason: "fork point",
+    confidence: "low",
+    aheadBehind: { ahead: 12, behind: 3 },
+    refsURL: "data:application/json," + encodeURIComponent(JSON.stringify({
+      groups: [
+        { id: "suggested", label: "Suggested", rows: [
+          { ref: "main", label: "main", reason: "fork point", confidence: "low", current: true },
+          { ref: "origin/main", label: "origin/main", reason: "PR base" },
+        ] },
+        { id: "worktrees", label: "Worktrees", rows: [
+          { ref: "feat-x", label: "feat-x", worktreeDir: "../worktrees/feat-x" },
+        ] },
+        { id: "branches", label: "Branches", rows: [
+          { ref: "develop", label: "develop", secondary: "2 days ago" },
+          { ref: "release/1.0", label: "release/1.0", secondary: "1 week ago" },
+        ] },
+        // Large remotes group so the render cap (top N + "... more") is
+        // exercisable in DEV without a wired backend.
+        { id: "remotes", label: "Remotes", rows: Array.from({ length: 2304 }, (_value, index) => ({
+          ref: `origin/feature-${index}`,
+          label: `origin/feature-${index}`,
+        })) },
+      ],
+    })),
+    regenerateURLTemplate: "about:blank#base={ref}",
+  };
 }
 
 function NavigationSelect({
