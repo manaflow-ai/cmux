@@ -11937,7 +11937,9 @@ extension Workspace: BonsplitDelegate {
                 pendingRemoteDisconnectReplacement = nil
                 let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
                 let closeRequested = remoteTmuxWorkspaceCloseButton ? (manager?.closeWorkspaceFromTabCloseButton(self) ?? false) : (manager?.closeWorkspaceFromCloseTabGesture(self) ?? false)
-                if closeRequested { scheduleTerminalGeometryReconcile(); return }
+                let appDelegate = AppDelegate.shared
+                let windowCloseCanVeto = (manager?.tabs.count ?? 0) <= 1 && appDelegate?.mainWindowContexts.count == 1 && appDelegate?.mainWindowContexts.values.contains(where: { $0.tabManager === manager }) == true
+                if closeRequested && (!windowCloseCanVeto || manager?.tabs.contains(where: { $0.id == id }) == false) { scheduleTerminalGeometryReconcile(); return }
                 remoteTmuxKeepWorkspaceOpenAfterSessionEnd = true; isRemoteTmuxMirror = false
                 remoteTmuxWindowMirrors.removeAll()
             }
