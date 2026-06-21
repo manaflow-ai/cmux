@@ -3997,6 +3997,15 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "workstream":
+            try runWorkstream(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "window":
             try runWindowNamespace(
                 commandArgs: commandArgs,
@@ -5366,6 +5375,7 @@ struct CMUXCLI {
         "workspace",
         "workspace-action",
         "workspace-group",
+        "workstream",
     ]
 
     /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.
@@ -8230,6 +8240,162 @@ struct CMUXCLI {
 
         default:
             throw CLIError(message: "Unknown workspace-group subcommand: \(sub)")
+        }
+    }
+
+    /// Emit a `cmux workstream` mutation response: JSON when --json, else `OK`.
+    private func printWorkstreamResponse(
+        _ response: [String: Any],
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) {
+        if jsonOutput {
+            print(jsonString(formatIDs(response, mode: idFormat)))
+        } else {
+            print("OK")
+        }
+    }
+
+    private func runWorkstream(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let sub = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "workstream requires a subcommand. Try: list, create, rename, delete, add, remove, move, enter, exit")
+        }
+        let rest = Array(commandArgs.dropFirst())
+        var params: [String: Any] = [:]
+        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+
+        func resolveWorkstreamId(in rest: [String]) throws -> String {
+            let (idOpt, rem0) = parseOption(rest, name: "--workstream")
+            if let idOpt { return idOpt }
+            // Strip --window before scanning for a positional so a `--window
+            // <value>` pair never gets parsed as the workstream id.
+            let (_, rem1) = parseOption(rem0, name: "--window")
+            for arg in rem1 where !arg.hasPrefix("--") {
+                return arg
+            }
+            throw CLIError(message: "workstream \(sub) requires a workstream id or --workstream <id>")
+        }
+
+        switch sub {
+        case "list":
+            let payload = try client.sendV2(method: "workstream.list", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let workstreams = payload["workstreams"] as? [[String: Any]] ?? []
+                let drilledIn = payload["drilled_in_workstream_id"] as? String
+                if workstreams.isEmpty {
+                    print("No workstreams")
+                } else {
+                    for w in workstreams {
+                        let handle = textHandle(w, idFormat: idFormat)
+                        let name = (w["name"] as? String) ?? ""
+                        let count = (w["workspace_count"] as? Int) ?? 0
+                        let here = (w["id"] as? String) == drilledIn ? " [drilled-in]" : ""
+                        print("\(handle)  \(name)  (\(count) workspaces)\(here)")
+                    }
+                }
+            }
+
+        case "create":
+            let (nameOpt, rem0) = parseOption(rest, name: "--name")
+            let (wsOpt, rem1) = parseOption(rem0, name: "--workspaces")
+            let (_, rem2) = parseOption(rem1, name: "--window")
+            let resolvedName = nameOpt ?? rem2.first(where: { !$0.hasPrefix("--") }) ?? ""
+            params["name"] = resolvedName
+            if let wsOpt {
+                let ids = wsOpt.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+                params["workspace_ids"] = ids
+            }
+            let response = try client.sendV2(method: "workstream.create", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else if let workstream = response["workstream"] as? [String: Any] {
+                print("OK \(textHandle(workstream, idFormat: idFormat))")
+            } else {
+                print("OK")
+            }
+
+        case "rename":
+            let (nameOpt, rem0) = parseOption(rest, name: "--name")
+            let id = try resolveWorkstreamId(in: rem0)
+            params["workstream_id"] = id
+            // Strip --window <value> before scanning for the positional name, so
+            // `rename <id> --window <win>` (no --name) doesn't consume the window
+            // value as the new name. Mirrors resolveWorkstreamId / the create case.
+            let (_, remNoWindow) = parseOption(rem0, name: "--window")
+            let positional = remNoWindow.filter { !$0.hasPrefix("--") && $0 != id }
+            guard let newName = nameOpt ?? positional.first else {
+                throw CLIError(message: "rename requires --name <name>")
+            }
+            params["name"] = newName
+            let resp = try client.sendV2(method: "workstream.rename", params: params)
+            printWorkstreamResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "delete":
+            // Non-destructive to workspaces: they return to the top level.
+            params["workstream_id"] = try resolveWorkstreamId(in: rest)
+            let resp = try client.sendV2(method: "workstream.delete", params: params)
+            printWorkstreamResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "add":
+            let (wstOpt, rem0) = parseOption(rest, name: "--workstream")
+            let (wsOpt, _) = parseOption(rem0, name: "--workspace")
+            guard let id = wstOpt, let wsId = wsOpt else {
+                throw CLIError(message: "add requires --workstream <id> --workspace <id>")
+            }
+            params["workstream_id"] = id
+            params["workspace_id"] = wsId
+            let resp = try client.sendV2(method: "workstream.add", params: params)
+            printWorkstreamResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "remove":
+            let (wsOpt, rem0) = parseOption(rest, name: "--workspace")
+            let (_, rem1) = parseOption(rem0, name: "--window")
+            guard let wsId = wsOpt ?? rem1.first(where: { !$0.hasPrefix("--") }) else {
+                throw CLIError(message: "remove requires --workspace <id>")
+            }
+            params["workspace_id"] = wsId
+            let resp = try client.sendV2(method: "workstream.remove", params: params)
+            printWorkstreamResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "move":
+            let (toIndexOpt, rem0) = parseOption(rest, name: "--to-index")
+            let (beforeOpt, rem1) = parseOption(rem0, name: "--before")
+            let (afterOpt, rem2) = parseOption(rem1, name: "--after")
+            params["workstream_id"] = try resolveWorkstreamId(in: rem2)
+            if let toIndexOpt {
+                guard let n = Int(toIndexOpt) else {
+                    throw CLIError(message: "move --to-index must be an integer")
+                }
+                params["to_index"] = n
+            } else if let beforeOpt {
+                params["before_workstream_id"] = beforeOpt
+            } else if let afterOpt {
+                params["after_workstream_id"] = afterOpt
+            } else {
+                throw CLIError(message: "move requires --to-index <n>, --before <workstream>, or --after <workstream>")
+            }
+            let resp = try client.sendV2(method: "workstream.move", params: params)
+            printWorkstreamResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "enter":
+            params["workstream_id"] = try resolveWorkstreamId(in: rest)
+            let resp = try client.sendV2(method: "workstream.enter", params: params)
+            printWorkstreamResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        case "exit":
+            let resp = try client.sendV2(method: "workstream.exit", params: params)
+            printWorkstreamResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        default:
+            throw CLIError(message: "Unknown workstream subcommand: \(sub)")
         }
     }
 
@@ -14835,6 +15001,36 @@ struct CMUXCLI {
             All commands honor --json. Default keyboard shortcut for creating
             a group from the sidebar multi-selection is Cmd+Shift+G; rebind
             via Settings → Keyboard.
+            """
+        case "workstream":
+            return """
+            Usage: cmux workstream <subcommand> [flags]
+
+            Manage top-level "workstreams": drill-in (master-detail) containers
+            that sit a level ABOVE collapsible workspace groups. The sidebar
+            shows the short workstream list; drilling into one shows ONLY that
+            workstream's workspaces, with a breadcrumb back to the list. Unlike
+            groups, a workstream has no anchor workspace and deleting one keeps
+            its workspaces (they return to the top level).
+
+            Subcommands:
+              list [--json]             List workstreams; marks the drilled-in one
+              create [--name <name>] [--workspaces <id>,<id>...]
+                                        Create a workstream (optionally moving the
+                                        listed workspaces into it). Blank name uses
+                                        the next "Workstream N" auto-name.
+              rename <workstream> --name <new>
+              delete <workstream>       Dissolve a workstream; its workspaces are
+                                        kept and return to the top level.
+              add --workstream <id> --workspace <ws>
+              remove --workspace <ws>   Remove a workspace from its workstream
+              move <workstream> --to-index <n> | --before <ws> | --after <ws>
+              enter <workstream>        Drill into a workstream (view only)
+              exit                      Return to the top-level workstream list
+
+            <workstream> accepts a UUID or a workstream:N ref printed by `list`.
+
+            All commands honor --json.
             """
         case "ssh":
             return String(localized: "cli.help.ssh", defaultValue: """

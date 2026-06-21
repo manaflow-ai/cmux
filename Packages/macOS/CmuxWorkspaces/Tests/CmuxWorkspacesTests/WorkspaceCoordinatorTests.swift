@@ -7,16 +7,19 @@ import CmuxSettings
 private final class CoordinatorStubTab: WorkspaceTabRepresenting {
     let id: UUID
     var groupId: UUID?
+    var workstreamId: UUID?
     var isPinned: Bool
     var currentDirectory: String
 
     init(
         groupId: UUID? = nil,
+        workstreamId: UUID? = nil,
         isPinned: Bool = false,
         currentDirectory: String = "/tmp"
     ) {
         self.id = UUID()
         self.groupId = groupId
+        self.workstreamId = workstreamId
         self.isPinned = isPinned
         self.currentDirectory = currentDirectory
     }

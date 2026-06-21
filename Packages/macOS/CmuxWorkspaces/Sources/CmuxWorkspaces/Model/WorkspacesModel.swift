@@ -32,6 +32,38 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
         didSet { host?.selectedWorkspaceIdDidChange(from: oldValue) }
     }
 
+    /// Top-level drill-in "workstreams" shown as the sidebar's master view.
+    /// Array order defines the order workstream rows appear in. Membership
+    /// lives on each workspace's `workstreamId`. Mutated only through
+    /// `WorkstreamCoordinator`.
+    ///
+    /// No host hook: unlike `tabs`/`workspaceGroups`/`selectedTabId` (whose
+    /// hooks replay legacy `@Published` Combine bridges and the selection
+    /// side-effect chain), workstream state is new and has no legacy bridge.
+    /// `@Observable` drives the SwiftUI sidebar directly, and the periodic
+    /// session autosave captures it for persistence.
+    public var workstreams: [Workstream] = []
+
+    /// The workstream the sidebar is currently drilled into, or `nil` for the
+    /// top-level (master) view. When non-nil, the sidebar shows only that
+    /// workstream's workspaces; when nil, it shows the workstream list plus
+    /// every workspace not assigned to any workstream. This is the persisted
+    /// "last-viewed" navigation state.
+    public var drilledInWorkstreamId: UUID?
+
+    /// Bumped whenever a workspace's `workstreamId` membership changes without
+    /// the observed `tabs` / `workstreams` arrays themselves changing (i.e. the
+    /// add/remove paths). The sidebar reads this so SwiftUI re-runs its body and
+    /// recomputes the drill-in filter + rollups — `Workspace.workstreamId` is a
+    /// Combine `@Published` on a reference element, which `@Observable` tracking
+    /// of the model arrays does not see. Bump it via `noteWorkstreamMembershipChanged()`.
+    public private(set) var workstreamMembershipRevision: Int = 0
+
+    /// Signal that workstream membership changed; see `workstreamMembershipRevision`.
+    public func noteWorkstreamMembershipChanged() {
+        workstreamMembershipRevision &+= 1
+    }
+
     @ObservationIgnored
     private weak var host: (any WorkspacesHosting<Tab>)?
 

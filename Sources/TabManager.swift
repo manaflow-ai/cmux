@@ -242,6 +242,25 @@ class TabManager: ObservableObject {
         set { workspaces.workspaceGroups = newValue }
     }
 
+    /// Top-level workstreams (drill-in master list). Array order is the order
+    /// rows appear in. Membership lives on each `Workspace.workstreamId`.
+    var workstreams: [Workstream] {
+        get { workspaces.workstreams }
+        set { workspaces.workstreams = newValue }
+    }
+
+    /// The workstream the sidebar is currently drilled into, or nil for the
+    /// top-level master view. Drives the drill-in sidebar filtering.
+    var drilledInWorkstreamId: UUID? {
+        get { workspaces.drilledInWorkstreamId }
+        set { workspaces.drilledInWorkstreamId = newValue }
+    }
+
+    /// Observed revision bumped on workstream membership add/remove. The sidebar
+    /// reads it so SwiftUI re-renders when a workspace's `workstreamId` changes
+    /// without the `tabs`/`workstreams` arrays themselves changing.
+    var workstreamMembershipRevision: Int { workspaces.workstreamMembershipRevision }
+
     /// Legacy Combine bridge for the remaining `tabManager.$tabs`
     /// subscribers. Driven exclusively from `workspaceTabsWillChange(to:)`,
     /// so it emits the new value during willSet and replays the current
@@ -447,6 +466,7 @@ class TabManager: ObservableObject {
     // (CmuxWorkspaces); creation/teardown/selection invert through
     // WorkspaceGroupHosting.
     let workspaceGrouping: WorkspaceGroupCoordinator<Workspace>
+    let workstreamCoordinator: WorkstreamCoordinator<Workspace>
     private var shouldRecordFocusHistory: Bool {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
@@ -505,6 +525,7 @@ class TabManager: ObservableObject {
         self.settings = settings
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
+        workstreamCoordinator = WorkstreamCoordinator(model: workspaces)
 #if DEBUG
         let sidebarGitDebugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
 #else
@@ -1128,6 +1149,14 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
+            // When the sidebar is drilled into a workstream, a workspace created
+            // from the shared path (Cmd+N, plus button, group creation) must join
+            // that workstream. Otherwise it keeps workstreamId == nil, fails the
+            // drill-in filter (workstreamId == drilledInWorkstreamId), and becomes
+            // a focused-but-invisible row missing from the list and breadcrumb count.
+            if let drilledInWorkstreamId, newWorkspace.workstreamId != drilledInWorkstreamId {
+                newWorkspace.workstreamId = drilledInWorkstreamId
+            }
             if title != nil {
                 newWorkspace.setCustomTitle(title)
             }
@@ -2095,6 +2124,11 @@ class TabManager: ObservableObject {
         // destination window — which has no matching WorkspaceGroup — doesn't
         // render it as an orphaned indented row with stale grouping state.
         removed.groupId = nil
+        // Same reasoning for workstream membership: the destination window has
+        // no matching Workstream, so a stale workstreamId would hide the moved
+        // workspace from the destination sidebar (its drill-in filter shows a
+        // top-level row only when workstreamId == drilledInWorkstreamId == nil).
+        removed.workstreamId = nil
         unwireClosedBrowserTracking(for: removed)
         browserModel.removeClosedBrowserPanels(forWorkspaceId: removed.id)
         removed.owningTabManager = nil
@@ -4163,6 +4197,11 @@ class TabManager: ObservableObject {
            !workspaceGroups.contains(where: { $0.id == groupId }) {
             workspace.groupId = nil
         }
+        // Same for a workstream that was deleted between close and reopen.
+        if let workstreamId = workspace.workstreamId,
+           !workstreams.contains(where: { $0.id == workstreamId }) {
+            workspace.workstreamId = nil
+        }
         // When the group DOES still exist, the workspace is about to be
         // reinserted at its old absolute index, which may now sit inside a
         // different group section after intervening reorders. Renormalize
@@ -5881,10 +5920,29 @@ extension TabManager {
                 }
             return snapshots.isEmpty ? nil : snapshots
         }()
+        // Persist every workstream (including empty ones the user is still
+        // populating) in master-list order. Workstream ids are stable across
+        // restart, so membership reconnects from each workspace's workstreamId.
+        let workstreamSnapshots: [SessionWorkstreamSnapshot]? = {
+            let snapshots = workstreams.map { workstream in
+                SessionWorkstreamSnapshot(
+                    id: workstream.id,
+                    name: workstream.name,
+                    customColor: workstream.customColor,
+                    iconSymbol: workstream.iconSymbol
+                )
+            }
+            return snapshots.isEmpty ? nil : snapshots
+        }()
+        let drilledInWorkstreamId = workstreams.contains(where: { $0.id == self.drilledInWorkstreamId })
+            ? self.drilledInWorkstreamId
+            : nil
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             workspaces: workspaceSnapshots,
-            workspaceGroups: groupSnapshots
+            workspaceGroups: groupSnapshots,
+            workstreams: workstreamSnapshots,
+            drilledInWorkstreamId: drilledInWorkstreamId
         )
     }
 
@@ -6028,6 +6086,19 @@ extension TabManager {
             workspace.groupId = nil
         }
         workspaceGroups = restoredGroups
+        // Reconstruct workstreams (stable ids; membership already restored onto
+        // each workspace's workstreamId above). normalizeWorkstreamState clears
+        // any workstreamId / drill-in pointer that no longer resolves.
+        workstreams = (snapshot.workstreams ?? []).map { workstreamSnapshot in
+            Workstream(
+                id: workstreamSnapshot.id,
+                name: workstreamSnapshot.name,
+                customColor: workstreamSnapshot.customColor,
+                iconSymbol: workstreamSnapshot.iconSymbol
+            )
+        }
+        drilledInWorkstreamId = snapshot.drilledInWorkstreamId
+        workspaces.normalizeWorkstreamState()
         selectedTabId = newSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
