@@ -1136,14 +1136,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// edge (up) or above the home indicator (down).
     private weak var dockedToolbar: UIView?
     /// Whether the iMessage-style composer is currently open. The surface owns the
-    /// whole bottom dock (terminal grid / toolbar / composer band / keyboard) in ONE
-    /// coordinate system, so `composerActive` only drives the first-responder
-    /// handover that keeps the keyboard up across the toggle. It deliberately does
-    /// NOT gate the toolbar's visibility (the bar stays visible while composing) and
-    /// does NOT alter the keyboard occupancy math: the composer band is reserved
-    /// SEPARATELY (``composerBandHeight``) above the keyboard edge, never by
-    /// reparenting the toolbar into a second layout system.
+    /// whole bottom dock (terminal grid / toolbar / composer band / keyboard) in one
+    /// coordinate system, so `composerActive` drives only the first-responder handover
+    /// that keeps the keyboard up across the toggle. The composer band is reserved
+    /// separately above the keyboard edge, never by reparenting the toolbar into a
+    /// second layout system.
     private var composerActive = false
+    /// Whether the hosted composer text field owns first responder. While true, the
+    /// terminal shortcut toolbar is hidden and does not reserve grid height; the user
+    /// is composing a message, so the keyboard-pinned message field gets the whole
+    /// bottom dock instead of being squeezed by terminal shortcuts.
+    private var composerFieldFocused = false
     /// The composer band: a surface-owned container the host installs the SwiftUI
     /// compose field into (via a `UIHostingController` in
     /// `GhosttySurfaceRepresentable`, which can see both layers; the terminal package
@@ -1325,16 +1328,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// clipped by the terminal render bounds (item 6). Below the zoom HUD (1100).
     private static let bottomChromeZPosition: CGFloat = 1000
 
-    /// Whether the always-visible bottom chrome (the docked accessory toolbar and,
-    /// when open, the composer band) is currently on screen.
+    /// Whether the terminal shortcut toolbar is currently on screen.
     ///
-    /// Round 8 makes the toolbar ALWAYS visible — terminal mode, composer mode,
-    /// keyboard up AND down — so the only thing that hides it is the explicit HIDE
-    /// button (``chromeHidden``). The toolbar is no longer keyboard-tied. When the
-    /// keyboard is down the toolbar (and any open composer) ride above the bottom
-    /// safe area instead of disappearing; see ``bottomChromeInset``.
+    /// The explicit HIDE button suppresses all bottom chrome. Composer focus hides
+    /// only the terminal shortcut toolbar: the composer remains visible and pinned to
+    /// the keyboard, but the terminal-only shortcuts stop consuming vertical space
+    /// while the user is writing a message.
     private var dockedToolbarShouldBeVisible: Bool {
-        !chromeHidden
+        !chromeHidden && !(composerActive && composerFieldFocused)
     }
 
     /// True while the HIDE button has temporarily suppressed the bottom chrome
@@ -1382,12 +1383,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let reserved: CGFloat = shouldShow ? Self.persistentToolbarHeight : 0
         guard dockedToolbar?.isHidden != !shouldShow || reservedToolbarHeight != reserved else { return }
         dockedToolbar?.isHidden = !shouldShow
-        // The composer band rides with the toolbar: hide it when the chrome is
-        // suppressed, show it again when the chrome returns and a field is mounted.
-        // Its frame already collapses to `.zero` while hidden (see
-        // ``bottomDockFrames()``); toggling `isHidden` also stops it intercepting taps.
-        composerContainer.isHidden = !shouldShow || composerContainer.subviews.isEmpty
+        // Composer visibility is tied to the global chrome hide state, not to the
+        // terminal toolbar. While composing, the toolbar may be hidden but the field
+        // must stay mounted and keyboard-pinned.
+        composerContainer.isHidden = chromeHidden || composerContainer.subviews.isEmpty
         reservedToolbarHeight = reserved
+        layoutBottomDock()
         setNeedsGeometrySync()
         setNeedsLayout()
     }
@@ -1465,6 +1466,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func setComposerActive(_ active: Bool) {
         guard composerActive != active else { return }
         composerActive = active
+        if !active {
+            composerFieldFocused = false
+        }
         if active {
             // Opening: deliberately do NOT resign the terminal input proxy. The
             // composer's hosted text field becomes first responder while this
@@ -1519,6 +1523,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             c: inputProxy.isFirstResponder ? 1 : 0
         ))
         #endif
+    }
+
+    /// Update whether the hosted composer field owns first responder. The SwiftUI
+    /// host reports this explicitly because the surface cannot observe `@FocusState`
+    /// directly. Focused composer input hides the terminal shortcut toolbar, leaving
+    /// the message field pinned to the keyboard with no competing control strip.
+    public func setComposerFieldFocused(_ focused: Bool) {
+        guard composerFieldFocused != focused else { return }
+        composerFieldFocused = focused
+        updateDockedToolbarVisibility()
+        clampComposerBandHeightToAvailableSpace()
+        layoutBottomDock()
+        setNeedsGeometrySync()
     }
 
     /// Whether the composer's hosted field currently holds first responder.
@@ -1637,7 +1654,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func mountComposerView(_ view: UIView?) {
         composerContainer.subviews.forEach { $0.removeFromSuperview() }
         guard let view else {
+            composerFieldFocused = false
             composerContainer.isHidden = true
+            updateDockedToolbarVisibility()
             return
         }
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -1727,14 +1746,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// docked toolbar, and the keyboard top stack consistently in the surface's single
     /// coordinate system.
     ///
-    /// Round 8 stack, from the BOTTOM up: the keyboard (or, keyboard-down, the bottom
-    /// safe area) occupies `keyboardOccupancyInBounds` at the surface bottom; the
-    /// composer band (when open) sits directly above that; the toolbar button band
-    /// sits directly above the composer; the terminal grid fills the rest. So the
-    /// visual order top→bottom is `terminal / toolbar / composer / keyboard` (item 1).
-    /// This is the inverse of Round 7 (toolbar-on-keyboard, composer-above-toolbar):
-    /// the composer is now the chrome closest to the keyboard, with the always-visible
-    /// toolbar above it.
+    /// Stack, from the bottom up: the keyboard (or, keyboard-down, the bottom safe
+    /// area) occupies `keyboardOccupancyInBounds`; the composer band sits directly
+    /// above that when open; the terminal shortcut toolbar sits above the composer
+    /// only when it is visible; the terminal grid fills the rest. While the composer
+    /// field is focused, the toolbar frame collapses to zero so the message field is
+    /// the only bottom chrome above the keyboard.
     ///
     /// The toolbar's button row is bottom-pinned inside its container (see
     /// `TerminalInputTextView.dockedButtonRowHeight`), so the controls always hug the
@@ -1759,6 +1776,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let bottomEdge = chromeHidden ? bounds.height : bounds.height - occupied
         let width = bounds.width
         let effectiveComposerHeight = chromeHidden ? 0 : composerBandHeight
+        let effectiveToolbarHeight = chromeHidden ? 0 : reservedToolbarHeight
         // Composer band sits directly above the keyboard (or the safe-area inset),
         // pinned to the bottom edge; the toolbar's button band reserves
         // `persistentToolbarHeight` directly above the composer. At height 0 the band
@@ -1768,9 +1786,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let composerTop = bottomEdge - effectiveComposerHeight
         let composerFrame = CGRect(x: 0, y: max(0, composerTop), width: width, height: effectiveComposerHeight)
         // Toolbar's reserved bottom is the composer's top (or the bottom edge with no
-        // composer), and its reserved top is one button-row band above that.
+        // composer), and its reserved top is one visible button-row band above that.
         let toolbarBottom = effectiveComposerHeight > 0 ? composerTop : bottomEdge
-        let toolbarReservedTop = toolbarBottom - Self.persistentToolbarHeight
+        let toolbarReservedTop = toolbarBottom - effectiveToolbarHeight
         // Toolbar top: with a composer band below, the toolbar container is exactly its
         // button band (no slack to absorb — the composer owns the space below). Without
         // a composer, let the top float up to the rendered terminal's bottom so the
@@ -1779,7 +1797,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // or above `toolbarReservedTop`). Never drop below `toolbarReservedTop` (that
         // would re-open the gap) and never go negative.
         let toolbarTop: CGFloat
-        if effectiveComposerHeight > 0 {
+        if effectiveToolbarHeight == 0 {
+            toolbarTop = toolbarBottom
+        } else if effectiveComposerHeight > 0 {
             toolbarTop = max(0, toolbarReservedTop)
         } else {
             let renderBottom = lastRenderRect.isEmpty ? toolbarReservedTop : lastRenderRect.maxY

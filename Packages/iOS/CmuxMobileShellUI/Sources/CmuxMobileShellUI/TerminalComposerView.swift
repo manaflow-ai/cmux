@@ -47,6 +47,7 @@ struct TerminalComposerView: View {
     /// the host measures the ideal height via `sizeThatFits` and applies it without a
     /// steady-state animation.
     let requestHeightRemeasure: () -> Void
+    let onFocusChange: (Bool) -> Void
     @FocusState private var isFieldFocused: Bool
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
     /// each batch is encoded and staged so re-picking the same image fires again.
@@ -71,10 +72,16 @@ struct TerminalComposerView: View {
     /// `state` it reads (mic button enabled/listening) automatically.
     @State private var dictation = ComposerDictationController()
 
-    init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
+    init(
+        store: CMUXMobileShellStore,
+        terminalID: String,
+        requestHeightRemeasure: @escaping () -> Void,
+        onFocusChange: @escaping (Bool) -> Void
+    ) {
         self.store = store
         self.terminalID = terminalID
         self.requestHeightRemeasure = requestHeightRemeasure
+        self.onFocusChange = onFocusChange
     }
 
     /// Single-line height of the round attach button beside the field. It stays
@@ -209,6 +216,7 @@ struct TerminalComposerView: View {
             // on the incoming composer) or merely looking at the default-open
             // field (keyboard stays down).
             store.composerFieldFocusChanged(focused)
+            onFocusChange(focused)
             // The field losing focus stops dictation gracefully (the user moved on
             // but keeps the draft, so the last words are finalized into it). Skip
             // this when dictation itself owns the field: locking it (.disabled

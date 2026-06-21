@@ -194,12 +194,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// sizes the surface band.
         @MainActor
         private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
-            let view = TerminalComposerView(store: store, terminalID: surfaceID) { [weak self] in
+            let view = TerminalComposerView(
+                store: store,
+                terminalID: surfaceID,
+                requestHeightRemeasure: { [weak self] in
                 // Content changed (a line added/removed, attachment row changed, or
                 // cleared after send): apply immediately so the composer bottom stays
                 // pinned to the keyboard and only the top edge moves.
                 self?.reportComposerHeight(animated: false)
-            }
+                },
+                onFocusChange: { [weak self] focused in
+                    self?.surfaceView?.setComposerFieldFocused(focused)
+                }
+            )
             let controller = UIHostingController(rootView: view)
             // The field is pinned edge-to-edge in the band, so the band frame (not an
             // intrinsic size) drives the hosting view's height; the measured ideal
