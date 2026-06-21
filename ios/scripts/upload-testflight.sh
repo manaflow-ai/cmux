@@ -126,6 +126,17 @@ Options:
                             ios/CHANGELOG.md entry to the build (the Internal block,
                             or the External block with --external). Also via
                             CMUX_TESTFLIGHT_SKIP_NOTES=1.
+  --notes-from-range <base> Auto-generate the "What to Test" notes from the
+                            iOS-affecting commits in <base>..HEAD instead of the
+                            ios/CHANGELOG.md top entry (used by the every-2h beta
+                            lane so each build's notes reflect what changed since
+                            the previous beta). Skips the changelog preflight and
+                            version-match guard.
+  --auto-version            Stamp the build's MARKETING_VERSION at archive time
+                            (no repo commit) to the next patch above the last
+                            iOS release (newest ios-v<X.Y.Z> tag, else the
+                            checked-in MARKETING_VERSION), so betas show e.g.
+                            1.0.4 while 1.0.3 is the last release.
   -h, --help                Show this help.
 EOF
 }
@@ -175,6 +186,18 @@ SKIP_NOTES=0
 if [[ "${CMUX_TESTFLIGHT_SKIP_NOTES:-}" == "1" ]]; then
   SKIP_NOTES=1
 fi
+# --notes-from-range <base>: auto-generate the "What to Test" notes from the
+# iOS-affecting commits in <base>..HEAD (via generate-testflight-notes.sh) instead
+# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-2h beta lane
+# so each build's notes reflect what actually changed since the previous beta. When
+# set, the changelog preflight + version-match guard are skipped (the notes no
+# longer come from the changelog, and --auto-version stamps a version the changelog
+# would not match).
+NOTES_RANGE_BASE=""
+# --auto-version: stamp the build's MARKETING_VERSION at archive time (no repo
+# commit-back, mirroring the timestamp build number) to the next patch above the
+# last iOS release, so betas show e.g. 1.0.4 while 1.0.3 is the last release.
+AUTO_VERSION=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -209,6 +232,15 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-notes)
       SKIP_NOTES=1
+      shift
+      ;;
+    --notes-from-range)
+      require_option_value "$1" "${2:-}"
+      NOTES_RANGE_BASE="$2"
+      shift 2
+      ;;
+    --auto-version)
+      AUTO_VERSION=1
       shift
       ;;
     -h|--help)
@@ -254,6 +286,37 @@ DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
 NOTES_AUDIENCE="internal"
 [[ "$EXTERNAL_TESTING" == "1" ]] && NOTES_AUDIENCE="external"
 
+# --auto-version: compute the beta marketing version (next patch above the last
+# iOS release) and prepare it as an archive build-setting override. No repo write:
+# this mirrors the timestamp BUILD_NUMBER, which is also stamped at archive time
+# and never committed. Source of "last release" is the newest `ios-v<X.Y.Z>` git
+# tag (the `v1.x` tags are the macOS app); fallback to the checked-in
+# MARKETING_VERSION if no iOS tag exists. So while 1.0.3 is the last release, every
+# beta archives as 1.0.4; a real release sets + tags the version and the stamp
+# tracks it.
+MARKETING_VERSION_ARGS=()
+BETA_MARKETING_VERSION=""
+if [[ "$AUTO_VERSION" -eq 1 ]]; then
+  base_version=""
+  last_ios_tag="$(git -C "$IOS_DIR" tag --list 'ios-v*' --sort=-version:refname 2>/dev/null | head -1 || true)"
+  if [[ "$last_ios_tag" =~ ^ios-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    base_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+  else
+    base_version="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([0-9]+(\.[0-9]+){1,2}).*/\1/p' "$IOS_DIR/Config/Shared.xcconfig" 2>/dev/null | head -1)"
+  fi
+  if [[ "$base_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    BETA_MARKETING_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$(( BASH_REMATCH[3] + 1 ))"
+  elif [[ "$base_version" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+    BETA_MARKETING_VERSION="${BASH_REMATCH[1]}.$(( BASH_REMATCH[2] + 1 )).0"
+  fi
+  if [[ -n "$BETA_MARKETING_VERSION" ]]; then
+    MARKETING_VERSION_ARGS=( "MARKETING_VERSION=$BETA_MARKETING_VERSION" )
+    echo "auto-version: stamping beta MARKETING_VERSION=$BETA_MARKETING_VERSION (last release base ${base_version:-unknown})" >&2
+  else
+    echo "warning: --auto-version could not compute a beta version (base '${base_version:-}'); leaving the checked-in MARKETING_VERSION" >&2
+  fi
+fi
+
 # Preflight the TestFlight "What to Test" notes BEFORE the expensive archive, so a
 # deterministic local error (missing ios/CHANGELOG.md, empty audience block) fails
 # fast here instead of being discovered only AFTER the build is already uploaded
@@ -261,8 +324,9 @@ NOTES_AUDIENCE="internal"
 # and needs no ASC credentials. The version-match check (changelog top == the
 # build's marketing version) happens later for a reused --archive-path / post-build,
 # where the actual marketing version is known. Skipped when there is no upload to
-# annotate (--export-only) or notes are turned off (--skip-notes).
-if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 ]]; then
+# annotate (--export-only), notes are turned off (--skip-notes), or notes come from
+# a commit range (--notes-from-range) rather than the changelog.
+if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && -z "$NOTES_RANGE_BASE" ]]; then
   if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only --audience "$NOTES_AUDIENCE"; then
     echo "error: TestFlight What to Test notes preflight failed (see above). Fix ios/CHANGELOG.md before uploading, or pass --skip-notes to upload without notes." >&2
     exit 1
@@ -426,6 +490,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      "${MARKETING_VERSION_ARGS[@]}" \
       CODE_SIGN_STYLE=Automatic \
       CODE_SIGN_ENTITLEMENTS="Config/cmux-release.entitlements" \
       CODE_SIGN_IDENTITY="Apple Distribution" \
@@ -447,6 +512,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+      "${MARKETING_VERSION_ARGS[@]}" \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \
@@ -465,7 +531,10 @@ fi
 # fails BEFORE the export/upload, not after (when the notes step is non-fatal and
 # would just ship an opaque build). Skipped for --export-only / --skip-notes. If the
 # archive's version is unreadable, the version-match guard simply does not run.
-if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 ]]; then
+# Skipped for --notes-from-range: the notes come from the commit range, not the
+# changelog, and --auto-version intentionally stamps a version the changelog would
+# not match.
+if [[ "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && -z "$NOTES_RANGE_BASE" ]]; then
   ARCHIVE_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
   if [[ "$ARCHIVE_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only \
@@ -779,18 +848,27 @@ else
   # re-applied later. NOTES_AUDIENCE was set early. Re-read the archived marketing
   # version so the mutation still carries the version-match guard.
   NOTES_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
-  NOTES_VERSION_ARGS=()
-  if [[ "$NOTES_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
-    NOTES_VERSION_ARGS=( --expect-marketing-version "$NOTES_MARKETING_VERSION" )
+  # With --notes-from-range the notes come from the commit range (not the
+  # changelog), so pass them via --notes and skip the changelog version-match
+  # (--expect-marketing-version validates the changelog top, which we are not
+  # using). Otherwise keep the changelog-driven behavior + version-match guard.
+  NOTES_SOURCE_ARGS=()
+  NOTES_SOURCE_DESC="ios/CHANGELOG.md"
+  if [[ -n "$NOTES_RANGE_BASE" ]]; then
+    GENERATED_NOTES="$("$SCRIPT_DIR/generate-testflight-notes.sh" "$NOTES_RANGE_BASE" --audience "$NOTES_AUDIENCE" 2>/dev/null || true)"
+    NOTES_SOURCE_ARGS=( --notes "$GENERATED_NOTES" )
+    NOTES_SOURCE_DESC="commits since the previous beta (${NOTES_RANGE_BASE})"
+  elif [[ "$NOTES_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+    NOTES_SOURCE_ARGS=( --expect-marketing-version "$NOTES_MARKETING_VERSION" )
   fi
-  echo "setting TestFlight '$NOTES_AUDIENCE' What to Test notes for build $SHIPPED_BUILD_NUMBER (${NOTES_MARKETING_VERSION:-unknown version}) from ios/CHANGELOG.md" >&2
+  echo "setting TestFlight '$NOTES_AUDIENCE' What to Test notes for build $SHIPPED_BUILD_NUMBER (${NOTES_MARKETING_VERSION:-unknown version}) from ${NOTES_SOURCE_DESC}" >&2
   if ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
      ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
      "$SCRIPT_DIR/set-testflight-notes.sh" \
        --build-number "$SHIPPED_BUILD_NUMBER" \
        --audience "$NOTES_AUDIENCE" \
        --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
-       "${NOTES_VERSION_ARGS[@]}"; then
+       "${NOTES_SOURCE_ARGS[@]}"; then
     echo "TestFlight What to Test notes set for build $SHIPPED_BUILD_NUMBER" >&2
   else
     echo "warning: could not set TestFlight What to Test notes for build $SHIPPED_BUILD_NUMBER (the upload succeeded; re-run ios/scripts/set-testflight-notes.sh --build-number $SHIPPED_BUILD_NUMBER --audience $NOTES_AUDIENCE once the build finishes processing)" >&2
