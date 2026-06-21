@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34179	CLI/cmux.swift
-13699	Sources/AppDelegate.swift
+13692	Sources/AppDelegate.swift
 12371	Sources/ContentView.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11768	Sources/Workspace.swift

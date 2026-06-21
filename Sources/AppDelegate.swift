@@ -7449,24 +7449,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Builds the window-domain ``MainWindowActivationResolver`` from the live
+    /// AppKit/window-context sources. The selection/ordering policy lives in
+    /// `CmuxWindowing`; this factory binds it to the app's live state.
+    private func makeMainWindowActivationResolver() -> MainWindowActivationResolver {
+        MainWindowActivationResolver(
+            sortedContextWindows: { [weak self] in
+                guard let self else { return [] }
+                return self.sortedMainWindowContextsForSessionSnapshot()
+                    .compactMap { self.resolvedWindow(for: $0) }
+            },
+            keyWindow: { NSApp.keyWindow },
+            mainWindow: { NSApp.mainWindow },
+            allWindows: { NSApp.windows },
+            isMainTerminalWindow: { [weak self] window in
+                self?.isMainTerminalWindow(window) ?? false
+            },
+            isVisible: { $0.isVisible },
+            isMiniaturized: { $0.isMiniaturized }
+        )
+    }
+
     private func preferredMainWindowForVisibilityActivation() -> NSWindow? {
-        if let keyWindow = NSApp.keyWindow,
-           isMainTerminalWindow(keyWindow) {
-            return keyWindow
-        }
-        if let mainWindow = NSApp.mainWindow,
-           isMainTerminalWindow(mainWindow) {
-            return mainWindow
-        }
-        if let visibleContext = sortedMainWindowContextsForSessionSnapshot().first(where: { context in
-            guard let window = resolvedWindow(for: context) else { return false }
-            return window.isVisible && !window.isMiniaturized
-        }) {
-            return resolvedWindow(for: visibleContext)
-        }
-        return sortedMainWindowContextsForSessionSnapshot()
-            .compactMap { resolvedWindow(for: $0) }
-            .first
+        makeMainWindowActivationResolver().preferredMainWindowForVisibilityActivation()
     }
 
     @MainActor
@@ -7496,19 +7501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func mainWindowsForVisibilityController() -> [NSWindow] {
-        var windows: [NSWindow] = []
-        for context in sortedMainWindowContextsForSessionSnapshot() {
-            guard let window = resolvedWindow(for: context) else { continue }
-            if !windows.contains(where: { $0 === window }) {
-                windows.append(window)
-            }
-        }
-        for window in NSApp.windows where isMainTerminalWindow(window) {
-            if !windows.contains(where: { $0 === window }) {
-                windows.append(window)
-            }
-        }
-        return windows
+        makeMainWindowActivationResolver().mainWindowsForVisibilityController()
     }
 
     func showNotificationsPopoverFromMenuBar() {
