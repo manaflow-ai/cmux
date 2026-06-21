@@ -3307,7 +3307,7 @@ class TabManager: ObservableObject {
     }
 
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
-        guard let tab = workspacesById[tabId] else { return }
+        guard let tab = workspacesById[tabId], tab.panels[panelId] != nil else { return }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         _ = tab.updatePanelTitle(panelId: panelId, title: title)

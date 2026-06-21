@@ -179,6 +179,57 @@ struct TabManagerTitleUpdateTests {
     }
 
     @Test
+    func pendingTitleUpdateIgnoredAfterPanelRemoval() async throws {
+        let suiteName = "TabManagerTitleRemovedPanel.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(500, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let scheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let removedPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let remainingPanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true))
+        let remainingTitle = try #require(workspace.panelTitles[remainingPanel.id])
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: removedPanelId,
+                GhosttyNotificationKey.title: "Closed Panel - grok"
+            ]
+        )
+
+        await drainMainQueue()
+        #expect(scheduler.delays == [0.5])
+        #expect(workspace.closePanel(removedPanelId, force: true))
+        #expect(workspace.panels[removedPanelId] == nil)
+        #expect(workspace.panels[remainingPanel.id] != nil)
+        #expect(workspace.panelTitles[removedPanelId] == nil)
+        let workspaceTitleAfterClose = workspace.title
+
+        scheduler.fire(at: 0)
+
+        #expect(workspace.panelTitles[removedPanelId] == nil)
+        #expect(workspace.panelTitles[remainingPanel.id] == remainingTitle)
+        #expect(workspace.title == workspaceTitleAfterClose)
+        #expect(workspace.title != "Closed Panel - grok")
+    }
+
+    @Test
     func titleCoalescingDelayIsDefaultOffAndClampedWhenEnabled() throws {
         let suiteName = "TabManagerTitleCoalescingClamp.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
