@@ -13308,19 +13308,6 @@ struct TabItemView: View, Equatable {
         )
     }
 
-    private func workspaceDropTargetHeight(
-        snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
-        effectiveSubtitle: String?
-    ) -> CGFloat? {
-        SidebarWorkspaceRowDropMetrics.dropTargetHeight(
-            snapshot: snapshot,
-            settings: settings,
-            effectiveSubtitle: effectiveSubtitle,
-            metadataEntryIsExpanded: metadataRowsExpanded,
-            metadataBlocksAreExpanded: metadataBlocksExpanded
-        )
-    }
-
     var body: some View {
         let workspaceSnapshot = self.workspaceSnapshot
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -13347,9 +13334,12 @@ struct TabItemView: View, Equatable {
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
         )
-        let dropTargetHeight = workspaceDropTargetHeight(
+        let dropTargetHeight = SidebarWorkspaceRowDropMetrics.dropTargetHeight(
             snapshot: workspaceSnapshot,
-            effectiveSubtitle: effectiveSubtitle
+            settings: settings,
+            effectiveSubtitle: effectiveSubtitle,
+            metadataEntryIsExpanded: metadataRowsExpanded,
+            metadataBlocksAreExpanded: metadataBlocksExpanded
         )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
