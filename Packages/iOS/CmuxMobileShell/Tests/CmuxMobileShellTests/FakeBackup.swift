@@ -7,10 +7,16 @@ actor FakeBackup: PairedMacBackingUp {
     private(set) var uploadedTeamIDs: [String?] = []
     private(set) var fetchCount = 0
     private let records: [PairedMacBackupRecord]
+    private let deletedMacDeviceIDs: [String]
     private var failNextFetches: Int
 
-    init(records: [PairedMacBackupRecord] = [], failNextFetches: Int = 0) {
+    init(
+        records: [PairedMacBackupRecord] = [],
+        deletedMacDeviceIDs: [String] = [],
+        failNextFetches: Int = 0
+    ) {
         self.records = records
+        self.deletedMacDeviceIDs = deletedMacDeviceIDs
         self.failNextFetches = failNextFetches
     }
 
@@ -25,12 +31,16 @@ actor FakeBackup: PairedMacBackingUp {
     }
 
     func fetchAll() async -> [PairedMacBackupRecord]? {
+        await fetchSnapshot()?.records
+    }
+
+    func fetchSnapshot() async -> PairedMacBackupSnapshot? {
         fetchCount += 1
         if failNextFetches > 0 {
             failNextFetches -= 1
             return nil
         }
-        return records
+        return PairedMacBackupSnapshot(records: records, deletedMacDeviceIDs: deletedMacDeviceIDs)
     }
 
     func uploadedOps() -> [PairedMacBackupOp] { uploaded }

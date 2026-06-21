@@ -78,12 +78,22 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     /// Fetch every backed-up paired Mac for the current user/team scope.
     public func fetchAll() async -> [PairedMacBackupRecord]? {
+        await fetchSnapshot()?.records
+    }
+
+    /// Fetch live records and delete tombstones for the current user/team scope.
+    public func fetchSnapshot() async -> PairedMacBackupSnapshot? {
         let teamID = await teamIDProvider()
-        return await fetchAll(teamID: teamID)
+        return await fetchSnapshot(teamID: teamID)
     }
 
     /// Fetch every backed-up paired Mac for an already-captured user/team scope.
     public func fetchAll(teamID: String?) async -> [PairedMacBackupRecord]? {
+        await fetchSnapshot(teamID: teamID)?.records
+    }
+
+    /// Fetch live records and delete tombstones for an already-captured user/team scope.
+    public func fetchSnapshot(teamID: String?) async -> PairedMacBackupSnapshot? {
         guard let request = await makeRequest(method: "GET", body: nil, teamID: teamID) else { return nil }
         do {
             let (data, response) = try await session.data(for: request)
@@ -92,7 +102,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
                 return nil
             }
             // A 2xx with an undecodable body is a real failure, not "no hosts".
-            return (try? JSONDecoder().decode(PairedMacBackupListResponse.self, from: data))?.records
+            return (try? JSONDecoder().decode(PairedMacBackupListResponse.self, from: data))?.snapshot
         } catch {
             pairedMacBackupLog.warning("paired-mac backup fetch error: \(String(describing: error), privacy: .public)")
             return nil

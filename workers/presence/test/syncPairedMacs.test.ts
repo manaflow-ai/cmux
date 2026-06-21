@@ -7,6 +7,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   applyBackupOps,
+  listBackupSnapshot,
   listLiveBackup,
   MAX_BACKUP_OPS,
   MAX_PAIRED_MAC_RECORDS_PER_USER,
@@ -295,9 +296,10 @@ describe("applyBackupOps", () => {
     const afterOverflow = await listLiveBackup(storage, account);
     expect(afterOverflow.some((r) => r.macDeviceID === "mac-overflow")).toBe(false);
 
-    // ...but REVIVING an existing tombstoned id is allowed (reuses its slot, no growth).
+    // ...but REVIVING an existing tombstoned id is allowed when the upsert is
+    // newer than the tombstone (reuses its slot, no growth).
     await applyBackupOps(storage, account, [
-      { kind: "upsert", id: "mac-0", record: record("mac-0", "10.0.0.1", 22) },
+      { kind: "upsert", id: "mac-0", record: { ...record("mac-0", "10.0.0.1", 22), lastSeenAt: T0 + 3 } },
     ], T0 + 3);
     const afterRevive = await listLiveBackup(storage, account);
     expect(afterRevive.some((r) => r.macDeviceID === "mac-0")).toBe(true);
@@ -337,6 +339,38 @@ describe("applyBackupOps", () => {
     expect(list.map((r) => r.macDeviceID)).toEqual(["new", "old"]); // newest-first, tombstone excluded
     const otherList = await listLiveBackup(storage, "user-2");
     expect(otherList.map((r) => r.macDeviceID)).toEqual(["other"]); // isolated per user
+  });
+
+  it("listBackupSnapshot returns tombstones for restore", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "10.0.0.1", 22) }], T0);
+    await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-a" }], T0 + 1000);
+
+    const snapshot = await listBackupSnapshot(storage, "user-1");
+    expect(snapshot.records).toEqual([]);
+    expect(snapshot.deletedMacDeviceIDs).toEqual(["mac-a"]);
+  });
+
+  it("ignores stale upserts older than a retained tombstone", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "10.0.0.1", 22) }], T0);
+    await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-a" }], T0 + 1000);
+
+    const stale = await applyBackupOps(storage, "user-1", [
+      { kind: "upsert", id: "mac-a", record: record("mac-a", "10.0.0.1", 22) },
+    ], T0 + 2000);
+    expect(stale).toHaveLength(0);
+    expect((await listBackupSnapshot(storage, "user-1")).deletedMacDeviceIDs).toEqual(["mac-a"]);
+
+    const fresh = await applyBackupOps(storage, "user-1", [
+      {
+        kind: "upsert",
+        id: "mac-a",
+        record: { ...record("mac-a", "10.0.0.2", 22), lastSeenAt: T0 + 3000 },
+      },
+    ], T0 + 3000);
+    expect(fresh).toHaveLength(1);
+    expect((await listLiveBackup(storage, "user-1")).map((r) => r.macDeviceID)).toEqual(["mac-a"]);
   });
 
   it("tombstones a deleted host", async () => {

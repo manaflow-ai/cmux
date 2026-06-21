@@ -41,7 +41,7 @@ public struct PairedMacRestore: Sendable {
         teamID: String? = nil,
         now: Date = Date()
     ) async -> RestoreOutcome {
-        guard let remote = await backup.fetchAll(teamID: teamID) else {
+        guard let snapshot = await backup.fetchSnapshot(teamID: teamID) else {
             return RestoreOutcome(completed: false, restored: 0)
         }
         // Sign-out (or any wipe) can race this restore: if the owning task was
@@ -51,12 +51,36 @@ public struct PairedMacRestore: Sendable {
         if Task.isCancelled {
             return RestoreOutcome(completed: false, restored: 0)
         }
-        guard !remote.isEmpty else { return RestoreOutcome(completed: true, restored: 0) }
+        let tombstoneIDs = Set(snapshot.deletedMacDeviceIDs
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty })
+        let liveRecords = snapshot.records.filter { !tombstoneIDs.contains($0.macDeviceID) }
+        guard !liveRecords.isEmpty || !tombstoneIDs.isEmpty else {
+            return RestoreOutcome(completed: true, restored: 0)
+        }
 
-        let local = (try? await store.loadAll(stackUserID: accountID, teamID: teamID)) ?? []
+        let localBeforeTombstones = (try? await store.loadAll(stackUserID: accountID, teamID: teamID)) ?? []
         // The fetch is not the only sign-out window: re-check after the load too,
         // before we start writing (a wipe between fetch and load must not be
         // overwritten with the old account's Macs).
+        if Task.isCancelled {
+            return RestoreOutcome(completed: false, restored: 0)
+        }
+        for macDeviceID in tombstoneIDs {
+            if Task.isCancelled {
+                return RestoreOutcome(completed: false, restored: 0)
+            }
+            do {
+                try await store.remove(macDeviceID: macDeviceID, stackUserID: accountID, teamID: teamID)
+            } catch {
+                pairedMacRestoreLog.warning(
+                    "failed to apply paired mac tombstone \(macDeviceID, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        let local = tombstoneIDs.isEmpty
+            ? localBeforeTombstones
+            : ((try? await store.loadAll(stackUserID: accountID, teamID: teamID)) ?? [])
         if Task.isCancelled {
             return RestoreOutcome(completed: false, restored: 0)
         }
@@ -68,7 +92,7 @@ public struct PairedMacRestore: Sendable {
         let hasLocalActive = local.contains { $0.isActive }
 
         var restored = 0
-        for record in remote {
+        for record in liveRecords {
             // Re-check before EVERY write: a sign-out wipe can land between any two
             // upserts, and writes after it would reinsert the previous account's
             // Macs into the emptied store. Stop the moment we are cancelled.

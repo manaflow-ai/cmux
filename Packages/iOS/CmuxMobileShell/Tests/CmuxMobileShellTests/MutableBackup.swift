@@ -13,8 +13,11 @@ actor MutableBackup: PairedMacBackingUp {
     func setRecords(_ records: [PairedMacBackupRecord]) { self.records = records }
     func upload(ops: [PairedMacBackupOp]) async {}
     func fetchAll() async -> [PairedMacBackupRecord]? {
+        await fetchSnapshot()?.records
+    }
+    func fetchSnapshot() async -> PairedMacBackupSnapshot? {
         fetchCount += 1
-        return records
+        return PairedMacBackupSnapshot(records: records)
     }
     func fetches() -> Int { fetchCount }
 }

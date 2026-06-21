@@ -192,6 +192,26 @@ import Testing
         #expect(try await inner.activeMac(stackUserID: "user-1")?.macDeviceID == "mac-a")
     }
 
+    @Test func restoreAppliesDeleteTombstonesBeforeLiveRecords() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await inner.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Old Studio",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1_000)
+        )
+        let backup = FakeBackup(records: [], deletedMacDeviceIDs: ["mac-a"])
+
+        let outcome = await PairedMacRestore(store: inner, backup: backup).run(accountID: "user-1")
+
+        #expect(outcome.completed)
+        #expect(outcome.restored == 0)
+        #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)
+    }
+
     @Test func cancelledRestoreDoesNotWriteAfterWipe() async throws {
         // Regression: a sign-out wipe cancels in-flight restores; a restore whose
         // fetch was suspended across the wipe must not write the previous
@@ -351,7 +371,8 @@ import Testing
               "lastSeenAt": 4,
               "isActive": false
             }
-          ]
+          ],
+          "deletedMacDeviceIDs": [" mac-gone ", ""]
         }
         """.utf8)
 
@@ -361,6 +382,7 @@ import Testing
         #expect(decoded.records[0].routes.map(\.id) == ["manual"])
         #expect(decoded.records[0].routes.first?.endpoint == .hostPort(host: "10.0.0.1", port: 22))
         #expect(decoded.records[1].routes.first?.endpoint == .hostPort(host: "127.0.0.1", port: 9222))
+        #expect(decoded.deletedMacDeviceIDs == ["mac-gone"])
     }
 
     @Test func setCustomizationPersistsAndPreservesMacData() async throws {

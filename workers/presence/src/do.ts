@@ -54,7 +54,7 @@ import {
 } from "./syncDevices";
 import {
   applyBackupOps,
-  listLiveBackup,
+  listBackupSnapshot,
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
   relabelDelta,
@@ -345,13 +345,13 @@ export class TeamPresence extends DurableObject {
 
   /** Read a user's backed-up saved-host list (the GET restore path). Called only
    * by the worker after it verifies the token, so `userId` is trusted. Returns
-   * the live records' payloads for the per-user collection, newest-first. */
+   * live records plus retained delete tombstones for the per-user collection. */
   async listPairedMacs(
     teamId: string,
     userId: string,
-  ): Promise<{ records: PairedMacBackupRecord[] }> {
+  ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[] }> {
     await this.rememberTeamId(teamId);
-    return { records: await listLiveBackup(this.syncStorage(), userId) };
+    return await listBackupSnapshot(this.syncStorage(), userId);
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----

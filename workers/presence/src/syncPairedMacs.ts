@@ -88,6 +88,11 @@ export interface PairedMacBackupRecord {
   customIcon?: string;
 }
 
+export interface PairedMacBackupSnapshot {
+  records: PairedMacBackupRecord[];
+  deletedMacDeviceIDs: string[];
+}
+
 export type PairedMacBackupOp =
   | {
       kind: "upsert";
@@ -295,6 +300,14 @@ export async function applyBackupOps(
     const existing = await readRecord<PairedMacBackupRecord>(storage, collection, op.id);
     const isBrandNew = existing === undefined;
     const isReviving = existing !== undefined && existing.deleted;
+    if (isReviving && op.record.lastSeenAt <= existing.updatedAt) {
+      // A delete tombstone is the authoritative "forget" operation. A stale
+      // device that has not restored the tombstone yet may still hold and
+      // republish its old local row; ignore that older upsert so it cannot
+      // resurrect the forgotten Mac. A true re-pair/re-add carries a fresh
+      // lastSeenAt and is allowed to reuse the tombstoned slot.
+      continue;
+    }
     const addsLive = isBrandNew || isReviving;
     if (addsLive && liveCount >= MAX_PAIRED_MACS_PER_USER) {
       // At the live cap: drop new entries rather than fail the whole batch,
@@ -381,11 +394,27 @@ export async function listLiveBackup(
   storage: SyncStorage,
   userId: string,
 ): Promise<PairedMacBackupRecord[]> {
+  return (await listBackupSnapshot(storage, userId)).records;
+}
+
+/** The full restore snapshot for a user: live records plus delete tombstones.
+ * The iOS restore applies `deletedMacDeviceIDs` before live records so a delete
+ * made on another device removes stale local rows and prevents later stale
+ * route-refresh uploads from reviving them. */
+export async function listBackupSnapshot(
+  storage: SyncStorage,
+  userId: string,
+): Promise<PairedMacBackupSnapshot> {
   const all = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection(userId));
-  return all
+  const records = all
     .filter((r) => !r.deleted)
     .map((r) => r.payload)
     .sort((a, b) => (b?.lastSeenAt ?? 0) - (a?.lastSeenAt ?? 0));
+  const deletedMacDeviceIDs = all
+    .filter((r) => r.deleted)
+    .map((r) => r.id)
+    .sort();
+  return { records, deletedMacDeviceIDs };
 }
 
 /** Re-export so the DO can build an empty delta if it ever needs to. */
