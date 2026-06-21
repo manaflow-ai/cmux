@@ -21,10 +21,61 @@ function requestProtocol(request: NextRequest): "http" | "https" {
   return request.nextUrl.protocol === "https:" ? "https" : "http";
 }
 
+function hostWithoutPort(value: string): string {
+  if (value.startsWith("[") && value.includes("]")) {
+    return value.slice(1, value.indexOf("]")).toLowerCase();
+  }
+  return value.split(":")[0]?.toLowerCase() ?? "";
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function isPrivateIPv4Host(host: string): boolean {
+  const parts = host.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+  const [first, second] = parts;
+  return first === 10
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168)
+    || (first === 169 && second === 254);
+}
+
+function isDevNetworkHost(host: string): boolean {
+  return isLoopbackHost(host) || isPrivateIPv4Host(host) || host.endsWith(".local");
+}
+
+function configuredPublicOrigins(): string[] {
+  const values = [
+    process.env.CMUX_PUBLIC_ORIGIN,
+    process.env.NEXT_PUBLIC_CMUX_PUBLIC_ORIGIN,
+  ];
+  const origins: string[] = [];
+  for (const value of values) {
+    for (const raw of value?.split(/[\s,]+/) ?? []) {
+      try {
+        if (raw) origins.push(new URL(raw).origin);
+      } catch {}
+    }
+  }
+  return origins;
+}
+
 function requestOriginCandidates(request: NextRequest): Set<string> {
   const origins = new Set<string>([request.nextUrl.origin]);
+  for (const origin of configuredPublicOrigins()) origins.add(origin);
+
   const host = firstHeaderValue(request.headers.get("host"));
-  if (host) {
+  const requestHost = hostWithoutPort(request.nextUrl.host);
+  const hostHeaderHost = host ? hostWithoutPort(host) : "";
+  const allowHostDerivedDevOrigin = hostHeaderHost
+    && isDevNetworkHost(hostHeaderHost)
+    && isDevNetworkHost(requestHost)
+    && process.env.NODE_ENV !== "production";
+  if (host && allowHostDerivedDevOrigin) {
     try {
       origins.add(new URL(`${requestProtocol(request)}://${host}`).origin);
     } catch {}

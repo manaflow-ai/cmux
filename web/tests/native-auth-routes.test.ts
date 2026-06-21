@@ -49,28 +49,49 @@ describe("native auth routes", () => {
     expect(response.headers.get("location")).toBe("https://cmux.example/");
   });
 
-  test("preserves HTTPS host origin behind TLS offload", () => {
-    const nativeReturnTo = "cmux-dev-sc2://auth-callback?cmux_auth_state=state-1";
-    const afterSignIn = new URL("https://cmux.example/handler/after-sign-in");
-    afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
-    const requestURL = new URL("http://internal.local/handler/native-sign-in");
+  test("rejects native sign-in origins supplied only by host header", () => {
+    const afterSignIn = new URL("https://attacker.example/handler/after-sign-in");
+    const requestURL = new URL("https://cmux.example/handler/native-sign-in");
     requestURL.searchParams.set("after_auth_return_to", afterSignIn.toString());
 
     const response = nativeSignInGET(new NextRequest(requestURL, {
       headers: {
-        host: "cmux.example",
-        "x-forwarded-host": "attacker.example",
-        "x-forwarded-proto": "https",
+        host: "attacker.example",
       },
     }));
 
     expect(response.status).toBe(307);
-    const location = response.headers.get("location");
-    expect(location?.startsWith("https://cmux.example/handler/sign-in?")).toBe(true);
-    expect(new URL(location!).searchParams.get("after_auth_return_to")?.startsWith(
-      "https://cmux.example/handler/after-sign-in?"
-    )).toBe(true);
-    expect(response.headers.get("set-cookie")).toContain("Secure");
+    expect(response.headers.get("location")).toBe("https://cmux.example/");
+  });
+
+  test("preserves configured HTTPS public origin behind TLS offload", () => {
+    const previousPublicOrigin = process.env.CMUX_PUBLIC_ORIGIN;
+    const nativeReturnTo = "cmux-dev-sc2://auth-callback?cmux_auth_state=state-1";
+    process.env.CMUX_PUBLIC_ORIGIN = "https://cmux.example";
+    try {
+      const afterSignIn = new URL("https://cmux.example/handler/after-sign-in");
+      afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
+      const requestURL = new URL("http://internal.local/handler/native-sign-in");
+      requestURL.searchParams.set("after_auth_return_to", afterSignIn.toString());
+
+      const response = nativeSignInGET(new NextRequest(requestURL, {
+        headers: {
+          host: "cmux.example",
+          "x-forwarded-host": "attacker.example",
+          "x-forwarded-proto": "https",
+        },
+      }));
+
+      expect(response.status).toBe(307);
+      const location = response.headers.get("location");
+      expect(location?.startsWith("https://cmux.example/handler/sign-in?")).toBe(true);
+      expect(new URL(location!).searchParams.get("after_auth_return_to")?.startsWith(
+        "https://cmux.example/handler/after-sign-in?"
+      )).toBe(true);
+      expect(response.headers.get("set-cookie")).toContain("Secure");
+    } finally {
+      restoreEnv("CMUX_PUBLIC_ORIGIN", previousPublicOrigin);
+    }
   });
 
   test("allows configured per-tag native callback schemes from a dev LAN host", () => {
