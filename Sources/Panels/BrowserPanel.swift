@@ -2901,20 +2901,6 @@ final class BrowserPanel: Panel, ObservableObject {
     /// survives WKWebView replacement and can be applied to each new page.
     @Published private(set) var isMuted: Bool = false
 
-    /// Whether the page currently has actively-playing media, from the safe DOM
-    /// media-playback hook. Drives the Chrome-style speaker glyph on the browser
-    /// tab and the sidebar workspace row; ``isMuted`` is tracked separately so a
-    /// muted-but-playing tab can still render the muted activity glyph.
-    @Published private(set) var isPlayingAudio: Bool = false
-
-    /// Whether the page is actively capturing the microphone (public, KVO-backed
-    /// `WKWebView.microphoneCaptureState`). Nice-to-have media-activity signal.
-    @Published private(set) var isUsingMicrophone: Bool = false
-
-    /// Whether the page is actively capturing the camera (public, KVO-backed
-    /// `WKWebView.cameraCaptureState`). Nice-to-have media-activity signal.
-    @Published private(set) var isUsingCamera: Bool = false
-
     /// Published can go back state
     @Published private(set) var canGoBack: Bool = false
 
@@ -3081,14 +3067,35 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var isPlayingMedia: Bool = false {
         didSet {
             guard oldValue != isPlayingMedia else { return }
-            if isPlayingAudio != isPlayingMedia { isPlayingAudio = isPlayingMedia }
-            reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
+            setMediaActivity(isPlayingAudio: isPlayingMedia, reason: "media_playback_changed")
         }
     }
+    /// Live media activity. ``Workspace`` publishes it to tab/sidebar surfaces.
+    private(set) var mediaActivity = BrowserMediaActivity()
+    var isPlayingAudio: Bool { mediaActivity.isPlayingAudio }
+    var isUsingMicrophone: Bool { mediaActivity.isUsingMicrophone }
+    var isUsingCamera: Bool { mediaActivity.isUsingCamera }
+    var onMediaActivityChanged: ((BrowserMediaActivity) -> Void)?
     /// Document ids of the frames currently reporting playing media. The pane is
     /// kept alive while this is non-empty.
     private var playingMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
+
+    private func setMediaActivity(
+        isPlayingAudio: Bool? = nil,
+        isUsingMicrophone: Bool? = nil,
+        isUsingCamera: Bool? = nil,
+        reason: String
+    ) {
+        var next = mediaActivity
+        if let isPlayingAudio { next.isPlayingAudio = isPlayingAudio }
+        if let isUsingMicrophone { next.isUsingMicrophone = isUsingMicrophone }
+        if let isUsingCamera { next.isUsingCamera = isUsingCamera }
+        guard next != mediaActivity else { return }
+        mediaActivity = next
+        onMediaActivityChanged?(next)
+        reevaluateHiddenWebViewDiscardScheduling(reason: reason)
+    }
 
     /// Folds a per-frame playback report into ``isPlayingMedia``. Lives here so
     /// the `private(set)` setter stays confined to this file.
@@ -4612,9 +4619,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// from the fresh web view.
     private func detachWebViewObservers() {
         webViewObservers.removeAll()
-        if isPlayingAudio { isPlayingAudio = false }
-        if isUsingMicrophone { isUsingMicrophone = false }
-        if isUsingCamera { isUsingCamera = false }
+        resetMediaPlaybackTracking()
+        setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
         webViewCancellables.removeAll()
     }
 
@@ -4722,8 +4728,7 @@ final class BrowserPanel: Panel, ObservableObject {
             let isUsingCamera = webView.cameraCaptureState != .none
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                if self.isUsingCamera != isUsingCamera { self.isUsingCamera = isUsingCamera }
-                self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
+                self.setMediaActivity(isUsingCamera: isUsingCamera, reason: "media_capture_changed")
             }
         }
         webViewObservers.append(cameraCaptureObserver)
@@ -4732,8 +4737,7 @@ final class BrowserPanel: Panel, ObservableObject {
             let isUsingMicrophone = webView.microphoneCaptureState != .none
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                if self.isUsingMicrophone != isUsingMicrophone { self.isUsingMicrophone = isUsingMicrophone }
-                self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
+                self.setMediaActivity(isUsingMicrophone: isUsingMicrophone, reason: "media_capture_changed")
             }
         }
         webViewObservers.append(microphoneCaptureObserver)
@@ -4743,8 +4747,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // call is live shows the glyph without waiting for the next transition.
         let initialIsUsingCamera = webView.cameraCaptureState != .none
         let initialIsUsingMicrophone = webView.microphoneCaptureState != .none
-        if isUsingCamera != initialIsUsingCamera { isUsingCamera = initialIsUsingCamera }
-        if isUsingMicrophone != initialIsUsingMicrophone { isUsingMicrophone = initialIsUsingMicrophone }
+        setMediaActivity(isUsingMicrophone: initialIsUsingMicrophone, isUsingCamera: initialIsUsingCamera, reason: "media_capture_changed")
 
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
@@ -5824,10 +5827,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
-        // `deinit` is nonisolated, so it can't call the main-actor
-        // `detachWebViewObservers()`. Tear the observers down inline (the derived
-        // `@Published` media flags don't need resetting — the panel is going
-        // away).
+        // `deinit` is nonisolated, so tear observers down inline.
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
