@@ -18,7 +18,6 @@ enum GhosttyDefaultBackgroundUpdateScope: Int {
 
 /// Coalesces Ghostty appearance notifications so consumers only observe the
 /// latest runtime terminal colors for a burst of updates.
-@MainActor
 final class GhosttyDefaultBackgroundNotificationDispatcher {
     private let coalescer: NotificationBurstCoalescer
     private let postNotification: @MainActor ([AnyHashable: Any]) -> Void
@@ -27,7 +26,7 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
     private var pendingSource: String = "unspecified"
     private let logEvent: (@MainActor (String) -> Void)?
 
-    nonisolated init(
+    init(
         delay: TimeInterval = 1.0 / 30.0,
         coalescer: NotificationBurstCoalescer? = nil,
         logEvent: (@MainActor (String) -> Void)? = nil,
@@ -44,6 +43,7 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
         self.postNotification = postNotification
     }
 
+    @MainActor
     func signal(
         backgroundColor: NSColor,
         opacity: Double,

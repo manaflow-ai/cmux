@@ -2,7 +2,6 @@ import Foundation
 
 /// Coalesces repeated main-thread signals into one callback after a short delay.
 /// Useful for notification storms where only the latest update matters.
-@MainActor
 final class NotificationBurstCoalescer {
     typealias Cancellation = @MainActor () -> Void
     typealias Scheduler = @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Cancellation
@@ -12,7 +11,7 @@ final class NotificationBurstCoalescer {
     private var cancelScheduledFlush: Cancellation?
     private var pendingAction: (@MainActor () -> Void)?
 
-    nonisolated init(
+    init(
         delay: TimeInterval = 1.0 / 30.0,
         schedule: @escaping Scheduler = { delay, action in
             let timer = Timer(timeInterval: max(0, delay), repeats: false) { timer in
@@ -32,9 +31,12 @@ final class NotificationBurstCoalescer {
     }
 
     deinit {
-        cancelScheduledFlush?()
+        MainActor.assumeIsolated {
+            cancelScheduledFlush?()
+        }
     }
 
+    @MainActor
     func signal(delay newDelay: TimeInterval? = nil, _ action: @escaping @MainActor () -> Void) {
         precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
         let previousDelay = delay
@@ -49,6 +51,7 @@ final class NotificationBurstCoalescer {
         scheduleFlushIfNeeded()
     }
 
+    @MainActor
     private func scheduleFlushIfNeeded() {
         guard cancelScheduledFlush == nil else { return }
         let scheduledDelay = delay
@@ -59,6 +62,7 @@ final class NotificationBurstCoalescer {
         }
     }
 
+    @MainActor
     private func flush() {
         precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
         cancelScheduledFlush = nil
