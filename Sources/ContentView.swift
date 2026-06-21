@@ -9373,47 +9373,20 @@ struct TabItemView: View, Equatable {
     private var remoteWorkspaceSection: some View {
         let workspaceSnapshot = self.workspaceSnapshot
         if !settings.hidesAllDetails, sidebarShowSSH, let remoteWorkspaceSidebarText = workspaceSnapshot.remoteWorkspaceSidebarText {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(remoteWorkspaceSidebarText)
-                        .font(.system(size: scaledFontSize(10), design: .monospaced))
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    Spacer(minLength: 0)
-
-                    Text(workspaceSnapshot.remoteConnectionStatusText)
-                        .font(.system(size: scaledFontSize(9), weight: .medium))
-                        .foregroundColor(activeSecondaryColor(0.58))
-                        .lineLimit(1)
-
-                    if workspaceSnapshot.showsRemoteReconnectAffordance {
-                        Button {
-                            tab.reconnectRemoteConnection()
-                        } label: {
-                            Label(
-                                String(localized: "sidebar.remote.reconnect.button", defaultValue: "Reconnect"),
-                                systemImage: "arrow.clockwise"
-                            )
-                            .labelStyle(.titleAndIcon)
-                            .font(.system(size: scaledFontSize(9), weight: .semibold))
-                        }
-                        .buttonStyle(.borderless)
-                        .foregroundColor(activeSecondaryColor(0.9))
-                        .safeHelp(String(
-                            format: String(
-                                localized: "sidebar.remote.reconnect.help",
-                                defaultValue: "Reconnect to %@"
-                            ),
-                            locale: .current,
-                            remoteWorkspaceSidebarText
-                        ))
-                    }
+            SidebarWorkspaceRemoteRow(
+                hostText: remoteWorkspaceSidebarText,
+                connectionStatusText: workspaceSnapshot.remoteConnectionStatusText,
+                showsReconnectAffordance: workspaceSnapshot.showsRemoteReconnectAffordance,
+                stateHelpText: workspaceSnapshot.remoteStateHelpText,
+                hostColor: activeSecondaryColor(0.8),
+                statusColor: activeSecondaryColor(0.58),
+                reconnectColor: activeSecondaryColor(0.9),
+                fontScale: fontScale,
+                topPadding: latestNotificationText == nil ? 1 : 2,
+                onReconnect: {
+                    tab.reconnectRemoteConnection()
                 }
-            }
-            .padding(.top, latestNotificationText == nil ? 1 : 2)
-            .safeHelp(workspaceSnapshot.remoteStateHelpText)
+            )
         }
     }
 
@@ -9520,12 +9493,11 @@ struct TabItemView: View, Equatable {
             }
 
             if let subtitle = effectiveSubtitle {
-                Text(subtitle)
-                    .font(.system(size: scaledFontSize(10)))
-                    .foregroundColor(activeSecondaryColor(0.8))
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                    .multilineTextAlignment(.leading)
+                SidebarWorkspaceSubtitleText(
+                    text: subtitle,
+                    color: activeSecondaryColor(0.8),
+                    fontScale: fontScale
+                )
             }
 
             remoteWorkspaceSection
@@ -9633,22 +9605,13 @@ struct TabItemView: View, Equatable {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(backgroundColor)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
-                }
-                .overlay(alignment: .leading) {
-                    if showsLeadingRail {
-                        Capsule(style: .continuous)
-                            .fill(railColor)
-                            .frame(width: 3)
-                            .padding(.leading, 4)
-                            .padding(.vertical, 5)
-                            .offset(x: -1)
-                    }
-                }
+            SidebarWorkspaceRowBackground(
+                fillColor: backgroundColor,
+                borderColor: activeBorderColor,
+                borderLineWidth: activeBorderLineWidth,
+                showsLeadingRail: showsLeadingRail,
+                railColor: railColor
+            )
         )
         .sidebarShortcutHintOverlay(
             text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
