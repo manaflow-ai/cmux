@@ -3069,24 +3069,24 @@ struct CMUXCLI {
         return true
     }
 
-    private struct SessionDebugAgentSpec {
+    private struct SessionListAgentSpec {
         let name: String
         let displayName: String
         let sessionStoreSuffix: String
         let configDirEnvOverride: String?
     }
 
-    private struct SessionDebugEntry {
+    private struct SessionListEntry {
         let updatedAt: TimeInterval
         let payload: [String: Any]
     }
 
-    private struct CodexDebugIndex {
+    private struct CodexSessionListIndex {
         let indexedSessionIds: Set<String>
         let transcriptPathBySessionId: [String: String]
     }
 
-    private func runSessionsDebugCommand(
+    private func runSessionsCommand(
         commandArgs rawArgs: [String],
         jsonOutput: Bool,
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
@@ -3097,10 +3097,10 @@ struct CMUXCLI {
         if subcommand == "debug" || subcommand == "list" {
             args.removeFirst()
         } else if subcommand == "help" {
-            print(subcommandUsage("sessions") ?? "Usage: cmux sessions debug")
+            print(subcommandUsage("sessions") ?? "Usage: cmux sessions list")
             return
         } else if let subcommand, !subcommand.hasPrefix("-") {
-            throw CLIError(message: "Unknown sessions subcommand: \(subcommand). Usage: cmux sessions debug [options]")
+            throw CLIError(message: "Unknown sessions subcommand: \(subcommand). Usage: cmux sessions list [options]")
         }
 
         let (agentRaw, rem0) = parseOption(args, name: "--agent")
@@ -3126,10 +3126,10 @@ struct CMUXCLI {
             }
         }
         if let unknown = remaining.first(where: { $0.hasPrefix("-") }) {
-            throw CLIError(message: "sessions debug: unknown flag '\(unknown)'")
+            throw CLIError(message: "sessions list: unknown flag '\(unknown)'")
         }
         if let extra = remaining.first {
-            throw CLIError(message: "sessions debug: unexpected argument '\(extra)'")
+            throw CLIError(message: "sessions list: unexpected argument '\(extra)'")
         }
 
         let limit: Int
@@ -3137,21 +3137,21 @@ struct CMUXCLI {
             limit = Int.max
         } else if let limitRaw {
             guard let parsed = Int(limitRaw), parsed > 0 else {
-                throw CLIError(message: "sessions debug: --limit must be a positive integer")
+                throw CLIError(message: "sessions list: --limit must be a positive integer")
             }
             limit = parsed
         } else {
             limit = 100
         }
 
-        let stateDir = sessionsDebugExpandedPath(
+        let stateDir = sessionsListExpandedPath(
             stateDirRaw
                 ?? processEnv["CMUX_AGENT_HOOK_STATE_DIR"]
                 ?? URL(fileURLWithPath: processEnv["HOME"] ?? NSHomeDirectory(), isDirectory: true)
                     .appendingPathComponent(".cmuxterm", isDirectory: true)
                     .path
         )
-        let defaultCodexHome = sessionsDebugExpandedPath(
+        let defaultCodexHome = sessionsListExpandedPath(
             codexHomeRaw
                 ?? processEnv["CODEX_HOME"]
                 ?? URL(fileURLWithPath: processEnv["HOME"] ?? NSHomeDirectory(), isDirectory: true)
@@ -3159,30 +3159,30 @@ struct CMUXCLI {
                     .path
         )
 
-        let agentSpecs = sessionsDebugAgentSpecs()
-        let selectedSpecs: [SessionDebugAgentSpec]
+        let agentSpecs = sessionsListAgentSpecs()
+        let selectedSpecs: [SessionListAgentSpec]
         if let agentRaw {
             let normalized = agentRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard !normalized.isEmpty else {
-                throw CLIError(message: "sessions debug: --agent requires a value")
+                throw CLIError(message: "sessions list: --agent requires a value")
             }
             if normalized == "claude" || normalized == "claude-code" || normalized == "claude_code" {
                 selectedSpecs = agentSpecs.filter { $0.name == "claude" }
             } else if let def = Self.agentDef(named: normalized) {
                 selectedSpecs = agentSpecs.filter { $0.name == def.name }
             } else {
-                throw CLIError(message: "sessions debug: unknown agent '\(agentRaw)'")
+                throw CLIError(message: "sessions list: unknown agent '\(agentRaw)'")
             }
         } else {
             selectedSpecs = agentSpecs
         }
 
-        let sessionFilter = sessionsDebugNormalized(sessionRaw)
-        let workspaceFilter = sessionsDebugNormalized(workspaceRaw)
-        let surfaceFilter = sessionsDebugNormalized(surfaceRaw)
-        let cwdFilter = sessionsDebugNormalized(cwdRaw)?.lowercased()
-        var codexIndexes: [String: CodexDebugIndex] = [:]
-        var entries: [SessionDebugEntry] = []
+        let sessionFilter = sessionsListNormalized(sessionRaw)
+        let workspaceFilter = sessionsListNormalized(workspaceRaw)
+        let surfaceFilter = sessionsListNormalized(surfaceRaw)
+        let cwdFilter = sessionsListNormalized(cwdRaw)?.lowercased()
+        var codexIndexes: [String: CodexSessionListIndex] = [:]
+        var entries: [SessionListEntry] = []
         var stores: [[String: Any]] = []
 
         let decoder = JSONDecoder()
@@ -3224,8 +3224,8 @@ struct CMUXCLI {
                     "workspace_id": record.workspaceId,
                     "surface_id": record.surfaceId,
                     "store_path": storePath,
-                    "started_at": sessionsDebugTimestamp(record.startedAt),
-                    "updated_at": sessionsDebugTimestamp(record.updatedAt),
+                    "started_at": sessionsListTimestamp(record.startedAt),
+                    "updated_at": sessionsListTimestamp(record.updatedAt),
                     "updated_at_unix": record.updatedAt
                 ]
                 payload["cwd"] = record.cwd ?? NSNull()
@@ -3246,8 +3246,8 @@ struct CMUXCLI {
                 payload["active_surface_session_id"] = surfaceActive?.sessionId ?? NSNull()
 
                 if spec.name == "codex" {
-                    let codexHome = sessionsDebugExpandedPath(
-                        sessionsDebugNormalized(record.launchCommand?.environment?["CODEX_HOME"]) ?? defaultCodexHome
+                    let codexHome = sessionsListExpandedPath(
+                        sessionsListNormalized(record.launchCommand?.environment?["CODEX_HOME"]) ?? defaultCodexHome
                     )
                     let index = try codexIndexes[codexHome] ?? buildCodexDebugIndex(
                         codexHome: codexHome,
@@ -3263,15 +3263,15 @@ struct CMUXCLI {
                     payload["codex_transcript_found"] = transcriptPath != nil
                     payload["codex_transcript_path"] = transcriptPath ?? NSNull()
                 } else if let envKey = spec.configDirEnvOverride,
-                          let value = sessionsDebugNormalized(record.launchCommand?.environment?[envKey]) {
-                    payload["session_home"] = sessionsDebugExpandedPath(value)
-                    payload["session_dir"] = sessionsDebugExpandedPath(value)
+                          let value = sessionsListNormalized(record.launchCommand?.environment?[envKey]) {
+                    payload["session_home"] = sessionsListExpandedPath(value)
+                    payload["session_dir"] = sessionsListExpandedPath(value)
                 } else {
                     payload["session_home"] = NSNull()
                     payload["session_dir"] = NSNull()
                 }
 
-                entries.append(SessionDebugEntry(updatedAt: record.updatedAt, payload: payload))
+                entries.append(SessionListEntry(updatedAt: record.updatedAt, payload: payload))
             }
         }
 
@@ -3302,16 +3302,16 @@ struct CMUXCLI {
         }
 
         for entry in limitedEntries {
-            print(renderSessionDebugLine(entry.payload))
+            print(renderSessionListLine(entry.payload))
         }
         if sortedEntries.count > limitedEntries.count {
             print("... \(sortedEntries.count - limitedEntries.count) more. Pass --all or --limit <n>.")
         }
     }
 
-    private func sessionsDebugAgentSpecs() -> [SessionDebugAgentSpec] {
+    private func sessionsListAgentSpecs() -> [SessionListAgentSpec] {
         var specs = [
-            SessionDebugAgentSpec(
+            SessionListAgentSpec(
                 name: "claude",
                 displayName: "Claude Code",
                 sessionStoreSuffix: "claude",
@@ -3319,7 +3319,7 @@ struct CMUXCLI {
             )
         ]
         specs.append(contentsOf: Self.agentDefs.map {
-            SessionDebugAgentSpec(
+            SessionListAgentSpec(
                 name: $0.name,
                 displayName: $0.displayName,
                 sessionStoreSuffix: $0.sessionStoreSuffix,
@@ -3332,7 +3332,7 @@ struct CMUXCLI {
     private func buildCodexDebugIndex(
         codexHome: String,
         fileManager: FileManager
-    ) throws -> CodexDebugIndex {
+    ) throws -> CodexSessionListIndex {
         let homeURL = URL(fileURLWithPath: codexHome, isDirectory: true)
         var indexedSessionIds = Set<String>()
         let sessionIndexURL = homeURL.appendingPathComponent("session_index.jsonl", isDirectory: false)
@@ -3340,7 +3340,7 @@ struct CMUXCLI {
             for line in contents.split(separator: "\n") {
                 guard let data = String(line).data(using: .utf8),
                       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let id = sessionsDebugNormalized(object["id"] as? String) else {
+                      let id = sessionsListNormalized(object["id"] as? String) else {
                     continue
                 }
                 indexedSessionIds.insert(id)
@@ -3364,19 +3364,19 @@ struct CMUXCLI {
                 guard fileURL.pathExtension == "jsonl" else { continue }
                 let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
                 guard values?.isRegularFile != false else { continue }
-                for id in sessionsDebugUUIDs(in: fileURL.lastPathComponent) where transcriptPathBySessionId[id] == nil {
+                for id in sessionsListUUIDs(in: fileURL.lastPathComponent) where transcriptPathBySessionId[id] == nil {
                     transcriptPathBySessionId[id] = fileURL.path
                 }
             }
         }
 
-        return CodexDebugIndex(
+        return CodexSessionListIndex(
             indexedSessionIds: indexedSessionIds,
             transcriptPathBySessionId: transcriptPathBySessionId
         )
     }
 
-    private func sessionsDebugUUIDs(in value: String) -> [String] {
+    private func sessionsListUUIDs(in value: String) -> [String] {
         let pattern = #"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let range = NSRange(value.startIndex..<value.endIndex, in: value)
@@ -3386,7 +3386,7 @@ struct CMUXCLI {
         }
     }
 
-    private func renderSessionDebugLine(_ payload: [String: Any]) -> String {
+    private func renderSessionListLine(_ payload: [String: Any]) -> String {
         let agent = (payload["agent"] as? String) ?? "unknown"
         let sessionId = (payload["session_id"] as? String) ?? "unknown"
         let workspaceId = (payload["workspace_id"] as? String) ?? "-"
@@ -3415,17 +3415,17 @@ struct CMUXCLI {
         return parts.joined(separator: "  ")
     }
 
-    private func sessionsDebugTimestamp(_ value: TimeInterval) -> String {
+    private func sessionsListTimestamp(_ value: TimeInterval) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: Date(timeIntervalSince1970: value))
     }
 
-    private func sessionsDebugExpandedPath(_ value: String) -> String {
+    private func sessionsListExpandedPath(_ value: String) -> String {
         NSString(string: value).expandingTildeInPath
     }
 
-    private func sessionsDebugNormalized(_ value: String?) -> String? {
+    private func sessionsListNormalized(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
@@ -3533,7 +3533,7 @@ struct CMUXCLI {
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" {
-            try runSessionsDebugCommand(
+            try runSessionsCommand(
                 commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs,
                 jsonOutput: jsonOutput,
                 processEnv: processEnv
@@ -14595,8 +14595,8 @@ struct CMUXCLI {
             """
         case "sessions", "session-debug":
             return """
-            Usage: cmux sessions debug [options]
-                   cmux session-debug [options]
+            Usage: cmux sessions list [options]
+                   cmux sessions [options]
 
             Print saved agent session records from ~/.cmuxterm/*-hook-sessions.json.
             This command does not require a running cmux socket.
@@ -14616,6 +14616,10 @@ struct CMUXCLI {
             Codex rows include whether the saved id exists in CODEX_HOME/session_index.jsonl
             and whether a matching transcript file exists under CODEX_HOME/sessions or
             CODEX_HOME/archived_sessions.
+
+            Compatibility aliases:
+              cmux sessions debug [options]
+              cmux session-debug [options]
             """
         case "feedback":
             return """
@@ -34515,7 +34519,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
           restore-session
-          sessions debug [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--json]
+          sessions list [--agent <name>] [--session <id>] [--workspace <id>] [--surface <id>] [--cwd <text>] [--json]
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]

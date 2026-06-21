@@ -52,10 +52,10 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
     }
 
-    func testSessionsDebugReportsCodexIdsMissingFromCodexStore() throws {
+    func testSessionsListReportsCodexIdsMissingFromCodexStore() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-sessions-debug-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-sessions-list-\(UUID().uuidString)", isDirectory: true)
         let stateDir = root.appendingPathComponent("state", isDirectory: true)
         let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
@@ -103,7 +103,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["sessions", "debug", "--agent", "codex", "--session", sessionId, "--json"],
+            arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"],
             environment: environment,
             timeout: 5
         )
