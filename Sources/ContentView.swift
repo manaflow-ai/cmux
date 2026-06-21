@@ -13006,6 +13006,7 @@ struct TabItemView: View, Equatable {
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
     @State private var isEditing = false
     @State private var renameDraft = ""
+    @State private var renameBaselineHadCustomTitle = false
 
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
@@ -13404,8 +13405,8 @@ struct TabItemView: View, Equatable {
                         onCommit: { newName in
                             if let title = SidebarInlineRenameCommit.titleToCommit(
                                 draft: newName,
-                                currentTitle: tab.title,
-                                hasCustomTitle: tab.hasCustomTitle
+                                baseline: renameDraft,
+                                baselineHadCustomTitle: renameBaselineHadCustomTitle
                             ) {
                                 tabManager.setCustomTitle(tabId: tab.id, title: title)
                             }
@@ -13847,6 +13848,7 @@ struct TabItemView: View, Equatable {
     private func beginInlineRename() {
         updateSelection()
         renameDraft = workspaceSnapshot.title
+        renameBaselineHadCustomTitle = tab.hasCustomTitle
         isEditing = true
     }
 

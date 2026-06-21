@@ -54,24 +54,38 @@ final class SidebarInlineRenameKeyResolverTests: XCTestCase {
     }
 
     func testTitleToCommitReturnsNilForEmptyDraft() {
-        XCTAssertNil(SidebarInlineRenameCommit.titleToCommit(draft: "   ", currentTitle: "zsh", hasCustomTitle: false))
+        XCTAssertNil(SidebarInlineRenameCommit.titleToCommit(draft: "   ", baseline: "zsh", baselineHadCustomTitle: false))
     }
 
     func testTitleToCommitSkipsUnchangedAutoTitle() {
-        XCTAssertNil(SidebarInlineRenameCommit.titleToCommit(draft: "zsh", currentTitle: "zsh", hasCustomTitle: false))
+        XCTAssertNil(SidebarInlineRenameCommit.titleToCommit(draft: "zsh", baseline: "zsh", baselineHadCustomTitle: false))
     }
 
     func testTitleToCommitWritesChangedNameForAutoTitle() {
         XCTAssertEqual(
-            SidebarInlineRenameCommit.titleToCommit(draft: "  My Work  ", currentTitle: "zsh", hasCustomTitle: false),
+            SidebarInlineRenameCommit.titleToCommit(draft: "  My Work  ", baseline: "zsh", baselineHadCustomTitle: false),
             "My Work"
         )
     }
 
-    func testTitleToCommitWritesWhenCustomTitleAlreadyExists() {
+    func testTitleToCommitWritesWhenBaselineHadCustomTitle() {
         XCTAssertEqual(
-            SidebarInlineRenameCommit.titleToCommit(draft: "Foo", currentTitle: "Foo", hasCustomTitle: true),
+            SidebarInlineRenameCommit.titleToCommit(draft: "Foo", baseline: "Foo", baselineHadCustomTitle: true),
             "Foo"
+        )
+    }
+
+    func testTitleToCommitWritesStaleBaselineWhenAutoTitleChangedMidEdit() {
+        // Regression: the decision is based on the edit-begin baseline, not a
+        // live title read at commit. Committing the unchanged baseline of an
+        // auto-titled workspace is skipped even if the process title moved on.
+        XCTAssertNil(
+            SidebarInlineRenameCommit.titleToCommit(draft: "zsh", baseline: "zsh", baselineHadCustomTitle: false)
+        )
+        // ...but a real edit still writes, regardless of any mid-edit drift.
+        XCTAssertEqual(
+            SidebarInlineRenameCommit.titleToCommit(draft: "vim", baseline: "zsh", baselineHadCustomTitle: false),
+            "vim"
         )
     }
 }
