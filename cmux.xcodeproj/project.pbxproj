@@ -951,6 +951,7 @@
 		604500200000000000000001 /* WindowTitleTemplateContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500200000000000000002 /* WindowTitleTemplateContext.swift */; };
 		604500100000000000000003 /* WindowTitleTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000004 /* WindowTitleTemplateTests.swift */; };
 		A5001209 /* WindowToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001219 /* WindowToolbarController.swift */; };
+		E3B7A40000000000000005E0 /* Workspace+AgentForkHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005E1 /* Workspace+AgentForkHosting.swift */; };
 		E3B7A40000000000000005D0 /* Workspace+AgentHibernationHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005D1 /* Workspace+AgentHibernationHosting.swift */; };
 		E3CD00000000000000000001 /* Workspace+BrowserOpenWorkspaceHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CD00000000000000000002 /* Workspace+BrowserOpenWorkspaceHandle.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
@@ -1974,6 +1975,7 @@
 		604500200000000000000002 /* WindowTitleTemplateContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowTitleTemplateContext.swift; sourceTree = "<group>"; };
 		604500100000000000000004 /* WindowTitleTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitleTemplateTests.swift; sourceTree = "<group>"; };
 		A5001219 /* WindowToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToolbarController.swift; sourceTree = "<group>"; };
+		E3B7A40000000000000005E1 /* Workspace+AgentForkHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentForkHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000005D1 /* Workspace+AgentHibernationHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentHibernationHosting.swift"; sourceTree = "<group>"; };
 		E3CD00000000000000000002 /* Workspace+BrowserOpenWorkspaceHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+BrowserOpenWorkspaceHandle.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
@@ -2476,6 +2478,7 @@
 				E3C9F1000000000000000A11 /* Workspace+SurfaceTeardownHosting.swift */,
 				E3B7A4000000000000000D11 /* Workspace+SplitDetachHosting.swift */,
 				E3B7A40000000000000005D1 /* Workspace+AgentHibernationHosting.swift */,
+				E3B7A40000000000000005E1 /* Workspace+AgentForkHosting.swift */,
 				E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */,
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
@@ -4194,6 +4197,7 @@
 				604500100000000000000001 /* WindowTitleTemplate.swift in Sources */,
 				604500200000000000000001 /* WindowTitleTemplateContext.swift in Sources */,
 				A5001209 /* WindowToolbarController.swift in Sources */,
+				E3B7A40000000000000005E0 /* Workspace+AgentForkHosting.swift in Sources */,
 				E3B7A40000000000000005D0 /* Workspace+AgentHibernationHosting.swift in Sources */,
 				E3CD00000000000000000001 /* Workspace+BrowserOpenWorkspaceHandle.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
