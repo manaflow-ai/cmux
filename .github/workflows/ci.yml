@@ -23,6 +23,7 @@ jobs:
       macos: ${{ steps.detect.outputs.macos }}
       web: ${{ steps.detect.outputs.web }}
       go: ${{ steps.detect.outputs.go }}
+      agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -42,6 +43,7 @@ jobs:
               echo "macos=true"
               echo "web=true"
               echo "go=true"
+              echo "agent_session_web=true"
             } >> "$GITHUB_OUTPUT"
           }
 
@@ -334,7 +336,7 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
-  tests:
+  app-host-unit-tests:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/4)
@@ -650,6 +652,8 @@ jobs:
           python3 tests/test_claude_wrapper_hooks.py
           python3 tests/test_claude_wrapper_user_binary_resolution.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_env.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_trust_optin.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
@@ -660,6 +664,64 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
+
+  tests:
+    name: tests
+    # Aggregate gate for the test/build suites in this workflow. Required by
+    # branch protection under the stable name "tests", and references each suite
+    # by its job KEY via needs:, so renaming/sharding a job's display name never
+    # desyncs the required-checks list (the failure mode from the #6464 sharding
+    # that stranded the old "tests" check). Add new ci.yml test/build jobs here.
+    needs:
+      - changes
+      - app-host-unit-tests
+      - swift-package-tests
+      - agent-session-web-resources
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    timeout-minutes: 5
+    steps:
+      - name: Check app-host unit test routing
+        env:
+          TESTS_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["TESTS_NEEDS"])
+          changes = needs["changes"]
+          tests = needs["app-host-unit-tests"]
+          macos = changes.get("outputs", {}).get("macos")
+
+          if changes["result"] != "success":
+              print(f"changes: {changes['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          if macos == "true" and tests["result"] != "success":
+              print(f"app-host unit tests were required but did not pass: {tests['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          if macos != "true" and tests["result"] not in {"success", "skipped"}:
+              print(f"app-host unit tests had unexpected result for macos={macos}: {tests['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          # The remaining test/build suites in this workflow gate too. A job that
+          # opts out via its own path filter reports "skipped", which is fine; a
+          # job that actually ran and failed must block the merge.
+          allowed = {"success", "skipped"}
+          for name in ("swift-package-tests", "agent-session-web-resources"):
+              result = needs[name]["result"]
+              if result not in allowed:
+                  print(f"{name} did not pass: {result}", file=sys.stderr)
+                  sys.exit(1)
+
+          print(f"changes.macos={macos}")
+          print(f"app-host unit tests={tests['result']}")
+          for name in ("swift-package-tests", "agent-session-web-resources"):
+              print(f"{name}={needs[name]['result']}")
+          PY
 
   swift-package-tests:
     needs: changes
@@ -809,7 +871,7 @@ jobs:
 
   agent-session-web-resources:
     needs: changes
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    if: ${{ needs.changes.outputs.agent_session_web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     timeout-minutes: 10
     steps:
@@ -1853,6 +1915,7 @@ jobs:
       - web-typecheck
       - react-apps-check
       - web-db-migrations
+      - app-host-unit-tests
       - tests
       - swift-package-tests
       - agent-session-web-resources

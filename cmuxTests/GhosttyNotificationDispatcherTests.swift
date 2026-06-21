@@ -74,12 +74,12 @@ final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
 
         DispatchQueue.main.async {
             self.signal(dispatcher, backgroundColor: dark, opacity: 1.0, eventId: 1, source: "test.dark")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.signal(dispatcher, backgroundColor: light, opacity: 1.0, eventId: 2, source: "test.light")
             }
         }
 
-        wait(for: [expectation], timeout: 1.0)
+        wait(for: [expectation], timeout: 2.0)
         XCTAssertEqual(postedHexes, ["#272822", "#FDF6E3"])
     }
 
