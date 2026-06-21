@@ -223,7 +223,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
 
                     // Ensure the target window is currently showing the Notifications overlay,
                     // so opening a notification must switch it back to the terminal UI.
-                    window2.sidebarSelectionState.selection = .notifications
+                    self.appDelegate.sidebarSelectionState(for: window2).selection = .notifications
 
                     // Create notifications for both windows. Ensure W2 isn't suppressed just because it's focused.
                     let prevOverride = AppFocusState.overrideIsFocused

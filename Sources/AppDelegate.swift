@@ -650,7 +650,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let windowId: UUID
         let tabManager: TabManager
         let sidebarState: SidebarState
-        let sidebarSelectionState: SidebarSelectionState
+        // The per-window sidebar-selection state was peeled out of this
+        // aggregate into `AppDelegate.windowSidebarSelectionStates` (a
+        // `WindowID`-keyed ``CmuxWindowing/WindowScopedStore`` whose slice is
+        // dropped by the window teardown paths); resolve it by
+        // `AppDelegate.sidebarSelectionState(for:)` (owner ruling 2026-06-18:
+        // per-window state is domain-owned, `WindowID`-keyed).
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         // The per-window config store was peeled out of this aggregate into
@@ -669,14 +674,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windowId: UUID,
             tabManager: TabManager,
             sidebarState: SidebarState,
-            sidebarSelectionState: SidebarSelectionState,
             fileExplorerState: FileExplorerState?,
             window: NSWindow?
         ) {
             self.windowId = windowId
             self.tabManager = tabManager
             self.sidebarState = sidebarState
-            self.sidebarSelectionState = sidebarSelectionState
             self.fileExplorerState = fileExplorerState
             self.window = window
             self.keyboardFocusCoordinator = MainWindowFocusController(
@@ -1230,6 +1233,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// consumer is `observeWindowCoordinatorClosures()`), which would split
     /// close events with the teardown loop and starve it.
     let windowConfigStores = WindowScopedStore<CmuxConfigStore>()
+
+    /// Per-window sidebar-selection states, keyed by ``WindowID`` (peeled out of
+    /// the rejected `MainWindowContext` aggregate; owner ruling 2026-06-18:
+    /// per-window state is domain-owned and `WindowID`-keyed, never bundled into
+    /// one per-window aggregate). Mirrors ``windowConfigStores`` exactly: a
+    /// passive dictionary whose slice is set at `registerMainWindow` and dropped
+    /// by the window teardown paths (`unregisterMainWindowContext` /
+    /// `discardOrphanedMainWindowContext`), which run for every closing window.
+    /// It deliberately does NOT subscribe to the single-consumer
+    /// `windowCoordinator.windowClosed` stream, which would split close events
+    /// with the teardown loop and starve it.
+    let windowSidebarSelectionStates = WindowScopedStore<SidebarSelectionState>()
+
+    /// The per-window ``SidebarSelectionState`` for `context`, resolved by
+    /// ``WindowID`` through ``windowSidebarSelectionStates``. `registerMainWindow`
+    /// always seeds the slice before the context is reachable, so a live context
+    /// always has one; the empty-state fallback only guards an already-torn-down
+    /// context and preserves the never-`nil` invariant the lifted `let` field had.
+    func sidebarSelectionState(for context: MainWindowContext) -> SidebarSelectionState {
+        if let state = windowSidebarSelectionStates.model(for: WindowID(context.windowId)) {
+            return state
+        }
+        let fallback = SidebarSelectionState()
+        windowSidebarSelectionStates.setModel(fallback, for: WindowID(context.windowId))
+        return fallback
+    }
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
@@ -2662,7 +2691,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context.sidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
-        context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
+        sidebarSelectionState(for: context).selection = snapshot.sidebar.selection.sidebarSelection
 
         if let restoredFrame = resolvedWindowFrame(from: snapshot), let window {
             window.setFrame(restoredFrame, display: true)
@@ -2920,7 +2949,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth)).rounded())
             )
 
-            switch context.sidebarSelectionState.selection {
+            switch sidebarSelectionState(for: context).selection {
             case .tabs:
                 hasher.combine(0)
             case .notifications:
@@ -3291,7 +3320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: tabManagerSnapshot,
             sidebar: SessionSidebarSnapshot(
                 isVisible: context.sidebarState.isVisible,
-                selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
+                selection: SessionSidebarSelection(selection: sidebarSelectionState(for: context).selection),
                 width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
             )
         )
@@ -3441,11 +3470,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windowId: windowId,
                 tabManager: tabManager,
                 sidebarState: sidebarState,
-                sidebarSelectionState: sidebarSelectionState,
                 fileExplorerState: fileExplorerState,
                 window: window
             )
             mainWindowContexts[key] = context
+            windowSidebarSelectionStates.setModel(sidebarSelectionState, for: WindowID(windowId))
             if let cmuxConfigStore {
                 windowConfigStores.setModel(cmuxConfigStore, for: WindowID(windowId))
             }
@@ -3488,10 +3517,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             window: nil
         )
+        windowSidebarSelectionStates.setModel(SidebarSelectionState(), for: WindowID(windowId))
         if let cmuxConfigStore {
             windowConfigStores.setModel(cmuxConfigStore, for: WindowID(windowId))
         }
@@ -4769,6 +4798,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // `unregisterMainWindow`; the windowless/explicit path calls this
         // directly), so the store never needs its own `windowClosed` drain.
         windowConfigStores.remove(WindowID(removed.windowId))
+        windowSidebarSelectionStates.remove(WindowID(removed.windowId))
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
@@ -4790,6 +4820,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Drop the per-window config slice for the orphaned context (no AppKit
         // close fired). Explicit removal is the store's only teardown signal.
         windowConfigStores.remove(WindowID(context.windowId))
+        windowSidebarSelectionStates.remove(WindowID(context.windowId))
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
@@ -5102,7 +5133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let alreadyActive =
             tabManager === context.tabManager
             && sidebarState === context.sidebarState
-            && sidebarSelectionState === context.sidebarSelectionState
+            && sidebarSelectionState === sidebarSelectionState(for: context)
         if alreadyActive {
 #if DEBUG
             cmuxDebugLog(
@@ -5116,7 +5147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             tabManager = context.tabManager
             sidebarState = context.sidebarState
-            sidebarSelectionState = context.sidebarSelectionState
+            sidebarSelectionState = sidebarSelectionState(for: context)
             fileExplorerState = context.fileExplorerState
             TerminalController.shared.setActiveTabManager(context.tabManager)
         }
@@ -6748,7 +6779,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let alreadyActive =
             tabManager === context.tabManager
             && sidebarState === context.sidebarState
-            && sidebarSelectionState === context.sidebarSelectionState
+            && sidebarSelectionState === sidebarSelectionState(for: context)
         if alreadyActive { return true }
 
         if let window = context.window ?? windowForMainWindowId(context.windowId) {
@@ -6756,7 +6787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             tabManager = context.tabManager
             sidebarState = context.sidebarState
-            sidebarSelectionState = context.sidebarSelectionState
+            sidebarSelectionState = sidebarSelectionState(for: context)
             fileExplorerState = context.fileExplorerState
             TerminalController.shared.setActiveTabManager(context.tabManager)
         }
@@ -11705,7 +11736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         tabManager = context.tabManager
         sidebarState = context.sidebarState
-        sidebarSelectionState = context.sidebarSelectionState
+        sidebarSelectionState = sidebarSelectionState(for: context)
         fileExplorerState = context.fileExplorerState
         TerminalController.shared.setActiveTabManager(context.tabManager)
     }
@@ -11977,7 +12008,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        context.sidebarSelectionState.selection = .tabs
+        sidebarSelectionState(for: context).selection = .tabs
         bringToFront(window)
         guard context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
 #if DEBUG
@@ -12013,7 +12044,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windowId: context.windowId,
             tabId: tabId,
             surfaceId: surfaceId,
-            sidebarSelection: context.sidebarSelectionState.selection
+            sidebarSelection: sidebarSelectionState(for: context).selection
         )
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData(["jumpUnreadOpenInContext": "1", "jumpUnreadOpenResult": "1"])
