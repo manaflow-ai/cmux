@@ -1,6 +1,6 @@
 #if DEBUG
 extension TerminalController {
-    static let v2DebugMethodNames: [String] = [
+    nonisolated static let v2DebugMethodNames: [String] = [
         "debug.shortcut.set",
         "debug.shortcut.simulate",
         "debug.type",

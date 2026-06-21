@@ -22,7 +22,7 @@ struct CanvasDebugMenuButtons: View {
             )
         ) {
             guard let workspace else { return }
-            debugShowCanvasCommandScrollHint(in: workspace)
+            _ = debugShowCanvasCommandScrollHint(in: workspace)
         }
         .disabled(workspace?.layoutMode != .canvas)
     }
