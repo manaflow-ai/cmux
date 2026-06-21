@@ -134,28 +134,26 @@ extension AppDelegate {
         return sortedRecoverableMainWindowRoutes().filter { validWindowIds.contains($0.windowId) }
     }
 
+    private func mainWindowSummary(from snapshot: MainWindowRouteSnapshot) -> MainWindowSummary {
+        MainWindowSummary(
+            windowId: snapshot.windowId,
+            isKeyWindow: snapshot.window?.isKeyWindow ?? false,
+            isVisible: snapshot.window?.isVisible ?? false,
+            workspaceCount: snapshot.tabManager.tabs.count,
+            selectedWorkspaceId: snapshot.tabManager.selectedTabId
+        )
+    }
+
     func listMainWindowSummaries() -> [MainWindowSummary] {
-        var seen: Set<UUID> = []
-        var summaries = liveRegisteredMainWindowRouteSnapshots().map { snapshot in
-            seen.insert(snapshot.windowId)
-            return MainWindowSummary(
-                windowId: snapshot.windowId,
-                isKeyWindow: snapshot.window?.isKeyWindow ?? false,
-                isVisible: snapshot.window?.isVisible ?? false,
-                workspaceCount: snapshot.tabManager.tabs.count,
-                selectedWorkspaceId: snapshot.tabManager.selectedTabId
-            )
+        var seen: Set<WindowID> = []
+        var summaries: [MainWindowSummary] = []
+        for snapshot in liveRegisteredMainWindowRouteSnapshots() {
+            seen.insert(WindowID(snapshot.windowId))
+            summaries.append(mainWindowSummary(from: snapshot))
         }
-        for snapshot in recoverableMainWindowRouteSnapshots() where seen.insert(snapshot.windowId).inserted {
-            summaries.append(
-                MainWindowSummary(
-                    windowId: snapshot.windowId,
-                    isKeyWindow: snapshot.window?.isKeyWindow ?? false,
-                    isVisible: snapshot.window?.isVisible ?? false,
-                    workspaceCount: snapshot.tabManager.tabs.count,
-                    selectedWorkspaceId: snapshot.tabManager.selectedTabId
-                )
-            )
+        recoverableMainWindowRouteLedger.appendingDeduplicatedProjections(into: &summaries, seen: &seen) { route in
+            guard let snapshot = recoverableMainWindowRouteSnapshot(windowId: route.windowId) else { return nil }
+            return (id: WindowID(snapshot.windowId), projection: mainWindowSummary(from: snapshot))
         }
         return summaries
     }
@@ -248,17 +246,17 @@ extension AppDelegate {
 
     func scriptableMainWindows() -> [ScriptableMainWindowState] {
         var results: [ScriptableMainWindowState] = []
-        var seen: Set<UUID> = []
+        var seen: Set<WindowID> = []
 
         for window in NSApp.orderedWindows {
             guard let state = scriptableMainWindow(for: window) else { continue }
-            guard seen.insert(state.windowId).inserted else { continue }
+            guard seen.insert(WindowID(state.windowId)).inserted else { continue }
             results.append(state)
         }
 
         let remaining = liveRegisteredMainWindowRouteSnapshots()
             .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
-            .filter { seen.insert($0.windowId).inserted }
+            .filter { seen.insert(WindowID($0.windowId)).inserted }
 
         for snapshot in remaining {
             results.append(
@@ -270,9 +268,11 @@ extension AppDelegate {
             )
         }
 
-        for snapshot in recoverableMainWindowRouteSnapshots() where seen.insert(snapshot.windowId).inserted {
-            results.append(
-                ScriptableMainWindowState(
+        recoverableMainWindowRouteLedger.appendingDeduplicatedProjections(into: &results, seen: &seen) { route in
+            guard let snapshot = recoverableMainWindowRouteSnapshot(windowId: route.windowId) else { return nil }
+            return (
+                id: WindowID(snapshot.windowId),
+                projection: ScriptableMainWindowState(
                     windowId: snapshot.windowId,
                     tabManager: snapshot.tabManager,
                     window: snapshot.window

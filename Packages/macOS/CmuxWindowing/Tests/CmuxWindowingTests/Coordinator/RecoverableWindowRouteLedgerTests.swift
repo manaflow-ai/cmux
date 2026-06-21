@@ -123,4 +123,50 @@ struct RecoverableWindowRouteLedgerTests {
         #expect(map[a] == "alpha")
         #expect(map[b] == "beta")
     }
+
+    @Test("appendingDeduplicatedProjections folds sorted routes after seeded primary windows")
+    func appendsRecoverableTail() {
+        let ledger = RecoverableWindowRouteLedger<String>()
+        let first = makeId()
+        let second = makeId()
+        let third = makeId()
+        remember(ledger, "first", for: first)
+        remember(ledger, "second", for: second)
+        remember(ledger, "third", for: third)
+
+        // Primary pass already emitted `second` and seeded the dedup set with it.
+        var results = ["primary-second"]
+        var seen: Set<WindowID> = [second]
+        ledger.appendingDeduplicatedProjections(into: &results, seen: &seen) { value in
+            switch value {
+            case "first": return (id: first, projection: "rec-first")
+            case "second": return (id: second, projection: "rec-second")
+            case "third": return (id: third, projection: "rec-third")
+            default: return nil
+            }
+        }
+        // Sorted most-recent-first is third, second, first; second is already
+        // seen so it is skipped, preserving sort order for the rest.
+        #expect(results == ["primary-second", "rec-third", "rec-first"])
+        #expect(seen == [first, second, third])
+    }
+
+    @Test("appendingDeduplicatedProjections skips non-projecting routes without touching seen")
+    func appendsSkipsNonLiveRoutes() {
+        let ledger = RecoverableWindowRouteLedger<String>()
+        let live = makeId()
+        let dead = makeId()
+        remember(ledger, "live", for: live)
+        remember(ledger, "dead", for: dead)
+
+        var results: [String] = []
+        var seen: Set<WindowID> = []
+        ledger.appendingDeduplicatedProjections(into: &results, seen: &seen) { value in
+            value == "live" ? (id: live, projection: "live") : nil
+        }
+        // The non-projecting `dead` route is compactMap-skipped and never
+        // consults `seen`, matching the legacy compactMap-then-where order.
+        #expect(results == ["live"])
+        #expect(seen == [live])
+    }
 }

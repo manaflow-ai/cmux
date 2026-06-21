@@ -139,4 +139,37 @@ public final class RecoverableWindowRouteLedger<Value> {
             }
             .map(\.value.value)
     }
+
+    /// Projects the recoverable routes (most-recently-remembered first) into
+    /// `Projection` values, appending each window's projection at most once and
+    /// skipping any ``WindowID`` already present in `seen`.
+    ///
+    /// This is the recoverable tail every window-listing command shares: after
+    /// the caller has emitted its primary (registered/ordered) windows and
+    /// seeded `seen` with their ids, it folds in the recoverable routes the live
+    /// set no longer carries, deduplicated by ``WindowID``. The legacy app code
+    /// open-coded this as
+    /// `for snapshot in recoverableMainWindowRouteSnapshots() where seen.insert(snapshot.windowId).inserted { results.append(...) }`
+    /// in `listMainWindowSummaries()` and `scriptableMainWindows()`.
+    ///
+    /// `project` runs per route in sorted order and returns the route's
+    /// `(WindowID, Projection)` when the route is live (the app builds the live
+    /// snapshot inside it and reads the window/tab state for the projection) or
+    /// `nil` when it is not, exactly matching the legacy
+    /// `compactMap`-then-`where` sequencing: a route that fails to project is
+    /// skipped WITHOUT touching `seen`, and only a successfully projected route
+    /// consults and updates `seen`. `seen` is `inout` so the caller's running
+    /// dedup set keeps absorbing recoverable ids for any later passes, mirroring
+    /// the legacy single `seen` set threaded through the whole method.
+    public func appendingDeduplicatedProjections<Projection>(
+        into results: inout [Projection],
+        seen: inout Set<WindowID>,
+        project: (Value) -> (id: WindowID, projection: Projection)?
+    ) {
+        for route in sortedByMostRecentFirst() {
+            guard let projected = project(route) else { continue }
+            guard seen.insert(projected.id).inserted else { continue }
+            results.append(projected.projection)
+        }
+    }
 }
