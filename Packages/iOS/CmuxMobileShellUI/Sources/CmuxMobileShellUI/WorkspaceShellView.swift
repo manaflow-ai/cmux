@@ -44,7 +44,13 @@ struct WorkspaceShellView: View {
 
     var body: some View {
         #if os(iOS)
-        EdgeSwipeDrawerContainer(isOpen: $isDrawerOpen) {
+        EdgeSwipeDrawerContainer(
+            isOpen: $isDrawerOpen,
+            // Edge swipe only on the compact root list: a pushed detail uses the
+            // left edge for the system back swipe, and the split layout has its own
+            // sidebar gesture. The ☰ button still opens the drawer everywhere.
+            isEdgeSwipeEnabled: usesCompactStack && compactNavigationPath.isEmpty
+        ) {
             layoutContent
         } drawer: {
             MobileNavDrawerView(
