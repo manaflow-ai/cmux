@@ -794,6 +794,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "canvas": {
+          "splitDividerThickness": "紧凑分屏窗格和可缩放分屏窗格的分隔线厚度（点）。"
+        },
         "sidebar": {
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },

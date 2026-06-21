@@ -794,6 +794,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "canvas": {
+          "splitDividerThickness": "Grubość separatora, w punktach, dla upakowanych podzielonych paneli i podzielonych paneli z zoomem."
+        },
         "sidebar": {
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },

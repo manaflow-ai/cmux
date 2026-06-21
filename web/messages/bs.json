@@ -794,6 +794,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "canvas": {
+          "splitDividerThickness": "Debljina razdjelnika, u tačkama, za zbijene podijeljene panele i podijeljene panele koji se mogu zumirati."
+        },
         "sidebar": {
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
