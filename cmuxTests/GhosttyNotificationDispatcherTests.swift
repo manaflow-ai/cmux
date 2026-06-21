@@ -8,6 +8,7 @@ import XCTest
 @testable import cmux
 #endif
 
+@MainActor
 final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
     func testSignalCoalescesBurstToLatestBackground() {
         guard let dark = NSColor(hex: "#272822"),
@@ -27,10 +28,8 @@ final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
             }
         )
 
-        DispatchQueue.main.async {
-            self.signal(dispatcher, backgroundColor: dark, opacity: 0.95, eventId: 1, source: "test.dark")
-            self.signal(dispatcher, backgroundColor: light, opacity: 0.75, eventId: 2, source: "test.light")
-        }
+        signal(dispatcher, backgroundColor: dark, opacity: 0.95, eventId: 1, source: "test.dark")
+        signal(dispatcher, backgroundColor: light, opacity: 0.75, eventId: 2, source: "test.light")
 
         wait(for: [expectation], timeout: 1.0)
         XCTAssertEqual(postedUserInfos.count, 1)
@@ -72,9 +71,9 @@ final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
             }
         )
 
-        DispatchQueue.main.async {
-            self.signal(dispatcher, backgroundColor: dark, opacity: 1.0, eventId: 1, source: "test.dark")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        signal(dispatcher, backgroundColor: dark, opacity: 1.0, eventId: 1, source: "test.dark")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            MainActor.assumeIsolated {
                 self.signal(dispatcher, backgroundColor: light, opacity: 1.0, eventId: 2, source: "test.light")
             }
         }

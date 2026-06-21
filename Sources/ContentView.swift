@@ -2226,7 +2226,7 @@ struct ContentView: View {
         }
     }
 
-    private func updateTitlebarText() {
+    @MainActor private func updateTitlebarText() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             if !titlebarText.isEmpty {
@@ -2241,7 +2241,7 @@ struct ContentView: View {
         }
     }
 
-    private func scheduleTitlebarTextRefresh() {
+    @MainActor private func scheduleTitlebarTextRefresh() {
         titlebarTextUpdateCoalescer.signal {
             updateTitlebarText()
         }

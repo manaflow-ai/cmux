@@ -2362,7 +2362,7 @@ class GhosttyApp {
     }
 
     private func notifyDefaultBackgroundDidChange(source: String) {
-        let signal = { [self] in
+        let signal: @MainActor () -> Void = { [self] in
             let eventId = nextBackgroundEventId()
             defaultBackgroundNotificationDispatcher.signal(
                 backgroundColor: defaultBackgroundColor,
@@ -2377,9 +2377,9 @@ class GhosttyApp {
             )
         }
         if Thread.isMainThread {
-            signal()
+            MainActor.assumeIsolated { signal() }
         } else {
-            DispatchQueue.main.async(execute: signal)
+            DispatchQueue.main.async { MainActor.assumeIsolated { signal() } }
         }
     }
 

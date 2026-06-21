@@ -69,7 +69,8 @@ struct TabManagerTitleUpdateTests {
             ]
         )
 
-        #expect(await yieldUntil { scheduler.delays == [0.3] })
+        await drainMainQueue()
+        #expect(scheduler.delays == [0.3])
         #expect(workspace.panelTitles[focusedPanelId] != "Runtime Delay - grok")
         #expect(workspace.title != "Runtime Delay - grok")
 
@@ -115,7 +116,7 @@ struct TabManagerTitleUpdateTests {
             ]
         )
 
-        await yieldMainActor()
+        await drainMainQueue()
         #expect(scheduler.delays.isEmpty)
         #expect(workspace.panelTitles[focusedPanelId] == originalPanelTitle)
         #expect(workspace.panelTitles[focusedPanelId] != "Ignored Non Owner - grok")
@@ -148,32 +149,27 @@ struct TabManagerTitleUpdateTests {
         #expect(abs(PanelTitleUpdateCoalescingSettings.delay(settings: settings) - 5.0) < 0.000_1)
     }
 
-    private func yieldUntil(_ condition: @escaping @MainActor () -> Bool) async -> Bool {
-        for _ in 0..<1_000 {
-            if condition() {
-                return true
+    private func drainMainQueue() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async {
+                continuation.resume()
             }
-            await Task.yield()
-        }
-        return condition()
-    }
-
-    private func yieldMainActor() async {
-        for _ in 0..<10 {
-            await Task.yield()
         }
     }
 
     private final class ManualCoalescerScheduler {
         private struct PendingFlush {
             var isCancelled = false
-            let action: () -> Void
+            let action: @MainActor () -> Void
         }
 
         private var pendingFlushes: [PendingFlush] = []
         private(set) var delays: [TimeInterval] = []
 
-        func schedule(delay: TimeInterval, action: @escaping () -> Void) -> () -> Void {
+        func schedule(
+            delay: TimeInterval,
+            action: @escaping @MainActor () -> Void
+        ) -> NotificationBurstCoalescer.Cancellation {
             let index = pendingFlushes.count
             delays.append(delay)
             pendingFlushes.append(PendingFlush(action: action))
