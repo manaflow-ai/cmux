@@ -14,11 +14,17 @@ struct CanvasTabHitTester {
     var hitRegions: CanvasTabHitRegions
 
     func tab(at point: CGPoint) -> UUID? {
-        hitRegions.tabFrames.first { $0.value.contains(point) }?.key
+        tabOrder.first { tabId in
+            hitRegions.tabFrames[tabId]?.contains(point) == true
+        }
     }
 
     func closeTab(at point: CGPoint, hoveredTabId: UUID?) -> UUID? {
-        hitRegions.closeFrames.first { $0.value.contains(point) }?.key
+        guard let hoveredTabId,
+              hitRegions.closeFrames[hoveredTabId]?.contains(point) == true else {
+            return nil
+        }
+        return hoveredTabId
     }
 }
 
@@ -50,6 +56,8 @@ struct CanvasPaneTitleBarView: View {
     let chrome: CanvasPaneChrome
     /// Tab bar background, for deriving bonsplit-style active/hover fills.
     let barBackground: NSColor
+    /// The tab currently under the AppKit pointer in tab-bar coordinates.
+    let hoveredTabId: UUID?
     /// Horizontal scroll offset in points (>= 0 scrolls tabs left), clamped
     /// by the pane view against the reported content width.
     let scrollOffset: CGFloat
@@ -69,6 +77,7 @@ struct CanvasPaneTitleBarView: View {
                 CanvasPaneTabItem(
                     tab: tab,
                     isSelected: chrome.tabs.count == 1 || tab.id == chrome.selectedTabId,
+                    isHovered: tab.id == hoveredTabId,
                     paneIsFocused: chrome.isFocused,
                     barBackground: barBackground
                 )
@@ -100,12 +109,11 @@ struct CanvasPaneTitleBarView: View {
 private struct CanvasPaneTabItem: View {
     let tab: CanvasTabChrome
     let isSelected: Bool
+    let isHovered: Bool
     let paneIsFocused: Bool
     /// The tab bar background, used to derive bonsplit-style active/hover
     /// fills (lighten on dark themes, darken on light).
     let barBackground: NSColor
-
-    @State private var isHovered = false
 
     private var textColor: Color {
         Color(nsColor: isSelected && paneIsFocused ? .labelColor : .secondaryLabelColor)
@@ -123,7 +131,6 @@ private struct CanvasPaneTabItem: View {
         .padding(.horizontal, 6)
         .frame(maxWidth: 220, minHeight: CanvasPaneTitleBarView.height, maxHeight: CanvasPaneTitleBarView.height)
         .background(tabBackground)
-        .onHover { isHovered = $0 }
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(
@@ -164,6 +171,16 @@ private struct CanvasPaneTabItem: View {
             }
         }
         .frame(width: 14, height: 14)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CanvasTabFramesKey.self,
+                    value: CanvasTabHitRegions(
+                        closeFrames: [tab.id: proxy.frame(in: .named("canvasTabBar")).insetBy(dx: -4, dy: -7)]
+                    )
+                )
+            }
+        )
     }
 
     private var tabBackground: some View {
