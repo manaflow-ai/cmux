@@ -1928,6 +1928,16 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private var sessions: [String: Session] = [:]
     private var activeSchemeTasks: [ObjectIdentifier: SchemeTaskState] = [:]
     private let streamQueue = DispatchQueue(label: "com.manaflow.cmux.diff-viewer-stream", qos: .userInitiated)
+    // Branch picker routes shell out to the bundled CLI (git). Run them on a
+    // dedicated concurrent queue, NOT the serial file-serving streamQueue, so a
+    // slow/hung git invocation cannot stall restored diff-viewer file serving.
+    private let pickerQueue = DispatchQueue(
+        label: "com.manaflow.cmux.diff-viewer-picker",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+    // Hard cap on a single bundled-CLI picker invocation before it is terminated.
+    private let pickerCommandTimeout: TimeInterval = 15
     private let maxSessionAge: TimeInterval = 24 * 60 * 60
     private let trustedRootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
         .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
@@ -2013,19 +2023,304 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
         lock.lock()
         pruneExpiredSessionsLocked(now: now)
+        let hasSession = sessions[token] != nil
         let file = sessions[token]?.filesByPath[requestPath]
         lock.unlock()
-        return file
+        if let file {
+            return file
+        }
+
+        // Miss on an active session: the on-disk manifest may have grown
+        // out-of-band since the session was cached. The branch picker's
+        // regenerate route runs the bundled CLI in a CHILD process, which writes
+        // the new page and appends it to `.manifest-<token>.json` without
+        // updating this handler's in-memory allowlist; the redirect then targets
+        // a path this cache has never seen. Reload the manifest from disk once
+        // and retry so freshly regenerated pages resolve instead of 404ing.
+        // (registerFromManifest takes the lock itself, so call it unlocked.)
+        guard hasSession, registerFromManifest(token: token, now: now) else {
+            return nil
+        }
+        lock.lock()
+        let refreshed = sessions[token]?.filesByPath[requestPath]
+        lock.unlock()
+        return refreshed
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        guard let requestURL = urlSchemeTask.request.url,
-              let file = registeredFile(for: requestURL) else {
+        guard let requestURL = urlSchemeTask.request.url else {
+            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist))
+            return
+        }
+
+        // Mirror the HTTP server's branch picker routes so the picker works when
+        // a diff viewer surface is restored under the custom scheme (the local
+        // HTTP server is gone after an app restart). The token (request host)
+        // must have an active session before we run any git command.
+        if requestURL.scheme == Self.scheme,
+           let token = requestURL.host,
+           Self.isValidToken(token),
+           hasActiveSession(token: token) {
+            let path = (URLComponents(url: requestURL, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? requestURL.path)
+            if path == "/__cmux_diff_viewer_refs" {
+                handleDiffViewerRefsRoute(requestURL: requestURL, token: token, urlSchemeTask: urlSchemeTask)
+                return
+            }
+            if path == "/__cmux_diff_viewer_branch" {
+                handleDiffViewerBranchRoute(requestURL: requestURL, token: token, urlSchemeTask: urlSchemeTask)
+                return
+            }
+        }
+
+        guard let file = registeredFile(for: requestURL) else {
             urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist))
             return
         }
 
         startStreamingFile(file, requestURL: requestURL, urlSchemeTask: urlSchemeTask)
+    }
+
+    private func diffViewerQueryItems(from url: URL) -> [String: String] {
+        var result: [String: String] = [:]
+        for item in URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [] {
+            if result[item.name] == nil {
+                result[item.name] = item.value ?? ""
+            }
+        }
+        return result
+    }
+
+    /// Path to the bundled `cmux` CLI used to run the headless picker commands.
+    private func bundledCLIURL() -> URL? {
+        if let env = ProcessInfo.processInfo.environment["CMUX_BUNDLED_CLI_PATH"],
+           !env.isEmpty,
+           FileManager.default.isExecutableFile(atPath: env) {
+            return URL(fileURLWithPath: env)
+        }
+        let candidate = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        if FileManager.default.isExecutableFile(atPath: candidate.path) {
+            return candidate
+        }
+        return nil
+    }
+
+    /// Runs the bundled CLI with a hard timeout. The child is terminated (then
+    /// killed) if it exceeds `pickerCommandTimeout`, so a hung git invocation
+    /// cannot block the caller indefinitely. stdout is drained on a background
+    /// thread so a full pipe buffer cannot deadlock the wait. Returns nil on
+    /// launch failure or timeout.
+    private func runBundledDiffViewerCommand(_ arguments: [String]) -> (status: Int32, stdout: Data)? {
+        guard let cli = bundledCLIURL() else { return nil }
+        let process = Process()
+        process.executableURL = cli
+        process.arguments = arguments
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        // Drain stdout concurrently with the wait so the child can never block on
+        // a full pipe while we wait, and we still capture all output.
+        let drainQueue = DispatchQueue(label: "com.manaflow.cmux.diff-viewer-picker-drain")
+        var collected = Data()
+        let drainDone = DispatchSemaphore(value: 0)
+        let readHandle = stdoutPipe.fileHandleForReading
+        drainQueue.async {
+            collected = readHandle.readDataToEndOfFile()
+            drainDone.signal()
+        }
+
+        // Install the termination handler BEFORE run(): a cached refs request can
+        // exit almost immediately, and if the process terminated before the
+        // handler were attached the semaphore would never signal, leaving the
+        // timeout path waiting forever (hung request + leaked GCD worker).
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
+        do {
+            try process.run()
+        } catch {
+            readHandle.closeFile()
+            return nil
+        }
+
+        if exited.wait(timeout: .now() + pickerCommandTimeout) == .timedOut {
+            // Bounded wait elapsed: terminate, then hard-kill if it ignores SIGTERM.
+            process.terminate()
+            if exited.wait(timeout: .now() + 2) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                exited.wait()
+            }
+            _ = drainDone.wait(timeout: .now() + 1)
+            return nil
+        }
+
+        // Process exited within the bound; ensure stdout is fully drained.
+        drainDone.wait()
+        return (process.terminationStatus, collected)
+    }
+
+    private func handleDiffViewerRefsRoute(
+        requestURL: URL,
+        token: String,
+        urlSchemeTask: WKURLSchemeTask
+    ) {
+        // Register the task BEFORE dispatching the async CLI work so that if the
+        // user navigates away/closes while git runs, `stop` marks this task
+        // stopped and every later callback (failure or success) no-ops instead of
+        // touching a torn-down WKURLSchemeTask.
+        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        let state = SchemeTaskState()
+        lock.lock()
+        activeSchemeTasks[taskID] = state
+        lock.unlock()
+
+        pickerQueue.async { [weak self] in
+            guard let self else { return }
+            let query = self.diffViewerQueryItems(from: requestURL)
+            guard let repo = query["repo"], !repo.isEmpty else {
+                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorBadURL)
+                return
+            }
+            // Thread the request token so the CLI binds refs enumeration to a
+            // session that actually owns this repo.
+            var args = ["__diff-viewer-refs", "--repo", repo, "--token", token]
+            if let base = query["base"], !base.isEmpty {
+                args += ["--base", base]
+            }
+            guard let result = self.runBundledDiffViewerCommand(args), result.status == 0 else {
+                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
+                return
+            }
+            self.respondScheme(
+                urlSchemeTask: urlSchemeTask,
+                requestURL: requestURL,
+                statusCode: 200,
+                headers: [
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                    "Cross-Origin-Resource-Policy": "same-origin"
+                ],
+                body: result.stdout
+            )
+        }
+    }
+
+    private func handleDiffViewerBranchRoute(
+        requestURL: URL,
+        token: String,
+        urlSchemeTask: WKURLSchemeTask
+    ) {
+        // Register the task BEFORE dispatching the async CLI work (see the refs
+        // route above) so a navigation-away/close during the bounded git call
+        // makes every later callback no-op instead of crashing on a torn-down
+        // task.
+        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        let state = SchemeTaskState()
+        lock.lock()
+        activeSchemeTasks[taskID] = state
+        lock.unlock()
+
+        pickerQueue.async { [weak self] in
+            guard let self else { return }
+            let query = self.diffViewerQueryItems(from: requestURL)
+            guard let group = query["group"], !group.isEmpty,
+                  let repo = query["repo"], !repo.isEmpty,
+                  let base = query["base"], !base.isEmpty else {
+                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorBadURL)
+                return
+            }
+            // Thread the request token so the CLI binds regeneration to the
+            // session that owns this group.
+            let args = ["__diff-viewer-branch", "--group", group, "--repo", repo, "--base", base, "--token", token]
+            guard let result = self.runBundledDiffViewerCommand(args), result.status == 0,
+                  let viewerURLString = String(data: result.stdout, encoding: .utf8)?
+                      .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !viewerURLString.isEmpty else {
+                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
+                return
+            }
+            // Defense in depth: the produced viewer URL must be a custom-scheme
+            // URL whose host equals this request's token, so regeneration can
+            // never redirect the surface to another session's token.
+            guard let viewerURL = URL(string: viewerURLString),
+                  viewerURL.scheme == Self.scheme,
+                  viewerURL.host == token else {
+                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorBadServerResponse)
+                return
+            }
+            // WKURLSchemeTask cannot drive a top-level 302 the browser follows, so
+            // return a tiny redirect document that navigates to the new page. The
+            // frontend issues this as a navigation (window.location), so the new
+            // diff viewer page loads in place.
+            let metaEscaped = Self.htmlAttributeEscaped(viewerURLString)
+            let jsEscaped = viewerURLString
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            let html = """
+            <!doctype html><html><head><meta charset="utf-8">\
+            <meta http-equiv="refresh" content="0;url=\(metaEscaped)"></head>\
+            <body><script>window.location.replace("\(jsEscaped)");</script></body></html>
+            """
+            self.respondScheme(
+                urlSchemeTask: urlSchemeTask,
+                requestURL: requestURL,
+                statusCode: 200,
+                headers: [
+                    "Content-Type": "text/html; charset=utf-8",
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                    "Cross-Origin-Resource-Policy": "same-origin"
+                ],
+                body: Data(html.utf8)
+            )
+        }
+    }
+
+    /// Responds to a scheme task that is ALREADY registered in
+    /// `activeSchemeTasks` (the caller registers it before dispatching the async
+    /// picker work). Every WebKit callback is routed through the guarded
+    /// `performSchemeTaskCallback`, so a task stopped/cancelled while the bundled
+    /// CLI ran is never touched.
+    private func respondScheme(
+        urlSchemeTask: WKURLSchemeTask,
+        requestURL: URL,
+        statusCode: Int,
+        headers: [String: String],
+        body: Data
+    ) {
+        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+
+        var responseHeaders = headers
+        responseHeaders["Content-Length"] = "\(body.count)"
+        let response = HTTPURLResponse(
+            url: requestURL,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: responseHeaders
+        ) ?? URLResponse(url: requestURL, mimeType: headers["Content-Type"], expectedContentLength: body.count, textEncodingName: "utf-8")
+
+        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didReceive(response) }) else { return }
+        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didReceive(body) }) else { return }
+        guard performSchemeTaskCallback(taskID, { urlSchemeTask.didFinish() }) else { return }
+        finishSchemeTask(taskID)
+    }
+
+    /// Fails an ALREADY-registered scheme task through the guarded callback path,
+    /// then clears it from `activeSchemeTasks`. A no-op if the task was already
+    /// stopped/cancelled, so a `didFailWithError` is never delivered to a task
+    /// WebKit already tore down.
+    private func failSchemeTask(
+        _ taskID: ObjectIdentifier,
+        _ urlSchemeTask: WKURLSchemeTask,
+        code: Int
+    ) {
+        _ = performSchemeTaskCallback(taskID, {
+            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: code))
+        })
+        finishSchemeTask(taskID)
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
@@ -2139,6 +2434,25 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         components.host = token
         components.percentEncodedPath = requestPath
         return components.url
+    }
+
+    /// Escapes a string for safe interpolation into a double-quoted HTML
+    /// attribute value (the meta-refresh `content` here). Covers the five XML
+    /// significant characters so a stray quote cannot break out of the attribute.
+    static func htmlAttributeEscaped(_ value: String) -> String {
+        var result = ""
+        result.reserveCapacity(value.count)
+        for character in value {
+            switch character {
+            case "&": result += "&amp;"
+            case "<": result += "&lt;"
+            case ">": result += "&gt;"
+            case "\"": result += "&quot;"
+            case "'": result += "&#39;"
+            default: result.append(character)
+            }
+        }
+        return result
     }
 
     static func isValidToken(_ token: String) -> Bool {
