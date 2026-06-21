@@ -3530,12 +3530,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModePendingViewportJumpFallbackLineDelta: Int?
     private var keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
     private var keyboardCopyModePendingViewportJumpVisualLineReselect = false
+    private var keyboardCopyModeViewportJumpSyncExpirationTimer: Timer?
     /// Tracks whether the user has explicitly entered visual selection mode (v).
     /// Separate from Ghostty's `has_selection` because non-visual copy mode keeps
     /// the cursor in AppKit overlay state until visual selection starts.
     private var keyboardCopyModeVisualActive = false
     private var keyboardCopyModeVisualLineActive = false
     private var keyboardCopyModeVisualLineAnchorScreenRow: UInt64?
+    private static let keyboardCopyModeVisualLineFallbackMaxBytes: UInt = 2 * 1024 * 1024
     private let keyboardCopyModeCursorOverlayView = GhosttyFlashOverlayView(frame: .zero)
     // internal (not fileprivate): witnesses for TerminalSurfaceNativeViewing
     // must match the conforming class's access level.
@@ -4237,6 +4239,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
         keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
         keyboardCopyModePendingViewportJumpVisualLineReselect = false
+        keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
+        keyboardCopyModeViewportJumpSyncExpirationTimer = nil
         keyboardCopyModeActive = active
         if active, let surface {
             _ = GhosttyRuntimeCInterop.clearSelection(surface)
@@ -4429,10 +4433,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func scheduleKeyboardCopyModeViewportJumpCursorSyncExpiration() {
         let generation = keyboardCopyModePendingViewportJumpGeneration
-        // Ghostty can omit scrollbar packets for no-op copy-mode jumps; expire stale sync state.
-        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
+        keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
+        // Ghostty can omit scrollbar packets for no-op copy-mode jumps; expire stale sync state
+        // through a cancellable main-run-loop deadline rather than a lingering dispatch hop.
+        let timer = Timer(timeInterval: 2, repeats: false) { [weak self] _ in
             self?.cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
         }
+        keyboardCopyModeViewportJumpSyncExpirationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: ghostty_surface_t) {
@@ -4468,6 +4476,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
         keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
         keyboardCopyModePendingViewportJumpVisualLineReselect = false
+        keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
+        keyboardCopyModeViewportJumpSyncExpirationTimer = nil
     }
 
     private func finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: GhosttyScrollbar? = nil) {
@@ -4478,6 +4488,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
             keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
             keyboardCopyModePendingViewportJumpVisualLineReselect = false
+            keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
+            keyboardCopyModeViewportJumpSyncExpirationTimer = nil
         }
 
         guard keyboardCopyModeActive, let surface else { return }
@@ -4736,6 +4748,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               let lowerRow = UInt32(exactly: selectedRows.lowerBound),
               let upperRow = UInt32(exactly: selectedRows.upperBound),
               let lastColumn = UInt32(exactly: metrics.columns - 1) else { return nil }
+        let selectedRowCount = selectedRows.upperBound - selectedRows.lowerBound + 1
+        let estimatedBytesPerRow = (UInt64(metrics.columns) * 4) + 1
+        let maxEstimatedRows = UInt64(Self.keyboardCopyModeVisualLineFallbackMaxBytes) / estimatedBytesPerRow
+        // This fallback runs on the AppKit copy path; keep the Ghostty read bounded.
+        guard maxEstimatedRows > 0,
+              selectedRowCount <= maxEstimatedRows else { return nil }
+
         let topLeft = ghostty_point_s(
             tag: GHOSTTY_POINT_SCREEN,
             coord: GHOSTTY_POINT_COORD_EXACT,
@@ -4757,8 +4776,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var text = ghostty_text_s()
         guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
+        guard text.text_len <= Self.keyboardCopyModeVisualLineFallbackMaxBytes,
+              let byteCount = Int(exactly: text.text_len) else { return nil }
         let selectedText = text.text.map {
-            String(decoding: Data(bytes: $0, count: Int(text.text_len)), as: UTF8.self)
+            String(decoding: Data(bytes: $0, count: byteCount), as: UTF8.self)
         } ?? ""
         return TerminalKeyboardCopyModeClipboardFormatter().trimTrailingLinePadding(selectedText)
     }
@@ -7479,6 +7500,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
+        keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
         terminalSurface = nil
     }
 
