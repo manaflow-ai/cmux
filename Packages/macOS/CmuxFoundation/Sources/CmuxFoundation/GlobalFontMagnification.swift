@@ -229,7 +229,7 @@ public struct GlobalFontMagnification {
 
 public final class GlobalFontMagnificationChangeObserver {
     private let notificationCenter: NotificationCenter
-    private var notificationObserver: NSObjectProtocol?
+    private var notificationObserver: (any NSObjectProtocol)?
 
     public init(notificationCenter: NotificationCenter = .default, handler: @MainActor @escaping () -> Void) {
         self.notificationCenter = notificationCenter

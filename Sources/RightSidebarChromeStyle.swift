@@ -98,13 +98,19 @@ struct RightSidebarChromeBarModifier: ViewModifier {
     var leadingPadding: CGFloat
     var trailingPadding: CGFloat
     var height: CGFloat
+    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
 
     func body(content: Content) -> some View {
         content
             .padding(.leading, leadingPadding)
             .padding(.trailing, trailingPadding)
             .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
-            .frame(height: height)
+            .frame(height: resolvedHeight)
+    }
+
+    private var resolvedHeight: CGFloat {
+        _ = globalFontPercent
+        return max(height, RightSidebarChromeMetrics.secondaryBarHeight)
     }
 }
 
@@ -113,6 +119,7 @@ struct RightSidebarChromePillModifier: ViewModifier {
     var isHovered: Bool
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
     var geometryKeyPrefix: String?
+    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
 
     func body(content: Content) -> some View {
         content
@@ -120,7 +127,7 @@ struct RightSidebarChromePillModifier: ViewModifier {
                 RightSidebarChromeControlStyle.foregroundColor.opacity(foregroundOpacity)
             )
             .padding(.horizontal, horizontalPadding)
-            .frame(height: RightSidebarChromeMetrics.controlHeight)
+            .frame(height: controlHeight)
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                 keyPrefix: geometryKeyPrefix,
                 isVisible: true
@@ -132,6 +139,11 @@ struct RightSidebarChromePillModifier: ViewModifier {
             .contentShape(
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
             )
+    }
+
+    private var controlHeight: CGFloat {
+        _ = globalFontPercent
+        return RightSidebarChromeMetrics.controlHeight
     }
 
     private var foregroundOpacity: Double {
