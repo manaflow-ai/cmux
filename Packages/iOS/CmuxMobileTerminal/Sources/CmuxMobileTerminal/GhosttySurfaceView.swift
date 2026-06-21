@@ -215,6 +215,10 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// stable; its default on-bar position is curated separately in
     /// ``defaultConfigurableOrder``.
     case returnKey
+    /// Scroll the terminal viewport to the newest output. Appended at the end so
+    /// existing persisted raw values stay stable; its default on-bar position is
+    /// curated separately in ``defaultConfigurableOrder``.
+    case scrollToBottom
     var title: String {
         title(isMacRemote: false)
     }
@@ -234,6 +238,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .zoomIn:
             return ""
         case .composer:
+            return ""
+        case .scrollToBottom:
             return ""
         case .escape:
             return String(localized: "terminal.input_accessory.title.escape", defaultValue: "Esc")
@@ -293,6 +299,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .zoomOut: return "terminal.inputAccessory.zoomOut"
         case .zoomIn: return "terminal.inputAccessory.zoomIn"
         case .composer: return "terminal.inputAccessory.composer"
+        case .scrollToBottom: return "terminal.inputAccessory.scrollToBottom"
         case .escape: return "terminal.inputAccessory.escape"
         case .tab: return "terminal.inputAccessory.tab"
         case .returnKey: return "terminal.inputAccessory.return"
@@ -329,6 +336,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
         case .composer:
             return String(localized: "terminal.input_accessory.composer", defaultValue: "Composer")
+        case .scrollToBottom:
+            return String(localized: "terminal.input_accessory.scroll_to_bottom", defaultValue: "Scroll to Bottom")
         default:
             return nil
         }
@@ -344,6 +353,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "doc.on.clipboard"
         case .composer:
             return "square.and.pencil"
+        case .scrollToBottom:
+            return "arrow.down.to.line"
         default:
             return nil
         }
@@ -370,7 +381,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
 
     public var output: Data? {
         switch self {
-        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste, .composer:
+        case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste, .composer, .scrollToBottom:
             return nil
         case .escape:
             return Data([0x1B])
@@ -482,6 +493,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             .tilde, .dollar, .slash, .atSign, .pipe,
             .ctrlZ,
             .home, .end, .pageUp, .pageDown,
+            .scrollToBottom,
         ] + defaultTrailingActions
     }
 
@@ -511,6 +523,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .end: return String(localized: "terminal.shortcut.name.end", defaultValue: "End")
         case .pageUp: return String(localized: "terminal.shortcut.name.pageUp", defaultValue: "Page Up")
         case .pageDown: return String(localized: "terminal.shortcut.name.pageDown", defaultValue: "Page Down")
+        case .scrollToBottom: return String(localized: "terminal.shortcut.name.scrollToBottom", defaultValue: "Scroll to Bottom")
         case .paste: return String(localized: "terminal.input_accessory.paste", defaultValue: "Paste")
         case .control: return String(localized: "terminal.shortcut.name.control", defaultValue: "Control")
         case .alternate: return String(localized: "terminal.shortcut.name.alternate", defaultValue: "Option")
@@ -918,6 +931,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputProxy.onToggleComposer = { [weak self] in
             guard let self else { return }
             self.handleComposerButtonTap()
+        }
+        inputProxy.onScrollToBottom = { [weak self] in
+            self?.scrollToBottom()
         }
         inputProxy.onHideKeyboard = { [weak self] in
             guard let self else { return }
@@ -2272,6 +2288,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func scrollInitialOutputToBottomIfNeeded() {
         guard shouldScrollInitialOutputToBottom, let surface else { return }
         shouldScrollInitialOutputToBottom = false
+        scrollToBottom(surface: surface)
+    }
+
+    private func scrollToBottom() {
+        guard let surface else { return }
+        scrollToBottom(surface: surface)
+    }
+
+    private func scrollToBottom(surface: ghostty_surface_t) {
         // `ghostty_surface_binding_action` takes the same internal surface lock
         // as `process_output`/`render_now`. This runs on the MAIN thread (inside
         // the `processOutput` completion hop), so calling it inline would contend

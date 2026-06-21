@@ -92,7 +92,7 @@ public final class TerminalAccessoryConfiguration {
             let order = v3Order.compactMap(ToolbarItemID.init(storageKey:))
             let enabled = (defaults.array(forKey: Self.enabledDefaultsKey) as? [String])?
                 .compactMap(ToolbarItemID.init(storageKey:))
-            // ⇧ and Return each became user-configurable after the v3 schema
+            // ⇧, Return, and Scroll to Bottom each became user-configurable after the v3 schema
             // shipped, so a layout persisted under the v3 keys has no record of
             // them and a naive load would leave them hidden. Fold each in next to
             // its neighbours and show it — once per id, keyed off that id's
@@ -144,7 +144,7 @@ public final class TerminalAccessoryConfiguration {
     }
 
     /// Folds the built-ins that became user-configurable *after* the v3 schema
-    /// shipped (⇧, then Return) into a persisted v3 layout, each adjacent to its
+    /// shipped (⇧, Return, then Scroll to Bottom) into a persisted v3 layout, each adjacent to its
     /// canonical neighbours and force-shown, exactly once per id. Returns the
     /// possibly-folded order and enabled set; `enabled` is passed through
     /// unchanged (including `nil`) when no fold applies, so a config already
@@ -159,7 +159,8 @@ public final class TerminalAccessoryConfiguration {
         // Each entry is the newly-configurable id plus the predecessors to insert
         // it after (first present wins; front if none present), mirroring
         // `defaultConfigurableOrder`: ⇧ trails the other modifiers, Return trails
-        // Esc (then Tab, then the modifiers).
+        // Esc (then Tab, then the modifiers), and Scroll to Bottom trails the
+        // navigation controls.
         let folds: [(id: ToolbarItemID, anchors: [ToolbarItemID])] = [
             (TerminalInputAccessoryAction.shift.itemID, [
                 TerminalInputAccessoryAction.command.itemID,
@@ -172,6 +173,13 @@ public final class TerminalAccessoryConfiguration {
                 TerminalInputAccessoryAction.command.itemID,
                 TerminalInputAccessoryAction.alternate.itemID,
                 TerminalInputAccessoryAction.control.itemID,
+            ]),
+            (TerminalInputAccessoryAction.scrollToBottom.itemID, [
+                TerminalInputAccessoryAction.pageDown.itemID,
+                TerminalInputAccessoryAction.end.itemID,
+                TerminalInputAccessoryAction.home.itemID,
+                TerminalInputAccessoryAction.returnKey.itemID,
+                TerminalInputAccessoryAction.escape.itemID,
             ]),
         ]
         for fold in folds {
