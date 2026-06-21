@@ -207,6 +207,9 @@ extension CMUXCLI {
         // Same-origin base for branchPicker URLs + group key for regeneration.
         var origin: URL?
         var groupID: String?
+        // Session token bound to `origin`, threaded into the branchPicker
+        // refs/regenerate URLs so the HTTP picker endpoints can authorize.
+        var token: String?
     }
 
     private struct DiffViewerDeferredSourcePage {
@@ -2329,6 +2332,23 @@ extension CMUXCLI {
         }
     }
 
+    /// Lowercase-hex encode bytes WITHOUT `String(format: "%02x", ...)`. The
+    /// Foundation/C `String(format:)` path is the unbounded-memory-growth/crash
+    /// pattern fixed in https://github.com/manaflow-ai/cmux/pull/5347, and these
+    /// digests run from the concurrent HTTP picker endpoints + scheme handler.
+    /// This is byte-identical to the old `map { String(format: "%02x", $0) }
+    /// .joined()` output (same SHA-256 bytes -> same hex), so cache filenames and
+    /// slugs stay stable.
+    private func diffBranchHexEncoded<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
+        let digits: [Character] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+        var chars: [Character] = []
+        for byte in bytes {
+            chars.append(digits[Int(byte >> 4)])
+            chars.append(digits[Int(byte & 0x0F)])
+        }
+        return String(chars)
+    }
+
     /// Cache key folds repoRoot and the selected base together so a different
     /// selected base never serves a wrong Suggested row. The HTTP refs route
     /// passes no base today (nil), so its key is repoRoot-only.
@@ -2349,7 +2369,7 @@ extension CMUXCLI {
             repoRoot: repoRoot,
             selectedBaseRef: selectedBaseRef
         ).utf8))
-        let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        let digest = diffBranchHexEncoded(hasher.finalize())
         return rootDirectory.appendingPathComponent(".refs-cache-\(digest).json", isDirectory: false)
     }
 
@@ -4381,7 +4401,8 @@ extension CMUXCLI {
                 base: base,
                 repoRoot: repoRoot,
                 groupID: groupID,
-                origin: mapper.origin
+                origin: mapper.origin,
+                token: mapper.token
             )
         }
 
@@ -4674,7 +4695,8 @@ extension CMUXCLI {
                 appearance: appearance,
                 runtime: target.runtime,
                 origin: mapper.origin,
-                groupID: groupID
+                groupID: groupID,
+                token: mapper.token
             )
         )
     }
@@ -4757,6 +4779,7 @@ extension CMUXCLI {
               let base = page.branchPickerBase,
               let origin = sourceSet.origin,
               let groupID = sourceSet.groupID,
+              let token = sourceSet.token,
               let repoRoot = page.context.repoRoot else {
             return nil
         }
@@ -4764,7 +4787,8 @@ extension CMUXCLI {
             base: base,
             repoRoot: repoRoot,
             groupID: groupID,
-            origin: origin
+            origin: origin,
+            token: token
         )
     }
 
@@ -5071,14 +5095,16 @@ extension CMUXCLI {
         base: DiffBranchBase,
         repoRoot: String,
         groupID: String,
-        origin: URL
+        origin: URL,
+        token: String
     ) -> [String: Any] {
         let aheadBehind = diffBranchAheadBehind(base: base.ref, in: repoRoot)
-        let refsURL = diffViewerBranchRefsURL(origin: origin, repoRoot: repoRoot)
+        let refsURL = diffViewerBranchRefsURL(origin: origin, repoRoot: repoRoot, token: token)
         let regenerateTemplate = diffViewerBranchRegenerateURLTemplate(
             origin: origin,
             repoRoot: repoRoot,
-            groupID: groupID
+            groupID: groupID,
+            token: token
         )
         // The head side of the comparison: a branch diff shows what the current
         // branch + working tree contains that the base does not, so name the
@@ -5127,11 +5153,14 @@ extension CMUXCLI {
         return components.url?.absoluteString ?? ""
     }
 
-    private func diffViewerBranchRefsURL(origin: URL, repoRoot: String) -> String {
+    private func diffViewerBranchRefsURL(origin: URL, repoRoot: String, token: String) -> String {
         diffViewerBranchEndpointURL(
             origin: origin,
             path: "/__cmux_diff_viewer_refs",
-            queryItems: [URLQueryItem(name: "repo", value: repoRoot)]
+            queryItems: [
+                URLQueryItem(name: "repo", value: repoRoot),
+                URLQueryItem(name: "token", value: token)
+            ]
         )
     }
 
@@ -5141,7 +5170,8 @@ extension CMUXCLI {
     private func diffViewerBranchRegenerateURLTemplate(
         origin: URL,
         repoRoot: String,
-        groupID: String
+        groupID: String,
+        token: String
     ) -> String {
         let withSentinel = diffViewerBranchEndpointURL(
             origin: origin,
@@ -5149,6 +5179,7 @@ extension CMUXCLI {
             queryItems: [
                 URLQueryItem(name: "group", value: groupID),
                 URLQueryItem(name: "repo", value: repoRoot),
+                URLQueryItem(name: "token", value: token),
                 URLQueryItem(name: "base", value: "__CMUX_REF__")
             ]
         )
@@ -5373,7 +5404,8 @@ extension CMUXCLI {
             base: resolvedBase,
             repoRoot: repoRoot,
             groupID: session.groupID,
-            origin: origin
+            origin: origin,
+            token: session.token
         )
 
         let input = try readGitDiffInput(source: .branch, context: context)
@@ -6118,8 +6150,10 @@ extension CMUXCLI {
         return false
     }
 
-    /// `GET /__cmux_diff_viewer_refs?repo=<root>` -> grouped refs JSON. Validates
-    /// `repo` against the persisted session allow-list.
+    /// `GET /__cmux_diff_viewer_refs?repo=<root>&token=<t>` -> grouped refs JSON.
+    /// Requires the session `token` (the same unguessable token the page is
+    /// served under) and validates it owns a session that allow-lists `repo`, so
+    /// a local process that only knows the port cannot enumerate refs.
     private func sendDiffViewerHTTPRefs(
         request: DiffViewerHTTPRequest,
         fileDescriptor fd: Int32,
@@ -6128,7 +6162,8 @@ extension CMUXCLI {
     ) throws {
         let query = request.queryItems()
         guard let repoRoot = query["repo"], !repoRoot.isEmpty,
-              diffViewerRepoIsAllowed(repoRoot, rootDirectory: rootDirectory) else {
+              let token = query["token"], !token.isEmpty,
+              diffViewerTokenAllowsRepo(token, repoRoot: repoRoot, rootDirectory: rootDirectory) else {
             try sendDiffViewerHTTPNotFound(fileDescriptor: fd, omitBody: omitBody)
             return
         }
@@ -6162,7 +6197,12 @@ extension CMUXCLI {
         guard let groupID = query["group"], diffViewerGroupIDIsValid(groupID),
               let repoRoot = query["repo"], !repoRoot.isEmpty,
               let base = query["base"], !base.isEmpty,
+              let token = query["token"], !token.isEmpty,
               let session = try? readDiffViewerBranchSession(groupID: groupID, rootDirectory: rootDirectory),
+              // The request token must own THIS group's session (mirrors the
+              // custom-scheme `runDiffViewerBranchRegenerateCommand` check), so a
+              // process that only knows the port + group cannot drive regenerate.
+              session.token == token,
               // Authorize the repo against THIS group's session only, not the
               // global allow-list, so a request for one group cannot regenerate a
               // page for a repo allow-listed solely by some other active session.
@@ -6241,7 +6281,8 @@ extension CMUXCLI {
             base: resolvedBase,
             repoRoot: repoRoot,
             groupID: session.groupID,
-            origin: origin
+            origin: origin,
+            token: session.token
         )
 
         let input = try readGitDiffInput(source: .branch, context: context)
@@ -6304,7 +6345,7 @@ extension CMUXCLI {
         // distinct refs always get distinct files while the same ref reuses one.
         var hasher = SHA256()
         hasher.update(data: Data(base.utf8))
-        let hash = hasher.finalize().map { String(format: "%02x", $0) }.joined().prefix(12)
+        let hash = diffBranchHexEncoded(hasher.finalize()).prefix(12)
         return "\(readablePart)-\(hash)"
     }
 
@@ -7566,7 +7607,7 @@ extension CMUXCLI {
             hasher.update(data: try Data(contentsOf: fileURL, options: .mappedIfSafe))
         }
         let digest = hasher.finalize()
-        return digest.map { String(format: "%02x", $0) }.joined().prefix(12).lowercased()
+        return String(diffBranchHexEncoded(digest).prefix(12))
     }
 
     private func copyDiffViewerAsset(relativePath: String, from sourceDirectory: URL, to targetDirectory: URL) throws {
