@@ -19767,11 +19767,16 @@ struct CMUXCLI {
                     continue
                 }
 
-                finishThreadSubscription(threadId, succeeded: true)
-                if let threadObject = response["thread"] as? [String: Any],
-                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
-                    try observeThreadSafely(thread)
+                do {
+                    if let threadObject = response["thread"] as? [String: Any],
+                       let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
+                        try observeThreadSafely(thread)
+                    }
+                } catch {
+                    finishThreadSubscription(threadId, succeeded: false)
+                    throw error
                 }
+                finishThreadSubscription(threadId, succeeded: true)
                 return
             }
         }
