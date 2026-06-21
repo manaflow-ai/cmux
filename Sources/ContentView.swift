@@ -7945,27 +7945,21 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    @ViewBuilder
     private func extensionBrowserStackDropIndicator(
         row: CmuxSidebarProviderRow,
         edge: SidebarDropEdge
     ) -> some View {
-        if dragState.dropIndicator == SidebarDropIndicator(tabId: row.workspaceId, edge: edge) {
-            Rectangle()
-                .fill(cmuxAccentColor())
-                .frame(height: 2)
-                .padding(.horizontal, 8)
-        }
+        ExtensionBrowserStackDropIndicator(
+            isActive: dragState.dropIndicator == SidebarDropIndicator(tabId: row.workspaceId, edge: edge),
+            accent: cmuxAccentColor()
+        )
     }
 
-    @ViewBuilder
     private func extensionBrowserStackReorderMenu(row: CmuxSidebarProviderRow) -> some View {
-        Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
-            moveExtensionBrowserStackWorkspace(row.workspaceId, by: -1)
-        }
-        Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
-            moveExtensionBrowserStackWorkspace(row.workspaceId, by: 1)
-        }
+        ExtensionBrowserStackReorderMenu(
+            onMoveUp: { moveExtensionBrowserStackWorkspace(row.workspaceId, by: -1) },
+            onMoveDown: { moveExtensionBrowserStackWorkspace(row.workspaceId, by: 1) }
+        )
     }
 
     private func moveExtensionBrowserStackWorkspace(_ workspaceId: UUID, by delta: Int) {
@@ -8047,26 +8041,7 @@ struct VerticalTabsSidebar: View {
         _ icon: CmuxSidebarProviderIcon?,
         size: CGFloat
     ) -> some View {
-        let shape = icon?.shape ?? .circle
-        let foreground = Color.sidebarHexColor(icon?.foregroundColorHex, fallback: .primary)
-        let background = Color.sidebarHexColor(icon?.backgroundColorHex, fallback: Color.primary.opacity(0.16))
-        return ZStack {
-            if shape == .circle {
-                Circle().fill(background)
-            } else {
-                RoundedRectangle(cornerRadius: size * 0.24, style: .continuous).fill(background)
-            }
-            if let systemImageName = icon?.systemImageName {
-                Image(systemName: systemImageName)
-                    .font(.system(size: size * 0.58, weight: .semibold))
-                    .foregroundColor(foreground)
-            } else {
-                Text(icon?.text ?? ".")
-                    .font(.system(size: size * 0.58, weight: .bold))
-                    .foregroundColor(foreground)
-            }
-        }
-        .frame(width: size, height: size)
+        ExtensionBrowserStackIcon(icon: icon, size: size)
     }
 
     private func extensionSidebarRenderedText(_ text: CmuxSidebarProviderText?, now: Date) -> String? {
