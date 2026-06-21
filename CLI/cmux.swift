@@ -19625,7 +19625,7 @@ struct CMUXCLI {
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
         private var suppressedApprovalOrder: [String] = []
-        private let transientThreadResumeRetryLimit = 3
+        private let threadSubscriptionRetry = CodexTeamsThreadSubscriptionRetry(retryLimit: 3)
 
         init(
             appServerURL: String,
@@ -19745,14 +19745,19 @@ struct CMUXCLI {
             _ threadId: String,
             connection: CodexTeamsAppServerConnecting
         ) throws {
-            var retryCount = 0
-
-            while true {
-                guard claimThreadSubscription(threadId) else { return }
-
-                let response: [String: Any]
-                do {
-                    response = try connection.request(
+            try threadSubscriptionRetry.subscribeIfNeeded(
+                threadId: threadId,
+                claim: { [self] candidateThreadId in
+                    claimThreadSubscription(candidateThreadId)
+                },
+                finish: { [self] candidateThreadId, succeeded in
+                    finishThreadSubscription(candidateThreadId, succeeded: succeeded)
+                },
+                isTransientError: { [self] error in
+                    isTransientThreadResumeError(error)
+                },
+                resume: {
+                    try connection.request(
                         method: "thread/resume",
                         params: [
                             "threadId": threadId,
@@ -19767,28 +19772,14 @@ struct CMUXCLI {
                         },
                         responseTimeout: 10
                     )
-                } catch {
-                    finishThreadSubscription(threadId, succeeded: false)
-                    guard isTransientThreadResumeError(error),
-                          retryCount < transientThreadResumeRetryLimit else {
-                        throw error
-                    }
-                    retryCount += 1
-                    continue
-                }
-
-                do {
+                },
+                observe: { [self] response in
                     if let threadObject = response["thread"] as? [String: Any],
                        let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
                         try observeThreadSafely(thread)
                     }
-                } catch {
-                    finishThreadSubscription(threadId, succeeded: false)
-                    throw error
                 }
-                finishThreadSubscription(threadId, succeeded: true)
-                return
-            }
+            )
         }
 
         private func resetConnectionSubscriptions() {

@@ -612,93 +612,141 @@ struct FeedCoordinatorTests {
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
     }
 
-    @Test func codexTeamsWatcherBackfillRetriesTransientRolloutMiss() throws {
-        let connection = CodexTeamsBackfillConnectionMock(
-            resumeResults: [
-                .failure(CMUXCLI.CodexTeamsAppServerRequestError(
-                    code: nil,
-                    message: "no rollout found for thread id thread-1"
-                )),
-                .success(["thread": ["id": "thread-1"]])
-            ]
+    @Test func codexTeamsThreadSubscriptionRetriesTransientRolloutMiss() throws {
+        let state = CodexTeamsThreadSubscriptionProbe()
+        var resumeResults: [Result<[String: Any], Error>] = [
+            .failure(CodexTeamsRolloutMissingError()),
+            .success(["thread": ["id": "thread-1"]])
+        ]
+        var requestedResumeParams: [[String: Any]] = []
+        var observedThreadIds: [String] = []
+
+        try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+            threadId: "thread-1",
+            claim: state.claim,
+            finish: state.finish,
+            isTransientError: { $0 is CodexTeamsRolloutMissingError },
+            resume: {
+                requestedResumeParams.append([
+                    "threadId": "thread-1",
+                    "excludeTurns": true
+                ])
+                return try resumeResults.removeFirst().get()
+            },
+            observe: { response in
+                let thread = try #require(response["thread"] as? [String: Any])
+                observedThreadIds.append(try #require(thread["id"] as? String))
+            }
         )
-        let watcher = Self.makeCodexTeamsWatcher()
 
-        try watcher.backfillLoadedThreads(connection: connection)
-        #expect(connection.threadResumeRequestCount == 2)
+        #expect(requestedResumeParams.count == 2)
+        #expect(requestedResumeParams.allSatisfy { $0["excludeTurns"] as? Bool == true })
+        #expect(observedThreadIds == ["thread-1"])
+        #expect(state.isSubscribed("thread-1"))
+        #expect(!state.isSubscribing("thread-1"))
 
-        try watcher.backfillLoadedThreads(connection: connection)
-        #expect(connection.threadResumeRequestCount == 2)
+        try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+            threadId: "thread-1",
+            claim: state.claim,
+            finish: state.finish,
+            isTransientError: { $0 is CodexTeamsRolloutMissingError },
+            resume: {
+                requestedResumeParams.append(["threadId": "thread-1"])
+                return ["thread": ["id": "thread-1"]]
+            },
+            observe: { _ in
+                Issue.record("already subscribed thread should not be observed again")
+            }
+        )
+        #expect(requestedResumeParams.count == 2)
     }
 
-    @Test func codexTeamsWatcherBackfillReconnectsAfterExhaustingTransientRolloutMiss() throws {
-        let transientFailure: Result<[String: Any], Error> = .failure(
-            CMUXCLI.CodexTeamsAppServerRequestError(
-                code: nil,
-                message: "no rollout found for thread id thread-1"
-            )
+    @Test func codexTeamsThreadSubscriptionRetriesAfterExhaustingTransientRolloutMiss() throws {
+        let state = CodexTeamsThreadSubscriptionProbe()
+        var resumeResults: [Result<[String: Any], Error>] = Array(
+            repeating: .failure(CodexTeamsRolloutMissingError()),
+            count: 4
         )
-        let failingConnection = CodexTeamsBackfillConnectionMock(
-            resumeResults: Array(repeating: transientFailure, count: 4)
-        )
-        let watcher = Self.makeCodexTeamsWatcher()
+        var resumeRequestCount = 0
 
         do {
-            try watcher.backfillLoadedThreads(connection: failingConnection)
-            Issue.record("exhausted transient rollout miss should force reconnect")
+            try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+                threadId: "thread-1",
+                claim: state.claim,
+                finish: state.finish,
+                isTransientError: { $0 is CodexTeamsRolloutMissingError },
+                resume: {
+                    resumeRequestCount += 1
+                    return try resumeResults.removeFirst().get()
+                },
+                observe: { _ in
+                    Issue.record("failed resume should not be observed")
+                }
+            )
+            Issue.record("exhausted transient rollout miss should throw")
         } catch {
-            #expect((error as? CMUXCLI.CodexTeamsAppServerRequestError)?.isMissingRollout == true)
+            #expect(error is CodexTeamsRolloutMissingError)
         }
-        #expect(failingConnection.threadResumeRequestCount == 4)
 
-        let recoveredConnection = CodexTeamsBackfillConnectionMock(
-            resumeResults: [.success(["thread": ["id": "thread-1"]])]
+        #expect(resumeRequestCount == 4)
+        #expect(!state.isSubscribed("thread-1"))
+        #expect(!state.isSubscribing("thread-1"))
+
+        try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+            threadId: "thread-1",
+            claim: state.claim,
+            finish: state.finish,
+            isTransientError: { $0 is CodexTeamsRolloutMissingError },
+            resume: {
+                resumeRequestCount += 1
+                return ["thread": ["id": "thread-1"]]
+            },
+            observe: { _ in }
         )
-        try watcher.backfillLoadedThreads(connection: recoveredConnection)
-        #expect(recoveredConnection.threadResumeRequestCount == 1)
+        #expect(resumeRequestCount == 5)
+        #expect(state.isSubscribed("thread-1"))
     }
 
-    @Test func codexTeamsWatcherBackfillContinuesAfterTransientRolloutMiss() throws {
-        let transientFailure: Result<[String: Any], Error> = .failure(
-            CMUXCLI.CodexTeamsAppServerRequestError(
-                code: nil,
-                message: "no rollout found for thread id thread-missing"
-            )
-        )
-        let failingConnection = CodexTeamsBackfillConnectionMock(
-            loadedThreadIds: ["thread-missing", "thread-ready"],
-            resumeResults: Array(repeating: transientFailure, count: 4)
-                + [.success(["thread": ["id": "thread-ready"]])]
-        )
-        let watcher = Self.makeCodexTeamsWatcher()
+    @Test func codexTeamsThreadSubscriptionRollsBackWhenObservationFails() throws {
+        let state = CodexTeamsThreadSubscriptionProbe()
+        var resumeRequestCount = 0
 
         do {
-            try watcher.backfillLoadedThreads(connection: failingConnection)
-            Issue.record("transient rollout miss should force reconnect after processing later threads")
+            try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+                threadId: "thread-1",
+                claim: state.claim,
+                finish: state.finish,
+                isTransientError: { $0 is CodexTeamsRolloutMissingError },
+                resume: {
+                    resumeRequestCount += 1
+                    return ["thread": ["id": "thread-1"]]
+                },
+                observe: { _ in
+                    throw CodexTeamsObservationError()
+                }
+            )
+            Issue.record("observation failure should throw")
         } catch {
-            #expect((error as? CMUXCLI.CodexTeamsAppServerRequestError)?.isMissingRollout == true)
+            #expect(error is CodexTeamsObservationError)
         }
-        #expect(failingConnection.threadResumeRequestCount == 5)
 
-        let recoveredConnection = CodexTeamsBackfillConnectionMock(
-            loadedThreadIds: ["thread-missing", "thread-ready"],
-            resumeResults: [.success(["thread": ["id": "thread-missing"]])]
-        )
-        try watcher.backfillLoadedThreads(connection: recoveredConnection)
-        #expect(recoveredConnection.threadResumeRequestCount == 1)
-    }
+        #expect(resumeRequestCount == 1)
+        #expect(!state.isSubscribed("thread-1"))
+        #expect(!state.isSubscribing("thread-1"))
 
-    private static func makeCodexTeamsWatcher() -> CMUXCLI.CodexTeamsWatcher {
-        CMUXCLI.CodexTeamsWatcher(
-            appServerURL: "ws://127.0.0.1:1",
-            workspaceId: "workspace-1",
-            rootSurfaceId: "surface-1",
-            codexExecutable: "/usr/bin/true",
-            launchPath: nil,
-            maxAutoDepth: 0,
-            socketClient: SocketClient(path: "/tmp/cmux-debug-issue-6445.sock"),
-            socketPassword: nil
+        try CodexTeamsThreadSubscriptionRetry(retryLimit: 3).subscribeIfNeeded(
+            threadId: "thread-1",
+            claim: state.claim,
+            finish: state.finish,
+            isTransientError: { $0 is CodexTeamsRolloutMissingError },
+            resume: {
+                resumeRequestCount += 1
+                return ["thread": ["id": "thread-1"]]
+            },
+            observe: { _ in }
         )
+        #expect(resumeRequestCount == 2)
+        #expect(state.isSubscribed("thread-1"))
     }
 
     private static func resetFeedCoordinatorTestHooks() {
@@ -756,71 +804,35 @@ private final class NotificationRequestRecorder: @unchecked Sendable {
     }
 }
 
-private final class CodexTeamsBackfillConnectionMock: CMUXCLI.CodexTeamsAppServerConnecting {
-    private let loadedThreadIds: [String]
-    private var resumeResults: [Result<[String: Any], Error>]
-    private(set) var requestedMethods: [String] = []
+private struct CodexTeamsRolloutMissingError: Error {}
 
-    init(
-        loadedThreadIds: [String] = ["thread-1"],
-        resumeResults: [Result<[String: Any], Error>]
-    ) {
-        self.loadedThreadIds = loadedThreadIds
-        self.resumeResults = resumeResults
+private struct CodexTeamsObservationError: Error {}
+
+private final class CodexTeamsThreadSubscriptionProbe {
+    private var subscribingThreadIds = Set<String>()
+    private var subscribedThreadIds = Set<String>()
+
+    func claim(threadId: String) -> Bool {
+        guard !subscribedThreadIds.contains(threadId),
+              !subscribingThreadIds.contains(threadId) else {
+            return false
+        }
+        subscribingThreadIds.insert(threadId)
+        return true
     }
 
-    var threadResumeRequestCount: Int {
-        requestedMethods.filter { $0 == "thread/resume" }.count
-    }
-
-    func resume() {}
-
-    func close() {}
-
-    func initialize(
-        clientName: String,
-        version: String,
-        optOutNotificationMethods: [String],
-        responseTimeout: TimeInterval
-    ) throws {}
-
-    func respond(requestId: Any, result: [String: Any], timeout: TimeInterval) throws {
-        throw CLIError(message: "unexpected app-server response in watcher backfill test")
-    }
-
-    func request(
-        method: String,
-        params: [String: Any]?,
-        notificationHandler: (([String: Any]) throws -> Void)?,
-        responseTimeout: TimeInterval
-    ) throws -> [String: Any] {
-        requestedMethods.append(method)
-        switch method {
-        case "thread/loaded/list":
-            return ["data": loadedThreadIds]
-        case "thread/resume":
-            guard let threadId = params?["threadId"] as? String,
-                  loadedThreadIds.contains(threadId) else {
-                throw CLIError(message: "unexpected thread/resume params: \(params ?? [:])")
-            }
-            guard params?["excludeTurns"] as? Bool == true else {
-                throw CLIError(message: "thread/resume must pass excludeTurns: true")
-            }
-            guard !resumeResults.isEmpty else {
-                throw CLIError(message: "unexpected extra thread/resume request")
-            }
-            switch resumeResults.removeFirst() {
-            case .success(let response):
-                return response
-            case .failure(let error):
-                throw error
-            }
-        default:
-            throw CLIError(message: "unexpected app-server request: \(method)")
+    func finish(threadId: String, succeeded: Bool) {
+        subscribingThreadIds.remove(threadId)
+        if succeeded {
+            subscribedThreadIds.insert(threadId)
         }
     }
 
-    func receiveObject(timeout: TimeInterval?) throws -> [String: Any] {
-        throw CLIError(message: "unexpected app-server receive in watcher backfill test")
+    func isSubscribed(_ threadId: String) -> Bool {
+        subscribedThreadIds.contains(threadId)
+    }
+
+    func isSubscribing(_ threadId: String) -> Bool {
+        subscribingThreadIds.contains(threadId)
     }
 }
