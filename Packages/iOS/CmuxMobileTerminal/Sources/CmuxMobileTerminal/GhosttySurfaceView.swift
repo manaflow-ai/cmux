@@ -16,6 +16,15 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// (sign = direction), `col`/`row` is the grid cell under the finger (so
     /// alt-screen mouse-wheel reports at the right cell). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int)
+    /// Forward a scroll gesture that also needs a full primary-screen history
+    /// replay before the phone can safely resume local scrollback.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didScrollLines lines: Double,
+        atCol col: Int,
+        row: Int,
+        requestingScrollbackHydration: Bool
+    )
     /// Forward a tap to the Mac's real surface as a left click at the given grid
     /// cell, so TUIs with mouse reporting (lazygit/htop/fzf) receive the click.
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
@@ -47,6 +56,15 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 
 public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didScrollLines lines: Double,
+        atCol col: Int,
+        row: Int,
+        requestingScrollbackHydration: Bool
+    ) {
+        ghosttySurfaceView(surfaceView, didScrollLines: lines, atCol: col, row: row)
+    }
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
@@ -1899,13 +1917,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let cell = pendingScrollCell
         pendingScrollLines = 0
         pendingLocalScrollPixels = 0
-        let appliesLocally = scrollForwardingPolicy.shouldApplyLocally(
+        let scrollDecision = scrollForwardingPolicy.decision(
             activeScreen: activeScreen,
-            decouplePrimaryScreenScroll: decouplePrimaryScreenScroll
-        )
-        let forwardsToHost = scrollForwardingPolicy.shouldForwardToHost(
-            activeScreen: activeScreen,
-            decouplePrimaryScreenScroll: decouplePrimaryScreenScroll
+            decouplePrimaryScreenScroll: decouplePrimaryScreenScroll,
+            localMirrorCanServePrimaryScroll: localScrollbackModel.canServePrimaryScrollLocally,
+            localMirrorRequiresHydration: localScrollbackModel.requiresHostScrollHydration
         )
         #if DEBUG
         let now = CACurrentMediaTime()
@@ -1913,20 +1929,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             lastScrollDecisionLogTime = now
             MobileDebugLog.anchormux(
                 "mobile.scroll.decision screen=\(activeScreen.rawValue) decouple=\(decouplePrimaryScreenScroll) "
-                + "local=\(appliesLocally) host=\(forwardsToHost) "
+                + "local=\(scrollDecision.appliesLocally) host=\(scrollDecision.forwardsToHost) "
+                + "hydrate=\(scrollDecision.requestsScrollbackHydration) "
+                + "mirror=\(localScrollbackModel.mirrorHydration) "
                 + "px=\(String(format: "%.1f", pixelDeltaY)) lines=\(String(format: "%.2f", lines)) "
                 + "cell=\(cell.col),\(cell.row)"
             )
         }
         #endif
-        if appliesLocally {
+        if scrollDecision.appliesLocally {
             applyLocalScrollbackScroll(pixelDeltaY: pixelDeltaY, col: cell.col, row: cell.row)
         }
-        guard forwardsToHost else {
+        guard scrollDecision.forwardsToHost else {
             return
         }
         guard lines != 0 else { return }
-        delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+        delegate?.ghosttySurfaceView(
+            self,
+            didScrollLines: lines,
+            atCol: cell.col,
+            row: cell.row,
+            requestingScrollbackHydration: scrollDecision.requestsScrollbackHydration
+        )
     }
 
     /// A tap both raises the software keyboard (so the user can type) and

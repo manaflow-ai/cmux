@@ -22,6 +22,7 @@ extension GhosttySurfaceView {
             + "expectedTotal=\(result.expectedTotalRows) "
             + "retainedTotal=\(result.observation.totalRows) "
             + "retention=\(result.mirrorRetention)"
+            + " hydration=\(localScrollbackModel.mirrorHydration)"
         )
         if result.mirrorTruncated {
             MobileDebugLog.anchormux(

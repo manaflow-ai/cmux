@@ -2,15 +2,29 @@ public import CMUXMobileCore
 
 /// Decides whether a mobile terminal scroll gesture must be sent to the Mac.
 public struct MobileTerminalScrollForwardingPolicy: Sendable {
+    public struct Decision: Equatable, Sendable {
+        public let appliesLocally: Bool
+        public let forwardsToHost: Bool
+        public let requestsScrollbackHydration: Bool
+
+        public init(
+            appliesLocally: Bool,
+            forwardsToHost: Bool,
+            requestsScrollbackHydration: Bool
+        ) {
+            self.appliesLocally = appliesLocally
+            self.forwardsToHost = forwardsToHost
+            self.requestsScrollbackHydration = requestsScrollbackHydration
+        }
+    }
+
     /// Creates the forwarding policy.
     public init() {}
 
-    /// Returns whether a scroll should be forwarded to the host surface.
+    /// Legacy predicate for whether a primary-screen scroll may apply locally.
     ///
-    /// Primary-screen scrollback is already mirrored into the phone's local
-    /// Ghostty surface, so forwarding would make scroll feel network-bound.
-    /// Alternate-screen scroll must still reach the host so TUIs with mouse
-    /// reporting receive wheel events.
+    /// New call sites should use ``decision(activeScreen:decouplePrimaryScreenScroll:localMirrorCanServePrimaryScroll:localMirrorRequiresHydration:)``
+    /// so an unhydrated or truncated local mirror falls back to the host.
     /// - Parameter activeScreen: The screen currently rendered by the mobile
     ///   Ghostty mirror.
     /// - Returns: `true` when the scroll should be sent to the Mac.
@@ -21,10 +35,47 @@ public struct MobileTerminalScrollForwardingPolicy: Sendable {
         decouplePrimaryScreenScroll && activeScreen == .primary
     }
 
+    /// Legacy predicate for whether a scroll must be sent to the Mac.
+    ///
+    /// New call sites should use ``decision(activeScreen:decouplePrimaryScreenScroll:localMirrorCanServePrimaryScroll:localMirrorRequiresHydration:)``.
     public func shouldForwardToHost(
         activeScreen: MobileTerminalRenderGridFrame.Screen,
         decouplePrimaryScreenScroll: Bool
     ) -> Bool {
         activeScreen == .alternate || !decouplePrimaryScreenScroll
+    }
+
+    public func decision(
+        activeScreen: MobileTerminalRenderGridFrame.Screen,
+        decouplePrimaryScreenScroll: Bool,
+        localMirrorCanServePrimaryScroll: Bool,
+        localMirrorRequiresHydration: Bool
+    ) -> Decision {
+        guard activeScreen == .primary else {
+            return Decision(
+                appliesLocally: false,
+                forwardsToHost: true,
+                requestsScrollbackHydration: false
+            )
+        }
+        guard decouplePrimaryScreenScroll else {
+            return Decision(
+                appliesLocally: false,
+                forwardsToHost: true,
+                requestsScrollbackHydration: false
+            )
+        }
+        guard localMirrorCanServePrimaryScroll else {
+            return Decision(
+                appliesLocally: false,
+                forwardsToHost: true,
+                requestsScrollbackHydration: localMirrorRequiresHydration
+            )
+        }
+        return Decision(
+            appliesLocally: true,
+            forwardsToHost: false,
+            requestsScrollbackHydration: false
+        )
     }
 }

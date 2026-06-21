@@ -79,6 +79,25 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         }
     }
 
+    public enum MirrorHydration: Equatable, Sendable {
+        case unhydrated
+        case hydrated(retainedRows: UInt64)
+        case incomplete(missingRows: UInt64)
+
+        public var canServePrimaryScrollLocally: Bool {
+            switch self {
+            case .hydrated:
+                true
+            case .unhydrated, .incomplete:
+                false
+            }
+        }
+
+        public var requiresHostHydration: Bool {
+            !canServePrimaryScrollLocally
+        }
+    }
+
     public struct MirrorRetentionPolicy: Equatable, Sendable {
         public let accountingSlackRows: UInt64
 
@@ -129,6 +148,7 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
     public private(set) var observedTotalRows: UInt64 = 0
     public private(set) var replayWindow = ReplayWindow()
     public private(set) var mirrorRetention: MirrorRetention = .complete
+    public private(set) var mirrorHydration: MirrorHydration = .unhydrated
 
     public var replayScrollbackRows: Int {
         replayWindow.scrollbackRows
@@ -136,6 +156,14 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
 
     public var mirrorTruncated: Bool {
         mirrorRetention.isTruncated
+    }
+
+    public var canServePrimaryScrollLocally: Bool {
+        activeScreen == .primary && mirrorHydration.canServePrimaryScrollLocally
+    }
+
+    public var requiresHostScrollHydration: Bool {
+        activeScreen == .primary && mirrorHydration.requiresHostHydration
     }
 
     private let bottomAnchorPolicy: BottomAnchorPolicy
@@ -153,6 +181,7 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
 
     private var boundsState: BoundsState = .unobserved
     private var pendingAnchor: PendingAnchor = .none
+    private var hasAuthoritativeReplayMetadata = false
 
     public init(
         bottomAnchorPolicy: BottomAnchorPolicy = BottomAnchorPolicy(),
@@ -182,6 +211,8 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         if wasAtBottom, boundsState == .observed {
             rowOffset = maxRowOffset
         }
+        hasAuthoritativeReplayMetadata = self.activeScreen == .primary
+        mirrorHydration = .unhydrated
         return MetadataResult(
             rowOffset: rowOffset,
             maxRowOffset: maxRowOffset,
@@ -214,6 +245,16 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
             observation: observation,
             expectedTotalRows: expectedTotal
         )
+        if hasAuthoritativeReplayMetadata {
+            switch mirrorRetention {
+            case .complete:
+                mirrorHydration = .hydrated(retainedRows: observation.totalRows)
+            case .truncated(let missingRows):
+                mirrorHydration = .incomplete(missingRows: missingRows)
+            }
+        } else {
+            mirrorHydration = .unhydrated
+        }
         let nextMax = observation.maxScrollableOffset
         let previousMax = maxRowOffset
         let wasAtBottom = boundsState == .unobserved
@@ -254,7 +295,9 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         observedTotalRows = 0
         replayWindow = ReplayWindow(activeScreen: activeScreen, scrollbackRows: 0)
         mirrorRetention = .complete
+        mirrorHydration = .unhydrated
         boundsState = .unobserved
         pendingAnchor = .none
+        hasAuthoritativeReplayMetadata = false
     }
 }

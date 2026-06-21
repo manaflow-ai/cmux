@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 struct TerminalScrollDelivery: Equatable, Sendable {
@@ -6,6 +7,7 @@ struct TerminalScrollDelivery: Equatable, Sendable {
     var col: Int
     var row: Int
     var maxScrollbackRows: Int? = nil
+    var scrollbackScope: String? = nil
 
     mutating func append(_ delivery: TerminalScrollDelivery) {
         lines += delivery.lines
@@ -18,6 +20,12 @@ struct TerminalScrollDelivery: Equatable, Sendable {
             maxScrollbackRows = incoming
         case (.some, nil), (nil, nil):
             break
+        }
+        if delivery.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope
+            || scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope {
+            scrollbackScope = MobileTerminalScrollbackReplayRequest.fullScope
+        } else if scrollbackScope == nil {
+            scrollbackScope = delivery.scrollbackScope
         }
     }
 }

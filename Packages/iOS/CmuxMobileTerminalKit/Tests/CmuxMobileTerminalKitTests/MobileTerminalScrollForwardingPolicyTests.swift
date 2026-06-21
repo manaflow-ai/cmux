@@ -1,26 +1,40 @@
 import CMUXMobileCore
-import CmuxMobileTerminalKit
 import Testing
+@testable import CmuxMobileTerminalKit
 
-@Suite struct MobileTerminalScrollForwardingPolicyTests {
-    @Test func primaryScreenScrollStaysLocal() {
-        let policy = MobileTerminalScrollForwardingPolicy()
+@Test func primaryScrollUsesLocalMirrorOnlyWhenHydrated() {
+    let policy = MobileTerminalScrollForwardingPolicy()
 
-        #expect(policy.shouldApplyLocally(activeScreen: .primary, decouplePrimaryScreenScroll: true))
-        #expect(policy.shouldForwardToHost(activeScreen: .primary, decouplePrimaryScreenScroll: true) == false)
-    }
+    let unhydrated = policy.decision(
+        activeScreen: .primary,
+        decouplePrimaryScreenScroll: true,
+        localMirrorCanServePrimaryScroll: false,
+        localMirrorRequiresHydration: true
+    )
+    #expect(unhydrated.appliesLocally == false)
+    #expect(unhydrated.forwardsToHost)
+    #expect(unhydrated.requestsScrollbackHydration)
 
-    @Test func primaryScreenScrollCanUseHostRoundTripForComparison() {
-        let policy = MobileTerminalScrollForwardingPolicy()
+    let hydrated = policy.decision(
+        activeScreen: .primary,
+        decouplePrimaryScreenScroll: true,
+        localMirrorCanServePrimaryScroll: true,
+        localMirrorRequiresHydration: false
+    )
+    #expect(hydrated.appliesLocally)
+    #expect(hydrated.forwardsToHost == false)
+    #expect(hydrated.requestsScrollbackHydration == false)
+}
 
-        #expect(policy.shouldApplyLocally(activeScreen: .primary, decouplePrimaryScreenScroll: false) == false)
-        #expect(policy.shouldForwardToHost(activeScreen: .primary, decouplePrimaryScreenScroll: false))
-    }
+@Test func alternateScreenScrollAlwaysForwardsWithoutHistoryHydration() {
+    let decision = MobileTerminalScrollForwardingPolicy().decision(
+        activeScreen: .alternate,
+        decouplePrimaryScreenScroll: true,
+        localMirrorCanServePrimaryScroll: true,
+        localMirrorRequiresHydration: false
+    )
 
-    @Test func alternateScreenScrollForwardsToHost() {
-        let policy = MobileTerminalScrollForwardingPolicy()
-
-        #expect(policy.shouldApplyLocally(activeScreen: .alternate, decouplePrimaryScreenScroll: true) == false)
-        #expect(policy.shouldForwardToHost(activeScreen: .alternate, decouplePrimaryScreenScroll: true))
-    }
+    #expect(decision.appliesLocally == false)
+    #expect(decision.forwardsToHost)
+    #expect(decision.requestsScrollbackHydration == false)
 }

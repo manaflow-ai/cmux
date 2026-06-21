@@ -19,17 +19,32 @@ extension MobileShellComposite {
     /// continue through deceleration after the finger lifts; while one RPC is
     /// in flight, newer deltas are summed into the next request instead of
     /// piling up stale scroll packets.
-    public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
+    public func scrollTerminal(
+        surfaceID: String,
+        lines: Double,
+        col: Int,
+        row: Int,
+        hydrateScrollback: Bool = false
+    ) async {
         var prefetchState = terminalScrollbackPrefetchStatesBySurfaceID[surfaceID]
             ?? TerminalScrollbackPrefetchState()
-        let maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines)
+        let maxScrollbackRows: Int?
+        let scrollbackScope: String?
+        if hydrateScrollback {
+            maxScrollbackRows = MobileTerminalScrollbackBudget.fullReplayRows
+            scrollbackScope = MobileTerminalScrollbackReplayRequest.fullScope
+        } else {
+            maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines)
+            scrollbackScope = nil
+        }
         terminalScrollbackPrefetchStatesBySurfaceID[surfaceID] = prefetchState
         enqueueTerminalScroll(TerminalScrollDelivery(
             surfaceID: surfaceID,
             lines: lines,
             col: col,
             row: row,
-            maxScrollbackRows: maxScrollbackRows
+            maxScrollbackRows: maxScrollbackRows,
+            scrollbackScope: scrollbackScope
         ))
     }
 
@@ -79,6 +94,9 @@ extension MobileShellComposite {
             ]
             if let maxScrollbackRows = delivery.maxScrollbackRows {
                 params["max_scrollback_rows"] = maxScrollbackRows
+            }
+            if let scrollbackScope = delivery.scrollbackScope {
+                params[MobileTerminalScrollbackReplayRequest.scopeParameter] = scrollbackScope
             }
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.scroll",

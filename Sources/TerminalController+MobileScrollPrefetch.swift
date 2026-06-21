@@ -56,6 +56,13 @@ extension TerminalController {
     }
 
     func mobileScrollPrefetchRows(params: [String: Any]) -> Int {
+        if mobileRequestedScrollbackScope(params: params) == MobileTerminalScrollbackReplayRequest.fullScope {
+            let requestedRows = mobileRequestedScrollbackRows(params: params)
+            guard requestedRows > 0 else {
+                return MobileTerminalScrollbackBudget.fullReplayRows
+            }
+            return min(requestedRows, MobileTerminalScrollbackBudget.fullReplayRows)
+        }
         let requestedRows = mobileRequestedScrollbackRows(params: params)
         return min(
             max(0, requestedRows),

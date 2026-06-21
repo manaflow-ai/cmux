@@ -198,14 +198,7 @@ public struct TerminalLetterboxGeometry {
         guard !renderRect.isEmpty, !visibleRenderRect.isEmpty else {
             return CGRect(origin: .zero, size: renderRect.size)
         }
-        let hiddenHeight = CGFloat(max(0, hiddenBottomRows)) * max(0, cellPixelSize.height) / max(scale, 1)
-        let clippedVisibleRect = CGRect(
-            x: visibleRenderRect.minX,
-            y: visibleRenderRect.minY,
-            width: visibleRenderRect.width,
-            height: max(1, visibleRenderRect.height - hiddenHeight)
-        )
-        let local = clippedVisibleRect.offsetBy(dx: -renderRect.minX, dy: -renderRect.minY)
+        let local = visibleRenderRect.offsetBy(dx: -renderRect.minX, dy: -renderRect.minY)
         return local.intersection(CGRect(origin: .zero, size: renderRect.size))
     }
 
@@ -224,7 +217,7 @@ public struct TerminalLetterboxGeometry {
         guard bounds.width > 0, bounds.height > 0, !visibleRenderRect.isEmpty else {
             return .zero
         }
-        let rowHeight = max(1, cellPixelSize.height)
+        let rowHeight = max(1, cellPixelSize.height / max(scale, 1))
         let guardHeight = (CGFloat(max(0, guardRows)) + 0.5) * rowHeight
         let coverTop = min(max(0, visibleRenderRect.maxY - guardHeight), bounds.height)
         return CGRect(

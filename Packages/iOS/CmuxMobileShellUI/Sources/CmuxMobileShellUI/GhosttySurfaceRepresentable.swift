@@ -330,6 +330,28 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didScrollLines lines: Double,
+            atCol col: Int,
+            row: Int,
+            requestingScrollbackHydration: Bool
+        ) {
+            // Forward to the Mac's real surface; when local primary scrollback
+            // is not yet trustworthy, request a full replay in the same RPC so
+            // the phone mirror becomes the owner again after the response.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.store?.scrollTerminal(
+                    surfaceID: self.surfaceID,
+                    lines: lines,
+                    col: col,
+                    row: row,
+                    hydrateScrollback: requestingScrollbackHydration
+                )
+            }
+        }
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {
             // Forward to the Mac's real surface as a left click; libghostty
             // reports it to a TUI with mouse mode, or no-ops on a normal screen.
