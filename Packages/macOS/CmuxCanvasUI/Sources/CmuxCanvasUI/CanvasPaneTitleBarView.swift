@@ -9,6 +9,19 @@ struct CanvasTabHitRegions: Equatable {
     var closeFrames: [UUID: CGRect] = [:]
 }
 
+struct CanvasTabHitTester {
+    var tabOrder: [UUID]
+    var hitRegions: CanvasTabHitRegions
+
+    func tab(at point: CGPoint) -> UUID? {
+        hitRegions.tabFrames.first { $0.value.contains(point) }?.key
+    }
+
+    func closeTab(at point: CGPoint, hoveredTabId: UUID?) -> UUID? {
+        hitRegions.closeFrames.first { $0.value.contains(point) }?.key
+    }
+}
+
 private struct CanvasTabFramesKey: PreferenceKey {
     static let defaultValue = CanvasTabHitRegions()
     static func reduce(value: inout CanvasTabHitRegions, nextValue: () -> CanvasTabHitRegions) {
