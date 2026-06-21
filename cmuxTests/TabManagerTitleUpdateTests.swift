@@ -13,30 +13,28 @@ import CmuxSettings
 struct TabManagerTitleUpdateTests {
     @Test
     func coalescerReschedulesWhenDelayChangesMidBurst() async {
-        let sleeper = ManualCoalescerSleep()
+        let scheduler = ManualCoalescerScheduler()
         let coalescer = NotificationBurstCoalescer(
             delay: 0.02,
-            sleep: { try await sleeper.sleep(nanoseconds: $0) }
+            schedule: scheduler.schedule(delay:action:)
         )
         var flushCount = 0
 
         coalescer.signal {
             flushCount += 1
         }
-        #expect(await yieldUntil { await sleeper.pendingCount() == 1 })
+        #expect(scheduler.delays == [0.02])
 
         coalescer.signal(delay: 0.25) {
             flushCount += 1
         }
-        #expect(await yieldUntil { await sleeper.pendingCount() == 2 })
-        #expect(await sleeper.requestedNanoseconds() == [20_000_000, 250_000_000])
+        #expect(scheduler.delays == [0.02, 0.25])
 
-        await sleeper.releaseNext()
-        await Task.yield()
+        scheduler.fire(at: 0)
         #expect(flushCount == 0)
 
-        await sleeper.releaseNext()
-        #expect(await yieldUntil { flushCount == 1 })
+        scheduler.fire(at: 1)
+        #expect(flushCount == 1)
     }
 
     @Test
@@ -48,10 +46,10 @@ struct TabManagerTitleUpdateTests {
 
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let catalog = SettingCatalog()
-        let sleeper = ManualCoalescerSleep()
+        let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
             panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                sleep: { try await sleeper.sleep(nanoseconds: $0) }
+                schedule: scheduler.schedule(delay:action:)
             ),
             settings: settings
         )
@@ -71,16 +69,13 @@ struct TabManagerTitleUpdateTests {
             ]
         )
 
-        #expect(await yieldUntil { await sleeper.pendingCount() == 1 })
-        #expect(await sleeper.requestedNanoseconds() == [300_000_000])
+        #expect(await yieldUntil { scheduler.delays == [0.3] })
         #expect(workspace.panelTitles[focusedPanelId] != "Runtime Delay - grok")
         #expect(workspace.title != "Runtime Delay - grok")
 
-        await sleeper.releaseNext()
-        #expect(await yieldUntil {
-            workspace.panelTitles[focusedPanelId] == "Runtime Delay - grok" &&
-                workspace.title == "Runtime Delay - grok"
-        })
+        scheduler.fire(at: 0)
+        #expect(workspace.panelTitles[focusedPanelId] == "Runtime Delay - grok")
+        #expect(workspace.title == "Runtime Delay - grok")
     }
 
     @Test
@@ -95,10 +90,10 @@ struct TabManagerTitleUpdateTests {
         settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
         settings.set(100, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
 
-        let sleeper = ManualCoalescerSleep()
+        let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
             panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                sleep: { try await sleeper.sleep(nanoseconds: $0) }
+                schedule: scheduler.schedule(delay:action:)
             ),
             settings: settings
         )
@@ -121,8 +116,7 @@ struct TabManagerTitleUpdateTests {
         )
 
         await yieldMainActor()
-        #expect(await sleeper.pendingCount() == 0)
-        #expect(await sleeper.requestedNanoseconds().isEmpty)
+        #expect(scheduler.delays.isEmpty)
         #expect(workspace.panelTitles[focusedPanelId] == originalPanelTitle)
         #expect(workspace.panelTitles[focusedPanelId] != "Ignored Non Owner - grok")
         #expect(workspace.title != "Ignored Non Owner - grok")
@@ -154,16 +148,14 @@ struct TabManagerTitleUpdateTests {
         #expect(abs(PanelTitleUpdateCoalescingSettings.delay(settings: settings) - 5.0) < 0.000_1)
     }
 
-    private func yieldUntil(
-        _ condition: @escaping @MainActor () async -> Bool
-    ) async -> Bool {
+    private func yieldUntil(_ condition: @escaping @MainActor () -> Bool) async -> Bool {
         for _ in 0..<1_000 {
-            if await condition() {
+            if condition() {
                 return true
             }
             await Task.yield()
         }
-        return await condition()
+        return condition()
     }
 
     private func yieldMainActor() async {
@@ -172,29 +164,27 @@ struct TabManagerTitleUpdateTests {
         }
     }
 
-    private actor ManualCoalescerSleep {
-        private var pendingContinuations: [CheckedContinuation<Void, Never>] = []
-        private var requested: [UInt64] = []
+    private final class ManualCoalescerScheduler {
+        private struct PendingFlush {
+            var isCancelled = false
+            let action: () -> Void
+        }
 
-        func sleep(nanoseconds: UInt64) async throws {
-            requested.append(nanoseconds)
-            await withCheckedContinuation { continuation in
-                pendingContinuations.append(continuation)
+        private var pendingFlushes: [PendingFlush] = []
+        private(set) var delays: [TimeInterval] = []
+
+        func schedule(delay: TimeInterval, action: @escaping () -> Void) -> () -> Void {
+            let index = pendingFlushes.count
+            delays.append(delay)
+            pendingFlushes.append(PendingFlush(action: action))
+            return { [weak self] in
+                self?.pendingFlushes[index].isCancelled = true
             }
         }
 
-        func pendingCount() -> Int {
-            pendingContinuations.count
-        }
-
-        func requestedNanoseconds() -> [UInt64] {
-            requested
-        }
-
-        func releaseNext() {
-            guard !pendingContinuations.isEmpty else { return }
-            let continuation = pendingContinuations.removeFirst()
-            continuation.resume()
+        func fire(at index: Int) {
+            guard pendingFlushes.indices.contains(index), !pendingFlushes[index].isCancelled else { return }
+            pendingFlushes[index].action()
         }
     }
 }

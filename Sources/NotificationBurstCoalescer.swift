@@ -4,22 +4,29 @@ import Foundation
 /// Useful for notification storms where only the latest update matters.
 final class NotificationBurstCoalescer {
     private var delay: TimeInterval
-    private let sleep: @Sendable (UInt64) async throws -> Void
-    private var flushTask: Task<Void, Never>?
+    private let schedule: (TimeInterval, @escaping () -> Void) -> (() -> Void)
+    private var cancelScheduledFlush: (() -> Void)?
     private var pendingAction: (() -> Void)?
 
     init(
         delay: TimeInterval = 1.0 / 30.0,
-        sleep: @escaping @Sendable (UInt64) async throws -> Void = { nanoseconds in
-            try await Task.sleep(nanoseconds: nanoseconds)
+        schedule: @escaping (TimeInterval, @escaping () -> Void) -> (() -> Void) = { delay, action in
+            let timer = Timer(timeInterval: max(0, delay), repeats: false) { timer in
+                timer.invalidate()
+                action()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            return {
+                timer.invalidate()
+            }
         }
     ) {
         self.delay = max(0, delay)
-        self.sleep = sleep
+        self.schedule = schedule
     }
 
     deinit {
-        flushTask?.cancel()
+        cancelScheduledFlush?()
     }
 
     func signal(delay newDelay: TimeInterval? = nil, _ action: @escaping () -> Void) {
@@ -29,32 +36,26 @@ final class NotificationBurstCoalescer {
             delay = max(0, newDelay)
         }
         pendingAction = action
-        if flushTask != nil, delay != previousDelay {
-            flushTask?.cancel()
-            flushTask = nil
+        if cancelScheduledFlush != nil, delay != previousDelay {
+            cancelScheduledFlush?()
+            cancelScheduledFlush = nil
         }
         scheduleFlushIfNeeded()
     }
 
     private func scheduleFlushIfNeeded() {
-        guard flushTask == nil else { return }
+        guard cancelScheduledFlush == nil else { return }
         let scheduledDelay = delay
-        // The sleep is the intended bounded coalescing delay; storing the task
-        // lets delay changes and deinit cancel it instead of leaving stale work.
-        flushTask = Task { @MainActor [weak self, sleep] in
-            do {
-                try await sleep(Self.nanoseconds(for: scheduledDelay))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
+        // The timer is the intended bounded coalescing delay; storing the
+        // cancellation closure lets delay changes and deinit discard stale work.
+        cancelScheduledFlush = schedule(scheduledDelay) { [weak self] in
             self?.flush()
         }
     }
 
     private func flush() {
         precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
-        flushTask = nil
+        cancelScheduledFlush = nil
         guard let action = pendingAction else { return }
         pendingAction = nil
         action()
@@ -63,9 +64,4 @@ final class NotificationBurstCoalescer {
         }
     }
 
-    private static func nanoseconds(for delay: TimeInterval) -> UInt64 {
-        let nanoseconds = delay * 1_000_000_000
-        guard nanoseconds.isFinite, nanoseconds > 0 else { return 0 }
-        return UInt64(min(nanoseconds.rounded(.up), Double(UInt64.max)))
-    }
 }
