@@ -32,6 +32,10 @@ const englishOnlyPages = [
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/blog", title: "Blog" },
+  {
+    path: "/blog/emacsification-of-coding-agents",
+    title: "The Emacsification of Coding Agents",
+  },
   { path: "/blog/cmux-history", title: "cmux history" },
   { path: "/blog/cmux-finder", title: "Introducing cmux Finder" },
   { path: "/blog/cmux-vault", title: "cmux Vault" },
