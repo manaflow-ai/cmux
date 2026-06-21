@@ -16,6 +16,11 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxSidebar"),
         .package(path: "../CmuxFoundation"),
+        // ExtensionSidebarBrowserStackDropRow/Planner + CmuxSidebarProviderWorkspaceMove
+        // back the extension browser-stack drop delegates.
+        .package(path: "../CmuxSidebarProviderKit"),
+        // SidebarDragAutoScrollController drives edge auto-scroll during a drag.
+        .package(path: "../CmuxAppKitSupportUI"),
     ],
     targets: [
         .target(
@@ -23,6 +28,8 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CmuxSidebarProviderKit", package: "CmuxSidebarProviderKit"),
+                .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
