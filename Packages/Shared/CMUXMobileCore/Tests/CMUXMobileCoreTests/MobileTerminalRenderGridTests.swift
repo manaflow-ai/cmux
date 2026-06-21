@@ -994,6 +994,36 @@ import Testing
     #expect(capture.lineBudget == 3)
 }
 
+@Test func renderGridSnapshotCapsReplayScrollbackBeforeMaterializingRows() throws {
+    let retainedRows = MobileTerminalScrollbackBudget.fullReplayRows
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 80,
+        rows: 2,
+        full: true,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "visible-1"),
+            .init(row: 1, column: 0, text: "visible-2"),
+        ],
+        scrollbackRows: retainedRows + 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "dropped"),
+            .init(row: 2, column: 0, text: "kept-first"),
+            .init(row: retainedRows + 1, column: 0, text: "kept-last"),
+        ]
+    )
+
+    let snapshot = MobileTerminalRenderGridSnapshot(frame: frame)
+
+    #expect(snapshot.totalRows == retainedRows + 2)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["kept-first", ""])
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == [
+        "visible-1", "visible-2",
+    ])
+    #expect(snapshot.cappedPlainText(lineBudget: 1).text == "visible-2")
+}
+
 @Test func replaySynthesizerMatchesFrameForwardersAcrossFrameShapes() throws {
     // Full primary-screen snapshot with scrollback, styles, and a cursor.
     let fullFrame = try MobileTerminalRenderGridFrame(

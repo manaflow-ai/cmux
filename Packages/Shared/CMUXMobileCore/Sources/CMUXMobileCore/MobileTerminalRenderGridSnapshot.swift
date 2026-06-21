@@ -270,9 +270,17 @@ private func snapshotScrollbackRows(
     from frame: MobileTerminalRenderGridFrame,
     stylesByID: [Int: MobileTerminalRenderGridFrame.Style]
 ) -> [MobileTerminalRenderGridSnapshotRow] {
-    groupedRows(
-        spans: frame.scrollbackSpans,
-        rowCount: frame.scrollbackRows,
+    let retainedRowCount = min(frame.scrollbackRows, MobileTerminalScrollbackBudget.fullReplayRows)
+    let droppedRowCount = max(0, frame.scrollbackRows - retainedRowCount)
+    let retainedSpans = frame.scrollbackSpans.compactMap { span -> MobileTerminalRenderGridFrame.RowSpan? in
+        guard span.row >= droppedRowCount else { return nil }
+        var retained = span
+        retained.row -= droppedRowCount
+        return retained
+    }
+    return groupedRows(
+        spans: retainedSpans,
+        rowCount: retainedRowCount,
         stylesByID: stylesByID
     )
 }
