@@ -46,6 +46,17 @@ import Testing
     #expect(model.isViewingLiveBottom)
 }
 
+@Test func replayBoundsNeedMetadataBeforeMirrorObservation() {
+    var model = MobileTerminalLocalScrollbackModel()
+
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 5154)
+    let bounds = model.updateBounds(total: 5202, len: 48)
+
+    #expect(bounds.expectedTotalRows == 5202)
+    #expect(bounds.mirrorRetention == .complete)
+    #expect(bounds.maxRowOffset == 5154)
+}
+
 @Test func scxWrappedReplayCanReachOldestRetainedPhysicalRow() {
     var model = MobileTerminalLocalScrollbackModel()
     _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 5154)

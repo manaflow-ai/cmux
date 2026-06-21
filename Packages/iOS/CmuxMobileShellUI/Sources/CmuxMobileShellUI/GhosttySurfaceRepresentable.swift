@@ -153,11 +153,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         columns: chunk.replayColumns,
                         rows: chunk.replayRows
                     )
-                    await surfaceView.processOutputAndWait(chunk.data)
+                    // Replay metadata describes the bytes we are about to feed
+                    // into Ghostty. Apply it first so scrollbar callbacks
+                    // emitted during processing are classified against the same
+                    // replay window that produced the output chunk.
                     surfaceView.applyTerminalOutputMetadata(
                         activeScreen: chunk.activeScreen,
                         scrollbackRows: chunk.scrollbackRows
                     )
+                    await surfaceView.processOutputAndWait(chunk.data)
                     MobileDebugLog.anchormux(
                         "replay.chunk.done surface=\(surfaceID) bytes=\(chunk.data.count) "
                         + "scrollbackRows=\(chunk.scrollbackRows.map(String.init) ?? "nil")"
