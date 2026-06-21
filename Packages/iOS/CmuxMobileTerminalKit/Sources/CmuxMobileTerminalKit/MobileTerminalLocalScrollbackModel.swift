@@ -5,8 +5,8 @@ import Foundation
 ///
 /// The Mac owns terminal history and sends a bounded render-grid replay. The
 /// iOS Ghostty surface is only a local mirror of that window, so scroll range
-/// is derived from replay metadata plus Ghostty retention observations in one
-/// place instead of scattered UIKit fields.
+/// is derived from the retained Ghostty mirror in one place. Replay metadata is
+/// used to report whether that mirror is complete or truncated.
 public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
     public struct BottomAnchorPolicy: Equatable, Sendable {
         public let toleranceRows: Double
@@ -141,8 +141,18 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
     private let bottomAnchorPolicy: BottomAnchorPolicy
     private let mirrorRetentionPolicy: MirrorRetentionPolicy
 
-    private var boundsInitialized = false
-    private var anchorToBottomOnNextBounds = false
+    private enum BoundsState: Equatable, Sendable {
+        case unobserved
+        case observed
+    }
+
+    private enum PendingAnchor: Equatable, Sendable {
+        case none
+        case bottomOnNextBounds
+    }
+
+    private var boundsState: BoundsState = .unobserved
+    private var pendingAnchor: PendingAnchor = .none
 
     public init(
         bottomAnchorPolicy: BottomAnchorPolicy = BottomAnchorPolicy(),
@@ -165,10 +175,11 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         }
         guard let scrollbackRows else { return nil }
 
-        let wasAtBottom = !boundsInitialized || bottomAnchorPolicy.isAtBottom(offset: rowOffset, maxOffset: maxRowOffset)
-        anchorToBottomOnNextBounds = wasAtBottom
+        let wasAtBottom = boundsState == .unobserved
+            || bottomAnchorPolicy.isAtBottom(offset: rowOffset, maxOffset: maxRowOffset)
+        pendingAnchor = wasAtBottom ? .bottomOnNextBounds : .none
         replayWindow = ReplayWindow(activeScreen: self.activeScreen, scrollbackRows: scrollbackRows)
-        if wasAtBottom, boundsInitialized {
+        if wasAtBottom, boundsState == .observed {
             rowOffset = maxRowOffset
         }
         return MetadataResult(
@@ -203,22 +214,18 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
             observation: observation,
             expectedTotalRows: expectedTotal
         )
-        let nextMax = Self.resolvedMaxRowOffset(
-            replayWindow: replayWindow,
-            observation: observation,
-            retention: mirrorRetention
-        )
+        let nextMax = observation.maxScrollableOffset
         let previousMax = maxRowOffset
-        let wasAtBottom = !boundsInitialized
-            || anchorToBottomOnNextBounds
+        let wasAtBottom = boundsState == .unobserved
+            || pendingAnchor == .bottomOnNextBounds
             || bottomAnchorPolicy.isAtBottom(offset: rowOffset, maxOffset: previousMax)
 
         maxRowOffset = nextMax
-        boundsInitialized = true
+        boundsState = .observed
         if wasAtBottom || rowOffset > nextMax {
             rowOffset = nextMax
         }
-        anchorToBottomOnNextBounds = false
+        pendingAnchor = .none
 
         return BoundsResult(
             rowOffset: rowOffset,
@@ -247,18 +254,7 @@ public struct MobileTerminalLocalScrollbackModel: Equatable, Sendable {
         observedTotalRows = 0
         replayWindow = ReplayWindow(activeScreen: activeScreen, scrollbackRows: 0)
         mirrorRetention = .complete
-        boundsInitialized = false
-        anchorToBottomOnNextBounds = false
-    }
-
-    private static func resolvedMaxRowOffset(
-        replayWindow: ReplayWindow,
-        observation: MirrorObservation,
-        retention: MirrorRetention
-    ) -> Double {
-        if retention.isTruncated {
-            return observation.maxScrollableOffset
-        }
-        return max(observation.maxScrollableOffset, Double(replayWindow.scrollbackRows))
+        boundsState = .unobserved
+        pendingAnchor = .none
     }
 }

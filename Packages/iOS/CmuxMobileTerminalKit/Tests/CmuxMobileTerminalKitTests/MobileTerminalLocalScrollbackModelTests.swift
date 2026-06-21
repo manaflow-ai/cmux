@@ -83,6 +83,18 @@ import Testing
     #expect(bounds.rowOffset == 1634)
 }
 
+@Test func gestureOffsetNeverExceedsRetainedMirrorRange() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 5154)
+    let bounds = model.updateBounds(total: 1682, len: 48)
+    #expect(bounds.maxRowOffset == 1634)
+
+    let scroll = model.applyGesture(rowDelta: -10_000)
+
+    #expect(scroll.maxRowOffset == 1634)
+    #expect(scroll.rowOffset == 1634)
+}
+
 @Test func oneRowMirrorAccountingSlackDoesNotMarkReplayTruncated() {
     var model = MobileTerminalLocalScrollbackModel(
         mirrorRetentionPolicy: .init(accountingSlackRows: 1)
@@ -93,8 +105,8 @@ import Testing
 
     #expect(bounds.expectedTotalRows == 152)
     #expect(bounds.mirrorRetention == .complete)
-    #expect(bounds.maxRowOffset == 100)
-    #expect(bounds.rowOffset == 100)
+    #expect(bounds.maxRowOffset == 99)
+    #expect(bounds.rowOffset == 99)
 }
 
 @Test func retentionPolicyWithoutSlackTreatsOneMissingRowAsTruncated() {
