@@ -819,7 +819,7 @@ struct TitlebarControlsView: View {
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
-    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false

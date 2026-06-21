@@ -3783,7 +3783,7 @@ struct ContentView: View {
         let onEscape: () -> Void
         let onMoveSelection: (Int) -> Void
         let onUnhandledNavigationKey: (NSEvent) -> Bool
-        @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+        @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
         @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
             var parent: CommandPaletteSearchFieldRepresentable
@@ -4339,7 +4339,7 @@ struct ContentView: View {
         let maxHeight: CGFloat
         let onSubmit: (String) -> Void
         let onEscape: () -> Void
-        @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+        @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
         final class Coordinator: NSObject, NSTextViewDelegate {
             var parent: CommandPaletteMultilineTextEditorRepresentable

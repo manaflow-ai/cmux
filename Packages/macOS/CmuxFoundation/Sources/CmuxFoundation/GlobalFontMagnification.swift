@@ -160,6 +160,25 @@ public struct GlobalFontMagnification {
         Self().scaled(base)
     }
 
+    /// Returns the multiplier for a magnification percent.
+    ///
+    /// - Parameter percent: The requested percent; values outside the supported
+    ///   range are clamped before the multiplier is calculated.
+    public static func scale(for percent: Int) -> CGFloat {
+        CGFloat(clamp(percent)) / CGFloat(defaultPercent)
+    }
+
+    /// Scales a design-time point size by a specific magnification percent.
+    ///
+    /// - Parameters:
+    ///   - baseSize: The unscaled design point size.
+    ///   - percent: The requested percent; values outside the supported range
+    ///     are clamped before scaling.
+    /// - Returns: A point size clamped to at least 1 point.
+    public static func scaledSize(_ baseSize: CGFloat, percent: Int) -> CGFloat {
+        max(1, baseSize * scale(for: percent))
+    }
+
     /// Scales a design-time point size by the standard stored magnification.
     ///
     /// - Parameter baseSize: The unscaled design point size.
@@ -266,6 +285,31 @@ public final class GlobalFontMagnificationChangeObserver {
     }
 }
 
+private struct CmuxGlobalFontMagnificationPercentKey: EnvironmentKey {
+    static var defaultValue: Int { GlobalFontMagnification.storedPercent }
+}
+
+public extension EnvironmentValues {
+    /// The current clamped global font magnification percent.
+    ///
+    /// cmux scene roots should inject this value with
+    /// ``View/cmuxFontMagnificationEnvironment()`` so repeated row labels can
+    /// read a pure environment value instead of each subscribing to
+    /// `UserDefaults`.
+    var cmuxGlobalFontMagnificationPercent: Int {
+        get { self[CmuxGlobalFontMagnificationPercentKey.self] }
+        set { self[CmuxGlobalFontMagnificationPercentKey.self] = GlobalFontMagnification.clamp(newValue) }
+    }
+}
+
+private struct CmuxFontMagnificationEnvironmentModifier: ViewModifier {
+    @AppStorage(GlobalFontMagnification.percentKey) private var percent = GlobalFontMagnification.defaultPercent
+
+    func body(content: Content) -> some View {
+        content.environment(\.cmuxGlobalFontMagnificationPercent, percent)
+    }
+}
+
 enum CmuxTextStyleMetrics {
     static func baseSize(for style: Font.TextStyle) -> CGFloat {
         switch style {
@@ -293,7 +337,7 @@ enum CmuxTextStyleMetrics {
 }
 
 struct CmuxFontModifier: ViewModifier {
-    @AppStorage(GlobalFontMagnification.percentKey) private var percent: Int = GlobalFontMagnification.defaultPercent
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var percent
     let baseSize: CGFloat
     let weight: Font.Weight
     let design: Font.Design
@@ -312,12 +356,21 @@ struct CmuxFontModifier: ViewModifier {
     }
 
     private var scaledSize: CGFloat {
-        let clamped = GlobalFontMagnification.clamp(percent)
-        return max(1, baseSize * CGFloat(clamped) / CGFloat(GlobalFontMagnification.defaultPercent))
+        GlobalFontMagnification.scaledSize(baseSize, percent: percent)
     }
 }
 
 public extension View {
+    /// Injects the global font magnification percent into this view subtree.
+    ///
+    /// Apply this once near each cmux-owned SwiftUI root. Descendant
+    /// ``cmuxFont(size:weight:design:monospacedDigit:)`` calls then read the
+    /// environment value without creating per-label `UserDefaults`
+    /// subscriptions.
+    func cmuxFontMagnificationEnvironment() -> some View {
+        modifier(CmuxFontMagnificationEnvironmentModifier())
+    }
+
     /// Apply a system font at `size` points, scaled by the global magnification.
     func cmuxFont(
         size: CGFloat,

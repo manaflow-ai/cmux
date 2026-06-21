@@ -379,6 +379,7 @@ struct cmuxApp: App {
         WindowGroup {
             MainWindowBootstrapView()
                 .settingsRuntime(settingsRuntime)
+                .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
                     SettingsWindowPresenter.configure(
@@ -860,6 +861,7 @@ struct cmuxApp: App {
         Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
             SettingsWindowRoot(runtime: settingsRuntime)
                 .settingsRuntime(settingsRuntime)
+                .cmuxFontMagnificationEnvironment()
                 .background(WindowAccessor(dedupeByWindow: false) { window in
                     SettingsWindowPresenter.configure(window: window)
                 })
@@ -874,6 +876,7 @@ struct cmuxApp: App {
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
                 .settingsRuntime(settingsRuntime)
+                .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
     }

@@ -254,10 +254,10 @@ private struct ProjectFilesGroupRow: View {
     let depth: Int
     let isExpanded: Bool
     let onToggle: () -> Void
-    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     var body: some View {
-        let scale = CGFloat(GlobalFontMagnification.clamp(globalFontPercent)) / CGFloat(GlobalFontMagnification.defaultPercent)
+        let scale = GlobalFontMagnification.scale(for: globalFontPercent)
         let chevronWidth = max(1, 12 * scale)
         let symbolFrame = max(1, 14 * scale)
         Button(action: onToggle) {
@@ -302,10 +302,10 @@ private struct ProjectFilesFileRow: View {
     let module: ProjectModule
     let isSelected: Bool
     let onSelect: () -> Void
-    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     var body: some View {
-        let scale = CGFloat(GlobalFontMagnification.clamp(globalFontPercent)) / CGFloat(GlobalFontMagnification.defaultPercent)
+        let scale = GlobalFontMagnification.scale(for: globalFontPercent)
         let spacerWidth = max(1, 12 * scale)
         let symbolFrame = max(1, 14 * scale)
         Button(action: onSelect) {

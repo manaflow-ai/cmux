@@ -98,7 +98,7 @@ struct RightSidebarChromeBarModifier: ViewModifier {
     var leadingPadding: CGFloat
     var trailingPadding: CGFloat
     var height: CGFloat
-    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
         content
@@ -119,7 +119,7 @@ struct RightSidebarChromePillModifier: ViewModifier {
     var isHovered: Bool
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
     var geometryKeyPrefix: String?
-    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
         content

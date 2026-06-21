@@ -233,7 +233,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     let onFieldDidFocus: () -> Void
     let onEscape: () -> Void
     let onReturn: (_ isShift: Bool) -> Void
-    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SearchTextFieldRepresentable

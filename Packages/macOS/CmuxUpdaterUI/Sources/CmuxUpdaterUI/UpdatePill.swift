@@ -9,7 +9,7 @@ public struct UpdatePill: View {
     private let appearance: UpdateAppearance
     private let actions: any UpdateActionsHost
     @State private var showPopover = false
-    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     private var textFont: NSFont {
         GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)

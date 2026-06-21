@@ -2648,7 +2648,7 @@ private struct QuestionActionArea: View {
     @State private var freeTexts: [String: String] = [:]
     @State private var customAnswerFocusKey: String?
     @State private var customAnswerFocusRequest = 0
-    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     var body: some View {
         let _ = globalFontPercent
@@ -3664,7 +3664,7 @@ private struct StopActionArea: View {
         draft.reply.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     private var canSend: Bool { !trimmed.isEmpty }
-    @AppStorage(GlobalFontMagnification.percentKey) private var globalFontPercent = GlobalFontMagnification.defaultPercent
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     private var replyFont: NSFont { GlobalFontMagnification.systemFont(ofSize: 12) }
     private var replyBinding: Binding<String> {
         Binding(
