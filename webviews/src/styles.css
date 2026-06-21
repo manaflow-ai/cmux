@@ -206,7 +206,13 @@ body {
   display: none;
 }
 #jump-select {
-  width: 100%;
+  /* Same treatment as the source/repo selects: size to the SELECTED file path
+     rather than stretching to fill the toolbar-middle track. max-width:100%
+     (from the shared rule) caps it at the track so a long path truncates
+     instead of overflowing; min-width keeps the chevron legible. The jump
+     select only appears when the Files sidebar is hidden. */
+  field-sizing: content;
+  min-width: 64px;
 }
 #repo-select {
   /* Sized to its selected value like #source-select, with the HIGHEST shrink so
