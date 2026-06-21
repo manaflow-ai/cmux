@@ -15567,7 +15567,8 @@ struct SidebarTabDropDelegate: DropDelegate {
 #if DEBUG
         cmuxDebugLog("sidebar.dropExited target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
 #endif
-        if dragState.dropIndicator?.tabId == targetTabId {
+        if let dropIndicator = dragState.dropIndicator,
+           shouldClearDropIndicatorOnExit(dropIndicator) {
             dragState.clearDropIndicator()
         }
     }
@@ -15812,6 +15813,19 @@ struct SidebarTabDropDelegate: DropDelegate {
             return SidebarDropIndicator(tabId: previous.id, edge: .bottom)
         }
         return defaultIndicator
+    }
+
+    private func shouldClearDropIndicatorOnExit(_ indicator: SidebarDropIndicator) -> Bool {
+        if indicator.tabId == targetTabId {
+            return true
+        }
+        guard indicator.edge == .bottom,
+              let targetTabId,
+              let previous = visibleGroupedMemberBefore(targetTabId),
+              indicator.tabId == previous.id else {
+            return false
+        }
+        return true
     }
 
     private func plannerPointerY(for info: DropInfo) -> CGFloat? {
