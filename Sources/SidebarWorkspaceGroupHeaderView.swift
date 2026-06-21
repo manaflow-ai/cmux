@@ -24,6 +24,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.canMarkRead == rhs.canMarkRead &&
             lhs.canMarkUnread == rhs.canMarkUnread &&
             lhs.hasLatestNotifications == rhs.hasLatestNotifications &&
+            lhs.canMarkAllRead == rhs.canMarkAllRead &&
+            lhs.canMarkAllUnread == rhs.canMarkAllUnread &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
@@ -51,6 +53,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let canMarkRead: Bool
     let canMarkUnread: Bool
     let hasLatestNotifications: Bool
+    let canMarkAllRead: Bool
+    let canMarkAllUnread: Bool
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -74,6 +78,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onMarkRead: () -> Void
     let onMarkUnread: () -> Void
     let onClearLatestNotifications: () -> Void
+    let onMarkAllRead: () -> Void
+    let onMarkAllUnread: () -> Void
     let onUngroup: () -> Void
     let onDelete: () -> Void
     let onEditConfig: () -> Void
@@ -256,6 +262,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .contextMenu {
             Button(
                 String(
+                    localized: "workspaceGroup.plus.contextMenu.newWorkspace",
+                    defaultValue: "New Workspace in Group"
+                ),
+                action: onTapPlus
+            )
+            Divider()
+            Button(
+                String(
                     localized: "workspaceGroup.contextMenu.rename",
                     defaultValue: "Rename Group..."
                 ),
@@ -298,6 +312,23 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 action: onClearLatestNotifications
             )
             .disabled(!hasLatestNotifications)
+            Divider()
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markAllRead",
+                    defaultValue: "Mark All Workspaces in Group as Read"
+                ),
+                action: onMarkAllRead
+            )
+            .disabled(!canMarkAllRead)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markAllUnread",
+                    defaultValue: "Mark All Workspaces in Group as Unread"
+                ),
+                action: onMarkAllUnread
+            )
+            .disabled(!canMarkAllUnread)
             Divider()
             Button(
                 String(

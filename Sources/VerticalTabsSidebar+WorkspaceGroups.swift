@@ -32,11 +32,12 @@ extension VerticalTabsSidebar {
             }
             return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
         }()
-        let canMarkGroupRead = notificationStore.canMarkWorkspaceRead(forTabIds: memberWorkspaceIds)
-        let canMarkGroupUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: memberWorkspaceIds)
-        let groupHasLatestNotifications = memberWorkspaceIds.contains {
-            notificationStore.latestNotification(forTabId: $0) != nil
-        }
+        let anchorIds = [group.anchorWorkspaceId]
+        let canMarkAnchorRead = notificationStore.canMarkWorkspaceRead(forTabIds: anchorIds)
+        let canMarkAnchorUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: anchorIds)
+        let anchorHasLatestNotification = notificationStore.latestNotification(forTabId: group.anchorWorkspaceId) != nil
+        let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: memberWorkspaceIds)
+        let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: memberWorkspaceIds)
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
         let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
             at: anchorIndex,
@@ -96,9 +97,11 @@ extension VerticalTabsSidebar {
             isAnchorActive: isAnchorActive,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
-            canMarkRead: canMarkGroupRead,
-            canMarkUnread: canMarkGroupUnread,
-            hasLatestNotifications: groupHasLatestNotifications,
+            canMarkRead: canMarkAnchorRead,
+            canMarkUnread: canMarkAnchorUnread,
+            hasLatestNotifications: anchorHasLatestNotification,
+            canMarkAllRead: canMarkAllRead,
+            canMarkAllUnread: canMarkAllUnread,
             shortcutDigit: shortcutDigit,
             shortcutModifierSymbol: modifierSymbol,
             showsShortcutHint: showsHintForAnchor,
@@ -152,22 +155,25 @@ extension VerticalTabsSidebar {
             onTogglePinned: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
             },
-            onMarkRead: { [weak notificationStore, memberWorkspaceIds] in
+            onMarkRead: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
+                notificationStore?.markRead(forTabId: anchorId)
+            },
+            onMarkUnread: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
+                notificationStore?.markUnread(forTabId: anchorId)
+            },
+            onClearLatestNotifications: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
+                notificationStore?.clearLatestNotification(forTabId: anchorId)
+            },
+            onMarkAllRead: { [weak notificationStore, memberWorkspaceIds] in
                 guard let notificationStore else { return }
                 for id in memberWorkspaceIds {
                     notificationStore.markRead(forTabId: id)
                 }
             },
-            onMarkUnread: { [weak notificationStore, memberWorkspaceIds] in
+            onMarkAllUnread: { [weak notificationStore, memberWorkspaceIds] in
                 guard let notificationStore else { return }
                 for id in memberWorkspaceIds {
                     notificationStore.markUnread(forTabId: id)
-                }
-            },
-            onClearLatestNotifications: { [weak notificationStore, memberWorkspaceIds] in
-                guard let notificationStore else { return }
-                for id in memberWorkspaceIds {
-                    notificationStore.clearLatestNotification(forTabId: id)
                 }
             },
             onUngroup: { [weak tabManager, groupId = group.id] in
