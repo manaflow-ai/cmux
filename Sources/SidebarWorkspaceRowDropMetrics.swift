@@ -3,6 +3,7 @@ import CmuxSidebar
 import Foundation
 
 struct SidebarWorkspaceRowDropMetrics {
+    static let minimumTargetHeight: CGFloat = 34
     static let collapsedMetadataEntryLimit = 3
     static let collapsedMetadataBlockLimit = 1
     static let maxWrappedTitleLines = 8
@@ -62,7 +63,7 @@ struct SidebarWorkspaceRowDropMetrics {
         if hasPorts {
             height += 16 * scale
         }
-        return max(34, height.rounded(.up))
+        return max(minimumTargetHeight, height.rounded(.up))
     }
 
     static func estimatedMetadataBlockLineCounts(
