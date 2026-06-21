@@ -88,3 +88,43 @@ Redeploy it manually with `bunx wrangler deploy --config wrangler.dev.toml`
 Point a dev Mac build at it with the `CMUX_PRESENCE_BASE_URL` env override or
 the `presenceServiceURL` defaults key, plus `presenceHeartbeatEnabled` (see
 `Sources/Cloud/PresenceSettings.swift`).
+
+### Working on the worker with several people at once
+
+`cmux-presence-dev` is a **single shared instance** — last deploy wins, and an
+unmerged feature (e.g. the paired-Mac backup, which only exists on its branch)
+lives ONLY on whoever deployed last. So don't push your branch onto the shared
+worker: get your own **isolated** one instead.
+
+```
+./scripts/deploy-dev.sh           # deploys cmux-presence-dev-<your-id>
+```
+
+Each `cmux-presence-dev-<slug>` is a separate worker with its **own Durable
+Object namespace**, so presence + paired-Mac-backup state is fully isolated per
+developer — multiple people dogfood worker changes simultaneously without
+clobbering each other or the shared baseline. The script prints the worker URL
+and the env var to export:
+
+```
+export CMUX_PRESENCE_BASE_URL=https://cmux-presence-dev-<slug>.<subdomain>.workers.dev
+```
+
+Point **every** build in your dogfood loop at it (the Mac that heartbeats AND the
+iPhone that subscribes/backs up must share one worker):
+
+- **Mac:** `CMUX_PRESENCE_BASE_URL` env, or `defaults write <tagged-bundle>
+  presenceServiceURL <url>`. Resolved by `PresenceSettings`.
+- **iOS:** a tapped device app sees no shell env, so the override is read from the
+  app's **Info.plist key `CMUXPresenceBaseURL`** (and from `presenceServiceURL`
+  UserDefaults / the `CMUX_PRESENCE_BASE_URL` launch env). Resolution precedence:
+  env → UserDefaults → Info.plist → Debug default. The reload scripts should bake
+  `CMUXPresenceBaseURL` from `$CMUX_PRESENCE_BASE_URL` into the tagged build's
+  Info.plist (TODO: wire into the iOS reload's existing dev-identity bake, next to
+  `CMUXDevTag`). Until then, launch via `devicectl process launch --environment
+  CMUX_PRESENCE_BASE_URL=<url> …` to point a device build at your worker.
+
+Leave `CMUX_PRESENCE_BASE_URL` unset to use the shared `cmux-presence-dev`
+baseline. The durable fix for any feature is to **merge it** — then it ships on
+prod via CI and anyone deploying dev from `main` carries it, no coordination
+needed.

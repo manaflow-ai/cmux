@@ -12,19 +12,30 @@ extension PresenceClient {
     public static let serviceURLEnvKey = "CMUX_PRESENCE_BASE_URL"
     /// UserDefaults override, mirroring the Mac's `presenceServiceURL`.
     public static let serviceURLDefaultsKey = "presenceServiceURL"
+    /// Info.plist override key. A tapped iOS device app sees no shell env, so the
+    /// reload scripts BAKE this into the tagged build's Info.plist (from
+    /// `CMUX_PRESENCE_BASE_URL`) to point the build at a per-developer isolated
+    /// worker (see workers/presence/scripts/deploy-dev.sh). This is how several
+    /// people dogfood the presence/backup worker at once without sharing one
+    /// instance.
+    public static let serviceURLInfoPlistKey = "CMUXPresenceBaseURL"
     /// The dev/staging worker (dev Stack project); see workers/presence/README.md.
     public static let debugDefaultServiceURL = "https://cmux-presence-dev.debussy.workers.dev"
 
-    /// The presence service base URL for this process, or `nil` when presence
-    /// is disabled (no override and not a Debug build).
+    /// The presence service base URL for this process, or `nil` when presence is
+    /// disabled (no override and not a Debug build). Override precedence: env, then
+    /// UserDefaults, then the baked Info.plist value, then the Debug default.
     public static func resolvedServiceBaseURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard,
+        infoPlistValue: String? = Bundle.main.object(forInfoDictionaryKey: serviceURLInfoPlistKey) as? String,
         isDebugBuild: Bool = PresenceClient.isDebugBuild
     ) -> String? {
         let override = environment[serviceURLEnvKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? defaults.string(forKey: serviceURLDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? infoPlistValue?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let override, !override.isEmpty {
             return override
