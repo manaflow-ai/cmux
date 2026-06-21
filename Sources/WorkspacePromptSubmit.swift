@@ -214,15 +214,3 @@ extension TabManager {
     }
 }
 
-extension Workspace {
-    static func conversationMessagePreview(from message: String?, maxLength: Int = 240) -> String? {
-        guard let message else { return nil }
-        let collapsed = message
-            .split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !collapsed.isEmpty else { return nil }
-        guard collapsed.count > maxLength else { return collapsed }
-        return "\(collapsed.prefix(maxLength))..."
-    }
-}

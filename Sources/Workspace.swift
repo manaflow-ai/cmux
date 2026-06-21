@@ -4086,6 +4086,21 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         set { listeningPorts = newValue }
     }
 
+    var surfaceMetadataLatestConversationMessage: String? {
+        get { latestConversationMessage }
+        set { latestConversationMessage = newValue }
+    }
+
+    var surfaceMetadataLatestSubmittedMessage: String? {
+        get { latestSubmittedMessage }
+        set { latestSubmittedMessage = newValue }
+    }
+
+    var surfaceMetadataLatestSubmittedAt: Date? {
+        get { latestSubmittedAt }
+        set { latestSubmittedAt = newValue }
+    }
+
     func surfaceMetadataLogIgnoredRestoredCwdReport(
         panelId: UUID,
         missingVolumeRoot: String,
@@ -4738,21 +4753,23 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         sidebarMetadata.metadataBlocksInDisplayOrder()
     }
 
-    @discardableResult
-    func recordConversationMessage(_ message: String?) -> Bool {
-        guard let preview = Self.conversationMessagePreview(from: message) else { return false }
-        guard latestConversationMessage != preview else { return false }
-        latestConversationMessage = preview
-        return true
+    /// Forwards to
+    /// ``WorkspaceSurfaceMetadataModel/conversationMessagePreview(from:maxLength:)``.
+    static func conversationMessagePreview(from message: String?, maxLength: Int = 240) -> String? {
+        WorkspaceSurfaceMetadataModel<PendingTabSelectionRequest>
+            .conversationMessagePreview(from: message, maxLength: maxLength)
     }
 
+    /// Forwards to ``WorkspaceSurfaceMetadataModel/recordConversationMessage(_:)``.
+    @discardableResult
+    func recordConversationMessage(_ message: String?) -> Bool {
+        surfaceDirectoryMetadata.recordConversationMessage(message)
+    }
+
+    /// Forwards to ``WorkspaceSurfaceMetadataModel/recordSubmittedMessage(_:)``.
     @discardableResult
     func recordSubmittedMessage(_ message: String?) -> Bool {
-        guard let preview = Self.conversationMessagePreview(from: message) else { return false }
-        _ = recordConversationMessage(preview)
-        latestSubmittedMessage = preview
-        latestSubmittedAt = Date()
-        return true
+        surfaceDirectoryMetadata.recordSubmittedMessage(message)
     }
 
     var isRemoteWorkspace: Bool {

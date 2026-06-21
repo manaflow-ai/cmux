@@ -87,6 +87,28 @@ public protocol SurfaceMetadataHosting: AnyObject {
     /// writes this only when the value changes, exactly as the legacy body did.
     var surfaceMetadataListeningPorts: [Int] { get set }
 
+    /// The latest assistant/conversation message preview (legacy
+    /// `Workspace.latestConversationMessage`). The setter is the `@Published`
+    /// property whose `$latestConversationMessage` projection feeds the
+    /// sidebar-immediate observation publisher;
+    /// ``WorkspaceSurfaceMetadataModel/recordConversationMessage(_:)`` writes it
+    /// only when the deduped preview changes, exactly as the legacy body did.
+    var surfaceMetadataLatestConversationMessage: String? { get set }
+
+    /// The latest submitted-prompt preview (legacy
+    /// `Workspace.latestSubmittedMessage`). The `@Published` setter feeds the
+    /// sidebar-immediate observation publisher;
+    /// ``WorkspaceSurfaceMetadataModel/recordSubmittedMessage(_:)`` writes it
+    /// exactly as the legacy body did.
+    var surfaceMetadataLatestSubmittedMessage: String? { get set }
+
+    /// The timestamp of the latest submitted prompt (legacy
+    /// `Workspace.latestSubmittedAt`). The `@Published` setter feeds the
+    /// sidebar-immediate observation publisher;
+    /// ``WorkspaceSurfaceMetadataModel/recordSubmittedMessage(_:)`` stamps it
+    /// with the current `Date` exactly as the legacy body did.
+    var surfaceMetadataLatestSubmittedAt: Date? { get set }
+
     /// Emits the DEBUG `session.restore.cwdReport.ignored` log line the legacy
     /// `shouldIgnoreRestoredGuardedDirectoryReport` wrote when it ignored a
     /// report. A no-op in release builds; kept on the host so the
