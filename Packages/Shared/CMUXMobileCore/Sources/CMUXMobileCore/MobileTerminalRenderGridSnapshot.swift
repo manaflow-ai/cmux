@@ -6,6 +6,8 @@ import Foundation
 /// Keeping them as rows avoids rebuilding a second scrollback history by
 /// replaying synthesized VT into Ghostty.
 public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
+    private static let liveTrimSlackRows = 512
+
     /// Surface identifier this snapshot belongs to.
     public private(set) var surfaceID: String
     /// Monotonic render-grid sequence number applied to this snapshot.
@@ -227,7 +229,7 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
 
     private mutating func trimRowsToBudget() {
         let maxRows = MobileTerminalScrollbackBudget.fullReplayRows + max(primaryVisibleRowCount, visibleRowCount, 0)
-        if primaryRows.count > maxRows {
+        if primaryRows.count > maxRows + Self.liveTrimSlackRows {
             primaryRows.removeFirst(primaryRows.count - maxRows)
         }
         let alternateLimit = max(alternateVisibleRowCount, activeScreen == .alternate ? visibleRowCount : 0, 0)
