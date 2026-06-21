@@ -5279,10 +5279,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func finishTerminalReplayRequest(surfaceID: String, streamToken: UUID?) {
-        guard streamToken == nil || terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
-            return
-        }
         terminalReplaySurfaceIDsInFlight.remove(surfaceID)
+        let tokenMatches = streamToken == nil || terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken
         guard terminalReplaySurfaceIDsPendingRetry.remove(surfaceID) != nil else {
             return
         }
@@ -5290,7 +5288,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               remoteClient != nil else {
             return
         }
-        MobileDebugLog.anchormux("CMUX_REPLAY retry_start surface=\(surfaceID)")
+        let reason = tokenMatches ? "pending" : "stale_stream_pending"
+        MobileDebugLog.anchormux("CMUX_REPLAY retry_start surface=\(surfaceID) reason=\(reason)")
         requestTerminalReplay(surfaceID: surfaceID)
     }
 
@@ -5377,6 +5376,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         terminalReplaySurfaceIDsPendingWorkspaceMapping.remove(surfaceID)
         guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
+            terminalReplaySurfaceIDsPendingRetry.insert(surfaceID)
             #if DEBUG
             mobileShellLog.info("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=in_flight")
             #endif

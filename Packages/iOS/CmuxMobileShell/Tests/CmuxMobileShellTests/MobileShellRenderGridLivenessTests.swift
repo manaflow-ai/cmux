@@ -216,6 +216,49 @@ import Testing
     secondCollector.unmount()
 }
 
+/// If a new sink registers for the same surface while an old replay is still
+/// held, the old completion must clear the in-flight marker and allow the
+/// pending fresh replay to run. Otherwise the surface can stay permanently
+/// stuck without a base snapshot.
+@MainActor
+@Test func staleReplayCompletionStartsPendingFreshReplay() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.holdReplayRequest(number: 1)
+    await router.setReplaySnapshot(number: 1, seq: 1, text: "stale replay")
+    await router.setReplaySnapshot(number: 2, seq: 2, text: "fresh replay")
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let firstCollector = OutputCollector()
+    firstCollector.mount(store: store, surfaceID: "live-terminal")
+    let sawFirstReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawFirstReplay)
+
+    let secondCollector = OutputCollector()
+    secondCollector.mount(store: store, surfaceID: "live-terminal")
+    let startedConcurrently = try await pollUntil(attempts: 10) {
+        await router.count(of: "mobile.terminal.replay") >= 2
+    }
+    #expect(!startedConcurrently, "the second registration should queue behind the held replay, not start concurrently")
+
+    await router.releaseAllHeld()
+    let sawPendingReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
+    #expect(sawPendingReplay, "stale completion must clear in-flight and start the pending fresh replay")
+    let sawFreshReplay = try await pollUntil { secondCollector.lines.contains { $0.contains("fresh replay") } }
+    #expect(sawFreshReplay)
+    let sawStaleReplay = try await pollUntil(attempts: 10) {
+        secondCollector.lines.contains { $0.contains("stale replay") }
+    }
+    #expect(!sawStaleReplay, "the stale replay must not deliver into the newer stream")
+
+    firstCollector.unmount()
+    secondCollector.unmount()
+}
+
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
 /// working: silence past the threshold plus a host that stops answering the
 /// probe must still tear down and re-subscribe.
