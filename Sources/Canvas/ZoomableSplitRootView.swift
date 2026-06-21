@@ -15,7 +15,6 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
     private var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
-    private var zoomSettleTask: Task<Void, Never>?
 
     private static let revealMargin: CGFloat = 24
     private static let overviewPadding: CGFloat = 48
@@ -48,8 +47,6 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
 
     func teardown() {
         removeCommandScrollMonitor()
-        zoomSettleTask?.cancel()
-        zoomSettleTask = nil
         if let clipBoundsObserver {
             NotificationCenter.default.removeObserver(clipBoundsObserver)
         }
@@ -269,13 +266,16 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private func updateDocumentSize() {
         let contentSize = scrollView.contentSize
         guard contentSize.width > 1, contentSize.height > 1 else { return }
-        let minimumDocumentSize = CGSize(
-            width: max(contentSize.width, documentView.frame.width),
-            height: max(contentSize.height, documentView.frame.height)
-        )
-        if documentView.frame.size != minimumDocumentSize {
-            documentView.setFrameSize(minimumDocumentSize)
+        let documentSize = CGSize(width: contentSize.width, height: contentSize.height)
+        if documentView.frame.size != documentSize {
+            documentView.setFrameSize(documentSize)
             hostingView.frame = documentView.bounds
+            let currentOrigin = scrollView.contentView.bounds.origin
+            let nextOrigin = boundedOrigin(currentOrigin)
+            if nextOrigin != currentOrigin {
+                scrollView.contentView.setBoundsOrigin(nextOrigin)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
         }
     }
 
@@ -292,7 +292,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         let anchor = scrollView.contentView.convert(windowLocation, from: nil)
         scrollView.setMagnification(target, centeredAt: anchor)
         scrollView.reflectScrolledClipView(scrollView.contentView)
-        synchronizeViewportGeometry()
+        synchronizeViewportSettled()
     }
 
     private func zoomByScroll(_ event: NSEvent) {
@@ -301,18 +301,6 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         guard delta != 0 else { return }
         let sensitivity: CGFloat = precise ? 0.005 : 0.10
         zoom(by: 1 + delta * sensitivity, towardWindowLocation: event.locationInWindow)
-        scheduleZoomSettle()
-    }
-
-    private func scheduleZoomSettle() {
-        zoomSettleTask?.cancel()
-        zoomSettleTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 160_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                self?.synchronizeViewportSettled()
-            }
-        }
     }
 
     private func setClipOrigin(_ origin: CGPoint, animated: Bool) {
@@ -398,30 +386,11 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
 
     private func synchronizeViewportGeometry() {
         guard let window else { return }
-        if let workspace {
-            for panel in workspace.panels.values {
-                guard let browserPanel = panel as? BrowserPanel,
-                      !browserPanel.canvasInlineHostingActive else { continue }
-                BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
-            }
-        }
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
         BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
     }
 
     private func synchronizeViewportSettled() {
-        guard let workspace else {
-            synchronizeViewportGeometry()
-            return
-        }
         synchronizeViewportGeometry()
-        for panel in workspace.panels.values {
-            guard let browserPanel = panel as? BrowserPanel,
-                  !browserPanel.canvasInlineHostingActive else { continue }
-            BrowserWindowPortalRegistry.refresh(
-                webView: browserPanel.webView,
-                reason: "zoomableSplit.viewportSettled"
-            )
-        }
     }
 }

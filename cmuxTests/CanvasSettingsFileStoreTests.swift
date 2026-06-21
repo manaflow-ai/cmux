@@ -85,6 +85,48 @@ struct CanvasSettingsFileStoreTests {
         }
     }
 
+    @Test func invalidCanvasSettingDoesNotBlockValidSiblingSettings() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults([
+            CanvasLayoutSettings.paneGapKey,
+            CanvasLayoutSettings.snappingEnabledKey,
+            CanvasLayoutSettings.splitDividerThicknessKey,
+            "cmux.settingsFile.backups.v1",
+            "cmux.settingsFile.importedManagedDefaults.v1",
+        ]) {
+            defaults.removeObject(forKey: CanvasLayoutSettings.paneGapKey)
+            defaults.removeObject(forKey: CanvasLayoutSettings.snappingEnabledKey)
+            defaults.removeObject(forKey: CanvasLayoutSettings.splitDividerThicknessKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "canvas": {
+                    "paneGap": 200,
+                    "snappingEnabled": false,
+                    "splitDividerThickness": 4
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.object(forKey: CanvasLayoutSettings.paneGapKey) == nil)
+            #expect(defaults.bool(forKey: CanvasLayoutSettings.snappingEnabledKey) == false)
+            #expect(defaults.integer(forKey: CanvasLayoutSettings.splitDividerThicknessKey) == 4)
+        }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("CanvasSettingsFileStoreTests-\(UUID().uuidString)", isDirectory: true)

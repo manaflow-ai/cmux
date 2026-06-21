@@ -500,11 +500,11 @@ final class CmuxSettingsFileStore {
     ) {
         let catalog = CanvasCatalogSection()
         if let paneGap = jsonInt(section["paneGap"]) {
-            guard Int(CanvasLayoutSettings.paneGapRange.lowerBound)...Int(CanvasLayoutSettings.paneGapRange.upperBound) ~= paneGap else {
+            if Int(CanvasLayoutSettings.paneGapRange.lowerBound)...Int(CanvasLayoutSettings.paneGapRange.upperBound) ~= paneGap {
+                snapshot.managedUserDefaults[catalog.paneGap.userDefaultsKey] = .int(paneGap)
+            } else {
                 logInvalid("canvas.paneGap", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[catalog.paneGap.userDefaultsKey] = .int(paneGap)
         } else if section.keys.contains("paneGap") {
             logInvalid("canvas.paneGap", sourcePath: sourcePath)
         }
@@ -516,11 +516,11 @@ final class CmuxSettingsFileStore {
         }
 
         if let thickness = jsonInt(section["splitDividerThickness"]) {
-            guard CanvasLayoutSettings.splitDividerThicknessRange ~= thickness else {
+            if CanvasLayoutSettings.splitDividerThicknessRange ~= thickness {
+                snapshot.managedUserDefaults[catalog.splitDividerThickness.userDefaultsKey] = .int(thickness)
+            } else {
                 logInvalid("canvas.splitDividerThickness", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[catalog.splitDividerThickness.userDefaultsKey] = .int(thickness)
         } else if section.keys.contains("splitDividerThickness") {
             logInvalid("canvas.splitDividerThickness", sourcePath: sourcePath)
         }

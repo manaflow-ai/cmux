@@ -359,7 +359,7 @@ struct WorkspaceContentView: View {
                             .environment(\.cmuxCanvasInlineBrowserHosting, true)
                             .environment(\.cmuxDirectTerminalHosting, true)
                     )
-                )
+                ).id(workspace.id)
             } else {
                 bonsplitView
             }
