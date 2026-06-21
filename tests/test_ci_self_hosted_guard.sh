@@ -711,7 +711,8 @@ check_no_bare_github_hosted_runners() {
   # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
   # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
   # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
-  # deliberate single-runner pins such as the testmanagerd-wedged `tests` job.
+  # deliberate single-runner pins such as the testmanagerd-wedged
+  # `app-host-unit-tests` job.
   local hits
   hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)[[:space:]]*$" "$ROOT_DIR/.github/workflows" || true)"
   if [[ -n "$hits" ]]; then
@@ -793,7 +794,7 @@ check_no_self_hosted_fleet_runners() {
 # ci.yml jobs
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
-check_macos_runner "$CI_FILE" "tests"
+check_macos_runner "$CI_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"

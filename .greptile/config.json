@@ -61,6 +61,12 @@
       "severity": "high"
     },
     {
+      "id": "cmux-swift-expensive-sync-load",
+      "rule": "Flag production Swift that reads, decodes, or scans unbounded agent-history data on the main actor or interactive paths: RestorableAgentSessionIndex.load(), agent hook/session stores, agent-turn-diff-baselines.json, transcript files, trajectory files, workstream/event JSONL logs, broad directory scans, per-record syscalls, or large JSON/JSONL parsing. Require SharedLiveAgentIndex.shared, Task.detached, a background actor/repository parser, or another off-main cached path that returns to MainActor only for UI/process launch work. Pass for the cache/background loader itself, explicit nil-cache fallbacks with justification, and existing call sites not worsened.",
+      "scope": ["**/*.swift", "**/Package.swift"],
+      "severity": "high"
+    },
+    {
       "id": "cmux-swiftui-state-layout",
       "rule": "Flag SwiftUI changes that can cause stale state, broad invalidation, layout instability, or main-thread churn: new ObservableObject/@Published state where @Observable is correct, GeometryReader measurement that changes layout, lazy/list row subtrees holding store references, or state mutation during body rendering.",
       "scope": ["**/*.swift"],
