@@ -3,24 +3,6 @@ import Combine
 import CmuxNotifications
 import Foundation
 
-/// Cancellable wrapping a single readiness observer or the timeout for
-/// ``TerminalTextSendCoordinator``. Cancellation is idempotent: the stored
-/// teardown closure is cleared after the first call, mirroring the legacy
-/// `cleanupObservers()` which only removed each observer once.
-@MainActor
-final class TerminalTextSendObserverToken: TerminalTextSendCancellable {
-    private var teardown: (() -> Void)?
-
-    init(_ teardown: @escaping () -> Void) {
-        self.teardown = teardown
-    }
-
-    func cancel() {
-        teardown?()
-        teardown = nil
-    }
-}
-
 /// App-side ``TerminalTextSendPanel`` conformer over a `TerminalPanel`. Forwards
 /// each member to the underlying panel, matching the exact reads the legacy
 /// `sendTextWhenReady` performed (`isAgentHibernated`, `surface.surface != nil`,
