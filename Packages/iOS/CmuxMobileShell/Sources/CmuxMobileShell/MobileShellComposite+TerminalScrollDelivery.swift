@@ -111,7 +111,12 @@ extension MobileShellComposite {
             guard let payload = try? MobileTerminalReplayResponse.decode(data) else {
                 return
             }
-            let envelope = payload.renderGridEnvelope?.frame.surfaceID == delivery.surfaceID ? payload.renderGridEnvelope :
+            let decodedEnvelope = payload.renderGridEnvelope.flatMap { envelope -> MobileTerminalRenderGridEnvelope? in
+                guard envelope.role == .snapshot,
+                      envelope.frame.surfaceID == delivery.surfaceID else { return nil }
+                return envelope
+            }
+            let envelope = decodedEnvelope ??
                 payload.renderGrid.flatMap { renderGrid in
                     guard renderGrid.surfaceID == delivery.surfaceID else { return nil }
                     return try? MobileTerminalRenderGridEnvelope.snapshot(renderGrid)

@@ -5177,6 +5177,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ envelope: MobileTerminalRenderGridEnvelope,
         surfaceID: String
     ) -> [MobileTerminalRenderGridEnvelope] {
+        guard envelope.role == .snapshot else {
+            MobileDebugLog.anchormux(
+                "CMUX_REPLAY non_snapshot_replay surface=\(surfaceID) role=\(envelope.role.rawValue) action=drop"
+            )
+            return []
+        }
         var session = terminalRenderSessionsBySurfaceID[surfaceID] ?? TerminalRenderSession()
         let envelopes = session.receiveSnapshot(envelope)
         terminalRenderSessionsBySurfaceID[surfaceID] = session
@@ -5432,9 +5438,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let payload = try? MobileTerminalReplayResponse.decode(data)
                 let bytes = payload?.dataBase64.flatMap { Data(base64Encoded: $0) }
                 let snapshotBytes = payload?.snapshotBase64.flatMap { Data(base64Encoded: $0) }
-                let decodedEnvelope = payload?.renderGridEnvelope
+                let decodedEnvelope = payload?.renderGridEnvelope.flatMap { envelope -> MobileTerminalRenderGridEnvelope? in
+                    guard envelope.role == .snapshot,
+                          envelope.frame.surfaceID == surfaceID else { return nil }
+                    return envelope
+                }
                 let decodedRenderGrid = payload?.renderGrid
-                let envelope = decodedEnvelope?.frame.surfaceID == surfaceID ? decodedEnvelope :
+                let envelope = decodedEnvelope ??
                     decodedRenderGrid.flatMap { renderGrid in
                         guard renderGrid.surfaceID == surfaceID else { return nil }
                         return try? MobileTerminalRenderGridEnvelope.snapshot(renderGrid)

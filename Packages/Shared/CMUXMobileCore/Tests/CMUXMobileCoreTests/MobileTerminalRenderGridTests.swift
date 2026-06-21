@@ -124,7 +124,7 @@ import Testing
     ])
 }
 
-@Test func renderGridSnapshotPreservesRepeatedFullViewportAdvance() throws {
+@Test func renderGridSnapshotDoesNotInventScrollbackForIdenticalFullViewportDelta() throws {
     let full = try MobileTerminalRenderGridFrame(
         surfaceID: "surface-a",
         stateSeq: 1,
@@ -153,8 +153,8 @@ import Testing
 
     snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(deltaFrame))
 
-    #expect(snapshot.totalRows == 4)
-    #expect(snapshot.maxRowOffset == 1)
+    #expect(snapshot.totalRows == 3)
+    #expect(snapshot.maxRowOffset == 0)
     #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == [
         "same", "same", "same",
     ])

@@ -152,6 +152,60 @@ import Testing
     #expect(String(decoding: replayChunk.data, as: UTF8.self).contains("real-replay-base"))
 }
 
+@MainActor
+@Test func nonSnapshotReplayEnvelopeDoesNotUnblockLiveDeltas() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.debugSetRenderGridTransportForTesting(true)
+    store.debugBeginInitialTerminalReplayForTesting(surfaceID: surfaceID)
+
+    let deltaFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 10,
+        columns: 16,
+        rows: 4,
+        text: "not-a-snapshot",
+        full: false,
+        changedRows: [0, 1, 2, 3]
+    )
+    store.debugDeliverInitialTerminalReplayForTesting(try .viewportDelta(deltaFrame), surfaceID: surfaceID)
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+
+    let liveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 11,
+        columns: 16,
+        rows: 4,
+        text: "live-still-blocked",
+        full: false,
+        changedRows: [0, 1, 2, 3]
+    )
+    store.debugDeliverLiveRenderGridForTesting(try .viewportDelta(liveFrame))
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+
+    let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 12,
+        columns: 16,
+        rows: 4,
+        text: "real-snapshot"
+    )
+    let snapshotEnvelope = try MobileTerminalRenderGridEnvelope.snapshot(snapshotFrame)
+    store.debugDeliverInitialTerminalReplayForTesting(snapshotEnvelope, surfaceID: surfaceID)
+
+    let replayChunk = try #require(await iterator.next())
+    switch replayChunk.payload {
+    case .bytes:
+        Issue.record("render-grid replay was downgraded to bytes before the surface boundary")
+    case .renderGrid(let envelope):
+        #expect(envelope == snapshotEnvelope)
+    }
+    #expect(String(decoding: replayChunk.data, as: UTF8.self).contains("real-snapshot"))
+}
+
 @Test func terminalRenderSessionDropsBufferedLiveDeltasCoveredBySnapshotSequence() throws {
     let surfaceID = "terminal"
     var session = TerminalRenderSession()
