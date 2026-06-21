@@ -216,6 +216,23 @@ struct FeedEventClassifier {
             "agentSpawn": .sessionStart,
             "stop": .response,
         ],
+        // Antigravity owns its own approval UI for `run_command` and other
+        // side-effecting tools, so its pre-tool event stays telemetry even
+        // for shell-like tools (mirrors Claude/Hermes — see #4985). Without
+        // this entry antigravity falls through to ``genericFeedEventSemantics``
+        // and every `Bash`/`run_command` call escalates to ``PermissionRequest``,
+        // which blocks the cmux Feed bridge for 120s. agy's hook timeout is
+        // 10s, so the bridge always times out before the user can click,
+        // and agy denies the tool call — breaking every shell action. The
+        // real approval banner fires through the dedicated
+        // ``cmux hooks antigravity notification`` subcommand (the
+        // ``Notification`` event below), so on the feed path this stays a
+        // non-blocking notification to avoid a duplicate banner.
+        "antigravity": [
+            "PreToolUse": .toolStart,
+            "PostToolUse": .toolEnd,
+            "Notification": .statusNotification,
+        ],
     ]
 
     /// Fallback table for agents without a dedicated entry in

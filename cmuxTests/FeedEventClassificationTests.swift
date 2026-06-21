@@ -155,4 +155,40 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "write").actionable == false)
         #expect(classify("gemini", "PreToolUse", tool: "execute_bash").actionable == false)
     }
+
+    // MARK: Antigravity (agy) — owns its own approval UI
+
+    /// Antigravity runs the cmux Feed bridge under a 10s hook budget, so its
+    /// `PreToolUse` MUST stay telemetry — escalating side-effecting tools to
+    /// `PermissionRequest` makes the Feed bridge block 120s, the hook times
+    /// out, and agy denies the tool call ("Tool call denied by
+    /// jsonhook__cmux_PreToolUse_0_0"). Mirrors Claude/Hermes (see #4985).
+    /// The real approval banner fires through the dedicated
+    /// `cmux hooks antigravity notification` subcommand, not the feed path.
+    @Test func antigravityPreToolUseIsTelemetryEvenForSideEffectingTools() {
+        let bash = classify("antigravity", "PreToolUse", tool: "Bash")
+        #expect(bash.actionable == false)
+        #expect(bash.name == "PreToolUse")
+        let runCommand = classify("antigravity", "PreToolUse", tool: "run_command")
+        #expect(runCommand.actionable == false)
+        #expect(runCommand.name == "PreToolUse")
+    }
+
+    /// PostToolUse is telemetry, mapped to the canonical wire name. The
+    /// registration must not accidentally route post-tool into an approval
+    /// banner.
+    @Test func antigravityPostToolUseIsTelemetry() {
+        let post = classify("antigravity", "PostToolUse", tool: "Bash")
+        #expect(post.actionable == false)
+        #expect(post.name == "PostToolUse")
+    }
+
+    /// `Notification` maps to the dedicated `cmux hooks antigravity
+    /// notification` subcommand, not the feed bridge. On the feed path it
+    /// must stay non-blocking `Notification` to avoid a duplicate banner.
+    @Test func antigravityNotificationStaysNonBlockingOnFeedPath() {
+        let n = classify("antigravity", "Notification", tool: "")
+        #expect(n.actionable == false)
+        #expect(n.name == "Notification")
+    }
 }

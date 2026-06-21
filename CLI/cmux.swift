@@ -33128,7 +33128,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     socketPassword: socketPassword
                 )
             }
-            print("{}")
+            print(Self.nonActionableFeedDecision(source: source))
             return
         }
 
@@ -33194,7 +33194,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             print(out)
             return
         }
-        print("{}")
+        print(Self.nonActionableFeedDecision(source: source))
+    }
+
+    /// Returns the hook stdout payload emitted when an agent hook event is
+    /// classified as non-actionable (telemetry only) and no user decision is
+    /// available. Most agents (claude, codex, hermes-agent) treat an empty
+    /// `{}` as "no override — fall through to the agent's own approval UI",
+    /// but antigravity's hook framework interprets empty `{}` as a fail-safe
+    /// DENY, so we emit an explicit allow decision for it. Pairs with the
+    /// `antigravity` entry in `FeedEventClassifier` that marks its
+    /// PreToolUse as `.toolStart` (telemetry).
+    private static func nonActionableFeedDecision(source: String) -> String {
+        if source == "antigravity" {
+            return #"{"decision":"allow"}"#
+        }
+        return "{}"
     }
 
     private static func shouldSuppressKiroFeedEvent(
