@@ -2,14 +2,6 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// A machine the workspace list can be filtered to (its stable `macDeviceID`
-/// and a human-readable name). Built from the distinct Macs present in the
-/// aggregated workspace list.
-struct WorkspaceFilterMachine: Identifiable, Hashable {
-    let id: String
-    let name: String
-}
-
 /// The one filter control shared by every surface that lists workspaces (the
 /// flat workspace list and the device tree): a toolbar menu with two orthogonal,
 /// composable dimensions — read state (All / Unread) and machine (multi-select)

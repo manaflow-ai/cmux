@@ -2110,6 +2110,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
+    /// Switch the foreground connection to another paired Mac.
     @discardableResult
     public func switchToMac(macDeviceID: String) async -> Bool {
         guard let pairedMacStore else { return false }
@@ -2755,7 +2756,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 return ticket
             } catch {
-                guard Self.shouldFallbackToSyntheticManualTicket(after: error) else {
+                guard shouldFallbackToSyntheticManualTicket(after: error) else {
                     throw error
                 }
             }
@@ -2776,15 +2777,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ticket), or nil if it has no reachable route / the ticket fails. The caller
     /// owns disconnecting it. Routes are loopback-deprioritized on device. Never
     /// touches the foreground connection.
-    /// The live client to a secondary Mac plus the route/ticket it was dialed on,
-    /// so the connection can later be PROMOTED to the foreground (reused) instead
-    /// of re-dialed.
-    private struct SecondaryClientHandle {
-        let client: MobileCoreRPCClient
-        let route: CmxAttachRoute
-        let ticket: CmxAttachTicket
-    }
-
     private func makeSecondaryClient(for mac: MobilePairedMac) async -> SecondaryClientHandle? {
         guard let runtime else { return nil }
         let supportedKinds = runtime.supportedRouteKinds
@@ -3050,12 +3042,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// - `client == nil` when the owner is a known non-foreground Mac that has no
     ///   live connection right now, so the caller must NOT fall back to the
     ///   foreground client (that is exactly the wrong-Mac bug this avoids).
-    struct WorkspaceMutationTarget {
-        let client: MobileCoreRPCClient?
-        let isForeground: Bool
-        let macDeviceID: String?
-    }
-
     func workspaceMutationTarget(for id: MobileWorkspacePreview.ID) -> WorkspaceMutationTarget {
         let owner = workspaces.first(where: { $0.id == id })?.macDeviceID
         if owner == nil || owner == foregroundMacDeviceID || owner == Self.foregroundAnonymousKey {
@@ -3110,6 +3096,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
             return ["1", "true", "yes", "on"].contains(raw.lowercased())
         }
+        // UserDefaults.standard is read only at the composition root for the shell's
+        // runtime feature flag; tests exercise the resulting branch through the store
+        // surface rather than injecting defaults into every workspace mutation path.
         if UserDefaults.standard.object(forKey: "multiMacAggregation") != nil {
             return UserDefaults.standard.bool(forKey: "multiMacAggregation")
         }
@@ -3306,23 +3295,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var state = workspacesByMac[key] ?? MacWorkspaceState(macDeviceID: key)
         body(&state.workspaces)
         workspacesByMac[key] = state
-    }
-
-    private static func shouldFallbackToSyntheticManualTicket(after error: any Error) -> Bool {
-        guard case let MobileShellConnectionError.rpcError(code, message) = error else {
-            return false
-        }
-        let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if let normalizedCode,
-           ["method_not_found", "not_found", "unknown_method", "unsupported_method"].contains(normalizedCode) {
-            return true
-        }
-        return normalizedMessage.contains("unknown method")
-            || normalizedMessage.contains("method not found")
-            || normalizedMessage.contains("unsupported method")
-            || normalizedMessage.contains("ticket unavailable")
-            || normalizedMessage.contains("ticket not available")
     }
 
     private static func manualHostTicket(
@@ -3536,12 +3508,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Submit the current terminal input text from a synchronous UI action.
     public func sendTerminalInput() {
         Task { @MainActor [weak self] in
             await self?.submitTerminalInput()
         }
     }
 
+    /// Submit the current terminal input text to the selected terminal.
     public func submitTerminalInput() async {
         let text = terminalInputText
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -4187,20 +4161,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// when it returned without connecting and without throwing
     /// (`.noSupportedRoute`), so callers record the matching analytics reason.
     @discardableResult
-    /// The id to key the foreground Mac under. A real paired-Mac id `hint` from the
-    /// caller wins over a synthetic `manual-…` / empty ticket id: a Mac reached via
-    /// the manual-host fallback (host lacks `mobile.attach_ticket.create`, so the
-    /// connect synthesizes a `manual-<host>:<port>` ticket even on success) still
-    /// keys its foreground state under the REAL device id that aggregation, filters,
-    /// Computers rows, and mutation routing use — otherwise the same machine shows
-    /// as a separate offline entry and can spawn a duplicate secondary connection.
-    /// Falls back to the ticket's own id (real for an attach-ticket Mac), then empty
-    /// (anonymous).
-    private static func resolveForegroundMacID(ticket: CmxAttachTicket, hint: String?) -> String {
-        if let hint, !hint.isEmpty, !hint.hasPrefix("manual-") { return hint }
-        return ticket.macDeviceID
-    }
-
     private func connect(
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil,
@@ -4291,7 +4251,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // snapshot. Anonymous (empty-id) tickets keep the anonymous key. A
                     // manual fallback ticket carries a synthetic `manual-…` id, so
                     // prefer the caller's real paired-Mac id when it is known.
-                    let resolvedForegroundMacID = Self.resolveForegroundMacID(
+                    let resolvedForegroundMacID = resolveForegroundMacID(
                         ticket: ticket, hint: pairedMacDeviceID)
                     let previousForegroundKey = foregroundMacKey
                     if !resolvedForegroundMacID.isEmpty {
@@ -6295,6 +6255,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await reloadWorkspaceListFromMac()
     }
 
+    /// Refresh the foreground Mac workspace list and re-aggregate secondary Macs.
     public func refreshWorkspaces() async {
         guard connectionState == .connected, remoteClient != nil else { return }
         if let inFlight = pullToRefreshTask {
@@ -6477,56 +6438,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
-    }
-}
-
-/// One non-foreground Mac's persistent read-only connection plus its live
-/// `workspace.updated` consumer (slice 3). A plain holder owned and mutated only
-/// from the @MainActor composite; ``cancel`` stops the consumer and disconnects.
-@MainActor
-private final class SecondaryMacSubscription {
-    let macDeviceID: String
-    let client: MobileCoreRPCClient
-    /// The route and ticket this client was dialed on, kept so the live connection
-    /// can be PROMOTED to the foreground (reused) rather than re-dialed.
-    let route: CmxAttachRoute
-    let ticket: CmxAttachTicket
-    /// A fresh per-connection event stream id for the `mobile.events.subscribe`
-    /// enable handshake (the server keys its push subscription by this).
-    let streamID: String
-    var task: Task<Void, Never>?
-    /// Coalesces hot `workspace.updated` streams: the in-flight full-list refetch
-    /// for this Mac, and whether another event arrived while it was running (so a
-    /// burst collapses to one leading + at most one trailing scan instead of one
-    /// scan per event). See ``scheduleSecondaryRefresh``.
-    var refreshTask: Task<Void, Never>?
-    var refreshPending = false
-
-    init(macDeviceID: String, client: MobileCoreRPCClient, route: CmxAttachRoute, ticket: CmxAttachTicket) {
-        self.macDeviceID = macDeviceID
-        self.client = client
-        self.route = route
-        self.ticket = ticket
-        self.streamID = "ios-secondary-events-\(macDeviceID)-\(UUID().uuidString)"
-    }
-
-    func cancel() {
-        task?.cancel()
-        task = nil
-        refreshTask?.cancel()
-        refreshTask = nil
-        let client = self.client
-        Task { await client.disconnect() }
-    }
-
-    /// Stop the read-only consumer loops but KEEP the client connected — used when
-    /// promoting this connection to the foreground, which takes ownership of the
-    /// live client instead of disconnecting it.
-    func detachKeepingClient() {
-        task?.cancel()
-        task = nil
-        refreshTask?.cancel()
-        refreshTask = nil
     }
 }
 

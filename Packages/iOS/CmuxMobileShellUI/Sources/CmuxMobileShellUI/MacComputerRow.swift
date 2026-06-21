@@ -4,46 +4,6 @@ import CmuxMobileSupport
 import Foundation
 import SwiftUI
 
-/// Immutable per-computer snapshot for the Computers screen. Holds no
-/// `@Observable` store, so the row sits safely below the screen's `List`
-/// boundary (see AGENTS.md snapshot-boundary rule).
-///
-/// The connection dot is driven by ``connectionStatus`` — the PHONE'S OWN live
-/// connection to this Mac (foreground or live secondary) — NOT by presence.
-/// ``presence`` (the Mac's heartbeat to the Durable Object presence worker) and
-/// ``routeDescription`` are shown as a separate diagnostic line, so a mismatch
-/// (Mac online via presence, but the phone can't connect) is a visible
-/// route/tailscale signal rather than a misleading grey dot.
-struct MacComputerSnapshot: Equatable, Identifiable {
-    let deviceId: String
-    let title: String
-    let platform: String
-    /// The Mac's distinct color index (matches its workspaces' avatar color in the
-    /// list). `nil` falls back to a hash of the device id.
-    var colorIndex: Int?
-    /// User color override ("palette:<n>" / "#RRGGBB"), wins over `colorIndex`.
-    var customColor: String?
-    /// User icon override (SF Symbol name or emoji), wins over the platform icon.
-    var customIcon: String?
-    /// The PHONE'S live connection to this Mac. `nil` = the phone is not connected
-    /// to it (no foreground/secondary). This drives the connection dot.
-    let connectionStatus: MobileMacConnectionStatus?
-    /// Presence from the Durable Object presence worker (the Mac's own heartbeat),
-    /// shown as diagnostic context, never as the connection dot.
-    let presence: DeviceTreePresence?
-    /// The host's build channel (`"DEV · tag"`, `"Nightly"`, `"Stable"`, …) from
-    /// its heartbeat, shown as a small badge. `nil` when not identifiable.
-    var buildLabel: String?
-    /// The reachable route the phone would dial (host:port), for diagnostics.
-    let routeDescription: String?
-    /// When the Mac was last seen (paired-store timestamp), for the offline line.
-    let lastSeenAt: Date
-    /// How many aggregated workspaces this computer currently contributes.
-    let workspaceCount: Int
-
-    var id: String { deviceId }
-}
-
 /// A computer (Mac/host) row on the Computers screen: a machine-colored avatar,
 /// the Mac's name, a primary line for the PHONE'S connection state + workspace
 /// count, and a diagnostic line for presence + route. The trailing dot reflects

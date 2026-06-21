@@ -17,19 +17,11 @@ private let pairedMacRestoreLog = Logger(subsystem: "com.cmuxterm.app", category
 /// written. The active selection is only honored from the backup when the local
 /// store has NO active host (the fresh-install case), so restoring never hijacks
 /// a host the user is actively using on this device.
-/// The result of a restore attempt. `completed` is true when the backup fetch
-/// succeeded (even if it returned no hosts), so the caller can memoize success
-/// and retry only on a real fetch failure. `restored` is the number of records
-/// written locally.
-public struct RestoreOutcome: Sendable, Equatable {
-    public let completed: Bool
-    public let restored: Int
-}
-
 public struct PairedMacRestore: Sendable {
     private let store: any MobilePairedMacStoring
     private let backup: any PairedMacBackingUp
 
+    /// Create a restore coordinator over a local paired-Mac store and backup source.
     public init(store: any MobilePairedMacStoring, backup: any PairedMacBackingUp) {
         self.store = store
         self.backup = backup

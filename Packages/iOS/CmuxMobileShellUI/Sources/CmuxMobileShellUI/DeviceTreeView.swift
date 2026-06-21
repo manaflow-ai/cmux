@@ -57,25 +57,11 @@ struct DeviceTreeView: View {
                 connectionStatus: connectionStatuses[mac.macDeviceID],
                 presence: presence,
                 buildLabel: summary?.buildLabel,
-                routeDescription: Self.routeDescription(for: mac.routes),
+                routeDescription: deviceTreeRouteDescription(for: mac.routes),
                 lastSeenAt: mac.lastSeenAt,
                 workspaceCount: workspaces.filter { $0.macDeviceID == mac.macDeviceID }.count
             )
         }
-    }
-
-    /// The reachable endpoint (host:port) the phone would dial, for the row's
-    /// diagnostic line: prefer a non-loopback route (the tailscale/LAN one),
-    /// falling back to the first host/port route. `nil` when there is none.
-    private static func routeDescription(for routes: [CmxAttachRoute]) -> String? {
-        func endpoint(_ route: CmxAttachRoute) -> String? {
-            if case let .hostPort(host, port) = route.endpoint { return "\(host):\(port)" }
-            return nil
-        }
-        if let nonLoopback = routes.first(where: { $0.kind != .debugLoopback }), let e = endpoint(nonLoopback) {
-            return e
-        }
-        return routes.lazy.compactMap(endpoint).first
     }
 
     var body: some View {

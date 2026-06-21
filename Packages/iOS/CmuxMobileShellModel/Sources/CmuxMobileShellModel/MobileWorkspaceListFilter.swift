@@ -17,10 +17,12 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
         case unread
     }
 
+    /// Read-state narrowing for the filter.
     public var readState: ReadState
     /// `macDeviceID`s to include. Empty means all machines (no machine narrowing).
     public var machines: Set<String>
 
+    /// Create a workspace list filter from read-state and machine dimensions.
     public init(readState: ReadState = .all, machines: Set<String> = []) {
         self.readState = readState
         self.machines = machines

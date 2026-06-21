@@ -6,6 +6,9 @@
 /// The dev tag is the primary DEV signal: a tagged `reload.sh` build sets
 /// `CMUX_TAG`, so any non-`"default"` tag means a DEV build and the tag is the
 /// thing worth showing. Otherwise the channel comes from the bundle-id suffix.
+///
+/// This is intentionally a pure namespace: it has no state, dependencies, or
+/// lifecycle to inject, and tests cover same-input to same-output derivation.
 public enum MacBuildChannel {
     /// A label like `"DEV · my-tag"`, `"Nightly"`, `"RC"`, `"Staging"`, or
     /// `"Stable"`, or `nil` when there is nothing identifiable to show (an older

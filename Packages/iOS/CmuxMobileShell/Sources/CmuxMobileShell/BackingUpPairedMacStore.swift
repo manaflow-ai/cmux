@@ -2,26 +2,6 @@ public import CMUXMobileCore
 public import CmuxMobilePairedMac
 public import Foundation
 
-/// A paired-Mac store that can re-pull the authoritative backup on demand,
-/// instead of only once-per-launch at sign-in. Multi-Mac aggregation needs this:
-/// a secondary Mac that relaunched on a new port republishes its route to the
-/// backup, but the once-per-launch restore won't pick it up, so the iPhone's
-/// stored route goes stale and the read-only secondary fetch dials a dead port.
-/// Refreshing from the backup right before aggregating keeps secondary routes
-/// current (LWW by `lastSeenAt`, so the live foreground route is never clobbered).
-public protocol PairedMacBackupRefreshing: Sendable {
-    /// Force a backup re-fetch + LWW merge for the signed-in scope, bypassing the
-    /// once-per-launch restore memo. Best-effort; never throws.
-    func refreshFromBackup(stackUserID: String?) async
-
-    /// Cancel every in-flight restore/refresh so a fetch suspended across a
-    /// sign-out / account switch cannot resume and write the previous account's
-    /// Macs (with the live token possibly now scoped to a different user). Does
-    /// NOT wipe the local store — sign-out retains the per-user rows for a
-    /// same-account re-sign-in restore. Best-effort; never throws.
-    func cancelInFlightRestores() async
-}
-
 /// A ``MobilePairedMacStoring`` decorator that keeps the per-user Durable Object
 /// backup in sync with the local store, and restores from it on sign-in. Wraps
 /// the real ``MobilePairedMacStore`` at the composition root behind the
@@ -62,6 +42,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// a post-wipe `inFlight` entry.
     private var resetGeneration = 0
 
+    /// Wrap a local paired-Mac store with a backup transport.
     public init(
         inner: any MobilePairedMacStoring,
         backup: any PairedMacBackingUp,
@@ -72,6 +53,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         self.teamIDProvider = teamIDProvider
     }
 
+    /// Upsert a paired Mac locally, then mirror the changed backup records.
     public func upsert(
         macDeviceID: String,
         displayName: String?,
@@ -122,6 +104,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         }
     }
 
+    /// Persist local customizations, then mirror the complete record to backup.
     public func setCustomization(
         macDeviceID: String,
         customName: String?,
@@ -143,6 +126,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         await uploadCurrentRecord(macDeviceID: macDeviceID, account: account)
     }
 
+    /// Load paired Macs after ensuring the signed-in account/team backup was restored.
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         await restoreIfNeeded(stackUserID)
         // Scope to the current team (callers pass nil via the convenience overload),
@@ -152,12 +136,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         return try await inner.loadAll(stackUserID: stackUserID, teamID: team)
     }
 
+    /// Load the active Mac after ensuring the signed-in account/team backup was restored.
     public func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
         await restoreIfNeeded(stackUserID)
         let team = await resolvedTeam(teamID)
         return try await inner.activeMac(stackUserID: stackUserID, teamID: team)
     }
 
+    /// Mark one paired Mac active and mirror the changed active flags to backup.
     public func setActive(macDeviceID: String) async throws {
         // Resolve the scope and the previously-active host BEFORE the flip, so we can
         // mirror exactly the two records that change. Scoped to the current team
@@ -181,6 +167,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         }
     }
 
+    /// Remove one paired Mac locally and tombstone it in backup when signed in.
     public func remove(macDeviceID: String) async throws {
         try await inner.remove(macDeviceID: macDeviceID)
         // Only mirror the delete while signed in; an anonymous removal has no
@@ -189,6 +176,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         await backup.upload(ops: [.delete(macDeviceID: macDeviceID)])
     }
 
+    /// Clear local paired Macs without deleting the user's server backup.
     public func removeAll() async throws {
         // Sign-out wipe: clear local only. The server backup is intentionally
         // kept so the next sign-in restores the account's saved hosts.
@@ -207,6 +195,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         lastSignedInAccount = nil
     }
 
+    /// Cancel in-flight restore work so a sign-out/account switch cannot resume stale writes.
     public func cancelInFlightRestores() async {
         _ = cancelInFlightRestoresReturningTasks()
     }

@@ -31,8 +31,10 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// dropped Mac's last-known rows stay (greyed) or are dropped.
     public var status: MobileMacConnectionStatus
 
+    /// Stable identity for SwiftUI lists and dictionaries.
     public var id: String { macDeviceID }
 
+    /// Create one per-Mac workspace state snapshot.
     public init(
         macDeviceID: String,
         displayName: String? = nil,
@@ -45,84 +47,5 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
         self.workspaces = workspaces
         self.groups = groups
         self.status = status
-    }
-}
-
-/// Pure derivations from the per-Mac state map to the flat, user-facing shapes.
-///
-/// Every function here is a total, side-effect-free function of its inputs (same
-/// input → same output), so the aggregate can be recomputed any time a single
-/// Mac's `MacWorkspaceState` changes, from any source (direct connection today,
-/// a Durable Object stream later), with no ordering or staleness coupling.
-public enum MobileWorkspaceAggregation {
-    /// The Macs in display order: the foreground Mac first (its workspaces are the
-    /// interactive ones and sort to the top), then the rest by display name, then
-    /// by `macDeviceID` as a stable tiebreaker. Deterministic so the list never
-    /// reshuffles on an unrelated per-Mac update.
-    public static func orderedMacIDs(
-        statesByMac: [String: MacWorkspaceState],
-        foregroundMacDeviceID: String?
-    ) -> [String] {
-        statesByMac.values.sorted { lhs, rhs in
-            let lhsForeground = lhs.macDeviceID == foregroundMacDeviceID
-            let rhsForeground = rhs.macDeviceID == foregroundMacDeviceID
-            if lhsForeground != rhsForeground { return lhsForeground }
-            let lhsName = lhs.displayName ?? lhs.macDeviceID
-            let rhsName = rhs.displayName ?? rhs.macDeviceID
-            if lhsName != rhsName { return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending }
-            return lhs.macDeviceID < rhs.macDeviceID
-        }.map(\.macDeviceID)
-    }
-
-    /// A DISTINCT, stable color index per Mac, assigned by sorted device id so two
-    /// different Macs never share a color (a hash of the id collides ~1/8 of the
-    /// time for just two Macs — exactly the "both yellow" case). The UI maps the
-    /// index modulo its palette size to a concrete color; up to the palette size
-    /// every Mac is distinct, beyond that they wrap. Keyed by `macDeviceID`.
-    public static func machineColorIndex(
-        statesByMac: [String: MacWorkspaceState]
-    ) -> [String: Int] {
-        var result: [String: Int] = [:]
-        for (offset, macID) in statesByMac.keys.filter({ !$0.isEmpty }).sorted().enumerated() {
-            result[macID] = offset
-        }
-        return result
-    }
-
-    /// Derive the flat, ordered, de-duplicated workspace list across all Macs.
-    /// Foreground Mac first, then the rest in `orderedMacIDs` order. De-dup by
-    /// workspace id (the foreground Mac wins a collision, since its row is the
-    /// live interactive one). Each workspace is stamped with its Mac's
-    /// ``machineColorIndex`` so same-Mac workspaces share one color and different
-    /// Macs are guaranteed distinct. Pure and transport-agnostic.
-    public static func derivedWorkspaces(
-        statesByMac: [String: MacWorkspaceState],
-        foregroundMacDeviceID: String?
-    ) -> [MobileWorkspacePreview] {
-        let colorIndex = machineColorIndex(statesByMac: statesByMac)
-        var result: [MobileWorkspacePreview] = []
-        var seen = Set<MobileWorkspacePreview.ID>()
-        for macID in orderedMacIDs(statesByMac: statesByMac, foregroundMacDeviceID: foregroundMacDeviceID) {
-            guard let state = statesByMac[macID] else { continue }
-            for workspace in state.workspaces where seen.insert(workspace.id).inserted {
-                var stamped = workspace
-                stamped.machineColorIndex = workspace.macDeviceID.flatMap { colorIndex[$0] }
-                result.append(stamped)
-            }
-        }
-        return result
-    }
-
-    /// Derive the group sections to show. Groups are a per-Mac concept and the
-    /// list currently renders one Mac's sections, so this returns the foreground
-    /// Mac's groups (empty when there is no foreground Mac or it reports none).
-    /// Per-Mac group sections are a follow-on; keeping this a pure function of the
-    /// state map means that change is local to this derivation.
-    public static func derivedGroups(
-        statesByMac: [String: MacWorkspaceState],
-        foregroundMacDeviceID: String?
-    ) -> [MobileWorkspaceGroupPreview] {
-        guard let foregroundMacDeviceID, let state = statesByMac[foregroundMacDeviceID] else { return [] }
-        return state.groups
     }
 }

@@ -272,11 +272,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// Load every paired Mac visible to the optional Stack user and team scope.
     public func loadAll(stackUserID: String? = nil, teamID: String? = nil) throws -> [MobilePairedMac] {
         try ensureReady()
         return try fetchAllMacs(stackUserID: stackUserID, teamID: teamID)
     }
 
+    /// Load the active paired Mac in the optional Stack user and team scope.
     public func activeMac(stackUserID: String? = nil, teamID: String? = nil) throws -> MobilePairedMac? {
         try ensureReady()
         return try fetchAllMacs(activeOnly: true, stackUserID: stackUserID, teamID: teamID).first
@@ -305,6 +307,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// Persist user-facing customizations for one paired Mac.
     public func setCustomization(
         macDeviceID: String,
         customName: String?,

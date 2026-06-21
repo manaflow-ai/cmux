@@ -16,6 +16,7 @@ public struct PresenceMap: Equatable, Sendable {
         /// identifiable (older host). See ``MacBuildChannel``.
         public var buildLabel: String?
 
+        /// Create one device-level presence rollup.
         public init(online: Bool, lastSeenAt: Date, buildLabel: String? = nil) {
             self.online = online
             self.lastSeenAt = lastSeenAt

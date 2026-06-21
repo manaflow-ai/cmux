@@ -4,6 +4,9 @@ import Foundation
 /// so every workspace on the same Mac shares one color in the aggregated
 /// multi-Mac list. The UI layer maps a returned slot in `0..<slotCount` to a
 /// concrete gradient; this stays free of SwiftUI so it is unit-testable.
+///
+/// This is intentionally a pure namespace: it owns no state or environment, and
+/// dependency injection would only wrap deterministic hash derivation in ceremony.
 public enum MachineAvatarPalette {
     /// Default number of distinct color slots. The UI passes its real palette
     /// count so the slot is always in range.

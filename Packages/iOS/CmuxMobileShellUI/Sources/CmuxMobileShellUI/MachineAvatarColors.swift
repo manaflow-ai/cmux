@@ -9,6 +9,9 @@ import UIKit
 /// workspace list and the Computers screen. The slot is derived in the model
 /// (``MachineAvatarPalette``); this maps it to concrete SwiftUI colors. Keep the
 /// entries visually distinct so adjacent Macs read apart.
+///
+/// This is intentionally a pure UI namespace: it maps explicit inputs to colors
+/// and has no state, lifetime, or environment to inject.
 enum MachineAvatarColors {
     static let palettes: [[Color]] = [
         [Color.blue, Color.cyan],
@@ -65,22 +68,6 @@ enum MachineAvatarColors {
         }
         if let fallbackIndex { return gradient(index: fallbackIndex) }
         return gradient(machineID: machineID, fallbackID: fallbackID)
-    }
-}
-
-/// How a Mac's avatar icon should render: an SF Symbol or a literal emoji. The
-/// custom-icon override is a single opaque string — an ASCII SF Symbol name or an
-/// emoji — so we classify by whether it contains non-ASCII scalars.
-enum MacAvatarIcon: Hashable {
-    case symbol(String)
-    case emoji(String)
-
-    /// Resolve from a user override (`custom`), falling back to a default SF
-    /// Symbol when the override is absent.
-    static func resolve(custom: String?, defaultSymbol: String) -> MacAvatarIcon {
-        guard let custom, !custom.isEmpty else { return .symbol(defaultSymbol) }
-        if custom.unicodeScalars.contains(where: { $0.value > 127 }) { return .emoji(custom) }
-        return .symbol(custom)
     }
 }
 

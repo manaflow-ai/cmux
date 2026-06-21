@@ -11,12 +11,15 @@ public import Foundation
 /// upgrade, a bundle-id change, or a reinstall. Off in Release until dogfood
 /// approves flipping it, so production users are unaffected.
 public struct MobilePairedMacBackup: Sendable, Equatable {
+    /// Environment variable override for dogfood and tagged builds.
     public static let envKey = "CMUX_MOBILE_PAIRED_MAC_BACKUP"
+    /// UserDefaults key for local dogfood toggles.
     public static let defaultsKey = "mobilePairedMacBackup"
 
     /// Whether paired-Mac backup/restore is enabled for this process.
     public let isEnabled: Bool
 
+    /// Create a resolved paired-Mac backup flag value.
     public init(isEnabled: Bool) {
         self.isEnabled = isEnabled
     }
@@ -29,7 +32,7 @@ public struct MobilePairedMacBackup: Sendable, Equatable {
         isDebugBuild: Bool = MobilePairedMacBackup.isDebugBuild
     ) -> MobilePairedMacBackup {
         if let raw = environment[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
-            return MobilePairedMacBackup(isEnabled: parseBool(raw))
+            return MobilePairedMacBackup(isEnabled: mobilePairedMacBackupParseBool(raw))
         }
         if defaults.object(forKey: defaultsKey) != nil {
             return MobilePairedMacBackup(isEnabled: defaults.bool(forKey: defaultsKey))
@@ -46,10 +49,11 @@ public struct MobilePairedMacBackup: Sendable, Equatable {
         #endif
     }
 
-    private static func parseBool(_ raw: String) -> Bool {
-        switch raw.lowercased() {
-        case "1", "true", "yes", "on": return true
-        default: return false
-        }
+}
+
+private func mobilePairedMacBackupParseBool(_ raw: String) -> Bool {
+    switch raw.lowercased() {
+    case "1", "true", "yes", "on": return true
+    default: return false
     }
 }

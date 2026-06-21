@@ -42,7 +42,7 @@ final class MacPairedMacBackupPublisher {
         defaults: UserDefaults = .standard
     ) -> Bool {
         if let raw = environment[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
-            return parseBool(raw)
+            return macPairedMacBackupParseBool(raw)
         }
         if defaults.object(forKey: defaultsKey) != nil {
             return defaults.bool(forKey: defaultsKey)
@@ -52,13 +52,6 @@ final class MacPairedMacBackupPublisher {
         #else
         return false
         #endif
-    }
-
-    private static func parseBool(_ raw: String) -> Bool {
-        switch raw.lowercased() {
-        case "1", "true", "yes", "on": return true
-        default: return false
-        }
     }
 
     /// Inject auth and start observing routes. Call once at the composition root,
@@ -99,10 +92,10 @@ final class MacPairedMacBackupPublisher {
         guard let url = comps.url else { return }
 
         let nowMs = Date().timeIntervalSince1970 * 1000.0
-        let body = BackupBody(ops: [
-            OpWire(
+        let body = MacPairedMacBackupBody(ops: [
+            MacPairedMacBackupOpWire(
                 macDeviceID: MobileHostIdentity.deviceID(),
-                record: RecordWire(
+                record: MacPairedMacBackupRecordWire(
                     macDeviceID: MobileHostIdentity.deviceID(),
                     displayName: MobileHostIdentity.displayName(),
                     routes: routes,
@@ -139,24 +132,31 @@ final class MacPairedMacBackupPublisher {
             macPairedMacPublishLog.warning("self-publish error: \(String(describing: error), privacy: .public)")
         }
     }
+}
 
-    // MARK: - Wire shapes (match the server parse + the iOS PairedMacBackupRecord)
-
-    private struct BackupBody: Encodable {
-        let ops: [OpWire]
+private func macPairedMacBackupParseBool(_ raw: String) -> Bool {
+    switch raw.lowercased() {
+    case "1", "true", "yes", "on": return true
+    default: return false
     }
+}
 
-    private struct OpWire: Encodable {
-        let macDeviceID: String
-        let record: RecordWire
-    }
+// Kept beside the Mac self-publisher because these wire DTOs are private to
+// that endpoint and mirror the server parser exactly.
+private struct MacPairedMacBackupBody: Encodable {
+    let ops: [MacPairedMacBackupOpWire]
+}
 
-    private struct RecordWire: Encodable {
-        let macDeviceID: String
-        let displayName: String?
-        let routes: [CmxAttachRoute]
-        let createdAt: Double
-        let lastSeenAt: Double
-        let isActive: Bool
-    }
+private struct MacPairedMacBackupOpWire: Encodable {
+    let macDeviceID: String
+    let record: MacPairedMacBackupRecordWire
+}
+
+private struct MacPairedMacBackupRecordWire: Encodable {
+    let macDeviceID: String
+    let displayName: String?
+    let routes: [CmxAttachRoute]
+    let createdAt: Double
+    let lastSeenAt: Double
+    let isActive: Bool
 }
