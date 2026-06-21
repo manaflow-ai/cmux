@@ -781,13 +781,17 @@ struct FeedCoordinatorTests {
         var budget = CodexTeamsThreadSubscriptionRetryBudget(maxPendingRounds: 2, retryInterval: 1)
 
         #expect(budget.markPending("thread-1"))
+        #expect(budget.markPending("thread-1"))
         #expect(Set(budget.pendingThreadIdSnapshot()) == Set(["thread-1"]))
 
         budget.resetDeadline()
         #expect(Set(budget.pendingThreadIdSnapshot()) == Set(["thread-1"]))
         #expect(budget.pendingRetryTimeout() == nil)
 
+        budget.beginRetry("thread-1")
         #expect(budget.markPending("thread-1"))
+        #expect(budget.markPending("thread-1"))
+        budget.beginRetry("thread-1")
         #expect(!budget.markPending("thread-1"))
         #expect(budget.pendingThreadIdSnapshot().isEmpty)
         #expect(budget.pendingRetryTimeout() == nil)

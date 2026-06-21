@@ -19666,7 +19666,11 @@ struct CMUXCLI {
                 where !threadIds.contains(pendingThreadId) {
                 threadIds.append(pendingThreadId)
             }
+            let pendingRetryThreadIds = Set(pendingThreadSubscriptionRetryIdSnapshot())
             for threadId in threadIds {
+                if pendingRetryThreadIds.contains(threadId) {
+                    beginPendingThreadSubscriptionRetry(threadId)
+                }
                 do {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
                     clearPendingThreadSubscriptionRetry(threadId)
@@ -19813,6 +19817,12 @@ struct CMUXCLI {
             let shouldRetry = pendingThreadSubscriptionRetryBudget.markPending(threadId)
             stateLock.unlock()
             return shouldRetry
+        }
+
+        private func beginPendingThreadSubscriptionRetry(_ threadId: String) {
+            stateLock.lock()
+            pendingThreadSubscriptionRetryBudget.beginRetry(threadId)
+            stateLock.unlock()
         }
 
         private func clearPendingThreadSubscriptionRetry(_ threadId: String) {

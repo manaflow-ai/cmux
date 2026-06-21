@@ -14,6 +14,10 @@ struct CodexTeamsThreadSubscriptionRetryBudget {
     }
 
     mutating func markPending(_ threadId: String) -> Bool {
+        if pendingThreadIds.contains(threadId) {
+            return true
+        }
+
         let nextRound = (pendingRoundByThreadId[threadId] ?? 0) + 1
         pendingRoundByThreadId[threadId] = nextRound
         guard nextRound <= maxPendingRounds else {
@@ -27,6 +31,11 @@ struct CodexTeamsThreadSubscriptionRetryBudget {
             deadline = .now() + retryInterval
         }
         return true
+    }
+
+    mutating func beginRetry(_ threadId: String) {
+        pendingThreadIds.remove(threadId)
+        clearDeadlineIfIdle()
     }
 
     mutating func clear(_ threadId: String) {
