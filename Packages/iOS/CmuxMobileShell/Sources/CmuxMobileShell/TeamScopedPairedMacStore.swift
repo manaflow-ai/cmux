@@ -64,12 +64,11 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
     /// Mark one paired Mac active in the selected team scope.
     public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let team = await resolvedTeam(teamID)
-        let scopedMac = try await inner.loadAll(stackUserID: stackUserID, teamID: team)
-            .first { $0.macDeviceID == macDeviceID }
+        let scope = try await visibleScope(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: team)
         try await inner.setActive(
             macDeviceID: macDeviceID,
-            stackUserID: scopedMac?.stackUserID ?? stackUserID,
-            teamID: scopedMac?.teamID ?? team
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID
         )
     }
 
@@ -84,13 +83,14 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         now: Date
     ) async throws {
         let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: team)
         try await inner.setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
-            stackUserID: stackUserID,
-            teamID: team,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID,
             now: now
         )
     }
@@ -98,12 +98,11 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
     /// Remove one paired Mac in the selected team scope.
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let team = await resolvedTeam(teamID)
-        let scopedMac = try await inner.loadAll(stackUserID: stackUserID, teamID: team)
-            .first { $0.macDeviceID == macDeviceID }
+        let scope = try await visibleScope(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: team)
         try await inner.remove(
             macDeviceID: macDeviceID,
-            stackUserID: scopedMac?.stackUserID ?? stackUserID,
-            teamID: scopedMac?.teamID ?? team
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID
         )
     }
 
@@ -115,5 +114,18 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
     private func resolvedTeam(_ teamID: String?) async -> String? {
         if let teamID { return teamID }
         return await teamIDProvider()
+    }
+
+    private func visibleScope(
+        macDeviceID: String,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws -> (stackUserID: String?, teamID: String?) {
+        let visibleMac = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
+            .first { $0.macDeviceID == macDeviceID }
+        guard let visibleMac else {
+            return (stackUserID, teamID)
+        }
+        return (visibleMac.stackUserID, visibleMac.teamID)
     }
 }

@@ -57,4 +57,39 @@ import Testing
         await team.set("team-a")
         #expect(try await store.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-a"])
     }
+
+    @Test func customizationPreservesVisibleLegacyRowScope() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = TeamScopedPairedMacStore(
+            inner: inner,
+            teamIDProvider: { "team-a" }
+        )
+
+        try await inner.upsert(
+            macDeviceID: "mac-legacy",
+            displayName: "Legacy",
+            routes: [try route("10.0.0.1")],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        try await store.setCustomization(
+            macDeviceID: "mac-legacy",
+            customName: "Studio",
+            customColor: "palette:4",
+            customIcon: "terminal",
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let visible = try await store.loadAll(stackUserID: "user-1").first { $0.macDeviceID == "mac-legacy" }
+        #expect(visible?.teamID == nil)
+        #expect(visible?.customName == "Studio")
+        #expect(visible?.customColor == "palette:4")
+        #expect(visible?.customIcon == "terminal")
+    }
 }
