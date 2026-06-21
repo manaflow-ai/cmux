@@ -56,12 +56,11 @@ import Testing
     let transport = try #require(box.get())
     await transport.deliver(event)
 
-    let delivered = try await pollUntil { collector.lines.isEmpty == false }
+    let delivered = try await pollUntil { collector.lines.contains { $0.contains("live") } }
     #expect(
         delivered,
         "render-grid events must be consumed while the start-subscribe ack is in flight; buffering them unconsumed is what made a healthy stream look silent to the liveness watchdog"
     )
-    #expect(collector.lines.first?.contains("live") == true)
 
     await router.releaseAllHeld()
     collector.unmount()

@@ -191,7 +191,11 @@ actor LivenessHostRouter {
             if heldReplayRequestNumbers.contains(replayRequestCount) {
                 await park()
             }
-            if let snapshot = replaySnapshotsByRequestNumber[replayRequestCount],
+            let snapshot = replaySnapshotsByRequestNumber[replayRequestCount] ?? (
+                seq: UInt64(replayRequestCount),
+                text: "replay-\(replayRequestCount)"
+            )
+            if capabilities.contains("terminal.render_grid.v1"),
                let frame = try? MobileTerminalRenderGridFrame.fromPlainRows(
                    surfaceID: "live-terminal",
                    stateSeq: snapshot.seq,

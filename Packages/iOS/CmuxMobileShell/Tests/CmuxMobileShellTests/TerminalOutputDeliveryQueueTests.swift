@@ -107,6 +107,51 @@ import Testing
     #expect(String(decoding: liveChunk.data, as: UTF8.self).contains("live-after"))
 }
 
+@MainActor
+@Test func missingInitialRenderGridReplayKeepsLiveDeltasBlockedUntilSnapshot() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.debugSetRenderGridTransportForTesting(true)
+    store.debugBeginInitialTerminalReplayForTesting(surfaceID: surfaceID)
+
+    store.debugFailInitialTerminalRenderGridReplayForTesting(surfaceID: surfaceID, replaySeq: 10)
+
+    let liveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 11,
+        columns: 16,
+        rows: 4,
+        text: "partial-live-without-base",
+        full: false,
+        changedRows: [0]
+    )
+    store.debugDeliverLiveRenderGridForTesting(try .viewportDelta(liveFrame))
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+    #expect(store.debugTerminalRenderNeedsSnapshotReplayForTesting(surfaceID: surfaceID))
+
+    let replayFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 12,
+        columns: 16,
+        rows: 4,
+        text: "real-replay-base"
+    )
+    let replayEnvelope = try MobileTerminalRenderGridEnvelope.snapshot(replayFrame)
+    store.debugBeginInitialTerminalReplayForTesting(surfaceID: surfaceID)
+    store.debugDeliverInitialTerminalReplayForTesting(replayEnvelope, surfaceID: surfaceID)
+
+    let replayChunk = try #require(await iterator.next())
+    switch replayChunk.payload {
+    case .bytes:
+        Issue.record("render-grid replay was downgraded to bytes before the surface boundary")
+    case .renderGrid(let envelope):
+        #expect(envelope == replayEnvelope)
+    }
+    #expect(String(decoding: replayChunk.data, as: UTF8.self).contains("real-replay-base"))
+}
+
 @Test func terminalRenderSessionDropsBufferedLiveDeltasCoveredBySnapshotSequence() throws {
     let surfaceID = "terminal"
     var session = TerminalRenderSession()
