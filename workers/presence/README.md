@@ -74,8 +74,17 @@ Stack project's Worker secrets:
 https://cmux-presence-dev.debussy.workers.dev
 ```
 
-Redeploy it manually with `bunx wrangler deploy --name cmux-presence-dev`
+Redeploy it manually with `bunx wrangler deploy --config wrangler.dev.toml`
 (its `STACK_*` Worker secrets are already provisioned and survive deploys).
+
+> [!IMPORTANT]
+> Use `--config wrangler.dev.toml`, NOT `--name cmux-presence-dev`. The default
+> `wrangler.toml` carries the **production** `presence.cmux.dev` custom domain;
+> `--name` only overrides the worker name, so it inherits that route and STEALS
+> the production domain (detaching it from `cmux-presence`, which breaks prod
+> auth since the dev worker uses the dev Stack project). `wrangler.dev.toml` has
+> `workers_dev = true` and no custom domain, so the dev instance stays on its
+> own `*.workers.dev` URL.
 Point a dev Mac build at it with the `CMUX_PRESENCE_BASE_URL` env override or
 the `presenceServiceURL` defaults key, plus `presenceHeartbeatEnabled` (see
 `Sources/Cloud/PresenceSettings.swift`).
