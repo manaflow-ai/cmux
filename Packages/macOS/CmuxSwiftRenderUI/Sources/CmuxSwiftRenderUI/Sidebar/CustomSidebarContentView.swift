@@ -16,8 +16,10 @@ public struct CustomSidebarContentView: View {
     private let state: CustomSidebarModel.State
     private let swiftRender: RenderNode?
     private let hasRenderedSwift: Bool
+    private let dataContext: [String: SwiftValue]
     private let dispatch: SidebarActionDispatch
     private let contentInsets: CustomSidebarContentInsets
+    @Environment(\.colorScheme) private var colorScheme
 
     /// Creates the sidebar presentation for a loaded file state.
     ///
@@ -27,6 +29,8 @@ public struct CustomSidebarContentView: View {
     ///     ``CustomSidebarModel/State/swiftSource(_:)``, if any.
     ///   - hasRenderedSwift: Whether a first interpret has completed, so the
     ///     view can distinguish "still rendering" from "rendered, no view".
+    ///   - dataContext: Live, read-only values made available to `.html`
+    ///     sidebars through `window.cmux.sidebar.data`.
     ///   - dispatch: Runs button/tap actions against the host command surface.
     ///   - contentInsets: Top/bottom scroll insets reserved for the host's
     ///     titlebar accessory and footer chrome.
@@ -34,12 +38,14 @@ public struct CustomSidebarContentView: View {
         state: CustomSidebarModel.State,
         swiftRender: RenderNode?,
         hasRenderedSwift: Bool,
+        dataContext: [String: SwiftValue],
         dispatch: SidebarActionDispatch,
         contentInsets: CustomSidebarContentInsets
     ) {
         self.state = state
         self.swiftRender = swiftRender
         self.hasRenderedSwift = hasRenderedSwift
+        self.dataContext = dataContext
         self.dispatch = dispatch
         self.contentInsets = contentInsets
     }
@@ -85,6 +91,14 @@ public struct CustomSidebarContentView: View {
                 // the error state before the interpreter has answered.
                 scrollWrap(Color.clear.frame(height: 1))
             }
+        case let .webPage(fileURL):
+            CustomSidebarWebView(
+                fileURL: fileURL,
+                dataContext: dataContext,
+                dispatch: dispatch,
+                contentInsets: contentInsets,
+                colorScheme: colorScheme
+            )
         case let .failed(message):
             scrollWrap(errorView(message))
         }

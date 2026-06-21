@@ -3,9 +3,10 @@ import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import SwiftUI
 
-/// The single mount seam for a selected custom sidebar: renders the file
-/// through either the remote (out-of-process worker) renderer or the
-/// in-process renderer, switching live when the choice changes.
+/// The single mount seam for a selected custom sidebar: renders Swift/JSON
+/// files through either the remote (out-of-process worker) renderer or the
+/// in-process renderer, and always renders HTML files in-process so WebKit
+/// stays attached to the live host window.
 ///
 /// `remote` is the containment lane: the worker process interprets and
 /// renders the file, the host only composites its layer and forwards clicks,
@@ -56,7 +57,7 @@ public struct CustomSidebarSurface: View {
     }
 
     public var body: some View {
-        if rendersInProcess {
+        if rendersInProcess || fileURL.pathExtension.lowercased() == "html" {
             // `.id(fileURL)` per CustomSidebarView's contract: its @State
             // model is keyed to the file it was created with, so switching
             // providers must rebuild it against the new file.

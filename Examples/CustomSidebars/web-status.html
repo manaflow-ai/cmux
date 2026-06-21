@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cmux Web Status</title>
+  <style>
+    :root {
+      --panel: color-mix(in srgb, var(--cmux-sidebar-foreground) 7%, transparent);
+      --panel-border: color-mix(in srgb, var(--cmux-sidebar-foreground) 16%, transparent);
+    }
+
+    main {
+      display: grid;
+      gap: 10px;
+    }
+
+    .header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      padding-bottom: 2px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .count {
+      color: var(--cmux-sidebar-secondary);
+      font-size: 12px;
+    }
+
+    .workspace {
+      display: grid;
+      gap: 5px;
+      padding: 10px;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .workspace[data-selected="true"] {
+      border-color: color-mix(in srgb, var(--cmux-sidebar-accent) 55%, var(--panel-border));
+      background: color-mix(in srgb, var(--cmux-sidebar-accent) 14%, transparent);
+    }
+
+    .title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      color: var(--cmux-sidebar-secondary);
+      font-size: 11px;
+    }
+
+    .pill {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--cmux-sidebar-foreground) 10%, transparent);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="header">
+      <h1>Web status</h1>
+      <span class="count" id="count"></span>
+    </div>
+    <div id="workspaces"></div>
+  </main>
+  <script>
+    const count = document.getElementById("count");
+    const workspaces = document.getElementById("workspaces");
+
+    const render = (payload = window.cmux?.sidebar ?? {}) => {
+      const data = payload.data ?? {};
+      const items = Array.isArray(data.workspaces) ? data.workspaces : [];
+      count.textContent = `${items.length} workspace${items.length === 1 ? "" : "s"}`;
+      workspaces.replaceChildren(...items.slice(0, 12).map((workspace) => {
+        const card = document.createElement("section");
+        card.className = "workspace";
+        card.dataset.selected = String(Boolean(workspace.selected));
+
+        const title = document.createElement("div");
+        title.className = "title";
+        title.textContent = workspace.title || "Untitled";
+        card.append(title);
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        for (const value of [workspace.branch, workspace.progress?.label, workspace.latestPrompt]) {
+          if (!value) continue;
+          const pill = document.createElement("span");
+          pill.className = "pill";
+          pill.textContent = value;
+          meta.append(pill);
+        }
+        card.append(meta);
+
+        card.addEventListener("click", () => {
+          if (!workspace.id) return;
+          window.cmux?.postAction?.({
+            type: "cmux",
+            method: "workspace.select",
+            params: { workspace_id: workspace.id }
+          });
+        });
+        return card;
+      }));
+    };
+
+    window.addEventListener("cmuxsidebarupdate", (event) => render(event.detail));
+    render();
+  </script>
+</body>
+</html>

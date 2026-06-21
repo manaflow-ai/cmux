@@ -6,8 +6,9 @@ import Foundation
 /// Loads a named custom sidebar file, hot-reloads it on change, and reloads it
 /// on explicit request.
 ///
-/// The file is either an interpreted `.swift` view or a declarative `.json`
-/// document, resolved by name (`.swift` preferred when both exist). Reload
+/// The file is an interpreted `.swift` view, a web `.html` document, or a
+/// declarative `.json` document, resolved by name (`.swift` preferred, then
+/// `.html`, then `.json` when more than one exists). Reload
 /// triggers:
 /// - the file changing on disk, via ``CmuxFileWatch/FileWatcher``
 ///   (kqueue-backed) — safe to act on because rendering is last-good sticky
@@ -26,6 +27,8 @@ public final class CustomSidebarModel {
         case json(DSLDocument)
         /// Raw interpreted-Swift sidebar source.
         case swiftSource(String)
+        /// HTML sidebar document rendered in a native `WKWebView`.
+        case webPage(URL)
         /// The file exists but could not be loaded/decoded.
         case failed(String)
     }
@@ -161,7 +164,8 @@ public final class CustomSidebarModel {
         }
     }
 
-    /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
+    /// Re-reads the file: stores `.swift` source verbatim, stores `.html` as a
+    /// page URL, and decodes `.json`.
     public func reload() {
         defer {
             sourceRevision += 1 // re-fire the view's render trigger
@@ -181,6 +185,18 @@ public final class CustomSidebarModel {
             }
             return
         }
+        if fileURL.pathExtension.lowercased() == "html" {
+            if fileManager.isReadableFile(atPath: fileURL.path) {
+                state = .webPage(fileURL)
+            } else {
+                state = .failed(String(
+                    localized: "sidebar.custom.validation.readFailed",
+                    defaultValue: "Failed to read sidebar file.",
+                    bundle: .module
+                ))
+            }
+            return
+        }
         do {
             let data = try Data(contentsOf: fileURL)
             let document = try JSONDecoder().decode(DSLDocument.self, from: data)
@@ -194,6 +210,11 @@ public final class CustomSidebarModel {
         let swiftURL = directoryURL.appendingPathComponent("\(sidebarName).swift")
         if fileManager.fileExists(atPath: swiftURL.path) {
             return swiftURL
+        }
+
+        let htmlURL = directoryURL.appendingPathComponent("\(sidebarName).html")
+        if fileManager.fileExists(atPath: htmlURL.path) {
+            return htmlURL
         }
 
         let jsonURL = directoryURL.appendingPathComponent("\(sidebarName).json")

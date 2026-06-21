@@ -51,6 +51,23 @@
           }
         }
       }
+    },
+    "sidebar.custom.validation.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to read sidebar file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーファイルの読み込みに失敗しました。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

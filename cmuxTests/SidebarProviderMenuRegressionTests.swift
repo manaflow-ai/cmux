@@ -257,6 +257,40 @@ struct SidebarProviderMenuRegressionTests {
         )
     }
 
+    @Test
+    func customSidebarFileURLResolvesHTMLBetweenSwiftAndJSON() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-custom-sidebar-html-test-\(UUID().uuidString)", isDirectory: true)
+        let sidebarsDirectory = root.appendingPathComponent("sidebars", isDirectory: true)
+        try FileManager.default.createDirectory(at: sidebarsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let name = "status-\(UUID().uuidString)"
+        let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+        let htmlURL = sidebarsDirectory.appendingPathComponent("\(name).html", isDirectory: false)
+        let jsonURL = sidebarsDirectory.appendingPathComponent("\(name).json", isDirectory: false)
+        let swiftURL = sidebarsDirectory.appendingPathComponent("\(name).swift", isDirectory: false)
+
+        try Data().write(to: jsonURL)
+        try Data().write(to: htmlURL)
+
+        #expect(
+            CmuxExtensionSidebarSelection.customSidebarFileURL(
+                forProviderId: providerId,
+                sidebarsDirectory: sidebarsDirectory
+            ) == htmlURL
+        )
+
+        try Data().write(to: swiftURL)
+
+        #expect(
+            CmuxExtensionSidebarSelection.customSidebarFileURL(
+                forProviderId: providerId,
+                sidebarsDirectory: sidebarsDirectory
+            ) == swiftURL
+        )
+    }
+
     private static func populatedSnapshot(workspaceCount: Int) -> CmuxSidebarProviderSnapshot {
         let workspaces = (0..<workspaceCount).map { index in
             CmuxSidebarProviderWorkspace(

@@ -17,7 +17,8 @@ public struct CustomSidebarValidator {
 
     /// Discovers custom sidebar source files in a directory.
     ///
-    /// Swift files are preferred over JSON files with the same base name.
+    /// Swift files are preferred over HTML, which is preferred over JSON files
+    /// with the same base name.
     public func discover(in directory: URL, name requestedName: String? = nil) -> [URL] {
         guard let entries = try? fileManager.contentsOfDirectory(
             at: directory,
@@ -27,10 +28,12 @@ public struct CustomSidebarValidator {
         var fileByName: [String: URL] = [:]
         for url in entries {
             let ext = url.pathExtension.lowercased()
-            guard ext == "swift" || ext == "json" else { continue }
+            guard ext == "swift" || ext == "html" || ext == "json" else { continue }
             let name = url.deletingPathExtension().lastPathComponent
             if let requestedName, requestedName != name { continue }
-            if fileByName[name]?.pathExtension.lowercased() == "swift" { continue }
+            if priority(forExtension: fileByName[name]?.pathExtension) < priority(forExtension: ext) {
+                continue
+            }
             fileByName[name] = url
         }
 
@@ -61,7 +64,7 @@ public struct CustomSidebarValidator {
     ) -> CustomSidebarValidationEntry {
         let name = fileURL.deletingPathExtension().lastPathComponent
         let ext = fileURL.pathExtension.lowercased()
-        let kind: CustomSidebarFileKind = ext == "swift" ? .swift : .json
+        let kind = CustomSidebarFileKind(rawValue: ext) ?? .json
 
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return CustomSidebarValidationEntry(
@@ -83,6 +86,15 @@ public struct CustomSidebarValidator {
                         fileURL: fileURL,
                         kind: kind,
                         errorMessage: String(localized: "sidebar.custom.noView", defaultValue: "No supported SwiftUI view found.")
+                    )
+                }
+            case .html:
+                guard fileManager.isReadableFile(atPath: fileURL.path) else {
+                    return CustomSidebarValidationEntry(
+                        name: name,
+                        fileURL: fileURL,
+                        kind: kind,
+                        errorMessage: String(localized: "sidebar.custom.validation.readFailed", defaultValue: "Failed to read sidebar file.")
                     )
                 }
             case .json:
@@ -174,14 +186,35 @@ public struct CustomSidebarValidator {
 
     private func missingEntry(name: String, directory: URL) -> CustomSidebarValidationEntry {
         let swiftURL = directory.appendingPathComponent("\(name).swift")
+        let htmlURL = directory.appendingPathComponent("\(name).html")
         let jsonURL = directory.appendingPathComponent("\(name).json")
-        let missingURL = fileManager.fileExists(atPath: swiftURL.path) ? swiftURL : jsonURL
+        let missingURL: URL
+        if fileManager.fileExists(atPath: swiftURL.path) {
+            missingURL = swiftURL
+        } else if fileManager.fileExists(atPath: htmlURL.path) {
+            missingURL = htmlURL
+        } else {
+            missingURL = jsonURL
+        }
         return CustomSidebarValidationEntry(
             name: name,
             fileURL: missingURL,
-            kind: missingURL.pathExtension.lowercased() == "swift" ? .swift : .json,
+            kind: CustomSidebarFileKind(rawValue: missingURL.pathExtension.lowercased()) ?? .json,
             errorMessage: String(localized: "sidebar.custom.validation.fileMissing", defaultValue: "Sidebar file is missing.")
         )
+    }
+
+    private func priority(forExtension pathExtension: String?) -> Int {
+        switch pathExtension?.lowercased() {
+        case "swift":
+            return 0
+        case "html":
+            return 1
+        case "json":
+            return 2
+        default:
+            return Int.max
+        }
     }
 }
 
