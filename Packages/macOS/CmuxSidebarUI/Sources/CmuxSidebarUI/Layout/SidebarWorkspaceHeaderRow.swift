@@ -1,0 +1,174 @@
+public import CoreGraphics
+public import SwiftUI
+
+/// The top header row of a workspace sidebar item.
+///
+/// Lays out, left to right: an optional unread-count badge, an optional
+/// high-memory warning glyph, an optional pinned glyph, the workspace title, and
+/// a trailing close button that always reserves its width (so the title wraps or
+/// truncates before the hover-revealed close corner instead of flowing under
+/// it). All colors, sizes, tooltips, and the close action are resolved by the
+/// caller and passed in as values/closures, so this package view holds no
+/// app-target dependency and stays compatible with the snapshot-boundary rule
+/// for rows under a `LazyVStack`.
+public struct SidebarWorkspaceHeaderRow: View {
+    let unreadCount: Int
+    let unreadBadgeFillColor: Color
+    let unreadBadgeTextColor: Color
+    let unreadBadgeDiameter: CGFloat
+    let hasMemoryWarning: Bool
+    let memoryWarningTooltip: String
+    let memoryWarningAccessibilityLabel: String
+    let isPinned: Bool
+    let pinnedTooltip: String
+    let title: String
+    let titleColor: Color
+    let titleFontWeight: Font.Weight
+    let titleLineLimit: Int
+    let pinIconColor: Color
+    let closeButtonColor: Color
+    let fontScale: CGFloat
+    let showsCloseButton: Bool
+    let closeButtonVisible: Bool
+    let closeButtonWidth: CGFloat
+    let closeButtonHitSize: CGFloat
+    let closeButtonTooltip: String
+    let onClose: () -> Void
+
+    /// Creates the workspace header row.
+    /// - Parameters:
+    ///   - unreadCount: Unread count; the badge is hidden when `0`.
+    ///   - unreadBadgeFillColor: Fill color for the unread badge circle.
+    ///   - unreadBadgeTextColor: Foreground color for the unread count.
+    ///   - unreadBadgeDiameter: Diameter of the unread badge, in points.
+    ///   - hasMemoryWarning: Whether to show the high-memory warning glyph.
+    ///   - memoryWarningTooltip: Tooltip for the memory warning glyph.
+    ///   - memoryWarningAccessibilityLabel: Accessibility label for the glyph.
+    ///   - isPinned: Whether to show the pinned glyph.
+    ///   - pinnedTooltip: Tooltip for the pinned glyph.
+    ///   - title: The displayed workspace title (already bounded by the caller).
+    ///   - titleColor: Foreground color for the title.
+    ///   - titleFontWeight: Font weight for the title.
+    ///   - titleLineLimit: Maximum number of title lines.
+    ///   - pinIconColor: Foreground color for the pinned glyph.
+    ///   - closeButtonColor: Foreground color for the close button glyph.
+    ///   - fontScale: Multiplier applied to base font sizes.
+    ///   - showsCloseButton: Whether the close button is laid out at all (the
+    ///     workspace is closable).
+    ///   - closeButtonVisible: Whether the close button is currently shown
+    ///     (hover/shortcut-hint state); toggled via opacity so hover never
+    ///     re-lays-out the row.
+    ///   - closeButtonWidth: Reserved width for the close button.
+    ///   - closeButtonHitSize: Hit-test height for the close button.
+    ///   - closeButtonTooltip: Tooltip for the close button.
+    ///   - onClose: Invoked when the close button is pressed.
+    public init(
+        unreadCount: Int,
+        unreadBadgeFillColor: Color,
+        unreadBadgeTextColor: Color,
+        unreadBadgeDiameter: CGFloat,
+        hasMemoryWarning: Bool,
+        memoryWarningTooltip: String,
+        memoryWarningAccessibilityLabel: String,
+        isPinned: Bool,
+        pinnedTooltip: String,
+        title: String,
+        titleColor: Color,
+        titleFontWeight: Font.Weight,
+        titleLineLimit: Int,
+        pinIconColor: Color,
+        closeButtonColor: Color,
+        fontScale: CGFloat,
+        showsCloseButton: Bool,
+        closeButtonVisible: Bool,
+        closeButtonWidth: CGFloat,
+        closeButtonHitSize: CGFloat,
+        closeButtonTooltip: String,
+        onClose: @escaping () -> Void
+    ) {
+        self.unreadCount = unreadCount
+        self.unreadBadgeFillColor = unreadBadgeFillColor
+        self.unreadBadgeTextColor = unreadBadgeTextColor
+        self.unreadBadgeDiameter = unreadBadgeDiameter
+        self.hasMemoryWarning = hasMemoryWarning
+        self.memoryWarningTooltip = memoryWarningTooltip
+        self.memoryWarningAccessibilityLabel = memoryWarningAccessibilityLabel
+        self.isPinned = isPinned
+        self.pinnedTooltip = pinnedTooltip
+        self.title = title
+        self.titleColor = titleColor
+        self.titleFontWeight = titleFontWeight
+        self.titleLineLimit = titleLineLimit
+        self.pinIconColor = pinIconColor
+        self.closeButtonColor = closeButtonColor
+        self.fontScale = fontScale
+        self.showsCloseButton = showsCloseButton
+        self.closeButtonVisible = closeButtonVisible
+        self.closeButtonWidth = closeButtonWidth
+        self.closeButtonHitSize = closeButtonHitSize
+        self.closeButtonTooltip = closeButtonTooltip
+        self.onClose = onClose
+    }
+
+    private func scaledFontSize(_ baseSize: CGFloat) -> CGFloat {
+        baseSize * fontScale
+    }
+
+    public var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            if unreadCount > 0 {
+                SidebarWorkspaceUnreadBadge(
+                    count: unreadCount,
+                    fillColor: unreadBadgeFillColor,
+                    textColor: unreadBadgeTextColor,
+                    diameter: unreadBadgeDiameter,
+                    fontScale: fontScale
+                )
+            }
+
+            if hasMemoryWarning {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: scaledFontSize(11), weight: .semibold))
+                    .foregroundColor(.orange)
+                    .safeHelp(memoryWarningTooltip)
+                    .accessibilityLabel(memoryWarningAccessibilityLabel)
+            }
+
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: scaledFontSize(9), weight: .semibold))
+                    .foregroundColor(pinIconColor)
+                    .safeHelp(pinnedTooltip)
+            }
+
+            Text(title)
+                .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
+                .foregroundColor(titleColor)
+                .lineLimit(titleLineLimit)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+
+            // The close button is a sibling that always reserves its width
+            // when the workspace is closable, so the title wraps/truncates
+            // before this corner instead of flowing under the hover x. Its
+            // visibility toggles via opacity so hover never re-lays-out the
+            // row. (Matches the group-header plus-button pattern.)
+            if showsCloseButton {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
+                        .foregroundColor(closeButtonColor)
+                        .frame(width: closeButtonWidth, height: closeButtonHitSize, alignment: .center)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .safeHelp(closeButtonTooltip)
+                .opacity(closeButtonVisible ? 1 : 0)
+                .allowsHitTesting(closeButtonVisible)
+                .accessibilityHidden(!closeButtonVisible)
+            }
+        }
+    }
+}

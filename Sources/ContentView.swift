@@ -9628,73 +9628,41 @@ struct TabItemView: View, Equatable {
         )
 
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
-                if unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
-                            .font(.system(size: scaledFontSize(9), weight: .semibold))
-                            .foregroundColor(activeUnreadBadgeTextColor)
-                    }
-                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+            SidebarWorkspaceHeaderRow(
+                unreadCount: unreadCount,
+                unreadBadgeFillColor: activeUnreadBadgeFillColor,
+                unreadBadgeTextColor: activeUnreadBadgeTextColor,
+                unreadBadgeDiameter: scaledUnreadBadgeSize,
+                hasMemoryWarning: hasMemoryWarning,
+                memoryWarningTooltip: String(
+                    localized: "sidebar.memoryWarning.tooltip",
+                    defaultValue: "A pane in this workspace is using a lot of memory"
+                ),
+                memoryWarningAccessibilityLabel: String(
+                    localized: "sidebar.memoryWarning.accessibilityLabel",
+                    defaultValue: "High memory warning"
+                ),
+                isPinned: workspaceSnapshot.isPinned,
+                pinnedTooltip: protectedWorkspaceTooltip,
+                title: displayedTitle,
+                titleColor: activePrimaryTextColor,
+                titleFontWeight: titleFontWeight,
+                titleLineLimit: titleLineLimit,
+                pinIconColor: activeSecondaryColor(0.8),
+                closeButtonColor: activeSecondaryColor(0.7),
+                fontScale: fontScale,
+                showsCloseButton: canCloseWorkspace,
+                closeButtonVisible: showCloseButton,
+                closeButtonWidth: scaledCloseButtonWidth,
+                closeButtonHitSize: scaledCloseButtonHitSize,
+                closeButtonTooltip: closeButtonTooltip,
+                onClose: {
+                    #if DEBUG
+                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                    #endif
+                    tabManager.closeWorkspaceWithConfirmation(tab)
                 }
-
-                if hasMemoryWarning {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: scaledFontSize(11), weight: .semibold))
-                        .foregroundColor(.orange)
-                        .safeHelp(String(
-                            localized: "sidebar.memoryWarning.tooltip",
-                            defaultValue: "A pane in this workspace is using a lot of memory"
-                        ))
-                        .accessibilityLabel(String(
-                            localized: "sidebar.memoryWarning.accessibilityLabel",
-                            defaultValue: "High memory warning"
-                        ))
-                }
-
-                if workspaceSnapshot.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: scaledFontSize(9), weight: .semibold))
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .safeHelp(protectedWorkspaceTooltip)
-                }
-
-                Text(displayedTitle)
-                    .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
-                    .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(titleLineLimit)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .layoutPriority(1)
-
-                // The close button is a sibling that always reserves its width
-                // when the workspace is closable, so the title wraps/truncates
-                // before this corner instead of flowing under the hover x. Its
-                // visibility toggles via opacity so hover never re-lays-out the
-                // row. (Matches the group-header plus-button pattern.)
-                if canCloseWorkspace {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        Image(systemName: "xmark")
-                            .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
-                            .foregroundColor(activeSecondaryColor(0.7))
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .opacity(showCloseButton ? 1 : 0)
-                    .allowsHitTesting(showCloseButton)
-                    .accessibilityHidden(!showCloseButton)
-                }
-            }
+            )
 
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
@@ -9756,25 +9724,14 @@ struct TabItemView: View, Equatable {
             }
 
             if detailVisibility.showsProgress, let progress = workspaceSnapshot.progress {
-                VStack(alignment: .leading, spacing: 2) {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(activeProgressTrackColor)
-                            Capsule()
-                                .fill(activeProgressFillColor)
-                                .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
-                        }
-                    }
-                    .frame(height: max(3, 3 * fontScale))
-
-                    if let label = progress.label {
-                        Text(label)
-                            .font(.system(size: scaledFontSize(9)))
-                            .foregroundColor(activeSecondaryColor(0.6))
-                            .lineLimit(1)
-                    }
-                }
+                SidebarWorkspaceProgressRow(
+                    value: progress.value,
+                    label: progress.label,
+                    trackColor: activeProgressTrackColor,
+                    fillColor: activeProgressFillColor,
+                    labelColor: activeSecondaryColor(0.6),
+                    fontScale: fontScale
+                )
                 .transition(.opacity)
             }
 
