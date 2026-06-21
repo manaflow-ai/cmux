@@ -299,7 +299,7 @@ extension TerminalController {
         }
 
         // Socket commands must be non-interactive: bypass close-confirmation gating.
-        guard controlSidebarCloseSurfaceRecordingHistory(in: tab, surfaceId: targetSurfaceId, force: true) else {
+        guard tab.closeSurfaceRecordingHistory(surfaceId: targetSurfaceId, force: true) else {
             return .closeFailed
         }
         return .closed
@@ -319,24 +319,6 @@ extension TerminalController {
         }
 
         return nil
-    }
-
-    /// The byte-faithful twin of the file-private `closeSurfaceRecordingHistory`
-    /// (which stays in `TerminalController.swift` for the v2 surface paths).
-    private func controlSidebarCloseSurfaceRecordingHistory(
-        in workspace: Workspace,
-        surfaceId: UUID,
-        force: Bool
-    ) -> Bool {
-        if let tabId = workspace.surfaceIdFromPanelId(surfaceId) {
-            if force {
-                return workspace.requestNonInteractiveCloseTabRecordingHistory(tabId)
-            }
-            return workspace.requestCloseTabRecordingHistory(tabId, force: force)
-        }
-
-        workspace.markCloseHistoryEligible(panelId: surfaceId)
-        return workspace.closePanel(surfaceId, force: force)
     }
 
     // MARK: - Misc ops
