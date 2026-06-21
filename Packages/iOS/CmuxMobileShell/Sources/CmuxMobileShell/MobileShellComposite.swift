@@ -1815,7 +1815,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // never repopulate another scope's devices after sign-out, account switch,
         // or same-account team switch.
         guard await isScopeCurrent(scope) else {
-            registryDevices = []
             return
         }
         let connectedID = connectedMacDeviceID
@@ -2174,7 +2173,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // same-account team switch may have run meanwhile. Discard unless the
         // captured account/team scope is still current.
         guard await isScopeCurrent(scope) else {
-            pairedMacs = []
             return
         }
         pairedMacs = loaded

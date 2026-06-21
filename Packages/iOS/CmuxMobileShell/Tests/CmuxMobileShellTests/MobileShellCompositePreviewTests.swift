@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -86,6 +87,52 @@ import Testing
         #expect(store.registryDevices.isEmpty)
     }
 
+    @Test func staleTeamLoadsDoNotClearCurrentTeamLists() async throws {
+        let team = MutableTeamID("team-a")
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [try Self.pairedMac(id: "mac-a", teamID: "team-a")],
+                "team-b": [try Self.pairedMac(id: "mac-b", teamID: "team-b")],
+            ],
+            blockedTeams: ["team-a"]
+        )
+        let registry = DelayedTeamDeviceRegistry(
+            teamIDProvider: { await team.value },
+            devicesByTeam: [
+                "team-a": [Self.registryDevice(id: "device-a")],
+                "team-b": [Self.registryDevice(id: "device-b")],
+            ],
+            blockedTeams: ["team-a"]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            deviceRegistry: registry,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value }
+        )
+
+        let oldPairedLoad = Task { await store.loadPairedMacs() }
+        let oldRegistryLoad = Task { await store.loadRegistryDevices() }
+        await pairedStore.waitUntilLoadStarted(teamID: "team-a")
+        await registry.waitUntilLoadStarted(teamID: "team-a")
+
+        await team.set("team-b")
+        store.currentTeamDidChange()
+        await store.loadPairedMacs()
+        await store.loadRegistryDevices()
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
+        #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
+
+        await pairedStore.release(teamID: "team-a")
+        await registry.release(teamID: "team-a")
+        _ = await oldPairedLoad.value
+        _ = await oldRegistryLoad.value
+
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
+        #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
+    }
+
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
         let store = MobileShellComposite.preview()
         store.signIn()
@@ -97,6 +144,29 @@ import Testing
         #expect(store.workspaces.count == 3)
         #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")
         #expect(store.selectedTerminalID?.rawValue == "workspace-3-terminal-1")
+    }
+
+    private static func pairedMac(id: String, teamID: String) throws -> MobilePairedMac {
+        MobilePairedMac(
+            macDeviceID: id,
+            displayName: id,
+            routes: [try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: "10.0.0.1", port: 22))],
+            createdAt: Date(timeIntervalSince1970: 1),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: teamID
+        )
+    }
+
+    private static func registryDevice(id: String) -> RegistryDevice {
+        RegistryDevice(
+            deviceId: id,
+            platform: "mac",
+            displayName: id,
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            instances: []
+        )
     }
 
     @Test func createTerminalAddsTerminalToSelectedWorkspace() {
