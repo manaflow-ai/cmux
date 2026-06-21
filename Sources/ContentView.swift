@@ -11949,10 +11949,23 @@ struct VerticalTabsSidebar: View {
             renderContext: renderContext,
             shouldCollect: shouldCollectWorkspaceDropTargets
         )
+        .onAppear {
+            pruneSidebarWorkspaceRowHeights(visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds)
+        }
+        .onChange(of: renderContext.visibleWorkspaceRowIds) { visibleWorkspaceRowIds in
+            pruneSidebarWorkspaceRowHeights(visibleWorkspaceRowIds: visibleWorkspaceRowIds)
+        }
         .overlay {
             bonsplitWorkspaceDropOverlay()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private func pruneSidebarWorkspaceRowHeights(visibleWorkspaceRowIds: [UUID]) {
+        let visibleWorkspaceRowIds = Set(visibleWorkspaceRowIds)
+        let prunedHeights = sidebarWorkspaceRowHeights.filter { visibleWorkspaceRowIds.contains($0.key) }
+        guard prunedHeights.count != sidebarWorkspaceRowHeights.count else { return }
+        sidebarWorkspaceRowHeights = prunedHeights
     }
 
     /// Conditionally installs the row-frame `overlayPreferenceValue` reader (the part
