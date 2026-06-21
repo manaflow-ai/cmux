@@ -99,6 +99,28 @@ public struct TerminalLetterboxGeometry {
         return CGSize(width: containerW, height: containerH)
     }
 
+    /// Maximum composer height that still leaves a useful terminal viewport.
+    ///
+    /// The composer is bottom-pinned above the keyboard/safe-area and the toolbar
+    /// sits above it. Once the composer reaches this height, further text growth
+    /// must scroll inside the field instead of pushing the terminal completely off
+    /// screen.
+    public static func maximumComposerBandHeight(
+        bounds: CGSize,
+        keyboardHeight: CGFloat,
+        toolbarHeight: CGFloat,
+        bottomSafeAreaInset: CGFloat,
+        minimumTerminalHeight: CGFloat
+    ) -> CGFloat {
+        let occupancy = keyboardOccupancy(
+            keyboardHeight: keyboardHeight,
+            bottomSafeAreaInset: bottomSafeAreaInset
+        )
+        let nonComposerBottomReserve = max(0, toolbarHeight) + occupancy
+        let availableAboveBottomDock = max(0, bounds.height - nonComposerBottomReserve)
+        return max(0, availableAboveBottomDock - max(1, minimumTerminalHeight))
+    }
+
     /// Resolve the bottom safe-area inset, preferring the view's own inset and
     /// falling back to the window's when the view inset is zero (it can be zero
     /// before the view is on a window, and STALE for one layout pass right after

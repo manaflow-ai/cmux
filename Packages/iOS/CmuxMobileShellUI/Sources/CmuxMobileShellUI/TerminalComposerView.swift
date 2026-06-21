@@ -32,7 +32,7 @@ import UniformTypeIdentifiers
 /// the surface's composer band, directly above the always-visible accessory toolbar.
 /// The view reports its measured height through ``onHeightChange`` so the surface can
 /// reserve exactly that much above the toolbar; a field-grow therefore pushes ONLY the
-/// terminal up while the toolbar and keyboard below stay put. There is no
+/// terminal up without animating the keyboard-pinned bottom edge. There is no
 /// `safeAreaInset` and no toolbar handoff — the prior rounds' two-layout-systems fight
 /// is gone because there is only one layout system (the surface).
 struct TerminalComposerView: View {
@@ -42,9 +42,10 @@ struct TerminalComposerView: View {
     /// observes the same token, so only the view whose terminal matches the
     /// request's target may consume it and focus.
     let terminalID: String
-    /// Asks the host to re-measure and re-size the surface's composer band. Fired
-    /// whenever the field's content changes (the only driver of this view's height);
-    /// the host measures the ideal height via `sizeThatFits` and animates the band.
+/// Asks the host to re-measure and re-size the surface's composer band. Fired
+/// whenever the field's content changes (the only driver of this view's height);
+    /// the host measures the ideal height via `sizeThatFits` and applies it without a
+    /// steady-state animation.
     let requestHeightRemeasure: () -> Void
     @FocusState private var isFieldFocused: Bool
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
@@ -297,9 +298,9 @@ struct TerminalComposerView: View {
                         text: $store.terminalInputText,
                         axis: .vertical
                     )
-                    // Opens at a single line and grows up to 14 lines so a long message has
-                    // room. Each added line grows this view, which the host reserves above the
-                    // always-visible toolbar; the toolbar and keyboard never move.
+                    // Opens at a single line and grows up to 14 lines, further bounded by
+                    // the surface's available terminal height. Each added line grows this
+                    // view upward; the toolbar and keyboard never move.
                     .lineLimit(composerLineLimit)
                     // Natural-language to an agent, so normal iOS text assistance
                     // is on (autocorrect, sentence-case, spell check). The raw

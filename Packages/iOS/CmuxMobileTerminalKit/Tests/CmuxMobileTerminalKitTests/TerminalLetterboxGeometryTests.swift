@@ -259,6 +259,52 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.keyboardOccupancy(keyboardHeight: 0, bottomSafeAreaInset: -10) == 0)
     }
 
+    @Test("composer height cap leaves the minimum terminal viewport above keyboard and toolbar")
+    func composerHeightCapLeavesTerminalVisible() {
+        let cap = TerminalLetterboxGeometry.maximumComposerBandHeight(
+            bounds: Self.phoneBounds,
+            keyboardHeight: Self.keyboard,
+            toolbarHeight: Self.toolbar,
+            bottomSafeAreaInset: Self.homeIndicator,
+            minimumTerminalHeight: 160
+        )
+        #expect(cap == 874 - Self.keyboard - Self.toolbar - 160)
+
+        let terminal = TerminalLetterboxGeometry.terminalContainerSize(
+            bounds: Self.phoneBounds,
+            keyboardHeight: Self.keyboard,
+            composerBandHeight: cap,
+            toolbarHeight: Self.toolbar,
+            bottomSafeAreaInset: Self.homeIndicator,
+            chromeHidden: false
+        )
+        #expect(terminal.height == 160)
+    }
+
+    @Test("composer height cap uses safe area instead of keyboard while keyboard is down")
+    func composerHeightCapKeyboardDownUsesSafeArea() {
+        let cap = TerminalLetterboxGeometry.maximumComposerBandHeight(
+            bounds: Self.phoneBounds,
+            keyboardHeight: 0,
+            toolbarHeight: Self.toolbar,
+            bottomSafeAreaInset: Self.homeIndicator,
+            minimumTerminalHeight: 160
+        )
+        #expect(cap == 874 - Self.homeIndicator - Self.toolbar - 160)
+    }
+
+    @Test("composer height cap preserves remembered height while chrome is hidden")
+    func composerHeightCapIgnoresChromeHiddenState() {
+        let cap = TerminalLetterboxGeometry.maximumComposerBandHeight(
+            bounds: Self.phoneBounds,
+            keyboardHeight: Self.keyboard,
+            toolbarHeight: Self.toolbar,
+            bottomSafeAreaInset: Self.homeIndicator,
+            minimumTerminalHeight: 160
+        )
+        #expect(cap == 874 - Self.keyboard - Self.toolbar - 160)
+    }
+
     @Test("resolved safe-area inset distrusts a stale-zero view inset")
     func resolvedSafeAreaPrefersWindowWhenViewIsZero() {
         // Right after the keyboard hides, the view's own safeAreaInsets.bottom

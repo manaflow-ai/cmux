@@ -755,6 +755,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // full height; the test compares the gap, not equality.
             "renderHeight=\(Int(lastRenderRect.height))",
             "boundsHeight=\(Int(bounds.height))",
+            "composerBandHeight=\(Int(composerBandHeight))",
+            "composerMaxHeight=\(Int(maximumComposerBandHeight))",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
@@ -1161,6 +1163,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
     private var composerBandHeight: CGFloat = 0
+    /// Keep at least this much terminal visible above the composer. Past the cap,
+    /// the composer field scrolls internally instead of eating the whole viewport.
+    private static let minimumVisibleTerminalHeightAboveComposer: CGFloat = 160
     /// True once SwiftUI has dismantled the hosting representable for this
     /// surface. A dismantled surface performs no render, output, or
     /// accessibility work so a view SwiftUI has removed cannot keep driving the
@@ -1186,6 +1191,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard overlap != keyboardHeight else { return }
         let wasDown = keyboardHeight == 0
         keyboardHeight = overlap
+        clampComposerBandHeightToAvailableSpace()
         inputProxy.setKeyboardShown(true)
         // The bar is keyboard-tied: reveal it (and reserve its grid height) as the
         // keyboard comes up. Done before the frame animation so it animates in
@@ -1214,6 +1220,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         #endif
         keyboardHeight = 0
+        clampComposerBandHeightToAvailableSpace()
         inputProxy.setKeyboardShown(false)
         // Round 8 removes the `composerPresented ⇒ keyboardUp` enforcement: the
         // toolbar is ALWAYS visible and the composer band survives a keyboard-down, so
@@ -1647,24 +1654,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Set the height (points) the open composer band reserves below the docked
     /// toolbar, from the hosted compose field's intrinsic content size. Drives the
     /// grid reservation (so a field-grow pushes only the terminal up) and the dock
-    /// layout. When `animated`, the reservation + reflow run inside a `UIView.animate`
-    /// using the keyboard curve so the height change reads as one smooth motion with
-    /// the rest of the dock (item 3/4). Idempotent: a no-op when the height is
-    /// unchanged (then `completion` runs immediately so an unmount-on-close never
-    /// strands the mounted field).
+    /// layout. Live content changes apply without animation so the bottom edge stays
+    /// pinned to the keyboard; `animated` remains for presentation transitions such as
+    /// closing the composer. Idempotent: a no-op when the height is unchanged (then
+    /// `completion` runs immediately so an unmount-on-close never strands the mounted
+    /// field).
     ///
     /// - Parameters:
     ///   - height: The compose field's measured height, clamped to non-negative.
-    ///   - animated: Whether to animate the reflow (true for a live grow/shrink as the
-    ///     user types and for the symmetric close; false for the initial mount, where
-    ///     the open transition already animates).
+    ///   - animated: Whether to animate the reflow. Content growth passes false; the
+    ///     symmetric close path passes true so the field remains mounted while the band
+    ///     collapses.
     ///   - completion: Run after the reflow lands. The close path passes the field
     ///     unmount here so the band animates to 0 with the field STILL mounted (item 3:
     ///     a symmetric, coordinated close), and the field is removed only once the band
     ///     has collapsed — reversing the round-7 order that unmounted first and left the
     ///     band collapsing over empty space (the janky close).
     public func setComposerBandHeight(_ height: CGFloat, animated: Bool, completion: (() -> Void)? = nil) {
-        let clamped = max(0, height)
+        let clamped = clampedComposerBandHeight(height)
         guard abs(clamped - composerBandHeight) > 0.5 else {
             completion?()
             return
@@ -1690,10 +1697,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync()
     }
 
-    /// Duration (seconds) of the composer band grow/shrink reflow. Matches the system
-    /// keyboard's default animation duration so a field-grow reads as one smooth
-    /// motion with the dock; the keyboard show/hide reflow uses the notification's own
-    /// curve/duration (``animateDockedToolbar(with:)``).
+    private var maximumComposerBandHeight: CGFloat {
+        TerminalLetterboxGeometry.maximumComposerBandHeight(
+            bounds: bounds.size,
+            keyboardHeight: keyboardHeight,
+            toolbarHeight: reservedToolbarHeight,
+            bottomSafeAreaInset: safeAreaInsetsBottom,
+            minimumTerminalHeight: Self.minimumVisibleTerminalHeightAboveComposer
+        )
+    }
+
+    private func clampedComposerBandHeight(_ height: CGFloat) -> CGFloat {
+        min(max(0, height), maximumComposerBandHeight)
+    }
+
+    private func clampComposerBandHeightToAvailableSpace() {
+        guard !chromeHidden else { return }
+        let clamped = clampedComposerBandHeight(composerBandHeight)
+        guard abs(clamped - composerBandHeight) > 0.5 else { return }
+        composerBandHeight = clamped
+    }
+
+    /// Duration (seconds) of composer presentation reflows. Live text height changes
+    /// do not use this; keyboard show/hide uses the notification's own curve/duration
+    /// (``animateDockedToolbar(with:)``).
     private static let composerReflowDuration: TimeInterval = 0.25
 
     /// Frames for the whole bottom dock, computed together so the composer band, the
@@ -2113,6 +2140,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         inputProxy.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         inputProxy.updateAccessoryLayoutInsets()
+        clampComposerBandHeightToAvailableSpace()
         layoutBottomDock()
         layoutZoomOverlay()
         MobileDebugLog.anchormux("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
@@ -2130,6 +2158,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// next unrelated relayout.
     public override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
+        clampComposerBandHeightToAvailableSpace()
         layoutBottomDock()
         setNeedsGeometrySync()
     }
