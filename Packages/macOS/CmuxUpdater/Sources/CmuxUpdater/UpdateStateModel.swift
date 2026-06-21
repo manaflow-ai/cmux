@@ -133,6 +133,41 @@ public final class UpdateStateModel {
             feedURLString: "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
         )))
     }
+
+    /// Previews the "Restart to Complete Update" pill (auto-update install phase) from the debug
+    /// menu, clearing any title-text override first. DEBUG-only.
+    public func debugShowInstallingPill() {
+        debugOverrideText = nil
+        setOverrideState(.installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}, dismiss: {})))
+    }
+
+    /// Previews the pill with a long nightly version title (a "no updates" phase carrying a
+    /// hard-coded title override) from the debug menu. DEBUG-only.
+    public func debugShowLongNightlyPill() {
+        debugOverrideText = "Update Available: 0.32.0-nightly+20260216.abc1234"
+        setOverrideState(.notFound(.init(acknowledgement: {})))
+    }
+
+    /// Previews the "Checking for Updates…" pill from the debug menu, clearing any title-text
+    /// override first. DEBUG-only.
+    public func debugShowCheckingPill() {
+        debugOverrideText = nil
+        setOverrideState(.checking(.init(cancel: {})))
+    }
+
+    /// Previews the hidden/idle pill from the debug menu, clearing any title-text override
+    /// first. DEBUG-only.
+    public func debugHidePill() {
+        debugOverrideText = nil
+        setOverrideState(.idle)
+    }
+
+    /// Clears the debug pill override entirely (both the synthetic phase and the title-text
+    /// override) from the debug menu. DEBUG-only.
+    public func debugClearPillOverride() {
+        debugOverrideText = nil
+        setOverrideState(nil)
+    }
     #endif
 
     /// Dismisses a detected available update, replying `.dismiss` to Sparkle for whichever of
