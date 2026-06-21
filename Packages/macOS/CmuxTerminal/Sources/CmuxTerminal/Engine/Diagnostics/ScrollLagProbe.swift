@@ -104,21 +104,19 @@ public final class ScrollLagProbe {
             let debounce = scrollEndDebounce
             // SAFETY: this probe is main-thread-confined by contract (the legacy
             // `GhosttyApp` accessed all scroll-lag state only from main, and the
-            // legacy debounce used `DispatchQueue.main.asyncAfter`). `endArm` is a
-            // `@MainActor` closure, so it is `Sendable` and may cross the Task
-            // boundary even while it captures the non-`Sendable` `self`; the
-            // capture never leaves the main actor. It re-reads the per-arm
-            // `generation` so a stale fire is an idempotent no-op. The `Task`
-            // closure itself captures only `Sendable` values (the clock, the
-            // debounce duration, and `endArm`).
-            let endArm: @MainActor () -> Void = { [weak self] in
-                guard let self, self.scrollEndGeneration == generation else { return }
-                self.endScrollSession()
-            }
-            scrollEndTask = Task {
+            // legacy debounce used `DispatchQueue.main.asyncAfter`). The debounce
+            // task is `@MainActor`-isolated from the start, so the `[weak self]`
+            // capture and every access to `self` stay on the main actor: the
+            // non-`Sendable` probe is never sent across an isolation boundary
+            // (the body only suspends in `clock.sleep`). It re-reads the per-arm
+            // `generation`, so a stale fire is an idempotent no-op even if the
+            // cancel races. The only `Sendable` captures are `clock`, `debounce`,
+            // and `generation`.
+            scrollEndTask = Task { @MainActor [weak self] in
                 try? await clock.sleep(for: debounce)
                 guard !Task.isCancelled else { return }
-                await endArm()
+                guard let self, self.scrollEndGeneration == generation else { return }
+                self.endScrollSession()
             }
         }
     }
