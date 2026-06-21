@@ -4104,6 +4104,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @MainActor
+    static func updateScrollbar(total: UInt64, offset: UInt64, len: UInt64, forSurfaceIdentifier identifier: UInt) {
+        view(forSurfaceIdentifier: identifier)?.updateLocalScrollbackBounds(total: total, offset: offset, len: len)
+    }
+
+    @MainActor
     static func title(for surface: ghostty_surface_t) -> String? {
         view(for: surface)?.surfaceTitle
     }

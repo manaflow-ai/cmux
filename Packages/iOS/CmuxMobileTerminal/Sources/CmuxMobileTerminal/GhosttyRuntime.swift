@@ -8,17 +8,6 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.runtime")
 
-private struct PendingGhosttyScrollbarUpdate: Sendable {
-    let surfaceBits: Int
-    let total: UInt64
-    let offset: UInt64
-    let len: UInt64
-}
-
-nonisolated private let pendingScrollbarUpdateLock = NSLock()
-nonisolated(unsafe) private var pendingScrollbarUpdatesBySurface: [Int: PendingGhosttyScrollbarUpdate] = [:]
-nonisolated(unsafe) private var scheduledScrollbarUpdateSurfaces: Set<Int> = []
-
 // lint:allow free-function — @convention(c) trampoline: libghostty takes a C
 // function pointer, which cannot capture context or live on a Swift type.
 private func cmuxIOSRuntimeReadClipboardCallback(
@@ -422,37 +411,15 @@ public final class GhosttyRuntime {
         len: UInt64,
         for surface: ghostty_surface_t
     ) {
-        let surfaceBits = Int(bitPattern: surface)
-        let shouldSchedule = pendingScrollbarUpdateLock.withLock {
-            pendingScrollbarUpdatesBySurface[surfaceBits] = PendingGhosttyScrollbarUpdate(
-                surfaceBits: surfaceBits,
+        let surfaceIdentifier = GhosttySurfaceView.surfaceIdentifier(for: surface)
+        Task { @MainActor in
+            GhosttySurfaceView.enqueueScrollbarUpdate(
                 total: total,
                 offset: offset,
-                len: len
+                len: len,
+                forSurfaceIdentifier: surfaceIdentifier
             )
-            return scheduledScrollbarUpdateSurfaces.insert(surfaceBits).inserted
         }
-        guard shouldSchedule else { return }
-        Task { @MainActor in
-            GhosttyRuntime.flushScrollbarUpdate(surfaceBits: surfaceBits)
-        }
-    }
-
-    @MainActor
-    private static func flushScrollbarUpdate(surfaceBits: Int) {
-        guard let update = pendingScrollbarUpdateLock.withLock({
-            let update = pendingScrollbarUpdatesBySurface.removeValue(forKey: surfaceBits)
-            scheduledScrollbarUpdateSurfaces.remove(surfaceBits)
-            return update
-        }), let surface = ghostty_surface_t(bitPattern: update.surfaceBits) else {
-            return
-        }
-        GhosttySurfaceView.updateScrollbar(
-            total: update.total,
-            offset: update.offset,
-            len: update.len,
-            for: surface
-        )
     }
 
     nonisolated fileprivate static func handleReadClipboard(
