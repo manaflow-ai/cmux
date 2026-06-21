@@ -18,10 +18,11 @@ Review production Swift and runtime changes for:
 - Architectural fixes that patch symptoms while leaving bad state representable.
 - User-facing errors, alerts, command output, API error bodies, and recovery copy that expose implementation details.
 - Algorithmic complexity regressions on scalable user-owned collections.
-- Expensive synchronous index/disk/syscall loads (such as `RestorableAgentSessionIndex.load()`) on the main actor or interactive paths instead of the off-main cached accessor.
+- Expensive synchronous agent-history disk, JSON, transcript, trajectory, JSONL, directory, or syscall loads (such as `RestorableAgentSessionIndex.load()`, hook/session stores, `agent-turn-diff-baselines.json`, transcripts, trajectory files, and workstream/event logs) on the main actor or interactive paths instead of an off-main cached/background accessor.
 - Substituting a cached value for a fresh authoritative read in persistence/history/undo paths without handling cold and stale caches.
 - Local/generated artifacts, dependency checkouts, caches, logs, screenshots, temp folders, and scratch directories that accidentally enter source control.
 - SwiftPM dependency changes that ignore or omit cmux-owned `Package.resolved` lockfiles.
+- Test-only or debug-only seams added to production Swift `Sources/` that should live in the test target or a dedicated debug folder.
 
 ## Runtime No Hacky Sleeps
 
@@ -53,11 +54,29 @@ For production code over scalable user-owned collections, flag nested full-colle
 
 Pass for tiny fixed-size collections, tests, benchmark harnesses, existing inefficient code not worsened by the PR, and documented bounds backed by measurements.
 
+## Swift Expensive Synchronous Agent Loads
+
+For production Swift, flag any unbounded agent-history read, decode, parse, directory scan, or per-record syscall that can run on MainActor or from user-input paths.
+
+Fail synchronous `Data(contentsOf:)`, `String(contentsOf:)`, `JSONSerialization.jsonObject`, `JSONDecoder.decode`, JSONL line scans, transcript/trajectory parsing, `agent-turn-diff-baselines.json` scans, hook/session-store reads, workstream/event log scans, or per-record `fileExists`/stat/sysctl loops when they run in workspace/panel/tab/window close, SwiftUI body/didSet, menu/command-palette/shortcut evaluation, socket handlers, or any immediate UI interaction. These files can grow with all agent history and have caused UI hangs on real machines.
+
+Require `SharedLiveAgentIndex.shared`, a `Task.detached` parser, a background actor/repository, or another off-main cached path that returns to MainActor only for UI/process launch work. Bound scans by focused workspace/surface/session as early as practical. Pass for the cache/background loader itself, explicit nil-cache fallbacks with a justification, and existing call sites the PR does not worsen.
+
 ## Source Control Artifacts
 
 For every changed path, flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, release, or test-system reason.
 
 Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, generated files that are already part of the repo's source-of-truth model, and PRs that only remove or ignore existing accidental artifacts.
+
+## No Test or Debug Seam in Production Source
+
+For Swift files under a production `Sources/` path (matching `**/Sources/**` and not under `**/Tests/**`), flag added test-only or debug-only seams.
+
+Fail a `#if DEBUG` (or other test-build-guarded) extension or member that exposes internal/private state for tests or a debugger with no production caller, a member named like `debug…`/`…ForTesting`/`…ForTests`/`testOnly…`/`…TestHook`/`…TestSeam`/`_test…`, or visibility widened together with a wrapper accessor added so a test can call it. The compiled-out `#if DEBUG` guard does not make a test-observability accessor acceptable in shipping source.
+
+Prefer observing internal state from the test target via `@testable import` after widening `private` to `internal`, or isolating a genuinely debug-only facility in a dedicated debug file or folder. The canonical fix is cmux PR https://github.com/manaflow-ai/cmux/pull/6452, which removed the `#if DEBUG debugQueuedRequestCount()` accessor, widened the queue state to `internal`, and read it from the test target.
+
+Pass for `#if DEBUG` blocks that gate real product behavior, scaffolding inside `Tests/` or a test-support module, and existing seams the PR does not introduce or worsen.
 
 ## SwiftPM Package.resolved
 

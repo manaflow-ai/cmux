@@ -27,11 +27,22 @@ on:
         default: false
         type: boolean
   schedule:
-    # Nightly at 09:10 UTC. The decide job skips the run only when the current
-    # main HEAD was already uploaded by a prior successful run (SHA compare, not
-    # a wall-clock window), so a failed or missed nightly retries the
-    # not-yet-uploaded commit instead of permanently stranding it.
-    - cron: "10 9 * * *"
+    # Every ~2h (at :17 to stay off the top-of-hour rush). The decide job skips a
+    # run only when the current main HEAD was already uploaded by a prior
+    # successful run (SHA compare, not a wall-clock window), so an iOS-affecting
+    # change reaches internal TestFlight within ~2h of landing on main, and a
+    # failed or missed run retries the not-yet-uploaded commit instead of
+    # permanently stranding it.
+    #
+    # Why ~2h and not a push trigger / per-commit: a per-push lane needs either a
+    # shared concurrency group (which cancels superseded pending runs into red
+    # checks) or per-SHA concurrency (which removes the serialization that keeps
+    # parallel archives from racing on the timestamp build number). ~2h spacing
+    # keeps runs from overlapping (an archive+upload takes ~30-60m), so this
+    # single per-ref lane stays serialized and uploads never collide. If faster
+    # turnaround is ever needed, tighten the interval (still > one archive's
+    # duration) rather than adding a push trigger.
+    - cron: "17 */2 * * *"
 
 concurrency:
   group: ios-testflight-${{ github.ref_name }}
@@ -46,7 +57,7 @@ permissions:
 jobs:
   decide:
     name: Decide whether a TestFlight upload is needed
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     timeout-minutes: 5
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
@@ -104,7 +115,7 @@ jobs:
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
-    runs-on: macos-26
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
