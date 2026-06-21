@@ -2901,11 +2901,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// survives WKWebView replacement and can be applied to each new page.
     @Published private(set) var isMuted: Bool = false
 
-    /// Whether the page is currently producing *audible* audio, from WebKit's
-    /// private `_isPlayingAudio` KVO signal. Drives the Chrome-style speaker glyph
-    /// on the browser tab and the sidebar workspace row. Distinct from
-    /// ``isPlayingMedia`` (a DOM keep-alive signal that also counts muted video):
-    /// muting a page clears `isPlayingAudio` but not `isPlayingMedia`.
+    /// Whether the page currently has actively-playing media, from the safe DOM
+    /// media-playback hook. Drives the Chrome-style speaker glyph on the browser
+    /// tab and the sidebar workspace row; ``isMuted`` is tracked separately so a
+    /// muted-but-playing tab can still render the muted activity glyph.
     @Published private(set) var isPlayingAudio: Bool = false
 
     /// Whether the page is actively capturing the microphone (public, KVO-backed
@@ -3048,11 +3047,6 @@ final class BrowserPanel: Panel, ObservableObject {
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
-    /// Classic (string key-path) KVO bridge for the private `_isPlayingAudio`
-    /// property, which cannot be observed via the Swift key-path `observe(_:)`.
-    /// Re-created per web-view generation in `setupObservers`; invalidated before
-    /// each web-view release/replace so KVO removal never targets a dead object.
-    private var audioPlaybackObserver: WebViewAudioPlaybackObserver?
     private var activeDownloadCount: Int = 0
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -3087,6 +3081,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var isPlayingMedia: Bool = false {
         didSet {
             guard oldValue != isPlayingMedia else { return }
+            if isPlayingAudio != isPlayingMedia { isPlayingAudio = isPlayingMedia }
             reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
         }
     }
@@ -4609,15 +4604,13 @@ final class BrowserPanel: Panel, ObservableObject {
         return nil
     }
 
-    /// Tears down every live web-view observer (Swift key-path KVO + the private
-    /// `_isPlayingAudio` bridge + Combine subscriptions) and clears the derived
+    /// Tears down every live web-view observer (Swift key-path KVO + Combine
+    /// subscriptions) and clears the derived
     /// media-activity flags. Invoked at each point a web view is released or
-    /// replaced, so KVO removal always targets a still-alive object and a
-    /// discarded/closed pane never shows a stale speaker/mic/camera glyph; the
-    /// next `setupObservers` re-seeds the flags from the fresh web view.
+    /// replaced, so a discarded/closed pane never shows a stale
+    /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
+    /// from the fresh web view.
     private func detachWebViewObservers() {
-        audioPlaybackObserver?.invalidate()
-        audioPlaybackObserver = nil
         webViewObservers.removeAll()
         if isPlayingAudio { isPlayingAudio = false }
         if isUsingMicrophone { isUsingMicrophone = false }
@@ -4744,17 +4737,6 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
         webViewObservers.append(microphoneCaptureObserver)
-
-        // Chrome-style "tab is producing sound" indicator via WebKit's private
-        // `_isPlayingAudio` KVO. The bridge re-reads `.initial` so the fresh
-        // web-view's state is reflected immediately; it self-corrects after a
-        // mute toggle (muting drives `_isPlayingAudio` to false).
-        audioPlaybackObserver = WebViewAudioPlaybackObserver(webView: webView) { [weak self] isPlayingAudio in
-            Task { @MainActor in
-                guard let self, self.webViewInstanceID == observedWebViewInstanceID else { return }
-                if self.isPlayingAudio != isPlayingAudio { self.isPlayingAudio = isPlayingAudio }
-            }
-        }
 
         // The capture observers above fire only on `.new`; seed the freshly
         // bound web view's current capture state so a pane that rebinds while a
@@ -5845,10 +5827,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // `deinit` is nonisolated, so it can't call the main-actor
         // `detachWebViewObservers()`. Tear the observers down inline (the derived
         // `@Published` media flags don't need resetting — the panel is going
-        // away). Invalidate the private `_isPlayingAudio` KVO bridge first, while
-        // the observed web view is still alive, so KVO removal stays valid.
-        audioPlaybackObserver?.invalidate()
-        audioPlaybackObserver = nil
+        // away).
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
