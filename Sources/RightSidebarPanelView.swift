@@ -5,6 +5,7 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebar
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
@@ -12,14 +13,13 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
     return String(describing: type(of: responder))
 }
 
-/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
-    case files
-    case find
-    case sessions
-    case feed
-    case dock
+/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B). The pure
+/// `Sendable` data core (cases, raw values, `from(cliArgument:)`, gate-based
+/// availability) lives in `CmuxSidebar`; this app-target alias hosts the
+/// AppKit/localization/settings-coupled affordances below.
+typealias RightSidebarMode = CmuxSidebar.RightSidebarMode
 
+extension RightSidebarMode {
     var label: String {
         switch self {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
