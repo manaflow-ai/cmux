@@ -1,3 +1,4 @@
+#if os(iOS)
 import CmuxAuthRuntime
 import CmuxMobileSupport
 import SwiftUI
@@ -139,3 +140,5 @@ struct MobileNavDrawerView: View {
         return String(first).uppercased()
     }
 }
+
+#endif

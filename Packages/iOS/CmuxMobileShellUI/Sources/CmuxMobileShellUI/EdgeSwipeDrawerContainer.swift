@@ -58,7 +58,7 @@ struct EdgeSwipeDrawerContainer<Content: View, Drawer: View>: View {
                     .frame(width: width, alignment: .leading)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .background(.regularMaterial)
-                    .clipShape(.rect(topTrailingRadius: 18, bottomTrailingRadius: 18))
+                    .clipShape(.rect(bottomTrailingRadius: 18, topTrailingRadius: 18))
                     .shadow(color: .black.opacity(isOpen ? 0.25 : 0), radius: 16, x: 4, y: 0)
                     .offset(x: isOpen ? 0 : -(width + 32))
                     .gesture(
