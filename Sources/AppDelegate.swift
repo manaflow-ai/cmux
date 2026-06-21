@@ -956,6 +956,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Live `cmux diff` viewer subprocesses, keyed by pid, retained until they exit.
     /// Declared outside `#if DEBUG` because process retention is production behavior.
     private var diffViewerProcesses: [Int32: Process] = [:]
+    /// In-flight agent-aware diff launches, keyed so repeated shortcuts do not fan out large baseline parses.
+    var openDiffViewerAgentContextTasks: [String: Task<Void, Never>] = [:]
+    var openDiffViewerAgentContextPendingRequests: [String: OpenDiffViewerAgentContextRequest] = [:]
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -6076,113 +6079,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        let agentDiffContext = preferAgentContext ? focusedAgentDiffContext(for: workspace) : nil
-        let cwd = agentDiffContext?.cwd
-            ?? workspace.resolvedWorkingDirectory()
+        let fallbackCwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
+        if preferAgentContext,
+           let surfaceId = workspace.focusedPanelId,
+           let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId),
+           let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) {
+            let snapshotWorkingDirectory = Self.normalizedOpenDiffViewerPath(
+                snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
+            )
+            let storeURL = Self.agentTurnDiffBaselineStoreURL()
+            let workspaceId = workspace.id
+            let originWindowId = tabManager.flatMap { manager in
+                mainWindowContexts.values.first { $0.tabManager === manager }?.windowId
+            }
+            let taskKey = Self.openDiffViewerAgentContextTaskKey(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
+            let request = OpenDiffViewerAgentContextRequest(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                fallbackCwd: fallbackCwd,
+                snapshotWorkingDirectory: snapshotWorkingDirectory,
+                storeURL: storeURL,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId,
+                originWindowId: originWindowId
+            )
+            if openDiffViewerAgentContextTasks[taskKey] != nil {
+                openDiffViewerAgentContextPendingRequests[taskKey] = request
+            } else {
+                startOpenDiffViewerAgentContextTask(request, taskKey: taskKey)
+            }
+            return true
+        }
+        let agentDiffContext = preferAgentContext ? focusedAgentWorkingDirectoryContext(for: workspace) : nil
         return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
-            cwd: cwd,
+            cwd: agentDiffContext?.cwd ?? fallbackCwd,
             workspaceId: workspace.id,
             surfaceId: workspace.focusedPanelId,
-            useLastTurnSource: agentDiffContext?.useLastTurnSource == true,
+            useLastTurnSource: false,
             sessionId: agentDiffContext?.sessionId
         )
     }
 
-    private func focusedAgentDiffContext(for workspace: Workspace) -> (cwd: String, useLastTurnSource: Bool, sessionId: String?)? {
+    private func focusedAgentWorkingDirectoryContext(for workspace: Workspace) -> (cwd: String, sessionId: String?)? {
         guard let surfaceId = workspace.focusedPanelId else { return nil }
         guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
             return nil
         }
-        let sessionId = normalizedOpenDiffViewerSessionId(snapshot.sessionId)
-        if let sessionId,
-           let repoRoot = latestAgentTurnDiffRepoRoot(
-            workspaceId: workspace.id,
-            surfaceId: surfaceId,
-            sessionId: sessionId
-           ) {
-            return (cwd: repoRoot, useLastTurnSource: true, sessionId: sessionId)
-        }
-        if let workingDirectory = normalizedOpenDiffViewerPath(
+        let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId)
+        if let workingDirectory = Self.normalizedOpenDiffViewerPath(
             snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
            ) {
-            return (cwd: workingDirectory, useLastTurnSource: false, sessionId: sessionId)
+            return (cwd: workingDirectory, sessionId: sessionId)
         }
         return nil
     }
 
-    private func latestAgentTurnDiffRepoRoot(workspaceId: UUID, surfaceId: UUID, sessionId: String) -> String? {
-        let storeURL = agentTurnDiffBaselineStoreURL()
-        guard let data = try? Data(contentsOf: storeURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let records = object["records"] as? [[String: Any]] else {
-            return nil
-        }
-        let workspaceKey = workspaceId.uuidString.lowercased()
-        let surfaceKey = surfaceId.uuidString.lowercased()
-        let candidates = records.compactMap { record -> (repoRoot: String, capturedAt: TimeInterval)? in
-            guard let recordWorkspace = normalizedOpenDiffViewerIdentifier(record["workspaceId"] as? String),
-                  let recordSurface = normalizedOpenDiffViewerIdentifier(record["surfaceId"] as? String),
-                  let recordSession = normalizedOpenDiffViewerSessionId(record["sessionId"] as? String),
-                  recordWorkspace == workspaceKey,
-                  recordSurface == surfaceKey,
-                  recordSession == sessionId,
-                  let repoRoot = normalizedOpenDiffViewerPath(record["repoRoot"] as? String) else {
-                return nil
-            }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: repoRoot, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                return nil
-            }
-            let capturedAt = (record["capturedAt"] as? NSNumber)?.doubleValue ?? 0
-            return (repoRoot, capturedAt)
-        }
-        return candidates.max(by: { $0.capturedAt < $1.capturedAt })?.repoRoot
-    }
-
-    private func agentTurnDiffBaselineStoreURL() -> URL {
-        let environment = ProcessInfo.processInfo.environment
-        if let override = normalizedOpenDiffViewerPath(environment["CMUX_AGENT_HOOK_STATE_DIR"]) {
-            let expandedOverride = (override as NSString).expandingTildeInPath
-            return URL(fileURLWithPath: expandedOverride, isDirectory: true)
-                .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
-    }
-
-    private func normalizedOpenDiffViewerIdentifier(_ value: String?) -> String? {
-        value?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .nilIfEmpty
-    }
-
-    private func normalizedOpenDiffViewerSessionId(_ value: String?) -> String? {
-        value?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty
-    }
-
-    private func normalizedOpenDiffViewerPath(_ value: String?) -> String? {
-        value?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty
-    }
-
     @discardableResult
-    private func launchDiffViewerProcess(
+    func launchDiffViewerProcess(
         cliURL: URL,
         socketPath: String,
         cwd: String,
         workspaceId: UUID,
         surfaceId: UUID?,
         useLastTurnSource: Bool,
-        sessionId: String?
+        sessionId: String?,
+        focus: Bool = true
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
@@ -6192,7 +6161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             useLastTurnSource ? "--last-turn" : "--unstaged",
             "--cwd", cwd,
             "--workspace", workspaceId.uuidString,
-            "--focus", "true",
+            "--focus", focus ? "true" : "false",
         ]
         if let surfaceId {
             arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
