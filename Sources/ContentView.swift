@@ -12189,6 +12189,8 @@ struct VerticalTabsSidebar: View {
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
             .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .onDrop(
                 of: SidebarTabDragPayload.dropContentTypes,
                 delegate: tabDropDelegateFactory(sidebarWorkspaceRowHeights[tab.id] ?? 1)
