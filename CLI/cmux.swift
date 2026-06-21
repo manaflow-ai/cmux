@@ -19488,7 +19488,7 @@ struct CMUXCLI {
             if let timeout,
                semaphore.wait(timeout: .now() + timeout) == .timedOut {
                 task.cancel(with: .goingAway, reason: nil)
-                throw CLIError(message: "Timed out waiting for Codex app-server response")
+                throw CodexTeamsAppServerReceiveTimeoutError()
             }
             if timeout == nil {
                 semaphore.wait()
@@ -19694,8 +19694,7 @@ struct CMUXCLI {
                 let message: [String: Any]
                 do {
                     message = try connection.receiveObject(timeout: retryTimeout)
-                } catch let error as CLIError
-                    where retryTimeout != nil && error.message == "Timed out waiting for Codex app-server response" {
+                } catch let error where retryTimeout != nil && error is CodexTeamsAppServerReceiveTimeoutError {
                     throw CLIError(message: "Codex Teams rollout retry pending; reconnecting")
                 }
                 try handleAppServerMessage(message, connection: connection)
