@@ -1,4 +1,5 @@
 import Foundation
+import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
@@ -16,6 +17,11 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    #if os(iOS)
+    @Environment(AuthCoordinator.self) private var authManager
+    @State private var isDrawerOpen = false
+    @State private var showingDrawerSettings = false
+    #endif
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
@@ -37,6 +43,40 @@ struct WorkspaceShellView: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        EdgeSwipeDrawerContainer(isOpen: $isDrawerOpen) {
+            layoutContent
+        } drawer: {
+            MobileNavDrawerView(
+                onSettings: { showingDrawerSettings = true },
+                onSignOut: signOut,
+                onClose: { isDrawerOpen = false }
+            )
+        }
+        .sheet(isPresented: $showingDrawerSettings) {
+            MobileSettingsView(
+                connectedHostName: store.connectedHostName,
+                rescanQR: { store.disconnectAndForgetActiveMac() },
+                signOut: signOut,
+                store: store
+            )
+        }
+        #else
+        layoutContent
+        #endif
+    }
+
+    /// Drawer-open closure, present only on iOS (the drawer is iOS-only). Passed to
+    /// `WorkspaceListView` for its leading toolbar button.
+    private var drawerOpener: (() -> Void)? {
+        #if os(iOS)
+        return { isDrawerOpen = true }
+        #else
+        return nil
+        #endif
+    }
+
+    private var layoutContent: some View {
         Group {
             if usesCompactStack {
                 stackLayout
@@ -95,7 +135,8 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure
+                toggleGroupCollapsed: toggleGroupCollapsedClosure,
+                openDrawer: drawerOpener
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -178,7 +219,8 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure
+                toggleGroupCollapsed: toggleGroupCollapsedClosure,
+                openDrawer: drawerOpener
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {

@@ -64,6 +64,28 @@ import Testing
         #expect(store.workspaceGroups.isEmpty)
     }
 
+    @Test func currentTeamDidChangeKeepsForegroundWorkspacesLive() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        store.setWorkspacesForTesting([
+            MobileWorkspacePreview(id: "ws-foreground", name: "Live", terminals: []),
+        ])
+        #expect(store.workspaces.map(\.id.rawValue) == ["ws-foreground"])
+        let connectionBefore = store.connectionState
+
+        // A team switch must re-scope lists lazily but NEVER drop the live
+        // foreground terminal session.
+        store.currentTeamDidChange()
+
+        #expect(store.workspaces.map(\.id.rawValue) == ["ws-foreground"])
+        #expect(store.connectionState == connectionBefore)
+        // Team-scoped caches are cleared so they lazily repopulate for the new team.
+        #expect(store.pairedMacs.isEmpty)
+        #expect(store.registryDevices.isEmpty)
+    }
+
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
         let store = MobileShellComposite.preview()
         store.signIn()

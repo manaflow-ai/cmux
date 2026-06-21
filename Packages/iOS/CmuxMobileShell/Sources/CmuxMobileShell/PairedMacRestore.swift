@@ -39,9 +39,14 @@ public struct PairedMacRestore: Sendable {
     /// local store untouched and reports `completed: false` so the caller can
     /// retry; a successful fetch (even of an empty list) reports `completed:
     /// true`.
+    /// - Parameter teamID: the Stack team this restore is for. The backup fetch is
+    ///   already server-scoped to that team (`X-Cmux-Team-Id`), so every restored
+    ///   row is stamped with it; this is what scopes the local list per team. `nil`
+    ///   when no team is selected (rows stay team-less / visible everywhere).
     @discardableResult
     public func run(
         accountID: String,
+        teamID: String? = nil,
         now: Date = Date()
     ) async -> RestoreOutcome {
         guard let remote = await backup.fetchAll() else {
@@ -56,7 +61,7 @@ public struct PairedMacRestore: Sendable {
         }
         guard !remote.isEmpty else { return RestoreOutcome(completed: true, restored: 0) }
 
-        let local = (try? await store.loadAll(stackUserID: accountID)) ?? []
+        let local = (try? await store.loadAll(stackUserID: accountID, teamID: teamID)) ?? []
         // The fetch is not the only sign-out window: re-check after the load too,
         // before we start writing (a wipe between fetch and load must not be
         // overwritten with the old account's Macs).
@@ -105,6 +110,7 @@ public struct PairedMacRestore: Sendable {
                     routes: record.routes,
                     markActive: markActive,
                     stackUserID: accountID,
+                    teamID: teamID,
                     now: backupDate
                 )
                 // Apply the user customizations from the (fresher) backup so a

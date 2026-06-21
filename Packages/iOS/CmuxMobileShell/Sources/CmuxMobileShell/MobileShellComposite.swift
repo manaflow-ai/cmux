@@ -958,6 +958,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// React to a Stack team switch. The team-scoped services (presence, device
+    /// registry, paired-Mac backup/restore, secondary aggregation) all read the
+    /// selected team LIVE, so the data layer is already correct on the next call.
+    /// This only invalidates the in-process state built under the OLD team and lets
+    /// it rebuild LAZILY for the new one — and deliberately does NOT touch the live
+    /// foreground terminal session: `remoteClient`, `foregroundMacDeviceID`, and the
+    /// foreground Mac's `workspacesByMac` entry are left intact, so switching teams
+    /// never drops the terminal the user is in (the chosen "keep session, re-scope
+    /// lists" behavior).
+    public func currentTeamDidChange() {
+        // Presence: cancel + re-subscribe so the online dots reflect the new team
+        // (the subscribe reads the team live). Cheap live socket; the only eager bit.
+        presenceTask?.cancel()
+        presenceTask = nil
+        presenceMap = PresenceMap()
+        evaluatePresenceSubscription()
+        // Secondary aggregation: tear down the OTHER Macs' read-only subscriptions
+        // and drop their aggregated rows so the old team's Macs stop showing. Keep
+        // ONLY the foreground entry. Do NOT re-aggregate here — that rebuilds lazily
+        // on the next foreground / Computers `.task` / pull-to-refresh.
+        teardownSecondaryMacSubscriptions()
+        let foregroundKey = foregroundMacKey
+        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }
+        // Restore memo: invalidate so the next read re-restores for the new
+        // (account, team) scope, and a suspended old-team restore can't resume.
+        // Fire-and-forget (this method is sync); does not wipe the local store.
+        if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
+            Task { await refresher.cancelInFlightRestores() }
+        }
+        // Lazy display: clear the stale old-team lists; the next loadPairedMacs() /
+        // loadRegistryDevices() (DeviceTreeView `.task`) repopulate scoped to the
+        // new team. The foreground workspace list (derived from the kept entry) is
+        // unaffected.
+        pairedMacs = []
+        registryDevices = []
+    }
+
     /// Forward a tap to the Mac's real surface as a left click at the given grid
     /// cell. libghostty self-gates: a TUI with mouse reporting receives the
     /// click; a normal screen treats it as a harmless empty selection. The

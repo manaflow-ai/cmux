@@ -14,7 +14,7 @@ private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: 
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 2
+    public static let currentSchemaVersion: Int32 = 3
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -107,14 +107,21 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             try transaction {
                 try migrateToV1()
                 try migrateToV2()
-                try setUserVersion(2)
+                try migrateToV3()
+                try setUserVersion(3)
             }
         case 1:
             try transaction {
                 try migrateToV2()
-                try setUserVersion(2)
+                try migrateToV3()
+                try setUserVersion(3)
             }
         case 2:
+            try transaction {
+                try migrateToV3()
+                try setUserVersion(3)
+            }
+        case 3:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -178,6 +185,20 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// v3: per-Stack-team scoping. The backup Durable Object is per-(account, team),
+    /// so a row needs the team it belongs to. Additive + nullable: pre-v3 rows have
+    /// `team_id = NULL` and stay visible under every team (a non-nil team filter is
+    /// `team_id IS ? OR team_id IS NULL`) so an upgrade never hides existing hosts;
+    /// they get stamped with the active team on the next upsert/route refresh.
+    /// Idempotent, like ``migrateToV2``.
+    private func migrateToV3() throws {
+        let existing = try tableColumns("paired_macs")
+        if !existing.contains("team_id") {
+            try exec("ALTER TABLE paired_macs ADD COLUMN team_id TEXT;")
+        }
+        try exec("CREATE INDEX IF NOT EXISTS idx_macs_team ON paired_macs(stack_user_id, team_id);")
+    }
+
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
     /// additive column migrations idempotent.
     private func tableColumns(_ table: String) throws -> Set<String> {
@@ -206,18 +227,22 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         routes: [CmxAttachRoute],
         markActive: Bool,
         stackUserID: String?,
+        teamID: String? = nil,
         now: Date = Date()
     ) throws {
         try ensureReady()
         try transaction {
             if markActive {
-                let scope = stackUserID.map(BindValue.text) ?? .null
-                if stackUserID != nil {
-                    try exec("UPDATE paired_macs SET is_active = 0 WHERE stack_user_id IS ?;",
-                             binding: [scope])
-                } else {
-                    try exec("UPDATE paired_macs SET is_active = 0;")
-                }
+                // Clear the active flag only within the SAME (Stack user, team)
+                // scope: activating a host in team A must not deactivate team B's
+                // active host (single-active is per (user, team)). `IS` is SQLite's
+                // null-safe equality, so a NULL user/team clears only NULL-scoped rows.
+                try exec(
+                    "UPDATE paired_macs SET is_active = 0 WHERE stack_user_id IS ? AND team_id IS ?;",
+                    binding: [
+                        stackUserID.map(BindValue.text) ?? .null,
+                        teamID.map(BindValue.text) ?? .null,
+                    ])
             }
             let existing = try fetchMacRow(macDeviceID: macDeviceID)
             let createdAt = existing?.createdAt ?? now
@@ -225,6 +250,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 macDeviceID: macDeviceID,
                 displayName: displayName,
                 stackUserID: stackUserID,
+                teamID: teamID,
                 createdAt: createdAt,
                 lastSeenAt: now,
                 isActive: markActive
@@ -246,33 +272,34 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         }
     }
 
-    public func loadAll(stackUserID: String? = nil) throws -> [MobilePairedMac] {
+    public func loadAll(stackUserID: String? = nil, teamID: String? = nil) throws -> [MobilePairedMac] {
         try ensureReady()
-        return try fetchAllMacs(stackUserID: stackUserID)
+        return try fetchAllMacs(stackUserID: stackUserID, teamID: teamID)
     }
 
-    public func activeMac(stackUserID: String? = nil) throws -> MobilePairedMac? {
+    public func activeMac(stackUserID: String? = nil, teamID: String? = nil) throws -> MobilePairedMac? {
         try ensureReady()
-        return try fetchAllMacs(activeOnly: true, stackUserID: stackUserID).first
+        return try fetchAllMacs(activeOnly: true, stackUserID: stackUserID, teamID: teamID).first
     }
 
     public func setActive(macDeviceID: String) throws {
         try ensureReady()
         try transaction {
-            // Clear the active flag only within the target Mac's own Stack-user
-            // scope, mirroring the scoped clear in `upsert`. On a shared device
-            // (more than one Stack user has pairings), switching hosts for one
-            // signed-in user must not wipe another user's active Mac, or that
-            // user fails to auto-reconnect after signing back in. `IS` is
-            // SQLite's null-safe equality, so a NULL-scoped target clears only
-            // other NULL-scoped rows.
+            // Clear the active flag only within the target Mac's own (Stack user,
+            // team) scope, mirroring the scoped clear in `upsert`. On a shared
+            // device (more than one Stack user/team has pairings), switching hosts
+            // in one scope must not wipe another scope's active Mac, or that scope
+            // fails to auto-reconnect. `IS` is SQLite's null-safe equality, so a
+            // NULL user/team target clears only other NULL-scoped rows.
             try exec("""
                 UPDATE paired_macs SET is_active = 0
                 WHERE stack_user_id IS (
                     SELECT stack_user_id FROM paired_macs WHERE mac_device_id = ?
+                ) AND team_id IS (
+                    SELECT team_id FROM paired_macs WHERE mac_device_id = ?
                 );
                 """,
-                binding: [.text(macDeviceID)])
+                binding: [.text(macDeviceID), .text(macDeviceID)])
             try exec("UPDATE paired_macs SET is_active = 1 WHERE mac_device_id = ?;",
                      binding: [.text(macDeviceID)])
         }
@@ -337,6 +364,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let macDeviceID: String
         let displayName: String?
         let stackUserID: String?
+        var teamID: String? = nil
         let createdAt: Date
         let lastSeenAt: Date
         let isActive: Bool
@@ -349,7 +377,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = """
-            SELECT display_name, stack_user_id, created_at, last_seen_at, is_active
+            SELECT display_name, stack_user_id, created_at, last_seen_at, is_active, team_id
             FROM paired_macs WHERE mac_device_id = ?;
         """
         let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
@@ -367,10 +395,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
         let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 3))
         let isActive = sqlite3_column_int(statement, 4) != 0
+        let teamID = Self.readNullableText(statement, column: 5)
         return MacRow(
             macDeviceID: macDeviceID,
             displayName: displayName,
             stackUserID: stackUserID,
+            teamID: teamID,
             createdAt: createdAt,
             lastSeenAt: lastSeenAt,
             isActive: isActive
@@ -381,29 +411,34 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         stackUserID: String?,
+        teamID: String?,
         createdAt: Date,
         lastSeenAt: Date,
         isActive: Bool
     ) throws {
         try exec("""
-            INSERT INTO paired_macs (mac_device_id, display_name, stack_user_id, created_at, last_seen_at, is_active)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO paired_macs (mac_device_id, display_name, stack_user_id, team_id, created_at, last_seen_at, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(mac_device_id) DO UPDATE SET
                 display_name = excluded.display_name,
                 stack_user_id = excluded.stack_user_id,
+                team_id = excluded.team_id,
                 last_seen_at = excluded.last_seen_at,
                 is_active = excluded.is_active;
         """, binding: [
             .text(macDeviceID),
             displayName.map(BindValue.text) ?? .null,
             stackUserID.map(BindValue.text) ?? .null,
+            teamID.map(BindValue.text) ?? .null,
             .real(createdAt.timeIntervalSince1970),
             .real(lastSeenAt.timeIntervalSince1970),
             .int(isActive ? 1 : 0),
         ])
     }
 
-    private func fetchAllMacs(activeOnly: Bool = false, stackUserID: String? = nil) throws -> [MobilePairedMac] {
+    private func fetchAllMacs(
+        activeOnly: Bool = false, stackUserID: String? = nil, teamID: String? = nil
+    ) throws -> [MobilePairedMac] {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         var clauses: [String] = []
@@ -415,10 +450,17 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             clauses.append("stack_user_id IS ?")
             bindings.append(.text(stackUserID))
         }
+        if let teamID {
+            // Legacy-visibility: a NULL-team row (pre-v3 upgrade, or anonymous
+            // pairing) is visible under EVERY team so an upgrade never hides an
+            // existing host; it is stamped with the active team on the next upsert.
+            clauses.append("(team_id IS ? OR team_id IS NULL)")
+            bindings.append(.text(teamID))
+        }
         let whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
         let sql = """
             SELECT mac_device_id, display_name, stack_user_id, created_at, last_seen_at, is_active,
-                   custom_name, custom_color, custom_icon
+                   custom_name, custom_color, custom_icon, team_id
             FROM paired_macs
             \(whereClause)
             ORDER BY last_seen_at DESC;
@@ -441,6 +483,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 macDeviceID: macDeviceID,
                 displayName: displayName,
                 stackUserID: storedStackUserID,
+                teamID: Self.readNullableText(statement, column: 9),
                 createdAt: createdAt,
                 lastSeenAt: lastSeenAt,
                 isActive: isActive,
@@ -460,6 +503,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 lastSeenAt: row.lastSeenAt,
                 isActive: row.isActive,
                 stackUserID: row.stackUserID,
+                teamID: row.teamID,
                 customName: row.customName,
                 customColor: row.customColor,
                 customIcon: row.customIcon

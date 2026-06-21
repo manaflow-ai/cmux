@@ -85,7 +85,7 @@ private actor GatedUpsertStore: MobilePairedMacStoring {
 
     func upsert(
         macDeviceID: String, displayName: String?, routes: [CmxAttachRoute],
-        markActive: Bool, stackUserID: String?, now: Date
+        markActive: Bool, stackUserID: String?, teamID: String?, now: Date
     ) async throws {
         if gateArmed {
             gateArmed = false
@@ -96,13 +96,13 @@ private actor GatedUpsertStore: MobilePairedMacStoring {
         }
         try await inner.upsert(
             macDeviceID: macDeviceID, displayName: displayName, routes: routes,
-            markActive: markActive, stackUserID: stackUserID, now: now)
+            markActive: markActive, stackUserID: stackUserID, teamID: teamID, now: now)
     }
-    func loadAll(stackUserID: String?) async throws -> [MobilePairedMac] {
-        try await inner.loadAll(stackUserID: stackUserID)
+    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+        try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
     }
-    func activeMac(stackUserID: String?) async throws -> MobilePairedMac? {
-        try await inner.activeMac(stackUserID: stackUserID)
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        try await inner.activeMac(stackUserID: stackUserID, teamID: teamID)
     }
     func setActive(macDeviceID: String) async throws { try await inner.setActive(macDeviceID: macDeviceID) }
     func setCustomization(
@@ -463,6 +463,31 @@ private actor GatedUpsertStore: MobilePairedMacStoring {
         // Same-account sign-in in the same launch must restore again, not skip.
         #expect(try await store.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-a"])
         #expect(await backup.fetches() == 2)
+    }
+
+    @Test func decoratorStampsAndScopesLocalRowsByCurrentTeam() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let team = MutableTeam("team-a")
+        // Empty backup so restore is a no-op and only the local upsert matters.
+        let store = BackingUpPairedMacStore(
+            inner: inner, backup: FakeBackup(), teamIDProvider: { await team.value })
+
+        // Pair a Mac while team-a is selected; the decorator must stamp it team-a.
+        try await store.upsert(
+            macDeviceID: "mac-a", displayName: "A", routes: [try route("10.0.0.1", 22)],
+            markActive: true, stackUserID: "user-1", now: Date())
+        #expect(try await store.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-a"])
+        // Inner row carries the injected team.
+        #expect(try await inner.loadAll(stackUserID: "user-1").first?.teamID == "team-a")
+
+        // Switching to team-b hides the team-a Mac (scoped read), without deleting it.
+        await team.set("team-b")
+        #expect(try await store.loadAll(stackUserID: "user-1").isEmpty)
+        #expect(try await store.activeMac(stackUserID: "user-1") == nil)
+        // Back to team-a: still there.
+        await team.set("team-a")
+        #expect(try await store.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-a"])
     }
 
     @Test func teamSwitchReRestores() async throws {

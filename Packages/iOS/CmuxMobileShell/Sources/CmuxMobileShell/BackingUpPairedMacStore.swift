@@ -78,15 +78,20 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         routes: [CmxAttachRoute],
         markActive: Bool,
         stackUserID: String?,
+        teamID: String?,
         now: Date
     ) async throws {
+        // Inject the current team (callers go through the no-team convenience
+        // overload, so `teamID` arrives nil) so the local row is scoped to the team
+        // it was paired under. An explicit teamID (e.g. from restore) wins.
+        let team = await resolvedTeam(teamID)
         // Capture the host that is active BEFORE this upsert, so a `markActive`
         // upsert can mirror exactly the two records whose active flag changes (the
         // new host, and the previously-active one now cleared) instead of the whole
-        // account.
+        // account. Scoped to the current team — single-active is per (account, team).
         let previouslyActive: MobilePairedMac?
         if markActive, let account = stackUserID, !account.isEmpty {
-            previouslyActive = try? await inner.activeMac(stackUserID: account)
+            previouslyActive = try? await inner.activeMac(stackUserID: account, teamID: team)
         } else {
             previouslyActive = nil
         }
@@ -96,6 +101,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             routes: routes,
             markActive: markActive,
             stackUserID: stackUserID,
+            teamID: team,
             now: now
         )
         // Mirror to the DO only for a signed-in (account-scoped) host; anonymous
@@ -137,22 +143,29 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         await uploadCurrentRecord(macDeviceID: macDeviceID, account: account)
     }
 
-    public func loadAll(stackUserID: String?) async throws -> [MobilePairedMac] {
+    public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         await restoreIfNeeded(stackUserID)
-        return try await inner.loadAll(stackUserID: stackUserID)
+        // Scope to the current team (callers pass nil via the convenience overload),
+        // so a multi-team user only sees the active team's Macs. NULL-team legacy
+        // rows remain visible (the store's `team_id IS ? OR team_id IS NULL` rule).
+        let team = await resolvedTeam(teamID)
+        return try await inner.loadAll(stackUserID: stackUserID, teamID: team)
     }
 
-    public func activeMac(stackUserID: String?) async throws -> MobilePairedMac? {
+    public func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
         await restoreIfNeeded(stackUserID)
-        return try await inner.activeMac(stackUserID: stackUserID)
+        let team = await resolvedTeam(teamID)
+        return try await inner.activeMac(stackUserID: stackUserID, teamID: team)
     }
 
     public func setActive(macDeviceID: String) async throws {
         // Resolve the scope and the previously-active host BEFORE the flip, so we can
-        // mirror exactly the two records that change.
+        // mirror exactly the two records that change. Scoped to the current team
+        // (single-active is per (account, team)).
         let account = try? await accountForMac(macDeviceID)
+        let team = await teamIDProvider()
         let previouslyActive = (account != nil)
-            ? try? await inner.activeMac(stackUserID: account) : nil
+            ? try? await inner.activeMac(stackUserID: account, teamID: team) : nil
         try await inner.setActive(macDeviceID: macDeviceID)
         // setActive flips the active flag for one host (and clears the previously-
         // active one in its scope) without going through `upsert`. Mirror ONLY those
@@ -225,12 +238,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // merges concurrently against the same store.
         let team = (await teamIDProvider()) ?? ""
         let scope = "\(account)\u{0}\(team)"
+        let restoreTeam = team.isEmpty ? nil : team
         let task: Task<RestoreOutcome, Never>
         if let existing = inFlight[scope] {
             task = existing
         } else {
             let restore = PairedMacRestore(store: inner, backup: backup)
-            let created = Task { await restore.run(accountID: account) }
+            let created = Task { await restore.run(accountID: account, teamID: restoreTeam) }
             inFlight[scope] = created
             task = created
         }
@@ -246,7 +260,17 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
 
     // MARK: - Internals
 
-    /// Resolve the owning Stack account of a paired Mac, or nil if unknown.
+    /// The team to scope an inner call to: an explicit `teamID` wins (e.g. a restore
+    /// that knows its team), else the currently-selected team. (`??` can't take an
+    /// async right-hand side, so this is a plain method.)
+    private func resolvedTeam(_ teamID: String?) async -> String? {
+        if let teamID { return teamID }
+        return await teamIDProvider()
+    }
+
+    /// Resolve the owning Stack account of a paired Mac, or nil if unknown. Reads
+    /// across ALL teams (find-by-id) so a Mac is resolvable regardless of which team
+    /// is selected.
     private func accountForMac(_ macDeviceID: String) async throws -> String? {
         let all = try await inner.loadAll(stackUserID: nil)
         return all.first { $0.macDeviceID == macDeviceID }?.stackUserID
@@ -287,13 +311,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         let team = (await teamIDProvider()) ?? ""
         let scope = "\(account)\u{0}\(team)"
         if restoredScopes.contains(scope) { return }
+        let restoreTeam = team.isEmpty ? nil : team
 
         let task: Task<RestoreOutcome, Never>
         if let existing = inFlight[scope] {
             task = existing
         } else {
             let restore = PairedMacRestore(store: inner, backup: backup)
-            let created = Task { await restore.run(accountID: account) }
+            let created = Task { await restore.run(accountID: account, teamID: restoreTeam) }
             inFlight[scope] = created
             task = created
         }

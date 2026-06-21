@@ -14,6 +14,9 @@ public protocol MobilePairedMacStoring: Sendable {
     ///   - routes: Attach routes advertised by the Mac.
     ///   - markActive: When `true`, makes this the active pairing for its scope.
     ///   - stackUserID: Owning Stack Auth user, if any.
+    ///   - teamID: Stack team this pairing belongs to; stamped on the row so the
+    ///     local list can be scoped per team. `nil` leaves the team unset (anonymous
+    ///     / pre-team pairing).
     ///   - now: Timestamp used for `lastSeenAt` (and `createdAt` on first insert).
     func upsert(
         macDeviceID: String,
@@ -21,17 +24,23 @@ public protocol MobilePairedMacStoring: Sendable {
         routes: [CmxAttachRoute],
         markActive: Bool,
         stackUserID: String?,
+        teamID: String?,
         now: Date
     ) async throws
 
-    /// Load all paired Macs, optionally scoped to a Stack user.
-    /// - Parameter stackUserID: When set, returns only Macs owned by that user.
+    /// Load all paired Macs, optionally scoped to a Stack user and team.
+    /// - Parameters:
+    ///   - stackUserID: When set, returns only Macs owned by that user.
+    ///   - teamID: When set, returns only Macs in that team (plus team-less legacy
+    ///     rows, so an upgrade never hides existing hosts). `nil` = every team.
     /// - Returns: Paired Macs ordered by `lastSeenAt` descending.
-    func loadAll(stackUserID: String?) async throws -> [MobilePairedMac]
+    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac]
 
     /// Return the active paired Mac for a scope, if any.
-    /// - Parameter stackUserID: When set, scopes the lookup to that user.
-    func activeMac(stackUserID: String?) async throws -> MobilePairedMac?
+    /// - Parameters:
+    ///   - stackUserID: When set, scopes the lookup to that user.
+    ///   - teamID: When set, scopes the lookup to that team (plus team-less rows).
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac?
 
     /// Mark the given Mac as the single active pairing.
     /// - Parameter macDeviceID: Mac to activate.
@@ -63,13 +72,30 @@ public protocol MobilePairedMacStoring: Sendable {
 }
 
 extension MobilePairedMacStoring {
-    /// Insert or update a paired Mac, timestamping with the current `Date`.
-    /// - Parameters:
-    ///   - macDeviceID: Stable identifier of the Mac.
-    ///   - displayName: Optional human-readable Mac name.
-    ///   - routes: Attach routes advertised by the Mac.
-    ///   - markActive: When `true`, makes this the active pairing for its scope.
-    ///   - stackUserID: Owning Stack Auth user, if any.
+    /// Insert or update a paired Mac with an explicit timestamp but no team scope
+    /// (`teamID: nil`). Keeps existing call sites compiling; the team-aware caller
+    /// (``BackingUpPairedMacStore``) injects the team via the full requirement.
+    public func upsert(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        markActive: Bool,
+        stackUserID: String?,
+        now: Date
+    ) async throws {
+        try await upsert(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            markActive: markActive,
+            stackUserID: stackUserID,
+            teamID: nil,
+            now: now
+        )
+    }
+
+    /// Insert or update a paired Mac, timestamping with the current `Date` and no
+    /// team scope.
     public func upsert(
         macDeviceID: String,
         displayName: String?,
@@ -83,17 +109,28 @@ extension MobilePairedMacStoring {
             routes: routes,
             markActive: markActive,
             stackUserID: stackUserID,
+            teamID: nil,
             now: Date()
         )
     }
 
-    /// Load all paired Macs across every Stack user scope.
-    public func loadAll() async throws -> [MobilePairedMac] {
-        try await loadAll(stackUserID: nil)
+    /// Load all paired Macs for a Stack user across every team.
+    public func loadAll(stackUserID: String?) async throws -> [MobilePairedMac] {
+        try await loadAll(stackUserID: stackUserID, teamID: nil)
     }
 
-    /// Return the active paired Mac across every Stack user scope, if any.
+    /// Load all paired Macs across every Stack user and team scope.
+    public func loadAll() async throws -> [MobilePairedMac] {
+        try await loadAll(stackUserID: nil, teamID: nil)
+    }
+
+    /// Return the active paired Mac for a Stack user across every team, if any.
+    public func activeMac(stackUserID: String?) async throws -> MobilePairedMac? {
+        try await activeMac(stackUserID: stackUserID, teamID: nil)
+    }
+
+    /// Return the active paired Mac across every Stack user and team scope, if any.
     public func activeMac() async throws -> MobilePairedMac? {
-        try await activeMac(stackUserID: nil)
+        try await activeMac(stackUserID: nil, teamID: nil)
     }
 }

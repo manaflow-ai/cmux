@@ -20,6 +20,11 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     public var isActive: Bool
     /// Stack Auth user that owns this pairing, if any.
     public var stackUserID: String?
+    /// Stack team this pairing belongs to (the team whose per-team backup it was
+    /// paired/restored under). `nil` for a pre-v3 row or an anonymous pairing; a
+    /// nil-team row is visible under every team until re-stamped. Scopes the local
+    /// list so a multi-team user only sees the current team's Macs.
+    public var teamID: String?
     /// User's custom name override. When set, wins over the Mac-reported
     /// ``displayName`` everywhere. `nil` = use the Mac-reported name. Synced per
     /// user so the rename appears on every signed-in device.
@@ -60,6 +65,7 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         lastSeenAt: Date,
         isActive: Bool,
         stackUserID: String?,
+        teamID: String? = nil,
         customName: String? = nil,
         customColor: String? = nil,
         customIcon: String? = nil
@@ -71,6 +77,7 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.lastSeenAt = lastSeenAt
         self.isActive = isActive
         self.stackUserID = stackUserID
+        self.teamID = teamID
         self.customName = customName
         self.customColor = customColor
         self.customIcon = customIcon

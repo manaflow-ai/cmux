@@ -266,8 +266,96 @@ import Testing
         var stmt: OpaquePointer?
         #expect(sqlite3_prepare_v2(check, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK)
         #expect(sqlite3_step(stmt) == SQLITE_ROW)
-        #expect(sqlite3_column_int(stmt, 0) == 2)
+        // Opening also ran v2→v3 (team_id), so the final version is the current one.
+        #expect(sqlite3_column_int(stmt, 0) == MobilePairedMacStore.currentSchemaVersion)
         sqlite3_finalize(stmt)
         sqlite3_close(check)
+    }
+
+    @Test func migratesV2DatabaseToV3KeepingLegacyRowsVisibleUnderAnyTeam() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+
+        // Seed a complete v2 schema (paired_macs with the v2 custom columns +
+        // mac_routes) at user_version 2, with one row that has NO team_id column.
+        var handle: OpaquePointer?
+        #expect(sqlite3_open(url.path, &handle) == SQLITE_OK)
+        let seed = """
+            CREATE TABLE paired_macs (
+                mac_device_id TEXT PRIMARY KEY NOT NULL,
+                display_name TEXT,
+                stack_user_id TEXT,
+                created_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                custom_name TEXT, custom_color TEXT, custom_icon TEXT
+            );
+            CREATE INDEX idx_macs_stack_user ON paired_macs(stack_user_id);
+            CREATE TABLE mac_routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac_device_id TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                endpoint_json TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (mac_device_id) REFERENCES paired_macs(mac_device_id) ON DELETE CASCADE
+            );
+            INSERT INTO paired_macs
+                (mac_device_id, display_name, stack_user_id, created_at, last_seen_at, is_active)
+                VALUES ('legacy-mac', 'Old Studio', 'user-1', 0, 0, 1);
+            PRAGMA user_version = 2;
+        """
+        #expect(sqlite3_exec(handle, seed, nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(handle)
+
+        // Opening runs v2→v3 (adds team_id). The legacy NULL-team row must remain
+        // visible under ANY team (an upgrade never hides existing hosts), and the
+        // on-disk schema version must advance to 3.
+        let store = try MobilePairedMacStore(databaseURL: url)
+        let underTeamA = try await store.loadAll(stackUserID: "user-1", teamID: "team-a")
+        #expect(underTeamA.map(\.macDeviceID) == ["legacy-mac"])
+        #expect(underTeamA.first?.teamID == nil)
+        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-b")?.macDeviceID == "legacy-mac")
+
+        var check: OpaquePointer?
+        #expect(sqlite3_open(url.path, &check) == SQLITE_OK)
+        var stmt: OpaquePointer?
+        #expect(sqlite3_prepare_v2(check, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK)
+        #expect(sqlite3_step(stmt) == SQLITE_ROW)
+        #expect(sqlite3_column_int(stmt, 0) == 3)
+        sqlite3_finalize(stmt)
+        sqlite3_close(check)
+    }
+
+    @Test func loadAllAndSetActiveAreScopedPerTeam() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let routeA = try CmxAttachRoute(id: "a", kind: .tailscale, endpoint: .hostPort(host: "10.0.0.1", port: 22))
+        let routeB = try CmxAttachRoute(id: "b", kind: .tailscale, endpoint: .hostPort(host: "10.0.0.2", port: 22))
+        // Same account, two teams, one active Mac each.
+        try await store.upsert(macDeviceID: "mac-a", displayName: "A", routes: [routeA],
+            markActive: true, stackUserID: "user-1", teamID: "team-a", now: Date())
+        try await store.upsert(macDeviceID: "mac-b", displayName: "B", routes: [routeB],
+            markActive: true, stackUserID: "user-1", teamID: "team-b", now: Date())
+
+        // Each team sees only its own Mac.
+        #expect(try await store.loadAll(stackUserID: "user-1", teamID: "team-a").map(\.macDeviceID) == ["mac-a"])
+        #expect(try await store.loadAll(stackUserID: "user-1", teamID: "team-b").map(\.macDeviceID) == ["mac-b"])
+        // Each team has its own active (activating B did NOT clear A).
+        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.macDeviceID == "mac-a")
+        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-b")?.macDeviceID == "mac-b")
+        // No team filter sees both.
+        #expect(Set(try await store.loadAll(stackUserID: "user-1").map(\.macDeviceID)) == ["mac-a", "mac-b"])
+
+        // setActive on a second Mac added to team-a deactivates only team-a's Mac.
+        try await store.upsert(macDeviceID: "mac-a2", displayName: "A2", routes: [routeA],
+            markActive: false, stackUserID: "user-1", teamID: "team-a", now: Date())
+        try await store.setActive(macDeviceID: "mac-a2")
+        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.macDeviceID == "mac-a2")
+        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-b")?.macDeviceID == "mac-b")
     }
 }
