@@ -5047,295 +5047,57 @@ extension TabManager: ChildExitScaffoldDriving {
 #endif
 
 extension TabManager {
+    /// The session autosave fingerprint for this window.
+    ///
+    /// The deterministic hashing moved into
+    /// `CmuxWorkspaces.SessionFingerprintService`; this thin caller flattens the
+    /// live god state into the package's `SessionWorkspaceFingerprintInput` via
+    /// the `SessionFingerprintHosting` witness (in
+    /// `TabManager+SessionFingerprintHosting.swift`), resolving each panel's
+    /// restorable-agent and surface-resume snapshots from the app-target indexes,
+    /// then hands the value input to the service. Byte-identical to the legacy
+    /// in-file hasher, which the autosave skip-on-unchanged optimization requires.
     func sessionAutosaveFingerprint(
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
     ) -> Int {
-        var hasher = Hasher()
-        hasher.combine(selectedTabId)
-        hasher.combine(tabs.count)
-        let notificationStore = AppDelegate.shared?.notificationStore
-
-        // Workspace groups participate in the session snapshot, so changes
-        // that only touch group metadata (rename / collapse / pin a group,
-        // or move a workspace between groups without reordering tabs) must
-        // bump the fingerprint or the autosave timer skips the write.
-        hasher.combine(workspaceGroups.count)
-        for group in workspaceGroups {
-            hasher.combine(group.id)
-            hasher.combine(group.name)
-            hasher.combine(group.isCollapsed)
-            hasher.combine(group.isPinned)
-            hasher.combine(group.anchorWorkspaceId)
-            hasher.combine(group.customColor ?? "")
-            hasher.combine(group.iconSymbol ?? "")
-        }
-        for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
-            hasher.combine(workspace.id)
-            hasher.combine(workspace.groupId)
-            hasher.combine(workspace.focusedPanelId)
-            hasher.combine(workspace.currentDirectory)
-            hasher.combine(workspace.customTitle ?? "")
-            hasher.combine(workspace.customDescription ?? "")
-            hasher.combine(workspace.customColor ?? "")
-            hasher.combine(workspace.isPinned)
-            hasher.combine(workspace.panels.count)
-            hasher.combine(workspace.statusEntries.count)
-            hasher.combine(workspace.metadataBlocks.count)
-            hasher.combine(workspace.logEntries.count)
-            hasher.combine(workspace.panelDirectories.count)
-            hasher.combine(workspace.panelTitles.count)
-            hasher.combine(workspace.panelPullRequests.count)
-            hasher.combine(workspace.panelGitBranches.count)
-            hasher.combine(workspace.surfaceListeningPorts.count)
-            hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
-            hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
-            Self.hashNotifications(
-                notificationStore?.notifications(forTabId: workspace.id, surfaceId: nil) ?? [],
-                into: &hasher
-            )
-
-            let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
-            hasher.combine(panelIds.count)
-            for panelId in panelIds {
-                hasher.combine(panelId)
-                hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
-                hasher.combine(workspace.restoredUnreadPanelIds.contains(panelId))
-                hasher.combine(workspace.restoredUnreadIndicatorContributesToWorkspace(panelId: panelId))
-                hasher.combine(
-                    notificationStore?.hasVisibleNotificationIndicator(
-                        forTabId: workspace.id,
-                        surfaceId: panelId
-                    ) ?? false
+        let input = makeSessionWorkspaceFingerprintInput(
+            resolveRestorableAgent: { workspaceId, panelId in
+                Self.fingerprintRestorableAgent(
+                    restorableAgentIndex.snapshot(workspaceId: workspaceId, panelId: panelId)
                 )
-                Self.hashNotifications(
-                    notificationStore?.notifications(forTabId: workspace.id, surfaceId: panelId) ?? [],
-                    into: &hasher
-                )
-                Self.hashRestorableAgentSnapshot(
-                    restorableAgentIndex.snapshot(
-                        workspaceId: workspace.id,
-                        panelId: panelId
-                    ),
-                    into: &hasher
-                )
-                Self.hashAgentHibernationPanelState(
-                    (workspace.panels[panelId] as? TerminalPanel)?.agentHibernationState,
-                    into: &hasher
-                )
-                Self.hashSurfaceResumeBindingSnapshot(
+            },
+            resolveSurfaceResumeBinding: { workspaceId, panelId in
+                guard let workspace = self.tabs.first(where: { $0.id == workspaceId }) else {
+                    return nil
+                }
+                return Self.fingerprintSurfaceResumeBinding(
                     workspace.effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
-                    ),
-                    into: &hasher
-                )
-                if let terminalPanel = workspace.terminalPanel(for: panelId) {
-                    Self.hashTextBoxDraftSnapshot(
-                        terminalPanel.sessionTextBoxDraftSnapshot(),
-                        into: &hasher
                     )
-                } else {
-                    hasher.combine(false)
-                }
+                )
             }
-
-            if let progress = workspace.progress {
-                hasher.combine(Int((progress.value * 1000).rounded()))
-                hasher.combine(progress.label)
-            } else {
-                hasher.combine(-1)
-            }
-
-            if let gitBranch = workspace.gitBranch {
-                hasher.combine(gitBranch.branch)
-                hasher.combine(gitBranch.isDirty)
-            } else {
-                hasher.combine("")
-                hasher.combine(false)
-            }
-        }
-
-        return hasher.finalize()
+        )
+        return Self.sessionFingerprintService.fingerprint(for: input)
     }
 
+    /// The standalone fingerprint of one restorable-agent snapshot, used to
+    /// detect resume-relevant changes. Flattens the app snapshot into the package
+    /// value and forwards to `CmuxWorkspaces.SessionFingerprintService`.
+    /// Byte-identical to the legacy in-file helper.
     nonisolated static func restorableAgentSnapshotFingerprint(
         _ snapshot: SessionRestorableAgentSnapshot?
     ) -> Int {
-        var hasher = Hasher()
-        hashRestorableAgentSnapshot(snapshot, into: &hasher)
-        return hasher.finalize()
+        sessionFingerprintService.restorableAgentFingerprint(
+            for: fingerprintRestorableAgent(snapshot)
+        )
     }
 
-    nonisolated private static func hashRestorableAgentSnapshot(
-        _ snapshot: SessionRestorableAgentSnapshot?,
-        into hasher: inout Hasher
-    ) {
-        guard let snapshot else {
-            hasher.combine(false)
-            return
-        }
-
-        hasher.combine(true)
-        hasher.combine(snapshot.kind.rawValue)
-        hasher.combine(snapshot.sessionId)
-        hashOptionalString(snapshot.workingDirectory, into: &hasher)
-        hashAgentLaunchCommand(snapshot.launchCommand, into: &hasher)
-    }
-
-    nonisolated private static func hashAgentLaunchCommand(
-        _ launchCommand: AgentLaunchCommandSnapshot?,
-        into hasher: inout Hasher
-    ) {
-        guard let launchCommand else {
-            hasher.combine(false)
-            return
-        }
-
-        hasher.combine(true)
-        hashOptionalString(launchCommand.launcher, into: &hasher)
-        hashOptionalString(launchCommand.executablePath, into: &hasher)
-        hasher.combine(launchCommand.arguments)
-        hashOptionalString(launchCommand.workingDirectory, into: &hasher)
-        if let environment = launchCommand.environment {
-            hasher.combine(true)
-            hasher.combine(environment.count)
-            for key in environment.keys.sorted() {
-                hasher.combine(key)
-                hasher.combine(environment[key])
-            }
-        } else {
-            hasher.combine(false)
-        }
-        hashOptionalDouble(launchCommand.capturedAt, into: &hasher)
-        hashOptionalString(launchCommand.source, into: &hasher)
-    }
-
-    private static func hashAgentHibernationPanelState(
-        _ state: AgentHibernationPanelState?,
-        into hasher: inout Hasher
-    ) {
-        guard let state else {
-            hasher.combine(false)
-            return
-        }
-
-        hasher.combine(true)
-        hashRestorableAgentSnapshot(state.agent, into: &hasher)
-        hasher.combine(state.hibernatedAt.timeIntervalSince1970)
-        hasher.combine(state.lastActivityAt.timeIntervalSince1970)
-    }
-
-    nonisolated private static func hashSurfaceResumeBindingSnapshot(
-        _ snapshot: SurfaceResumeBindingSnapshot?,
-        into hasher: inout Hasher
-    ) {
-        guard let snapshot else {
-            hasher.combine(false)
-            return
-        }
-
-        hasher.combine(true)
-        hashOptionalString(snapshot.name, into: &hasher)
-        hashOptionalString(snapshot.kind, into: &hasher)
-        hasher.combine(snapshot.command)
-        hashOptionalString(snapshot.cwd, into: &hasher)
-        hashOptionalString(snapshot.checkpointId, into: &hasher)
-        hashOptionalString(snapshot.source, into: &hasher)
-        hashStringMap(snapshot.environment, into: &hasher)
-        hasher.combine(snapshot.allowsAutomaticResume)
-        if snapshot.isProcessDetected {
-            hasher.combine(false)
-        } else {
-            hashOptionalDouble(snapshot.updatedAt, into: &hasher)
-        }
-    }
-
-    nonisolated private static func hashTextBoxDraftSnapshot(
-        _ snapshot: SessionTextBoxInputDraftSnapshot?,
-        into hasher: inout Hasher
-    ) {
-        guard let snapshot else {
-            hasher.combine(false)
-            return
-        }
-
-        hasher.combine(true)
-        hasher.combine(snapshot.isActive)
-        hasher.combine(snapshot.parts.count)
-        for part in snapshot.parts {
-            hasher.combine(part.kind.rawValue)
-            hashOptionalString(part.text, into: &hasher)
-            hashTextBoxAttachmentSnapshot(part.attachment, into: &hasher)
-        }
-    }
-
-    nonisolated private static func hashTextBoxAttachmentSnapshot(
-        _ snapshot: SessionTextBoxInputAttachmentSnapshot?,
-        into hasher: inout Hasher
-    ) {
-        guard let snapshot else {
-            hasher.combine(false)
-            return
-        }
-
-        hasher.combine(true)
-        hasher.combine(snapshot.displayName)
-        hasher.combine(snapshot.submissionText)
-        hasher.combine(snapshot.submissionPath)
-        hashOptionalString(snapshot.localPath, into: &hasher)
-        hasher.combine(snapshot.cleanupLocalPathWhenDisposed)
-    }
-
-    nonisolated private static func hashNotifications(
-        _ notifications: [TerminalNotification],
-        into hasher: inout Hasher
-    ) {
-        hasher.combine(notifications.count)
-        for notification in notifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
-            hasher.combine(notification.id)
-            hasher.combine(notification.title)
-            hasher.combine(notification.subtitle)
-            hasher.combine(notification.body)
-            hasher.combine(notification.createdAt.timeIntervalSince1970)
-            hasher.combine(notification.isRead)
-            hasher.combine(notification.paneFlash)
-            hasher.combine(notification.panelId)
-            hasher.combine(notification.clickAction)
-        }
-    }
-
-    nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {
-        if let value {
-            hasher.combine(true)
-            hasher.combine(value)
-        } else {
-            hasher.combine(false)
-        }
-    }
-
-    nonisolated private static func hashOptionalDouble(_ value: Double?, into hasher: inout Hasher) {
-        if let value {
-            hasher.combine(true)
-            hasher.combine(value)
-        } else {
-            hasher.combine(false)
-        }
-    }
-
-    nonisolated private static func hashStringMap(_ value: [String: String]?, into hasher: inout Hasher) {
-        guard let value, !value.isEmpty else {
-            hasher.combine(false)
-            return
-        }
-        hasher.combine(true)
-        let keys = value.keys.sorted()
-        hasher.combine(keys.count)
-        for key in keys {
-            hasher.combine(key)
-            hasher.combine(value[key] ?? "")
-        }
-    }
+    /// The shared, stateless fingerprint service. A value type with no state,
+    /// constructed once at the type level and reused by both fingerprint entry
+    /// points (no per-window or singleton instance state added).
+    nonisolated static let sessionFingerprintService = SessionFingerprintService()
 
     func sessionSnapshot(
         includeScrollback: Bool,
