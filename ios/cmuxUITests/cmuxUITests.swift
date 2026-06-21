@@ -489,6 +489,7 @@ final class cmuxUITests: XCTestCase {
     private func launchZoomStressApp() -> XCUIApplication {
         let app = launchApp(mockData: false, environment: [
             "CMUX_ZOOM_STRESS": "1",
+            "CMUX_DISABLE_SNAPSHOT_FALLBACK": "1",
         ])
         XCTAssertFalse(
             app.buttons["Sign in with Apple"].waitForExistence(timeout: 1),

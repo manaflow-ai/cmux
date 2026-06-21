@@ -808,6 +808,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// 120Hz / 0.13s at 60Hz.
     private static let viewportReportSettleThreshold = 8
     private static let snapshotFallbackZPosition: CGFloat = 900
+    private static let disablesSnapshotFallback = ProcessInfo.processInfo.environment["CMUX_DISABLE_SNAPSHOT_FALLBACK"] == "1"
     /// Throttle stamp for snapshot fallback text reads in `processOutput`.
     /// Accessed only on the serial `outputQueue`, so the unchecked mutation is
     /// safe.
@@ -3421,7 +3422,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var shouldKeepSnapshotFallbackActive: Bool {
-        pendingFontSize != nil ||
+        guard !Self.disablesSnapshotFallback else { return false }
+        return pendingFontSize != nil ||
             zoomSettleFrames != nil ||
             pendingRenderFrames > 0 ||
             !surfaceHasReceivedOutput ||
