@@ -15,7 +15,7 @@ extension Notification.Name {
 /// panels, focus, and bonsplit bookkeeping; canvas mode only changes how the
 /// same panel set is presented.
 extension Workspace {
-    /// Switches the workspace between split and canvas layout.
+    /// Switches the workspace between split, zoomable split, and canvas layout.
     ///
     /// Entering canvas mode seeds pane frames from the current bonsplit
     /// geometry so the canvas initially looks identical to the splits. The
@@ -55,6 +55,11 @@ extension Workspace {
     /// Toggles between split and canvas layout.
     func toggleCanvasLayout() {
         setLayoutMode(layoutMode == .canvas ? .splits : .canvas)
+    }
+
+    /// Toggles between split and zoomable split layout.
+    func toggleZoomableSplitLayout() {
+        setLayoutMode(layoutMode == .zoomableSplits ? .splits : .zoomableSplits)
     }
 
     /// Canvas-mode directional focus: nearest pane spatially, then reveal it.
@@ -131,8 +136,9 @@ extension Workspace {
             }
             canvasModel.restorePanes(restored)
         }
-        if snapshot.layoutMode == WorkspaceLayoutMode.canvas.rawValue {
-            layoutMode = .canvas
+        if let rawMode = snapshot.layoutMode,
+           let restoredMode = WorkspaceLayoutMode(rawValue: rawMode) {
+            layoutMode = restoredMode
         }
     }
 

@@ -2205,6 +2205,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Durable canvas-layout state (pane frames, z-order). Lives on the
     /// workspace so it survives canvas view remounts and workspace switches.
     let canvasModel = CanvasModel(metricsProvider: { CanvasLayoutSettings.currentMetrics() })
+
+    /// The attached zoomable-split viewport while that layout mode is visible.
+    weak var zoomableSplitViewport: (any CanvasViewportControlling)?
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
         let builtInAction: CmuxSurfaceTabBarBuiltInAction?
