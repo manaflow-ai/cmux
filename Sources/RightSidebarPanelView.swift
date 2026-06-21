@@ -295,8 +295,7 @@ struct RightSidebarPanelView: View {
     }
 
     private var modeBar: some View {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return ZStack {
+        ZStack {
             WindowDragHandleView()
 
             HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
@@ -371,7 +370,6 @@ struct RightSidebarPanelView: View {
     }
 
     private var closeButton: some View {
-        let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
         let showsShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
@@ -425,7 +423,6 @@ struct RightSidebarPanelView: View {
 
     @ViewBuilder
     private var focusShortcutHintOverlay: some View {
-        let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
         let showsFocusShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
