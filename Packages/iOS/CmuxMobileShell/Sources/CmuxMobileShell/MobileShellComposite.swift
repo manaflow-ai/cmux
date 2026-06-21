@@ -33,6 +33,30 @@ private func diagnosticSurfaceHandle(_ surfaceID: String) -> UInt32 {
     return hash
 }
 
+private func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
+    let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
+    return try CmxAttachRoute(
+        id: routeKind.rawValue,
+        kind: routeKind,
+        endpoint: .hostPort(host: host, port: port)
+    )
+}
+
+private func makeManualHostAttachTicket(
+    displayName: String,
+    macDeviceID: String,
+    route: CmxAttachRoute
+) throws -> CmxAttachTicket {
+    try CmxAttachTicket(
+        workspaceID: "manual-workspace",
+        terminalID: nil,
+        macDeviceID: macDeviceID,
+        macDisplayName: displayName,
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60 * 60)
+    )
+}
+
 /// Transitional alias for the decomposed shell facade.
 ///
 /// The iOS views and push coordinator still bind to `CMUXMobileShellStore`;
@@ -674,14 +698,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// direct pull-to-refresh calls that are not owned by
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
     private var secondaryAggregationScopeGeneration = 0
-    /// Captured account/team owner for async scoped loads. A load may suspend
-    /// while the user switches teams; publishing is allowed only if this snapshot
-    /// still matches when the await returns.
-    private struct ScopeSnapshot: Equatable, Sendable {
-        let userID: String
-        let teamID: String?
-        let generation: Int
-    }
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -1347,6 +1363,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         syncSelectedTerminalForWorkspace()
     }
 
+    /// Connect using the current pairing input, accepting either a code or pairing URL.
     public func connectPairingInput() async {
         let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCode.isEmpty else {
@@ -1397,7 +1414,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
 
-        let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
+        let directRoute = try? manualHostRoute(host: normalizedHost, port: port)
         let attemptID = beginPairingAttempt(method: "manual")
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
@@ -1698,13 +1715,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Capture the current signed-in account/team scope for async list loads.
-    private func currentScopeSnapshot() async -> ScopeSnapshot? {
+    private func currentScopeSnapshot() async -> MobileShellScopeSnapshot? {
         guard isSignedIn,
               let userID = identityProvider?.currentUserID,
               !userID.isEmpty else {
             return nil
         }
-        return ScopeSnapshot(
+        return MobileShellScopeSnapshot(
             userID: userID,
             teamID: await teamIDProvider(),
             generation: secondaryAggregationScopeGeneration
@@ -1712,7 +1729,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Whether a previously-captured list-load scope is still current.
-    private func isScopeCurrent(_ scope: ScopeSnapshot) async -> Bool {
+    private func isScopeCurrent(_ scope: MobileShellScopeSnapshot) async -> Bool {
         guard isSignedIn,
               identityProvider?.currentUserID == scope.userID,
               secondaryAggregationScopeGeneration == scope.generation else {
@@ -2621,15 +2638,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
     }
 
-    private static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
-        let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
-        return try CmxAttachRoute(
-            id: routeKind.rawValue,
-            kind: routeKind,
-            endpoint: .hostPort(host: host, port: port)
-        )
-    }
-
     @discardableResult
     public func connectPairingURL(_ rawValue: String? = nil) async -> Bool {
         await connectPairingURLResult(rawValue).didConnect
@@ -2846,7 +2854,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func manualHostTicket(name: String, host: String, port: Int) async throws -> CmxAttachTicket {
-        let directRoute = try Self.manualHostRoute(host: host, port: port)
+        let directRoute = try manualHostRoute(host: host, port: port)
         let displayName = name.isEmpty ? host : name
         if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
             do {
@@ -2860,13 +2868,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     throw error
                 }
             }
-            return try Self.manualHostTicket(
+            return try makeManualHostAttachTicket(
                 displayName: displayName,
                 macDeviceID: "manual-\(host):\(port)",
                 route: directRoute
             )
         }
-        return try Self.manualHostTicket(
+        return try makeManualHostAttachTicket(
             displayName: displayName,
             macDeviceID: "manual-\(host):\(port)",
             route: directRoute
@@ -2960,7 +2968,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// per-Mac aggregation state (`secondaryMacSubscriptions` / `workspacesByMac`)
     /// after a sign-out, account switch, or team switch would leak old-scope Macs
     /// into the new UI, so every mutation below is gated on this after each await.
-    private func isAggregationScopeValid(_ scope: ScopeSnapshot) async -> Bool {
+    private func isAggregationScopeValid(_ scope: MobileShellScopeSnapshot) async -> Bool {
         guard !Task.isCancelled else { return false }
         return await isScopeCurrent(scope)
     }
@@ -3038,7 +3046,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// a secondary subscription can never crash or block the foreground.
     private func establishSecondaryMacSubscription(
         for mac: MobilePairedMac,
-        scope: ScopeSnapshot
+        scope: MobileShellScopeSnapshot
     ) async {
         let macID = mac.macDeviceID
         guard secondaryMacSubscriptions[macID] == nil,
@@ -3405,21 +3413,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspacesByMac[key] = state
     }
 
-    private static func manualHostTicket(
-        displayName: String,
-        macDeviceID: String,
-        route: CmxAttachRoute
-    ) throws -> CmxAttachTicket {
-        try CmxAttachTicket(
-            workspaceID: "manual-workspace",
-            terminalID: nil,
-            macDeviceID: macDeviceID,
-            macDisplayName: displayName,
-            routes: [route],
-            expiresAt: Date().addingTimeInterval(60 * 60)
-        )
-    }
-
     private func requestManualAttachTicket(
         route: CmxAttachRoute,
         displayName: String
@@ -3427,7 +3420,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let runtime else {
             throw MobileShellConnectionError.insecureManualRoute
         }
-        let probeTicket = try Self.manualHostTicket(
+        let probeTicket = try makeManualHostAttachTicket(
             displayName: displayName,
             macDeviceID: "manual-ticket-request",
             route: route

@@ -1100,6 +1100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // True while remote tmux kill-before-quit owns the terminate reply.
     private var isAwaitingTerminateKills = false
     private var terminateKillWatchdogTask: Task<Void, Never>?
+    // True while the app-termination path owns the quit confirmation modal.
+    private var isAwaitingTerminateQuitConfirmation = false
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state (visibility, pending-open,
@@ -1851,8 +1853,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // A re-entrant terminate must wait for the in-flight kill-before-quit reply.
-        if isAwaitingTerminateKills { return .terminateLater }
+        // A re-entrant terminate must wait for the in-flight owner of the pending reply.
+        if isAwaitingTerminateKills || isAwaitingTerminateQuitConfirmation {
+            return .terminateLater
+        }
         let buildFlavor = BuildFlavor.current
         let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
         let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
@@ -1899,6 +1903,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
         // then reply asynchronously so we can return .terminateLater now.
+        isAwaitingTerminateQuitConfirmation = true
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -1915,6 +1920,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             let shouldQuit = response == .alertFirstButtonReturn
+            self.isAwaitingTerminateQuitConfirmation = false
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
                 self.closeAllWebInspectorsBeforeAppTeardown()

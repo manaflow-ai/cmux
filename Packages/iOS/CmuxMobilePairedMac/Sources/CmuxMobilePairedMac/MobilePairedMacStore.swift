@@ -5,6 +5,10 @@ import os
 
 private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacStore")
 
+private func pairedMacOwnerKey(stackUserID: String?, teamID: String?) -> String {
+    "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
+}
+
 /// SQLite-backed store of paired Macs. Schema migrations gated on
 /// `PRAGMA user_version`.
 ///
@@ -335,14 +339,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                         teamID.map(BindValue.text) ?? .null,
                     ])
             }
-            let ownerKey = Self.ownerKey(stackUserID: stackUserID, teamID: teamID)
+            let ownerKey = pairedMacOwnerKey(stackUserID: stackUserID, teamID: teamID)
             let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey)
             var claimedLegacy: MacRow?
             if existing == nil,
                teamID != nil,
                let legacy = try fetchMacRow(
                     macDeviceID: macDeviceID,
-                    ownerKey: Self.ownerKey(stackUserID: stackUserID, teamID: nil)
+                    ownerKey: pairedMacOwnerKey(stackUserID: stackUserID, teamID: nil)
                ) {
                 try moveMacRowScope(
                     macDeviceID: macDeviceID,
@@ -396,9 +400,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         return try fetchAllMacs(activeOnly: true, stackUserID: stackUserID, teamID: teamID).first
     }
 
+    /// Mark one paired Mac active within its explicit account/team owner scope.
     public func setActive(macDeviceID: String, stackUserID: String? = nil, teamID: String? = nil) throws {
         try ensureReady()
-        let ownerKey = Self.ownerKey(stackUserID: stackUserID, teamID: teamID)
+        let ownerKey = pairedMacOwnerKey(stackUserID: stackUserID, teamID: teamID)
         try transaction {
             // Clear the active flag only within the target Mac's own (Stack user,
             // team) scope, mirroring the scoped clear in `upsert`. On a shared
@@ -439,10 +444,11 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             customIcon.map(BindValue.text) ?? .null,
             .real(now.timeIntervalSince1970),
             .text(macDeviceID),
-            .text(Self.ownerKey(stackUserID: stackUserID, teamID: teamID)),
+            .text(pairedMacOwnerKey(stackUserID: stackUserID, teamID: teamID)),
         ])
     }
 
+    /// Remove one paired Mac in a specific owner scope, or all matching legacy rows when unscoped.
     public func remove(macDeviceID: String, stackUserID: String? = nil, teamID: String? = nil) throws {
         try ensureReady()
         if stackUserID == nil && teamID == nil {
@@ -451,7 +457,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         } else {
             try exec(
                 "DELETE FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;",
-                binding: [.text(macDeviceID), .text(Self.ownerKey(stackUserID: stackUserID, teamID: teamID))]
+                binding: [.text(macDeviceID), .text(pairedMacOwnerKey(stackUserID: stackUserID, teamID: teamID))]
             )
         }
     }
@@ -494,10 +500,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         var customName: String? = nil
         var customColor: String? = nil
         var customIcon: String? = nil
-    }
-
-    private static func ownerKey(stackUserID: String?, teamID: String?) -> String {
-        "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
     }
 
     private func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MacRow? {
