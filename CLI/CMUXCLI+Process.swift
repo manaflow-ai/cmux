@@ -286,11 +286,15 @@ enum CLIProcessRunner {
         executablePath: String,
         arguments: [String],
         stdinText: String? = nil,
+        currentDirectoryPath: String? = nil,
         timeout: TimeInterval? = nil
     ) -> CLIProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        if let currentDirectoryPath {
+            process.currentDirectoryURL = URL(fileURLWithPath: currentDirectoryPath, isDirectory: true)
+        }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
