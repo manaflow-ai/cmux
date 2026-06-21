@@ -1018,6 +1018,7 @@
 		CA52B0230000000000000000 /* ZoomableSplitDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0230000000000000000 /* ZoomableSplitDocumentView.swift */; };
 		CA52B0170000000000000000 /* ZoomableSplitHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* ZoomableSplitHostView.swift */; };
 		CA52B0190000000000000000 /* ZoomableSplitRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0190000000000000000 /* ZoomableSplitRootView.swift */; };
+		D8F4A111D8F4A111D8F4A111 /* ZoomableSplitViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8F4A112D8F4A112D8F4A112 /* ZoomableSplitViewportTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2035,6 +2036,7 @@
 		CA52C0230000000000000000 /* ZoomableSplitDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitDocumentView.swift"; sourceTree = "<group>"; };
 		CA52C0170000000000000000 /* ZoomableSplitHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitHostView.swift"; sourceTree = "<group>"; };
 		CA52C0190000000000000000 /* ZoomableSplitRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitRootView.swift"; sourceTree = "<group>"; };
+		D8F4A112D8F4A112D8F4A112 /* ZoomableSplitViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableSplitViewportTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -3042,6 +3044,7 @@
 				6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */,
 				D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */,
 				6042B0036042B0036042B003 /* ShortcutHintDebugSettingsBindingTests.swift */,
+				D8F4A112D8F4A112D8F4A112 /* ZoomableSplitViewportTests.swift */,
 				E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */,
 				A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */,
 				1A1B2C3D4E5F607180000004 /* WorkspacePromptSubmitTests.swift */,
@@ -4563,6 +4566,7 @@
 				634AA6233A5BBF781FE83E89 /* WorkspaceTerminalWorkingDirectoryFallbackTests.swift in Sources */,
 				440AC5D24915463C9670F510 /* WorkspaceTitleProvenanceTests.swift in Sources */,
 				6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */,
+				D8F4A111D8F4A111D8F4A111 /* ZoomableSplitViewportTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

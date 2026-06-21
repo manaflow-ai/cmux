@@ -18,9 +18,8 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
 
     private static let revealMargin: CGFloat = 24
-    private static let overviewPadding: CGFloat = 48
-    private static let minMagnification: CGFloat = 0.1
-    private static let maxMagnification: CGFloat = 2.0
+    private static let minMagnificationFloor: CGFloat = 0.1
+    private static let maxMagnificationCeiling: CGFloat = 2.0
 
     init(workspace: Workspace, isWorkspaceInputActive: Bool, content: AnyView) {
         self.workspace = workspace
@@ -121,7 +120,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         let fit = CGFloat(CanvasViewportMath().magnificationToFit(
             canvasRect(from: content),
             in: canvasSize(from: viewportSize),
-            padding: Self.overviewPadding,
+            padding: 0,
             range: Double(scrollView.minMagnification)...Double(scrollView.maxMagnification)
         ))
         let clipSize = CGSize(width: viewportSize.width / fit, height: viewportSize.height / fit)
@@ -186,8 +185,8 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         scrollView.horizontalScrollElasticity = .allowed
         scrollView.usesPredominantAxisScrolling = false
         scrollView.allowsMagnification = true
-        scrollView.minMagnification = Self.minMagnification
-        scrollView.maxMagnification = Self.maxMagnification
+        scrollView.minMagnification = Self.minMagnificationFloor
+        scrollView.maxMagnification = Self.maxMagnificationCeiling
         scrollView.drawsBackground = false
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.documentView = documentView
@@ -289,6 +288,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             }
         }
+        updateMagnificationBounds()
     }
 
     private func setMagnification(_ magnification: CGFloat) {
@@ -343,6 +343,36 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
 
     private func clampedMagnification(_ magnification: CGFloat) -> CGFloat {
         min(max(magnification, scrollView.minMagnification), scrollView.maxMagnification)
+    }
+
+    private func updateMagnificationBounds() {
+        let fit = fittedMagnification()
+        let maximum = max(Self.maxMagnificationCeiling, fit)
+        scrollView.maxMagnification = maximum
+        scrollView.minMagnification = fit
+        guard scrollView.magnification < fit else { return }
+
+        scrollView.magnification = fit
+        let origin = boundedOrigin(scrollView.contentView.bounds.origin)
+        scrollView.contentView.setBoundsOrigin(origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func fittedMagnification() -> CGFloat {
+        let content = documentView.bounds
+        let viewportSize = scrollView.contentSize
+        guard content.width > 0, content.height > 0, viewportSize.width > 0, viewportSize.height > 0 else {
+            return Self.minMagnificationFloor
+        }
+        // Zoomable splits are not a free canvas: the furthest zoomed-out state
+        // is the exact packed-layout fit, so wheel zoom cannot create empty space.
+        let fit = CGFloat(CanvasViewportMath().magnificationToFit(
+            canvasRect(from: content),
+            in: canvasSize(from: viewportSize),
+            padding: 0,
+            range: Double(Self.minMagnificationFloor)...Double.greatestFiniteMagnitude
+        ))
+        return max(Self.minMagnificationFloor, fit)
     }
 
     private func canvasRect(from rect: CGRect) -> CanvasRect {
