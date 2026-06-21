@@ -1137,10 +1137,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private weak var dockedToolbar: UIView?
     /// Whether the iMessage-style composer is currently open. The surface owns the
     /// whole bottom dock (terminal grid / toolbar / composer band / keyboard) in one
-    /// coordinate system, so `composerActive` drives only the first-responder handover
-    /// that keeps the keyboard up across the toggle. The composer band is reserved
-    /// separately above the keyboard edge, never by reparenting the toolbar into a
-    /// second layout system.
+    /// coordinate system. While this is true, the composer is the only text input
+    /// owner: terminal auto-focus and terminal taps route focus back to the composer
+    /// instead of letting the hidden terminal proxy keep first responder behind a
+    /// visible message field.
     private var composerActive = false
     /// Whether the hosted composer text field owns first responder. The SwiftUI host
     /// reports this for diagnostics and for the close/reveal reducer, but toolbar
@@ -1442,8 +1442,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync()
     }
 
-    /// Track whether the composer is open and keep the keyboard up across the
-    /// draft↔normal toggle in BOTH directions.
+    /// Track whether the composer is open and keep keyboard ownership explicit across
+    /// the draft↔normal toggle in BOTH directions.
     ///
     /// The surface owns the whole bottom dock (terminal grid / composer band /
     /// toolbar / keyboard) in one coordinate system; the toolbar is never reparented
@@ -1451,10 +1451,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// only job here is the first-responder handover that keeps the keyboard from
     /// dropping across the toggle:
     ///
-    /// - Opening (`active == true`): deliberately do NOT resign the terminal input
-    ///   proxy. The composer's hosted text field becomes first responder while this
-    ///   keyboard is still up, so iOS hands the keyboard over in place. Resigning
-    ///   first tore the keyboard down and the composer re-summoned it (a flicker).
+    /// - Opening (`active == true`): the composer becomes the text-input owner. The
+    ///   terminal proxy must not continue receiving keyboard events behind a visible
+    ///   message field; the mounted composer is focused as soon as its host view exists.
     /// - Closing (`active == false`): two distinct intents share this path, told
     ///   apart by ``keyboardHeight``:
     ///   - Chevron-close while typing: `keyboardHeight > 0`. The user wants to keep the
@@ -1477,13 +1476,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             composerFieldFocused = false
         }
         if active {
-            // Opening: deliberately do NOT resign the terminal input proxy. The
-            // composer's hosted text field becomes first responder while this
-            // keyboard is still up, so iOS hands the keyboard over in place. The
-            // toolbar stays a child of this surface throughout — it is never
-            // reparented — so its buttons remain on screen. The composer band's
-            // height arrives separately via `setComposerBandHeight(_:animated:)` once
-            // the host mounts and measures the field.
+            // Opening: composer owns text input. Do not let the hidden terminal proxy
+            // keep accepting key events while the message field is visible; the host
+            // mount path below focuses the concrete SwiftUI-backed input once it exists.
+            if inputProxy.isFirstResponder {
+                resignInput()
+            }
+            focusMountedComposerField()
         } else {
             // Closing: re-take first responder on the terminal input proxy ONLY when the
             // keyboard is still up (`keyboardHeight > 0`, a chevron-close while typing) so
@@ -1499,10 +1498,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 inputProxy.becomeFirstResponder()
             }
         }
-        // The toolbar's visibility and reserved height do not change with the composer
-        // (it stays shown while the keyboard is up either way), so re-seat the whole
-        // bottom dock and re-sync the grid unconditionally: the composer band opening
-        // or closing changes where the terminal grid bottom and the dock sit.
+        // Re-seat the whole bottom dock and re-sync the grid unconditionally: the
+        // composer band opening or closing changes where the terminal grid bottom and
+        // the dock sit.
         updateDockedToolbarVisibility()
         layoutBottomDock()
         setNeedsGeometrySync()
@@ -1675,6 +1673,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             view.bottomAnchor.constraint(equalTo: composerContainer.bottomAnchor),
         ])
         composerContainer.isHidden = false
+        if composerActive {
+            focusMountedComposerField()
+        }
     }
 
     /// Set the height (points) the open composer band reserves below the docked
@@ -1707,6 +1708,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             self.layoutBottomDock()
             self.layoutIfNeeded()
+            if self.composerActive {
+                self.focusMountedComposerField()
+            }
         }
         if animated {
             UIView.animate(
@@ -1939,10 +1943,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         delegate?.ghosttySurfaceView(self, didTapAtCol: cell.col, row: cell.row)
         // A tap inside the composer band is excluded by the gesture recognizer
         // (`gestureRecognizer(_:shouldReceive:)`), so any tap reaching here is a
-        // deliberate terminal tap. Only a reveal-from-hide with the composer still
-        // presented re-focuses the composer; every other terminal tap focuses the
-        // terminal proxy as before.
-        if wasHidden, composerActive {
+        // deliberate terminal tap. While the composer is visible, it remains the text
+        // input owner; closing it is the explicit path back to terminal keyboard input.
+        if composerActive {
             delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
             focusMountedComposerField()
         } else {
@@ -2201,7 +2204,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             #endif
             setNeedsGeometrySync()
             setFocus(true)
-            if autoFocusOnWindowAttach {
+            if autoFocusOnWindowAttach, !composerActive {
                 focusInput()
             }
             startDisplayLink()
@@ -2364,6 +2367,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc
     func focusInput() {
         onFocusInputRequestedForTesting?()
+        if composerActive {
+            delegate?.ghosttySurfaceViewDidRequestComposerFocus(self)
+            focusMountedComposerField()
+            return
+        }
         Self.activeInputSurface = self
         setNeedsGeometrySync()
         inputProxy.updateAccessoryLayoutInsets()
