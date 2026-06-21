@@ -310,7 +310,15 @@ function HomeContent() {
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqTmuxQ")}</p>
-              <p className="text-muted">{t("faqTmuxA")}</p>
+              <p className="text-muted">
+                {t.rich("faqTmuxA", {
+                  link: (chunks) => (
+                    <Link href="/docs/remote-tmux" className={linkClass}>
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqFreeQ")}</p>

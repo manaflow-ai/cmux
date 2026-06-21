@@ -82,7 +82,7 @@
     "faqShortcutsQ": "Can I customize keyboard shortcuts?",
     "faqShortcutsA": "Terminal keybindings are read from your Ghostty config file (<configPath>~/.config/ghostty/config</configPath>). cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the <link>default shortcuts</link> for a full list.",
     "faqTmuxQ": "How does it compare to tmux?",
-    "faqTmuxA": "tmux is a terminal multiplexer that runs inside any terminal. cmux is a native macOS app with a GUI: vertical tabs, split panes, an embedded browser, and a socket API are all built in. No config files or prefix keys needed.",
+    "faqTmuxA": "tmux is a terminal multiplexer that runs inside any terminal. cmux is a native macOS app with a GUI: vertical tabs, split panes, an embedded browser, and a socket API, all built in, no config files or prefix keys needed. That said, lots of people happily run cmux with SSH and tmux together, and cmux can attach to your remote tmux sessions natively (<link>beta</link>).",
     "faqFreeQ": "Is cmux free?",
     "faqFreeA": "Yes, cmux is free to use. The source code is available on <link>GitHub</link>.",
     "faqSessionsQ": "Are my sessions saved?",

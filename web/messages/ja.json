@@ -82,7 +82,7 @@
     "faqShortcutsQ": "キーボードショートカットはカスタマイズできますか？",
     "faqShortcutsA": "ターミナルのキーバインドはGhosttyの設定ファイル（<configPath>~/.config/ghostty/config</configPath>）から読み込まれます。cmux固有のショートカット（ワークスペース、分割、ブラウザ、通知）は設定画面でカスタマイズできます。全一覧は<link>デフォルトショートカット</link>をご覧ください。",
     "faqTmuxQ": "tmuxとの違いは？",
-    "faqTmuxA": "tmuxはどのターミナル内でも動作するターミナルマルチプレクサです。cmuxはGUI付きのネイティブmacOSアプリで、縦タブ、分割ペイン、組み込みブラウザ、socket APIがすべて内蔵されています。設定ファイルやプレフィックスキーは不要です。",
+    "faqTmuxA": "tmuxは任意のターミナル内で動作するターミナルマルチプレクサです。cmuxはGUIを備えたネイティブmacOSアプリで、縦タブ、分割ペイン、組み込みブラウザ、ソケットAPIがすべて標準搭載されており、設定ファイルやプレフィックスキーは不要です。とはいえ、多くの人がcmuxをSSH + tmuxと組み合わせて愛用しています。cmuxはリモートのtmuxセッションにネイティブでアタッチすることもできます（<link>ベータ</link>）。",
     "faqFreeQ": "cmuxは無料ですか？",
     "faqFreeA": "はい、cmuxは無料で使えます。ソースコードは<link>GitHub</link>で公開されています。",
     "faqSessionsQ": "セッションは保存されますか？",
