@@ -15594,11 +15594,18 @@ struct SidebarTabDropDelegate: DropDelegate {
         if isCrossWindowDrag(draggedTabId) {
             return performCrossWindowDrop(draggedTabId: draggedTabId)
         }
-        let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
+        let defaultUsesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedTabId,
             targetWorkspaceId: targetTabId,
             workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId
         )
+        let explicitGroupId = explicitDropTargetGroupId(
+            draggedTabId: draggedTabId,
+            pointerX: info.location.x,
+            pointerY: targetTabId == nil ? nil : info.location.y,
+            targetHeight: targetRowHeight
+        )
+        let usesTopLevelRows = explicitGroupId == nil && defaultUsesTopLevelRows
         let reorderTabIds = tabManager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: draggedTabId,
             targetWorkspaceId: targetTabId,
@@ -15612,12 +15619,8 @@ struct SidebarTabDropDelegate: DropDelegate {
         let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
             forDraggedWorkspaceId: draggedTabId,
             targetWorkspaceId: targetTabId,
-            usesTopLevelRows: usesTopLevelRows
-        )
-        let explicitGroupId = explicitDropTargetGroupId(
-            draggedTabId: draggedTabId,
             usesTopLevelRows: usesTopLevelRows,
-            pointerX: info.location.x
+            explicitGroupId: explicitGroupId
         )
         guard let fromIndex = reorderTabIds.firstIndex(of: draggedTabId) else {
 #if DEBUG
@@ -15673,27 +15676,97 @@ struct SidebarTabDropDelegate: DropDelegate {
 
     private func explicitDropTargetGroupId(
         draggedTabId: UUID,
-        usesTopLevelRows: Bool,
-        pointerX: CGFloat
+        pointerX: CGFloat,
+        pointerY: CGFloat?,
+        targetHeight: CGFloat?
     ) -> UUID? {
-        guard !usesTopLevelRows,
-              SidebarWorkspaceGroupDropIntentPolicy(
-                  memberIndent: SidebarWorkspaceGroupingMetrics.memberIndent
-              ).prefersGroupScope(
-                  pointerX: pointerX,
-                  targetLeadingIndent: targetLeadingIndent
-              ),
+        let policy = SidebarWorkspaceGroupDropIntentPolicy(
+            memberIndent: SidebarWorkspaceGroupingMetrics.memberIndent
+        )
+        let targetGroupId = targetTabId.flatMap { workspaceGroupIdByWorkspaceId[$0] ?? nil }
+        if policy.prefersGroupScope(
+            pointerX: pointerX,
+            targetLeadingIndent: targetLeadingIndent
+        ), let targetGroupId,
+           canDragWorkspace(draggedTabId, intoGroupTargetedBy: targetTabId) {
+            return targetGroupId
+        }
+
+        guard targetLeadingIndent == 0,
+              targetGroupId == nil,
               let targetTabId,
-              let targetGroupId = workspaceGroupIdByWorkspaceId[targetTabId] ?? nil,
+              let pointerY,
+              let targetHeight,
+              SidebarDropPlanner().edgeForPointer(
+                  locationY: pointerY,
+                  targetHeight: targetHeight
+              ) == .top,
+              policy.prefersGroupScope(
+                  pointerX: pointerX,
+                  targetLeadingIndent: SidebarWorkspaceGroupingMetrics.memberIndent
+              ),
+              let previous = workspaceBefore(targetTabId),
+              let previousGroupId = previous.groupId,
+              canDragWorkspace(draggedTabId, intoGroupTargetedBy: previous.id) else {
+            return nil
+        }
+        return previousGroupId
+    }
+
+    private func canDragWorkspace(_ draggedTabId: UUID, intoGroupTargetedBy targetTabId: UUID?) -> Bool {
+        guard targetTabId != nil,
               tabManager.tabs.contains(where: { $0.id == draggedTabId }) else {
-            return nil
+            return false
         }
-        guard !tabManager.workspaceGroups.contains(where: { group in
+        return !tabManager.workspaceGroups.contains(where: { group in
             group.anchorWorkspaceId == draggedTabId || group.anchorWorkspaceId == targetTabId
-        }) else {
+        })
+    }
+
+    private func workspaceBefore(_ workspaceId: UUID) -> Workspace? {
+        guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId }),
+              index > 0 else {
             return nil
         }
-        return targetGroupId
+        return tabManager.tabs[index - 1]
+    }
+
+    private func groupScopedBoundaryIndicator(
+        defaultIndicator: SidebarDropIndicator?,
+        explicitGroupId: UUID?,
+        pointerY: CGFloat?,
+        targetHeight: CGFloat?
+    ) -> SidebarDropIndicator? {
+        guard let explicitGroupId,
+              let targetTabId,
+              let pointerY,
+              let targetHeight else {
+            return defaultIndicator
+        }
+        let edge = SidebarDropPlanner().edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
+        if edge == .bottom,
+           (workspaceGroupIdByWorkspaceId[targetTabId] ?? nil) == explicitGroupId {
+            guard let next = workspaceAfter(targetTabId),
+                  next.groupId != explicitGroupId else {
+                return defaultIndicator
+            }
+            return SidebarDropIndicator(tabId: targetTabId, edge: .bottom)
+        }
+        if edge == .top,
+           (workspaceGroupIdByWorkspaceId[targetTabId] ?? nil) == nil,
+           let previous = workspaceBefore(targetTabId),
+           previous.groupId == explicitGroupId {
+            return SidebarDropIndicator(tabId: previous.id, edge: .bottom)
+        }
+        return defaultIndicator
+    }
+
+    private func workspaceAfter(_ workspaceId: UUID) -> Workspace? {
+        guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId }),
+              (index + 1) < tabManager.tabs.count else {
+            return nil
+        }
+        return tabManager.tabs[index + 1]
     }
 
     /// Move a workspace dragged in from another window into this window at the
@@ -15792,11 +15865,20 @@ struct SidebarTabDropDelegate: DropDelegate {
             updateCrossWindowDropIndicator(for: info)
             return
         }
-        let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
+        let defaultUsesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: dragState.draggedTabId,
             targetWorkspaceId: targetTabId,
             workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId
         )
+        let explicitGroupId = dragState.draggedTabId.flatMap {
+            explicitDropTargetGroupId(
+                draggedTabId: $0,
+                pointerX: info.location.x,
+                pointerY: targetTabId == nil ? nil : info.location.y,
+                targetHeight: targetRowHeight
+            )
+        }
+        let usesTopLevelRows = explicitGroupId == nil && defaultUsesTopLevelRows
         let tabIds = tabManager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: dragState.draggedTabId,
             targetWorkspaceId: targetTabId,
@@ -15810,14 +15892,21 @@ struct SidebarTabDropDelegate: DropDelegate {
         let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
             forDraggedWorkspaceId: dragState.draggedTabId,
             targetWorkspaceId: targetTabId,
-            usesTopLevelRows: usesTopLevelRows
+            usesTopLevelRows: usesTopLevelRows,
+            explicitGroupId: explicitGroupId
         )
-        let nextIndicator = SidebarDropPlanner().indicator(
+        let plannedIndicator = SidebarDropPlanner().indicator(
             draggedTabId: dragState.draggedTabId,
             targetTabId: targetTabId,
             tabIds: tabIds,
             pinnedTabIds: pinnedTabIds,
             legalInsertionRange: legalInsertionRange,
+            pointerY: targetTabId == nil ? nil : info.location.y,
+            targetHeight: targetRowHeight
+        )
+        let nextIndicator = groupScopedBoundaryIndicator(
+            defaultIndicator: plannedIndicator,
+            explicitGroupId: explicitGroupId,
             pointerY: targetTabId == nil ? nil : info.location.y,
             targetHeight: targetRowHeight
         )

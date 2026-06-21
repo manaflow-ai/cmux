@@ -207,16 +207,17 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     public func sidebarReorderLegalInsertionRange(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID? = nil,
-        usesTopLevelRows: Bool = false
+        usesTopLevelRows: Bool = false,
+        explicitGroupId: UUID? = nil
     ) -> ClosedRange<Int>? {
         guard !usesTopLevelRows,
-              !sidebarReorderUsesTopLevelRows(
+              (explicitGroupId != nil || !sidebarReorderUsesTopLevelRows(
                   forDraggedWorkspaceId: draggedWorkspaceId,
                   targetWorkspaceId: targetWorkspaceId
-              ),
+              )),
               let draggedWorkspaceId,
               let draggedWorkspace = model.tabs.first(where: { $0.id == draggedWorkspaceId }),
-              let groupId = draggedWorkspace.groupId,
+              let groupId = explicitGroupId ?? draggedWorkspace.groupId,
               let group = model.workspaceGroups.first(where: { $0.id == groupId }),
               draggedWorkspace.id != group.anchorWorkspaceId else {
             return nil

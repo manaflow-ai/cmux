@@ -260,6 +260,37 @@ struct WorkspaceCoordinatorTests {
         ])
     }
 
+    @Test
+    func explicitGroupLegalRangeConstrainsBoundaryPlanningToGroup() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let dragged = CoordinatorStubTab()
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [dragged, child1, child2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let memberIndices = model.tabs.indices.filter { model.tabs[$0].groupId == groupId }
+        let firstMemberIndex = try #require(memberIndices.first)
+        let lastMemberIndex = try #require(memberIndices.last)
+
+        let unconstrainedRange = reorder.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: dragged.id,
+            targetWorkspaceId: outside.id
+        )
+        let explicitGroupRange = reorder.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: dragged.id,
+            targetWorkspaceId: outside.id,
+            explicitGroupId: groupId
+        )
+
+        #expect(unconstrainedRange == nil)
+        #expect(explicitGroupRange == (firstMemberIndex + 1)...(lastMemberIndex + 1))
+    }
+
     // MARK: Groups
 
     @Test

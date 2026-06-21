@@ -1593,12 +1593,14 @@ class TabManager: ObservableObject {
     func sidebarReorderLegalInsertionRange(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID? = nil,
-        usesTopLevelRows: Bool = false
+        usesTopLevelRows: Bool = false,
+        explicitGroupId: UUID? = nil
     ) -> ClosedRange<Int>? {
         workspaceReordering.sidebarReorderLegalInsertionRange(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId,
-            usesTopLevelRows: usesTopLevelRows
+            usesTopLevelRows: usesTopLevelRows,
+            explicitGroupId: explicitGroupId
         )
     }
 
