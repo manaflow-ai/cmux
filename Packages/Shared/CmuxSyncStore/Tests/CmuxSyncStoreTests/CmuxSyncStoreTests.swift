@@ -400,6 +400,10 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
         }
         func activeMac(stackUserID: String?) async throws -> MobilePairedMac? { nil }
         func setActive(macDeviceID: String) async throws {}
+        func setCustomization(
+            macDeviceID: String, customName: String?, customColor: String?,
+            customIcon: String?, now: Date
+        ) async throws {}
         func remove(macDeviceID: String) async throws {}
         func removeAll() async throws {}
     }

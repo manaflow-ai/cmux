@@ -2012,6 +2012,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionAttemptGeneration = generation
         connectionGeneration = generation
         cancelRemoteOperationTasks() // stop the OLD foreground's polling/tasks
+        // Capture the OLD foreground key before the id flips so its now-stale
+        // snapshot can be dropped from the aggregate after the swap.
+        let previousForegroundKey = foregroundMacKey
         // Take ownership of the live client; do NOT disconnect it.
         secondaryMacSubscriptions[macID] = nil
         sub.detachKeepingClient()
@@ -2024,6 +2027,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspacesByMac[macID] = MacWorkspaceState(
             macDeviceID: macID, displayName: displayName, workspaces: previews, status: .connected
         )
+        // The previous foreground's live client was just replaced; drop its stale
+        // rows (re-added as a secondary by scheduleSecondaryAggregation below).
+        dropStalePreviousForeground(previousForegroundKey)
         connectionState = .connected
         markMacConnectionHealthy()
         // Tear down the OLD foreground's terminal event listener before starting a
@@ -2065,7 +2071,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let storeMacs = (try? await pairedMacStore.loadAll(stackUserID: identityProvider?.currentUserID)) ?? []
         guard let refreshedTarget = storeMacs.first(where: { $0.macDeviceID == macDeviceID })
             ?? pairedMacs.first(where: { $0.macDeviceID == macDeviceID }) else { return false }
-        if refreshedTarget.isActive, connectionState == .connected { return true }
+        // Already foreground on this exact Mac: skip the re-dial. Gate on the LIVE
+        // foreground identity, not the persisted `isActive` flag — `isActive` is
+        // stored preference state that can lag the real connection (e.g.
+        // `promoteSecondaryToForeground` writes it via an unawaited Task, and it is
+        // stale during reconnect/switch races). Trusting it could make `openWorkspace`
+        // proceed without switching and route input/mutations to the wrong Mac.
+        if foregroundMacDeviceID == macDeviceID, connectionState == .connected { return true }
         // The currently-active Mac to fall back to if the switch fails.
         let previousActive = storeMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
             ?? pairedMacs.first { $0.isActive && $0.macDeviceID != macDeviceID }
@@ -3150,6 +3162,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     #endif
 
+    /// Drop the PREVIOUS foreground/anonymous workspace snapshot from the aggregate
+    /// after the foreground Mac changes (switch A→B, promotion, or a real connect
+    /// after an anonymous/sign-out session). Its live client was just replaced, so
+    /// those rows are stale; left in place, `recomputeDerivedWorkspaceState` (which
+    /// derives over every `workspacesByMac` entry) keeps showing the old Mac's rows
+    /// and can route actions/opens through stale ownership — the regression the
+    /// pre-aggregation `workspaces = remoteWorkspaces` full replacement avoided.
+    ///
+    /// Only the OLD foreground key is removed. A live secondary is never keyed under
+    /// the foreground id (aggregation excludes the foreground), and a reachable
+    /// previous Mac is re-added as a secondary by the `scheduleSecondaryAggregation`
+    /// the callers kick right after — so this never drops a real secondary's rows
+    /// (including an intentionally-kept offline secondary).
+    private func dropStalePreviousForeground(_ previousKey: String) {
+        guard previousKey != foregroundMacKey,
+              secondaryMacSubscriptions[previousKey] == nil else { return }
+        workspacesByMac[previousKey] = nil
+    }
+
     /// Apply an optimistic mutation to the foreground Mac's workspace list (e.g. a
     /// just-created workspace or terminal) directly on the per-Mac source of
     /// truth, so the derived list reflects it immediately.
@@ -4126,10 +4157,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // from Mac A to Mac B writes B's workspaces under A's key, and
                     // once the id flips the derived list reads a stale/empty B
                     // snapshot. Anonymous (empty-id) tickets keep the anonymous key.
+                    let previousForegroundKey = foregroundMacKey
                     if !ticket.macDeviceID.isEmpty {
                         foregroundMacDeviceID = ticket.macDeviceID
                     }
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
+                    // Drop the now-stale previous-foreground/anonymous snapshot so it
+                    // doesn't linger in the aggregate (it's re-added as a secondary
+                    // below if still reachable).
+                    dropStalePreviousForeground(previousForegroundKey)
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
                     markMacConnectionHealthy()
