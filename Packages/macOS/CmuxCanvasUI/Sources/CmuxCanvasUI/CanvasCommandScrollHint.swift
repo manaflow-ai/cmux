@@ -16,7 +16,7 @@ struct CanvasCommandScrollHint: View {
             Image(systemName: "plus")
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.secondary)
-            Image(systemName: "scroll")
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
             Text(text)
