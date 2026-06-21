@@ -103,6 +103,23 @@
         }
       }
     },
+    "auth.error.browser_sign_in_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not complete browser sign-in. Try again or open sign-in in your browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザでのサインインを完了できませんでした。もう一度試すか、ブラウザでサインインを開いてください。"
+          }
+        }
+      }
+    },
     "auth.error.invalid_code_short": {
       "extractionState": "manual",
       "localizations": {
@@ -116,6 +133,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コードが無効です。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "auth.error.invalid_callback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sign-in callback was invalid. Try signing in again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインコールバックが無効です。もう一度サインインしてください。"
           }
         }
       }
