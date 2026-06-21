@@ -4442,11 +4442,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // applying, run the dedicated recovery (it re-asks the token
             // provider and no-ops once an identity is adopted).
             scheduleHostIdentityAdoptionIfNeeded(client: client)
-            if payload.capabilities.contains(Self.terminalRenderGridCapability) ||
-                payload.terminalFidelity == "render_grid" {
+            if Self.hostSupportsRenderGrid(payload) {
                 MobileDebugLog.anchormux("sync.host_status ok reason=\(reason) fidelity=render_grid")
             } else {
-                MobileDebugLog.anchormux("sync.host_status unsupported reason=\(reason) action=render_grid_only")
+                applyUnsupportedTerminalHost(reason: reason)
             }
         } catch {
             guard remoteClient === client else { return }
@@ -4479,6 +4478,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         Self.terminalEventTopics
     }
 
+    private static func hostSupportsRenderGrid(_ payload: MobileHostStatusResponse) -> Bool {
+        payload.capabilities.contains(Self.terminalRenderGridCapability)
+            || payload.terminalFidelity == "render_grid"
+    }
+
+    private func applyUnsupportedTerminalHost(reason: String) {
+        MobileDebugLog.anchormux("sync.host_status unsupported reason=\(reason) action=disconnect_render_grid_required")
+        connectionError = L10n.string(
+            "mobile.pairing.renderGridRequired",
+            defaultValue: "This Mac needs a newer cmux build for iPhone terminal rendering."
+        )
+        connectionErrorGuidance = L10n.string(
+            "mobile.pairing.guidance.reloadMac",
+            defaultValue: "Reload or update cmux on the Mac, then reconnect this iPhone."
+        )
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        connectionRecoveryFailed = true
+        clearRemoteConnectionContext()
+    }
+
     private func refreshTerminalOutputStatus(client: MobileCoreRPCClient) async {
         let request: Data
         do {
@@ -4504,12 +4524,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: payload.macDisplayName
             )
             scheduleHostIdentityAdoptionIfNeeded(client: client)
-            if payload.capabilities.contains(Self.terminalRenderGridCapability) ||
-                payload.terminalFidelity == "render_grid" {
+            if Self.hostSupportsRenderGrid(payload) {
                 MobileDebugLog.anchormux("sync.host_status ok reason=event_listener_start fidelity=render_grid")
                 return
             }
-            MobileDebugLog.anchormux("sync.host_status unsupported reason=event_listener_start action=render_grid_only")
+            applyUnsupportedTerminalHost(reason: "event_listener_start")
         } catch {
             guard remoteClient === client else { return }
             scheduleHostIdentityAdoptionIfNeeded(client: client)
@@ -4545,8 +4564,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
 
             await self?.refreshTerminalOutputStatus(client: client)
+            guard let self,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
             MobileDebugLog.anchormux("sync.transport=\(Self.terminalOutputDebugName)")
-            let topics = self?.terminalEventTopicsForCurrentHost() ?? Self.terminalEventTopics
+            let topics = self.terminalEventTopicsForCurrentHost()
             let stream = await client.subscribe(to: Set(topics))
             // Kick off the server-side enable handshake CONCURRENTLY with
             // consumption. The old structure awaited the ack here, which
@@ -4557,7 +4579,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // resync cancelled this very ack (surfacing a bogus
             // `requestTimedOut`). Consuming from the start keeps the liveness
             // clock coupled to actual event arrival.
-            self?.beginTerminalEventSubscriptionStart(
+            self.beginTerminalEventSubscriptionStart(
                 client: client,
                 listenerID: listenerID,
                 topics: topics,
@@ -4566,7 +4588,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
                 guard !Task.isCancelled else { return }
-                guard let self else { return }
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
                 // Any yielded envelope proves the transport is still pushing, so
                 // it resets the liveness window (not just render_grid events).
@@ -4584,7 +4605,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.handleNotificationBadgeEvent(event)
                 }
             }
-            guard let self else { return }
             self.handleTerminalEventStreamEnded(listenerID: listenerID, client: client)
         }
     }

@@ -371,7 +371,7 @@ import Testing
 }
 
 @MainActor
-@Test func unsupportedTerminalFidelityStillSubscribesRenderGridOnly() async throws {
+@Test func unsupportedTerminalFidelityDisconnectsBeforeTerminalSubscription() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
@@ -380,12 +380,10 @@ import Testing
 
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
 
-    #expect(
-        store.debugTerminalEventTopicsForTesting() == [
-            "workspace.updated",
-            "terminal.render_grid",
-            "notification.dismissed",
-            "notification.badge",
-        ]
-    )
+    let disconnected = try await pollUntil { store.connectionState == .disconnected }
+    #expect(disconnected)
+    #expect(store.macConnectionStatus == .unavailable)
+    #expect(store.connectionRecoveryFailed)
+    #expect(store.connectionError?.contains("newer cmux build") == true)
+    #expect(await router.count(of: "mobile.events.subscribe") == 0)
 }
