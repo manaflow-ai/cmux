@@ -4807,7 +4807,9 @@ final class BrowserPanel: Panel, ObservableObject {
             popup.closePopup()
         }
 
+        BrowserWindowPortalRegistry.detach(webView: webView)
         webView.stopLoading()
+        resetMediaPlaybackTracking()
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -4816,9 +4818,12 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewDidRequestClose = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
+        _ = webView.loadHTMLString(Self.closedWebViewHTML, baseURL: nil)
         faviconTask?.cancel()
         faviconTask = nil
     }
+
+    private static let closedWebViewHTML = "<!doctype html><html><head></head><body></body></html>"
 
     // MARK: - Popup window management
 
