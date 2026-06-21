@@ -27,6 +27,18 @@ extension TerminalSurface {
         ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
     }
 
+    /// Jump the authoritative Mac surface to newest output for a paired phone.
+    /// This uses the same Ghostty binding as the desktop scroll-to-bottom action,
+    /// so normal-screen scrollback semantics stay owned by the real surface.
+    @MainActor
+    public func mobileScrollToBottom() {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileScrollToBottom") else { return }
+        let action = "scroll_to_bottom"
+        action.withCString { pointer in
+            _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+        }
+    }
+
     /// Forward a mobile tap to this real surface as a left mouse click at the
     /// given grid cell. libghostty does the mode-correct thing: a program with
     /// mouse reporting (alt-screen TUIs like lazygit/htop/fzf) gets an encoded

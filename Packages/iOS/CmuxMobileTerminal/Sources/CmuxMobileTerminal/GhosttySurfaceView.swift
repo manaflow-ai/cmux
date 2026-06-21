@@ -52,6 +52,9 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
     /// empty selection. Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int)
+    /// Request the Mac's real surface to jump its viewport to newest output.
+    /// Optional.
+    func ghosttySurfaceViewDidRequestScrollToBottom(_ surfaceView: GhosttySurfaceView)
     /// The user tapped the "customize" button at the end of the input-accessory
     /// bar; the host should present the toolbar shortcuts editor. Optional.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
@@ -79,6 +82,7 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
+    func ghosttySurfaceViewDidRequestScrollToBottom(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
     /// Default no-op so hosts without a composer can ignore the toggle request.
@@ -2294,6 +2298,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func scrollToBottom() {
         guard let surface else { return }
         scrollToBottom(surface: surface)
+        delegate?.ghosttySurfaceViewDidRequestScrollToBottom(self)
     }
 
     private func scrollToBottom(surface: ghostty_surface_t) {
@@ -2307,9 +2312,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // `process_output` also preserves ordering. The return was already
         // discarded.
         let action = "scroll_to_bottom"
-        Self.outputQueue.async {
+        Self.outputQueue.async { [weak self] in
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+            }
+            DispatchQueue.main.async {
+                self?.drawForWakeup()
             }
         }
     }

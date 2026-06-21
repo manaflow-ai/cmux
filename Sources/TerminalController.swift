@@ -12897,6 +12897,8 @@ class TerminalController {
             result = v2MobileTerminalViewport(params: request.params)
         case "mobile.terminal.scroll", "terminal.scroll":
             result = v2MobileTerminalScroll(params: request.params)
+        case "mobile.terminal.scroll_to_bottom", "terminal.scroll_to_bottom":
+            result = v2MobileTerminalScrollToBottom(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
@@ -13532,6 +13534,29 @@ class TerminalController {
             surfaceID: surfaceId,
             params: params
         ))
+    }
+
+    /// Jump the Mac-owned terminal viewport to newest output for a paired phone.
+    /// This is separate from relative scroll because the button needs an
+    /// absolute action, not a guessed large delta.
+    func v2MobileTerminalScrollToBottom(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+        terminalPanel.surface.mobileScrollToBottom()
+        MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
+        return .ok([
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": surfaceId.uuidString,
+        ])
     }
 
     func v2MobileTerminalMouse(params: [String: Any]) -> V2CallResult {
