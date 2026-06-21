@@ -2193,12 +2193,28 @@ class GhosttyApp {
                 return tabManager.toggleSplitZoom(tabId: tabId, surfaceId: surfaceId)
             }
         case GHOSTTY_ACTION_RENDER:
+            // Timed so the refactor's handleAction inversion can prove the
+            // render-path dispatch did not regress. RENDER itself is a no-op here
+            // (the render is driven by Ghostty wakeups), so this measures pure
+            // dispatch overhead.
+            let renderTimingStart = CmuxTypingTiming.start()
+            defer {
+                CmuxTypingTiming.logDuration(path: "terminal.handleAction.RENDER", startedAt: renderTimingStart)
+            }
             return false
         case GHOSTTY_ACTION_SCROLLBAR:
+            let scrollbarTimingStart = CmuxTypingTiming.start()
+            defer {
+                CmuxTypingTiming.logDuration(path: "terminal.handleAction.SCROLLBAR", startedAt: scrollbarTimingStart)
+            }
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(scrollbar)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
+            let cellSizeTimingStart = CmuxTypingTiming.start()
+            defer {
+                CmuxTypingTiming.logDuration(path: "terminal.handleAction.CELL_SIZE", startedAt: cellSizeTimingStart)
+            }
             let cellSize = CGSize(
                 width: CGFloat(action.action.cell_size.width),
                 height: CGFloat(action.action.cell_size.height)
