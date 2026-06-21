@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — O terminal feito para multitarefa",
-    "description": "Terminal nativo macOS baseado no Ghostty. Funciona com Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualquer ferramenta CLI. Abas verticais, anéis de notificação, painéis divididos e uma API de socket.",
-    "ogDescription": "Terminal nativo macOS para agentes de código IA. Funciona com Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualquer ferramenta CLI."
+    "description": "Terminal nativo macOS gratuito e de código aberto construído sobre o Ghostty. Funciona com Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualquer ferramenta CLI. Abas verticais, anéis de notificação, painéis divididos e uma API de socket.",
+    "ogDescription": "Terminal macOS gratuito e de código aberto para agentes de código IA. Funciona com Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualquer ferramenta CLI."
   },
   "common": {
     "downloadForMac": "Baixar para Mac",
@@ -40,13 +40,14 @@
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Idioma",
-    "assets": "Recursos"
+    "assets": "Recursos",
+    "openSource": "Código aberto"
   },
   "home": {
     "taglinePrefix": "O terminal feito para ",
     "typingCodingAgents": "agentes de código",
     "typingMultitasking": "multitarefa",
-    "subtitle": "App nativo para macOS construído sobre o Ghostty. Abas verticais, anéis de notificação quando agentes precisam de atenção, painéis divididos e uma <cliLink>CLI</cliLink> para programabilidade.",
+    "subtitle": "Terminal nativo macOS gratuito e de código aberto construído sobre o Ghostty. Abas verticais, anéis de notificação quando agentes precisam de atenção, painéis divididos e uma <cliLink>CLI</cliLink> para programabilidade.",
     "features": "Recursos",
     "faq": "Perguntas Frequentes",
     "communitySection": "Comunidade",
@@ -66,7 +67,9 @@
       "lightweight": "Leve",
       "lightweightDesc": ": Swift + AppKit nativo, sem Electron",
       "keyboardShortcuts": "Atalhos de teclado",
-      "keyboardShortcutsDesc": ": <link>atalhos abrangentes</link> para workspaces, divisões, navegador e mais"
+      "keyboardShortcutsDesc": ": <link>atalhos abrangentes</link> para workspaces, divisões, navegador e mais",
+      "openSource": "Código aberto",
+      "openSourceDesc": ": gratuito e licenciado sob GPL"
     },
     "faqGhosttyQ": "Qual a relação do cmux com o Ghostty?",
     "faqGhosttyA": "O cmux não é um fork do Ghostty. Ele usa o <link>libghostty</link> como biblioteca para renderização de terminal, da mesma forma que apps usam o WebKit para visualizações web. O Ghostty é um terminal independente; o cmux é um app diferente construído sobre seu motor de renderização.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "Com quais agentes de código o cmux funciona?",
     "faqAgentsA": "Todos eles. O cmux é um terminal, então qualquer agente que roda em um terminal funciona diretamente: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent e qualquer outro que você possa executar pela linha de comando.",
     "faqNotificationsQ": "Como funcionam as notificações?",
-    "faqNotificationsA": "Quando um processo precisa de atenção, o cmux mostra anéis de notificação ao redor dos painéis, badges de não lido na barra lateral, um popover de notificações e uma notificação no desktop do macOS. Elas disparam automaticamente via sequências de terminal padrão (OSC 9/99/777), ou você pode acioná-las com o <cliLink>CLI do cmux</cliLink> e os <hooksLink>hooks do Claude Code</hooksLink>.",
+    "faqNotificationsA": "Quando um processo precisa de atenção, o cmux mostra anéis de notificação ao redor dos painéis, badges de não lido na barra lateral, um popover de notificações e uma notificação no desktop do macOS. Elas disparam automaticamente via sequências de escape de terminal padrão (OSC 9/99/777), ou você pode acioná-las com a <cliLink>CLI do cmux</cliLink> e <hooksLink>hooks de agentes</hooksLink>. Qualquer agente que suporte hooks ou OSC funciona, incluindo Claude Code, Codex, OpenCode e pi.",
     "faqShortcutsQ": "Posso personalizar os atalhos de teclado?",
     "faqShortcutsA": "Os atalhos do terminal são lidos do seu arquivo de configuração do Ghostty (<configPath>~/.config/ghostty/config</configPath>). Atalhos específicos do cmux (workspaces, divisões, navegador, notificações) podem ser personalizados nas Configurações. Veja os <link>atalhos padrão</link> para a lista completa.",
     "faqTmuxQ": "Como ele se compara ao tmux?",
-    "faqTmuxA": "O tmux é um multiplexador de terminal que roda dentro de qualquer terminal. O cmux é um app macOS nativo com interface gráfica: abas verticais, painéis divididos, navegador integrado e uma API de socket são todos embutidos. Sem arquivos de configuração ou teclas de prefixo necessários.",
+    "faqTmuxA": "O tmux é um multiplexador de terminal que roda dentro de qualquer terminal. O cmux é um app macOS nativo com interface gráfica: abas verticais, painéis divididos, um navegador integrado e uma API de socket, todos embutidos, sem arquivos de configuração ou teclas de prefixo necessários. Dito isso, muita gente roda o cmux com SSH e tmux juntos sem problemas, e o cmux pode se conectar nativamente às suas sessões tmux remotas (<link>beta</link>).",
     "faqFreeQ": "O cmux é gratuito?",
-    "faqFreeA": "Sim, o cmux é gratuito. O código-fonte está disponível no <link>GitHub</link>."
+    "faqFreeA": "Sim, o cmux é gratuito. O código-fonte está disponível no <link>GitHub</link>.",
+    "faqSessionsQ": "Minhas sessões são salvas?",
+    "faqSessionsA": "Sim. O cmux restaura suas janelas, workspaces, painéis, diretórios de trabalho e scrollback quando você reabre, e esse estado sobrevive a um reinício completo do computador, não apenas a fechar o app. Sessões de agentes como Claude Code, Codex e OpenCode também voltam. Veja <link>restauração de sessão</link>.",
+    "faqScriptableQ": "O cmux é programável?",
+    "faqScriptableA": "Sim. Toda ação está disponível pela CLI do cmux e por um socket Unix: criar workspaces, abrir painéis divididos, enviar entrada, ler o conteúdo da tela, capturar telas e controlar o navegador integrado. Veja a <cliLink>referência da CLI</cliLink> e a documentação de <browserLink>automação de navegador</browserLink>.",
+    "faqRemoteQ": "Posso usar o cmux com máquinas remotas?",
+    "faqRemoteA": "Sim. Abra workspaces por SSH e conecte-se a sessões tmux remotas, para que agentes possam rodar em um host remoto enquanto você os controla pelo cmux. Veja <link>SSH e remoto</link>.",
+    "faqOrchestrationQ": "O cmux pode orquestrar múltiplos agentes e subagentes?",
+    "faqOrchestrationA": "Sim. Quando um agente gera subagentes ou colegas, o cmux os transforma em painéis e divisões nativos em vez de processos ocultos em segundo plano. Ele suporta a orquestração multimodelo do <teamsLink>Claude Code teams</teamsLink> e do <omoLink>oh-my-opencode</omoLink>, de modo que todo agente em uma execução fica visível e controlável.",
+    "faqCustomizeQ": "Posso personalizar o cmux?",
+    "faqCustomizeA": "Sim. A renderização do terminal usa sua configuração do Ghostty, então temas, fontes, cores e cursor são herdados diretamente. As configurações próprias do cmux em <path>~/.config/cmux/cmux.json</path> controlam a barra lateral, a barra de abas, os painéis divididos e o comportamento, e todo <shortcutsLink>atalho de teclado</shortcutsLink> é editável. Veja <link>configuração</link>.",
+    "faqIosQ": "Existe um app para iOS?",
+    "faqIosA": "Sim, em beta. Pareie seu iPhone com seu Mac pela janela do Mobile Connect e conecte-se aos seus terminais a partir do celular, com encaminhamento opcional das notificações do terminal. É distribuído no TestFlight como cmux BETA.",
+    "faqSkillsQ": "O cmux tem skills?",
+    "faqSkillsA": "Sim. Skills são fluxos de trabalho reutilizáveis que você pode dar a qualquer agente rodando no cmux, para coisas como controle de CLI, automação de workspace, configurações e painéis de navegador. Explore a coleção aberta em <skillsLink>cmux-skills</skillsLink> ou leia a <link>documentação de skills</link>.",
+    "faqBrowserQ": "O que o navegador integrado pode fazer?",
+    "faqBrowserA": "O cmux pode dividir um painel de navegador real ao lado do seu terminal, e ele é totalmente programável: navegue, capture o DOM, clique, digite, execute JavaScript e leia a atividade do console e da rede pela mesma socket API. Agentes o usam para verificar suas próprias mudanças na web sem sair do cmux. Veja <link>automação de navegador</link>.",
+    "faqSupportQ": "Como posso apoiar o cmux?",
+    "faqSupportA": "O cmux é gratuito e de código aberto, e sempre será. Se você quiser apoiar o desenvolvimento e ter acesso antecipado ao que vem por aí, incluindo cmux AI, o app de iOS e Cloud VMs, confira o <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqFeatureQ": "Tenho uma sugestão de recurso ou encontrei um bug",
+    "faqFeatureA": "Queremos saber. Abra uma <issuesLink>issue</issuesLink> ou um <prLink>pull request</prLink> no GitHub, ou <mailLink>envie um e-mail para nós</mailLink>."
   },
   "community": {
     "title": "Comunidade",
@@ -774,6 +797,7 @@
         },
         "terminal": {
           "copyOnSelect": "Copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada, incluindo seleções de palavras e linhas por clique duplo e triplo.",
+          "scrollSpeed": "Multiplicador aplicado aos deslocamentos da roda de rolagem e do trackpad no terminal. Valores mais altos rolam mais rápido e os mais baixos, mais devagar.",
           "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
           "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
         },
@@ -1385,6 +1409,10 @@
       "configTitle": "cmux.json",
       "configDesc": "Defina os mesmos padrões em ~/.config/cmux/cmux.json dentro de terminal:",
       "focusNote": "Sessões restauradas mantêm a visibilidade e o estado de foco do TextBox salvos. Esses padrões se aplicam apenas a superfícies de terminal recém-criadas."
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode: OpenCode multiagente no cmux",
+      "metaDescription": "oh-my-opencode (cmux omo) roda a CLI do OpenCode com o plugin oh-my-openagent dentro do cmux. Orquestre Claude, GPT, Gemini e Grok como agentes paralelos, cada um em uma divisão nativa do cmux."
     }
   },
   "legal": {

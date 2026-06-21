@@ -3172,6 +3172,8 @@ struct CMUXCLI {
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
+        if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
+        if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
 
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
@@ -4843,7 +4845,8 @@ struct CMUXCLI {
             try runSidebarCommand(
                 commandArgs: commandArgs,
                 client: client,
-                jsonOutput: jsonOutput
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
             )
 
         case "claude-hook":
@@ -11343,32 +11346,25 @@ struct CMUXCLI {
         // correction.
         resizeMonitor.requestCurrentResize()
 
-        Task.detached(priority: .userInitiated) { [resizeMonitor, fd] in
-            var buffer = [UInt8](repeating: 0, count: 8192)
-            while true {
-                let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
-                if count > 0 {
+        let reconnectInputFilterControl: SSHPTYAttachReconnectInputFilterControl?
+        do {
+            reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
+                fd: fd,
+                filterEnabled: requireExisting && command == nil && isatty(STDIN_FILENO) == 1,
+                beforeForwardingInput: { [resizeMonitor] in
                     await resizeMonitor.resizeBeforeInputIfNeeded()
-                    do {
-                        try Self.writeAll(fd: fd, data: Data(buffer.prefix(count)))
-                    } catch {
-                        _ = shutdown(fd, SHUT_WR)
-                        return
-                    }
-                } else if count == 0 {
-                    _ = shutdown(fd, SHUT_WR)
-                    return
-                } else if errno != EINTR {
-                    _ = shutdown(fd, SHUT_WR)
-                    return
                 }
-            }
+            )
+        } catch {
+            throw CLIError(message: "ssh-pty-attach: bridge write failed")
         }
+        var reconnectInputFilterStopRequested = false
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
+                reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeMonitor.cancel()
@@ -15857,25 +15853,17 @@ struct CMUXCLI {
             Examples:
               cmux right-sidebar toggle
               cmux right-sidebar set find
-              cmux right-sidebar set vault --no-focus
               cmux right-sidebar mode
             """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
-            Usage: cmux sidebar <validate|reload|select> [name|--all] [--json]
-
-            Validate, reload, or select custom left sidebars from ~/.config/cmux/sidebars.
-            Swift files win over JSON files with the same base name.
-
+            Usage: cmux sidebar <validate|reload|select|open> [name|--all] [--json]
+            Validate, reload, select, or open custom sidebars from ~/.config/cmux/sidebars.
             Commands:
               validate [name]   Validate all custom sidebars, or one named sidebar
               reload [name]     Validate all sidebars, then reload every valid one
-              select <name>     Validate and activate one custom sidebar
-
-            Examples:
-              cmux sidebar validate
-              cmux sidebar reload --all
-              cmux sidebar select finder.tree
+              select <name>     Activate one custom sidebar
+              open <name>       Open one custom sidebar as a Bonsplit pane
             """)
         case "set-app-focus":
             return """
@@ -16307,7 +16295,8 @@ struct CMUXCLI {
     private func runSidebarCommand(
         commandArgs: [String],
         client: SocketClient,
-        jsonOutput inheritedJSONOutput: Bool
+        jsonOutput inheritedJSONOutput: Bool,
+        windowOverride: String?
     ) throws {
         var args = commandArgs
         var jsonOutput = inheritedJSONOutput
@@ -16326,10 +16315,7 @@ struct CMUXCLI {
 
         guard let action = args.first?.lowercased() else {
             throw CLIError(
-                message: String(
-                    localized: "cli.sidebar.error.missingCommand",
-                    defaultValue: "sidebar requires a subcommand: validate, reload, or select"
-                )
+                message: String(localized: "cli.sidebar.error.missingCommand", defaultValue: "sidebar requires a subcommand: validate, reload, select, or open")
             )
         }
 
@@ -16364,25 +16350,27 @@ struct CMUXCLI {
             if let name = remaining.first { params["name"] = name }
             method = action == "validate" ? "sidebar.custom.validate" : "sidebar.custom.reload"
 
-        case "select":
+        case "select", "open":
             guard !explicitAll else {
                 throw CLIError(
-                    message: String(
-                        localized: "cli.sidebar.error.selectAll",
-                        defaultValue: "sidebar select does not support --all"
-                    )
+                    message: String(format: String(localized: "cli.sidebar.error.namedActionAll", defaultValue: "sidebar %@ does not support --all"), action)
                 )
             }
-            guard remaining.count == 1 else {
+            let nameArgs = action == "open" ? parseOption(parseOption(remaining, name: "--workspace").1, name: "--window").1 : remaining
+            guard nameArgs.count == 1 else {
                 throw CLIError(
-                    message: String(
-                        localized: "cli.sidebar.error.selectRequiresName",
-                        defaultValue: "sidebar select requires one sidebar name"
-                    )
+                    message: String(format: String(localized: "cli.sidebar.error.namedActionRequiresName", defaultValue: "sidebar %@ requires one sidebar name"), action)
                 )
             }
-            params["name"] = remaining[0]
-            method = "sidebar.custom.select"
+            params["name"] = nameArgs[0]
+            if action == "open" {
+                params["focus"] = true
+                let winId = try normalizeWindowHandle(windowFromArgsOrOverride(remaining, windowOverride: windowOverride), client: client)
+                if let winId { params["window_id"] = winId }
+                let wsId = try normalizeWorkspaceHandle(workspaceFromArgsOrEnv(remaining, windowOverride: windowOverride), client: client, windowHandle: winId)
+                if let wsId { params["workspace_id"] = wsId }
+            }
+            method = action == "select" ? "sidebar.custom.select" : "sidebar.custom.open"
 
         default:
             throw CLIError(
@@ -16452,6 +16440,13 @@ struct CMUXCLI {
             print(String(
                 format: String(localized: "cli.sidebar.report.selected", defaultValue: "Selected %@."),
                 selectedName
+            ))
+        } else if action == "open", let openedName = payload["opened_name"] as? String {
+            let surface = (payload["surface_ref"] as? String) ?? (payload["surface_id"] as? String) ?? ""
+            print(String(
+                format: String(localized: "cli.sidebar.report.opened", defaultValue: "Opened %@ as pane %@."),
+                openedName,
+                surface
             ))
         } else {
             print(String(
@@ -16540,11 +16535,11 @@ struct CMUXCLI {
             guard parsed.positional.count == 2 else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, find, vault, sessions, feed, or dock"))
             }
-            let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard isRightSidebarCLIMode(mode) else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownMode", defaultValue: "Unknown right-sidebar mode '\(parsed.positional[1])'"))
             }
-            var args = ["set", mode]
+            var args = ["set", normalizedRightSidebarCLIArgument(mode)]
             if parsed.noFocus {
                 args.append("--no-focus")
             }
@@ -16560,16 +16555,14 @@ struct CMUXCLI {
             return ["set", action]
 
         default:
-            throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'"))
-        }
-    }
-
-    private func isRightSidebarCLIMode(_ value: String) -> Bool {
-        switch value {
-        case "files", "find", "vault", "sessions", "feed", "dock":
-            return true
-        default:
-            return false
+            let rawAction = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard parsed.positional.count == 1, isRightSidebarCLIMode(rawAction) else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.unknownCommand", defaultValue: "Unknown right-sidebar command '\(action)'"))
+            }
+            guard !parsed.noFocus else {
+                throw CLIError(message: String(localized: "cli.rightSidebar.error.noFocusOnlySet", defaultValue: "right-sidebar: --no-focus is only valid with set"))
+            }
+            return ["set", normalizedRightSidebarCLIArgument(rawAction)]
         }
     }
 
@@ -19148,7 +19141,7 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: TmuxCompatFocusedContext?
+        focusedContext: TmuxCompatFocusedContext?, commandArgs: [String]
     ) {
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
@@ -19160,10 +19153,9 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-claude-teams",
             cmuxBinEnvVar: "CMUX_CLAUDE_TEAMS_CMUX_BIN",
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
-            extraEnvVars: [
-                (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
-            ]
+            extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs)
         )
+        if !claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) { unsetenv("CMUX_CLAUDE_TEAMS_SANDBOXED"); unsetenv("CLAUDE_CODE_SANDBOXED") }  // clear ambient markers inherited from a parent opted-in session so the trust bypass never leaks across invocations (#6447)
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -19271,7 +19263,7 @@ struct CMUXCLI {
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext
+            focusedContext: focusedContext, commandArgs: commandArgs
         )
 
         let launchPath = claudeExecutablePath
@@ -19282,7 +19274,7 @@ struct CMUXCLI {
             arguments: [executablePath, "claude-teams"] + launchArguments,
             workingDirectory: launcherEnvironment["PWD"]
         )
-        var argv = ([launchPath] + launchArguments).map { strdup($0) }
+        var argv = ([launchPath] + claudeTeamsExecArguments(commandArgs: commandArgs)).map { strdup($0) }
         defer {
             for item in argv {
                 free(item)
@@ -21916,7 +21908,7 @@ struct CMUXCLI {
             var params: [String: Any] = [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
-                "command": commandText,
+                "command": tmuxRespawnStartCommand(commandText, prependEnv: tmuxClaudeTeamsRespawnEnvironment()),
                 "tmux_start_command": commandText
             ]
             if let cwd = parsed.value("-c")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -22859,7 +22851,7 @@ struct CMUXCLI {
             let commandText = (commandOpt ?? respawnRem3.dropFirst(respawnRem3.first == "--" ? 1 : 0).joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
             var params: [String: Any] = [
-                "command": finalCommand,
+                "command": tmuxShellInvokedStartCommand(finalCommand),
                 "tmux_start_command": finalCommand
             ]
             let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
@@ -34211,7 +34203,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
-          sidebar <validate|reload|select> [name]
+          sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-status [--workspace <id|ref|index>] [--window <id|ref|index>]
