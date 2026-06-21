@@ -863,6 +863,71 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testCopilotHookInstallWritesToHooksSubdirectory() throws {
+        // Regression: hooks were previously installed to ~/.copilot/config.json;
+        // Copilot CLI only loads hooks from ~/.copilot/hooks/*.json.
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-copilot-hook-install-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        // Must NOT write to the old incorrect path.
+        let wrongURL = root
+            .appendingPathComponent(".copilot", isDirectory: true)
+            .appendingPathComponent("config.json", isDirectory: false)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: wrongURL.path),
+            "Copilot hooks must not be installed to ~/.copilot/config.json"
+        )
+
+        // Must write to ~/.copilot/hooks/cmux.json.
+        let hookURL = root
+            .appendingPathComponent(".copilot", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any],
+            "Expected hook file at ~/.copilot/hooks/cmux.json"
+        )
+
+        XCTAssertEqual(json["version"] as? Int, 1)
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+
+        // All expected lifecycle events must be present.
+        XCTAssertNotNil(hooks["SessionStart"], "Missing SessionStart hook")
+        XCTAssertNotNil(hooks["Stop"], "Missing Stop hook")
+        XCTAssertNotNil(hooks["Notification"], "Missing Notification hook")
+        XCTAssertNotNil(hooks["SessionEnd"], "Missing SessionEnd hook")
+
+        // PreToolUse feed hook must be present with the correct command and 120 000 ms timeout.
+        let preToolUseGroups = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]], "Missing PreToolUse hook")
+        let preToolUseCommands = preToolUseGroups
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+        XCTAssertTrue(
+            preToolUseCommands.contains {
+                ($0["command"] as? String)?.contains("hooks feed --source copilot --event PreToolUse") == true
+                    && ($0["timeout"] as? Int) == 120_000
+            },
+            "Expected PreToolUse feed hook with 120 000 ms timeout, saw \(preToolUseCommands)"
+        )
+    }
+
     func testAntigravityHookInstallUsesNativeHooksJSONShape() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
