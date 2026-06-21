@@ -19727,7 +19727,7 @@ struct CMUXCLI {
                 return
             }
             try observeThreadSafely(thread)
-            if allowThreadSubscribe && !isPendingThreadSubscriptionRetry(thread.id) {
+            if allowThreadSubscribe && !isDeferredThreadSubscriptionRetry(thread.id) {
                 do {
                     try subscribeToThreadIfNeeded(thread.id, connection: connection)
                     clearPendingThreadSubscriptionRetry(thread.id)
@@ -19834,11 +19834,11 @@ struct CMUXCLI {
             stateLock.unlock()
         }
 
-        private func isPendingThreadSubscriptionRetry(_ threadId: String) -> Bool {
+        private func isDeferredThreadSubscriptionRetry(_ threadId: String) -> Bool {
             stateLock.lock()
-            let isPending = pendingThreadSubscriptionRetryBudget.isPending(threadId)
+            let isDeferred = pendingThreadSubscriptionRetryBudget.isDeferred(threadId)
             stateLock.unlock()
-            return isPending
+            return isDeferred
         }
 
         private func pendingThreadSubscriptionRetryIdSnapshot() -> [String] {

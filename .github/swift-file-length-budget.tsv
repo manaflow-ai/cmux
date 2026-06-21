@@ -93,7 +93,7 @@
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift
-926	cmuxTests/FeedCoordinatorTests.swift
+930	cmuxTests/FeedCoordinatorTests.swift
 925	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift

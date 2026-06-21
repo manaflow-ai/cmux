@@ -60,6 +60,10 @@ struct CodexTeamsThreadSubscriptionRetryBudget {
         pendingThreadIds.contains(threadId)
     }
 
+    func isDeferred(_ threadId: String) -> Bool {
+        pendingThreadIds.contains(threadId) || exhaustedThreadIds.contains(threadId)
+    }
+
     mutating func resetDeadline() {
         deadline = nil
     }

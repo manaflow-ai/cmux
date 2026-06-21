@@ -783,6 +783,7 @@ struct FeedCoordinatorTests {
         let firstPendingMark = budget.markPending("thread-1")
         #expect(firstPendingMark)
         #expect(budget.isPending("thread-1"))
+        #expect(budget.isDeferred("thread-1"))
         let duplicatePendingMark = budget.markPending("thread-1")
         #expect(duplicatePendingMark)
         #expect(Set(budget.pendingThreadIdSnapshot()) == Set(["thread-1"]))
@@ -802,6 +803,7 @@ struct FeedCoordinatorTests {
         let exhaustedPendingMark = budget.markPending("thread-1")
         #expect(!exhaustedPendingMark)
         #expect(!budget.isPending("thread-1"))
+        #expect(budget.isDeferred("thread-1"))
         #expect(budget.pendingThreadIdSnapshot().isEmpty)
         #expect(budget.pendingRetryTimeout() == nil)
 
@@ -824,6 +826,7 @@ struct FeedCoordinatorTests {
         budget.beginRetry("thread-1")
         let firstThreadExhaustedMark = budget.markPending("thread-1")
         #expect(!firstThreadExhaustedMark)
+        #expect(budget.isDeferred("thread-1"))
         let firstThreadTombstonedMark = budget.markPending("thread-1")
         #expect(!firstThreadTombstonedMark)
 
@@ -835,6 +838,7 @@ struct FeedCoordinatorTests {
 
         let firstThreadEvictedMark = budget.markPending("thread-1")
         #expect(firstThreadEvictedMark)
+        #expect(budget.isDeferred("thread-1"))
     }
 
     private static func resetFeedCoordinatorTestHooks() {
