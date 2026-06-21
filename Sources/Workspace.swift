@@ -7377,17 +7377,33 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         focus: Bool = true
     ) -> RightSidebarToolPanel? {
         guard mode.canOpenAsPane else { return nil }
-        for (existingId, panel) in panels {
-            guard let toolPanel = panel as? RightSidebarToolPanel,
-                  toolPanel.mode == mode else {
-                continue
-            }
-            if focus {
-                focusPanel(existingId)
-            }
-            return toolPanel
+        if let existing = reusableRightSidebarToolPanel(mode: mode, focus: focus) {
+            return existing
         }
         return newRightSidebarToolSurface(inPane: paneId, mode: mode, focus: focus)
+    }
+
+    /// Reuses an existing `RightSidebarToolPanel` in this workspace whose `mode`
+    /// matches, via the package-pure ``SurfaceReuseResolver``: candidates are
+    /// built in `panels`-iteration order keyed on the mode raw value, matching
+    /// the legacy inline `for (existingId, panel) in panels { … toolPanel.mode
+    /// == mode … }` scan in ``openOrFocusRightSidebarToolSurface(inPane:mode:focus:)``.
+    /// Focuses the match when `focus` is set; returns `nil` to create anew.
+    private func reusableRightSidebarToolPanel(
+        mode: RightSidebarMode,
+        focus: Bool
+    ) -> RightSidebarToolPanel? {
+        let candidates = panels.compactMap { id, panel -> SurfaceReuseCandidate<String>? in
+            guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
+            return SurfaceReuseCandidate(panelId: id, key: toolPanel.mode.rawValue)
+        }
+        guard case let .focusExisting(existingId, shouldFocus) = surfaceReuseResolver.decision(
+            candidates: candidates,
+            requestedKey: mode.rawValue,
+            shouldFocusExisting: focus
+        ) else { return nil }
+        if shouldFocus { focusPanel(existingId) }
+        return panels[existingId] as? RightSidebarToolPanel
     }
 
     @discardableResult
