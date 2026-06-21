@@ -344,7 +344,7 @@ extension AppDelegate {
     }
 
     func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
+        guard let context = registeredMainWindow(forWindowId: windowId) else {
             return false
         }
         // openNotificationInContext takes the nested MainWindowContext directly.

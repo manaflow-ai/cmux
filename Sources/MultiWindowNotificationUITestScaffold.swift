@@ -70,8 +70,8 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
 
         func waitForContexts(minCount: Int, _ completion: @escaping () -> Void) {
             let isReady = {
-                self.appDelegate.mainWindowContexts.count >= minCount &&
-                    self.appDelegate.mainWindowContexts.values.allSatisfy { $0.window != nil }
+                self.appDelegate.registeredMainWindows.count >= minCount &&
+                    self.appDelegate.registeredMainWindows.allSatisfy { $0.window != nil }
             }
             guard !isReady() else {
                 completion()
@@ -204,7 +204,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
 
         waitForContexts(minCount: 1) { [weak self] in
             guard let self else { return }
-            guard let window1 = self.appDelegate.mainWindowContexts.values.first else { return }
+            guard let window1 = self.appDelegate.registeredMainWindows.first else { return }
             guard let tabId1 = window1.tabManager.selectedTabId ?? window1.tabManager.tabs.first?.id else { return }
 
             // Create a second main terminal window.
@@ -212,7 +212,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
 
             waitForContexts(minCount: 2) { [weak self] in
                 guard let self else { return }
-                let contexts = Array(self.appDelegate.mainWindowContexts.values)
+                let contexts = Array(self.appDelegate.registeredMainWindows)
                 guard let window2 = contexts.first(where: { $0.windowId != window1.windowId }) else { return }
                 guard let tabId2 = window2.tabManager.selectedTabId ?? window2.tabManager.tabs.first?.id else { return }
                 waitForSurfaceId(on: window1.tabManager, tabId: tabId1) { [weak self] surfaceId1 in
@@ -540,7 +540,7 @@ final class MultiWindowNotificationUITestScaffold: UITestRecording {
         let env = environment
         guard let path = env["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"], !path.isEmpty else { return }
 
-        let contextSummaries: [String] = appDelegate.mainWindowContexts.values.map { ctx in
+        let contextSummaries: [String] = appDelegate.registeredMainWindows.map { ctx in
             let tabIds = ctx.tabManager.tabs.map { $0.id.uuidString }.joined(separator: ",")
             let hasWindow = (ctx.window != nil) ? "1" : "0"
             return "windowId=\(ctx.windowId.uuidString) hasWindow=\(hasWindow) tabs=[\(tabIds)]"

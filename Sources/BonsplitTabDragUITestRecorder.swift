@@ -57,7 +57,7 @@ final class BonsplitTabDragUITestRecorder: UITestRecording {
         let showRightSidebar = env["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1"
 
         let deadline = Date().addingTimeInterval(20.0)
-        func mainWindowContextForUITest() -> (window: NSWindow, context: AppDelegate.MainWindowContext)? {
+        func mainWindowContextForUITest() -> (window: NSWindow, context: AppDelegate.RegisteredMainWindow)? {
             for window in NSApp.windows {
                 guard let raw = window.identifier?.rawValue else { continue }
                 guard raw == "cmux.main" || raw.hasPrefix("cmux.main.") else { continue }

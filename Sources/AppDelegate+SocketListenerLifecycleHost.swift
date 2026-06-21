@@ -35,7 +35,7 @@ extension AppDelegate: SocketListenerLifecycleHost {
     func resolveRestartTarget() -> SocketListenerStartTarget? {
         tabManager
             ?? preferredRegisteredMainWindowContext()?.tabManager
-            ?? mainWindowContexts.values.first?.tabManager
+            ?? registeredMainWindows.first?.tabManager
     }
 
     func startListener(

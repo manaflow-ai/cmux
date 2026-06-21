@@ -392,7 +392,7 @@ extension AppDelegate {
             workspaceId = id
         }
 
-        guard let context = mainWindowContexts.values.first(where: { context in
+        guard let context = registeredMainWindows.first(where: { context in
             context.tabManager.tabs.contains(where: { $0.id == workspaceId })
         }),
               let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }),

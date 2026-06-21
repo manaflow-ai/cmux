@@ -249,8 +249,7 @@ extension AppDelegate {
     /// current tab manager when the window is unknown.
     private func shortcutContextTabManager(in window: NSWindow?) -> TabManager? {
         if let window,
-           let context = mainWindowContexts[ObjectIdentifier(window)] ??
-               mainWindowContexts.values.first(where: { $0.window === window }) {
+           let context = registeredMainWindow(forWindow: window) {
             return context.tabManager
         }
         return tabManager
@@ -260,8 +259,7 @@ extension AppDelegate {
         // `focusedMarkdownPanel` is already gated to preview mode, where the
         // rendered viewer responds to zoom (the raw text editor does not).
         if let window {
-            guard let context = mainWindowContexts[ObjectIdentifier(window)] ??
-                mainWindowContexts.values.first(where: { $0.window === window }) else {
+            guard let context = registeredMainWindow(forWindow: window) else {
                 return nil
             }
             return context.tabManager.focusedMarkdownPanel
@@ -310,8 +308,7 @@ extension AppDelegate {
 
     private func shortcutFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
         if let window {
-            guard let context = mainWindowContexts[ObjectIdentifier(window)] ??
-                mainWindowContexts.values.first(where: { $0.window === window }) else {
+            guard let context = registeredMainWindow(forWindow: window) else {
                 return nil
             }
             return context.tabManager.focusedBrowserPanel
@@ -325,8 +322,7 @@ extension AppDelegate {
         guard cmuxIsLikelyWebInspectorResponder(responder) else { return nil }
 
         if let window,
-           let context = mainWindowContexts[ObjectIdentifier(window)] ??
-               mainWindowContexts.values.first(where: { $0.window === window }) {
+           let context = registeredMainWindow(forWindow: window) {
             return shortcutFocusedBrowserPanel(in: context.window ?? window)
         }
 
@@ -368,7 +364,7 @@ extension AppDelegate {
     }
 
     private func shortcutCandidateTabManagers() -> [TabManager] {
-        let candidates = [tabManager] + mainWindowContexts.values.map { Optional($0.tabManager) }
+        let candidates = [tabManager] + registeredMainWindows.map { Optional($0.tabManager) }
         var seen = Set<ObjectIdentifier>()
         var managers: [TabManager] = []
         for candidate in candidates {

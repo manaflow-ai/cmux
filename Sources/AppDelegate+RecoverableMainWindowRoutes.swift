@@ -98,7 +98,7 @@ extension AppDelegate {
     }
 
     private func liveRegisteredMainWindowRouteSnapshots() -> [MainWindowRouteSnapshot] {
-        mainWindowContexts.values.compactMap { context in
+        registeredMainWindows.compactMap { context in
             guard let window = context.window ?? windowForMainWindowId(context.windowId) else { return nil }
             return MainWindowRouteSnapshot(
                 windowId: context.windowId,
@@ -190,14 +190,14 @@ extension AppDelegate {
     }
 
     func windowId(for tabManager: TabManager) -> UUID? {
-        if let windowId = mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.windowId {
+        if let windowId = registeredMainWindow(forManager: tabManager)?.windowId {
             return windowId
         }
         return recoverableMainWindowRouteSnapshots().first(where: { $0.tabManager === tabManager })?.windowId
     }
 
     func mainWindowContainingWorkspace(_ workspaceId: UUID) -> NSWindow? {
-        for context in mainWindowContexts.values where context.tabManager.tabs.contains(where: { $0.id == workspaceId }) {
+        for context in registeredMainWindows where context.tabManager.tabs.contains(where: { $0.id == workspaceId }) {
             if let window = context.window ?? windowForMainWindowId(context.windowId) {
                 return window
             }
@@ -306,7 +306,7 @@ extension AppDelegate {
     }
 
     func scriptableMainWindow(windowId: UUID) -> ScriptableMainWindowState? {
-        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+        if let context = registeredMainWindow(forWindowId: windowId),
            let window = context.window ?? windowForMainWindowId(context.windowId) {
             return ScriptableMainWindowState(
                 windowId: context.windowId,
@@ -344,8 +344,8 @@ extension AppDelegate {
         return nil
     }
 
-    func contextContainingTabId(_ tabId: UUID) -> MainWindowContext? {
-        for context in mainWindowContexts.values {
+    func contextContainingTabId(_ tabId: UUID) -> RegisteredMainWindow? {
+        for context in registeredMainWindows {
             if context.tabManager.tabs.contains(where: { $0.id == tabId }) {
                 return context
             }

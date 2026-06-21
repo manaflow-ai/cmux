@@ -29,7 +29,7 @@ extension AppDelegate {
             ?? NSApp.mainWindow?.firstResponder
     }
 
-    func contextForMainWindow(_ window: NSWindow?) -> MainWindowContext? {
+    func contextForMainWindow(_ window: NSWindow?) -> RegisteredMainWindow? {
         guard let window else { return nil }
         return contextForMainTerminalWindow(window)
     }
@@ -48,7 +48,7 @@ extension AppDelegate {
            let activeContext = liveMainWindowContext(for: activeManager) {
             return activeContext.tabManager
         }
-        return mainWindowContexts.values.first { context in
+        return registeredMainWindows.first { context in
             resolvedWindow(for: context) != nil
         }?.tabManager
     }
@@ -70,8 +70,8 @@ extension AppDelegate {
         )
     }
 
-    private func liveMainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
-        for context in Array(mainWindowContexts.values) where context.tabManager === tabManager {
+    private func liveMainWindowContext(for tabManager: TabManager) -> RegisteredMainWindow? {
+        for context in Array(registeredMainWindows) where context.tabManager === tabManager {
             if resolvedWindow(for: context) != nil {
                 return context
             }

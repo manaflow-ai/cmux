@@ -790,7 +790,7 @@ final class RemoteTmuxController {
                 .compactMap { $0.mirroredWorkspaceId }
         ).union([workspaceId])
         let ownedByEndingHost = dedicatedManager?.tabs.allSatisfy { endingHostWorkspaceIds.contains($0.id) } ?? false
-        let totalMainWindowCount = AppDelegate.shared?.mainWindowContexts.count ?? 0
+        let totalMainWindowCount = AppDelegate.shared?.registeredMainWindows.count ?? 0
         let otherMainWindowCount = max(0, totalMainWindowCount - (dedicatedWindowIsOpen ? 1 : 0))
         let action = Self.sessionEndAction(
             dedicatedWindowId: dedicatedWindowIsOpen ? dedicatedWindowId : nil,

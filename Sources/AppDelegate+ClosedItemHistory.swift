@@ -13,7 +13,7 @@ extension AppDelegate {
 
         clear(preferredTabManager)
         clear(tabManager)
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             clear(context.tabManager)
         }
         for route in recoverableMainWindowRoutes() {
@@ -70,7 +70,7 @@ extension AppDelegate {
 
         append(preferredTabManager)
         append(tabManager)
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             append(context.tabManager)
         }
         for route in recoverableMainWindowRoutes() {
