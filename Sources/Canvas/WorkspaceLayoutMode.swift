@@ -8,4 +8,15 @@ enum WorkspaceLayoutMode: String, Codable, Sendable {
     case zoomableSplits
     /// The freeform 2D canvas layout.
     case canvas
+
+    /// Whether terminal panes are mounted directly in the pane hierarchy rather
+    /// than through the window-level terminal portal.
+    var usesDirectTerminalHosting: Bool {
+        switch self {
+        case .splits:
+            false
+        case .zoomableSplits, .canvas:
+            true
+        }
+    }
 }

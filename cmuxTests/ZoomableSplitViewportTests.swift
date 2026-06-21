@@ -11,6 +11,12 @@ import Testing
 @MainActor
 @Suite("Zoomable split viewport")
 struct ZoomableSplitViewportTests {
+    @Test func zoomableSplitsUseDirectTerminalHosting() {
+        #expect(WorkspaceLayoutMode.zoomableSplits.usesDirectTerminalHosting)
+        #expect(WorkspaceLayoutMode.canvas.usesDirectTerminalHosting)
+        #expect(!WorkspaceLayoutMode.splits.usesDirectTerminalHosting)
+    }
+
     @Test func zoomOutClampsAtExactFit() {
         let root = makeRoot()
         defer { root.teardown() }
