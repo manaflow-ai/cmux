@@ -61,6 +61,17 @@ struct WorkstreamTests {
         #expect(manager.workstreams.map(\.id) == [b, a])
     }
 
+    @Test func detachClearsWorkstreamMembership() throws {
+        // Cross-window move: a detached workspace must drop its workstreamId so
+        // the destination window (no matching Workstream) still shows it.
+        let manager = makeTabManager()
+        let memberId = manager.tabs[0].id
+        let id = manager.createWorkstream(name: "WS", memberWorkspaceIds: [memberId])
+        #expect(manager.tabs.first { $0.id == memberId }?.workstreamId == id)
+        let removed = try #require(manager.detachWorkspace(tabId: memberId))
+        #expect(removed.workstreamId == nil)
+    }
+
     // MARK: - Persistence round-trip
 
     @Test func sessionSnapshotRoundtripPreservesWorkstreams() throws {

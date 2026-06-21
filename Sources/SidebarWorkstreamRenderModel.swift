@@ -37,6 +37,10 @@ enum SidebarWorkstreamRenderModel {
     ///   - tabs: every workspace in the window (membership read via `workstreamId`).
     ///   - selectedWorkspaceId: the focused workspace, for the active marker.
     ///   - unreadCount: per-workspace unread lookup (injected so this stays pure).
+    ///
+    /// `@MainActor` because `WorkspaceTabRepresenting` (hence `tab.workstreamId`)
+    /// is main-actor isolated; every caller (the sidebar body, tests) is too.
+    @MainActor
     static func rowSnapshots<Tab: WorkspaceTabRepresenting>(
         workstreams: [Workstream],
         tabs: [Tab],

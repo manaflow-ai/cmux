@@ -156,6 +156,45 @@ struct WorkstreamCoordinatorTests {
         #expect(world.model.workstreams.map(\.id) == [a, b, c])
     }
 
+    @Test
+    func relativeMoveTargetIndexCompensatesForSourceRemoval() {
+        typealias C = WorkstreamCoordinator<WorkstreamStubTab>
+        // "A after B" in [A,B,C]: source idx 0, peer idx 1 -> final idx 1.
+        #expect(C.relativeMoveTargetIndex(currentIndex: 0, peerIndex: 1, after: true) == 1)
+        // "A before C": source 0, peer 2 -> 1.
+        #expect(C.relativeMoveTargetIndex(currentIndex: 0, peerIndex: 2, after: false) == 1)
+        // "C before A": source 2, peer 0 -> 0.
+        #expect(C.relativeMoveTargetIndex(currentIndex: 2, peerIndex: 0, after: false) == 0)
+        // "C after A": source 2, peer 0 -> 1.
+        #expect(C.relativeMoveTargetIndex(currentIndex: 2, peerIndex: 0, after: true) == 1)
+    }
+
+    @Test
+    func relativeMoveProducesExpectedOrderDownward() {
+        // The regression from review: "move A after B" must yield [B,A,C].
+        let world = makeWorld()
+        let a = world.coordinator.createWorkstream(name: "A")
+        let b = world.coordinator.createWorkstream(name: "B")
+        let c = world.coordinator.createWorkstream(name: "C")
+        let target = WorkstreamCoordinator<WorkstreamStubTab>.relativeMoveTargetIndex(
+            currentIndex: 0, peerIndex: 1, after: true
+        )
+        world.coordinator.moveWorkstream(id: a, toIndex: target)
+        #expect(world.model.workstreams.map(\.id) == [b, a, c])
+    }
+
+    @Test
+    func membershipChangesBumpRevision() {
+        let world = makeWorld(tabCount: 1)
+        let id = world.coordinator.createWorkstream(name: "WS")
+        let before = world.model.workstreamMembershipRevision
+        world.coordinator.addWorkspaceToWorkstream(workspaceId: world.tabs[0].id, workstreamId: id)
+        #expect(world.model.workstreamMembershipRevision > before)
+        let afterAdd = world.model.workstreamMembershipRevision
+        world.coordinator.removeWorkspaceFromWorkstream(workspaceId: world.tabs[0].id)
+        #expect(world.model.workstreamMembershipRevision > afterAdd)
+    }
+
     // MARK: - Drill-in navigation
 
     @Test

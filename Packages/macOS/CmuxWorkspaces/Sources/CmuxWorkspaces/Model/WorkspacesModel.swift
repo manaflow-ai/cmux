@@ -51,6 +51,19 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     /// "last-viewed" navigation state.
     public var drilledInWorkstreamId: UUID?
 
+    /// Bumped whenever a workspace's `workstreamId` membership changes without
+    /// the observed `tabs` / `workstreams` arrays themselves changing (i.e. the
+    /// add/remove paths). The sidebar reads this so SwiftUI re-runs its body and
+    /// recomputes the drill-in filter + rollups — `Workspace.workstreamId` is a
+    /// Combine `@Published` on a reference element, which `@Observable` tracking
+    /// of the model arrays does not see. Bump it via `noteWorkstreamMembershipChanged()`.
+    public private(set) var workstreamMembershipRevision: Int = 0
+
+    /// Signal that workstream membership changed; see `workstreamMembershipRevision`.
+    public func noteWorkstreamMembershipChanged() {
+        workstreamMembershipRevision &+= 1
+    }
+
     @ObservationIgnored
     private weak var host: (any WorkspacesHosting<Tab>)?
 

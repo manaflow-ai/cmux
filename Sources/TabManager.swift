@@ -256,6 +256,11 @@ class TabManager: ObservableObject {
         set { workspaces.drilledInWorkstreamId = newValue }
     }
 
+    /// Observed revision bumped on workstream membership add/remove. The sidebar
+    /// reads it so SwiftUI re-renders when a workspace's `workstreamId` changes
+    /// without the `tabs`/`workstreams` arrays themselves changing.
+    var workstreamMembershipRevision: Int { workspaces.workstreamMembershipRevision }
+
     /// Legacy Combine bridge for the remaining `tabManager.$tabs`
     /// subscribers. Driven exclusively from `workspaceTabsWillChange(to:)`,
     /// so it emits the new value during willSet and replays the current
@@ -2111,6 +2116,11 @@ class TabManager: ObservableObject {
         // destination window — which has no matching WorkspaceGroup — doesn't
         // render it as an orphaned indented row with stale grouping state.
         removed.groupId = nil
+        // Same reasoning for workstream membership: the destination window has
+        // no matching Workstream, so a stale workstreamId would hide the moved
+        // workspace from the destination sidebar (its drill-in filter shows a
+        // top-level row only when workstreamId == drilledInWorkstreamId == nil).
+        removed.workstreamId = nil
         unwireClosedBrowserTracking(for: removed)
         browserModel.removeClosedBrowserPanels(forWorkspaceId: removed.id)
         removed.owningTabManager = nil
@@ -4178,6 +4188,11 @@ class TabManager: ObservableObject {
         if let groupId = workspace.groupId,
            !workspaceGroups.contains(where: { $0.id == groupId }) {
             workspace.groupId = nil
+        }
+        // Same for a workstream that was deleted between close and reopen.
+        if let workstreamId = workspace.workstreamId,
+           !workstreams.contains(where: { $0.id == workstreamId }) {
+            workspace.workstreamId = nil
         }
         // When the group DOES still exist, the workspace is about to be
         // reinserted at its old absolute index, which may now sit inside a

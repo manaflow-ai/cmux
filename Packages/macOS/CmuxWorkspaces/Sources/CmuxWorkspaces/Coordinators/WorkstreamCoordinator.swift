@@ -49,6 +49,12 @@ public final class WorkstreamCoordinator<Tab: WorkspaceTabRepresenting> {
         for tab in model.tabs where memberSet.contains(tab.id) {
             tab.workstreamId = workstream.id
         }
+        // The `workstreams` append above already invalidates observers, but the
+        // member reassignments don't on their own — note them so the count is
+        // correct even if append observation is coalesced.
+        if !memberSet.isEmpty {
+            model.noteWorkstreamMembershipChanged()
+        }
         return workstream.id
     }
 
@@ -96,6 +102,9 @@ public final class WorkstreamCoordinator<Tab: WorkspaceTabRepresenting> {
         if model.drilledInWorkstreamId == id {
             model.drilledInWorkstreamId = nil
         }
+        if released > 0 {
+            model.noteWorkstreamMembershipChanged()
+        }
         return released
     }
 
@@ -109,6 +118,7 @@ public final class WorkstreamCoordinator<Tab: WorkspaceTabRepresenting> {
         guard let tab = model.tabs.first(where: { $0.id == workspaceId }) else { return }
         guard tab.workstreamId != workstreamId else { return }
         tab.workstreamId = workstreamId
+        model.noteWorkstreamMembershipChanged()
     }
 
     /// Remove a workspace from its workstream, returning it to the top level.
@@ -117,9 +127,20 @@ public final class WorkstreamCoordinator<Tab: WorkspaceTabRepresenting> {
         guard let tab = model.tabs.first(where: { $0.id == workspaceId }),
               tab.workstreamId != nil else { return }
         tab.workstreamId = nil
+        model.noteWorkstreamMembershipChanged()
     }
 
     // MARK: - Ordering
+
+    /// Final index for a relative ("before"/"after" a peer) move, compensating
+    /// for removing the source first: when the source sits before the peer,
+    /// removing it shifts the peer left by one. Pure + static so it is unit
+    /// testable without a live model. Returns the `toIndex` to pass to
+    /// `moveWorkstream(id:toIndex:)`.
+    public static func relativeMoveTargetIndex(currentIndex: Int, peerIndex: Int, after: Bool) -> Int {
+        let peerPost = currentIndex < peerIndex ? peerIndex - 1 : peerIndex
+        return after ? peerPost + 1 : peerPost
+    }
 
     /// Move a workstream to a new position in the master list. `targetIndex`
     /// is the final index the workstream should occupy, clamped to the array

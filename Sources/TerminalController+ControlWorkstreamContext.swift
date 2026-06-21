@@ -112,18 +112,27 @@ extension TerminalController: ControlWorkstreamContext {
         afterWorkstreamID: UUID?
     ) -> Bool? {
         guard let tabManager = resolveTabManager(routing: routing) else { return nil }
-        guard tabManager.workstreams.contains(where: { $0.id == workstreamID }) else { return false }
-        // Resolve the requested target into a final index: explicit to_index,
-        // else relative to a peer's current position.
+        guard let currentIndex = tabManager.workstreams.firstIndex(where: { $0.id == workstreamID }) else {
+            return false
+        }
+        // Resolve the requested target into a FINAL index for `moveWorkstream`.
+        // For relative before/after we compensate for removing the source first:
+        // when the source sits before the peer, removing it shifts the peer left
+        // by one, so the peer's post-removal index is `peer - 1`. Without this,
+        // "move A after B" in [A,B,C] overshoots to [B,C,A] instead of [B,A,C].
         let resolvedIndex: Int?
         if let toIndex {
             resolvedIndex = toIndex
         } else if let beforeWorkstreamID,
                   let peer = tabManager.workstreams.firstIndex(where: { $0.id == beforeWorkstreamID }) {
-            resolvedIndex = peer
+            resolvedIndex = WorkstreamCoordinator<Workspace>.relativeMoveTargetIndex(
+                currentIndex: currentIndex, peerIndex: peer, after: false
+            )
         } else if let afterWorkstreamID,
                   let peer = tabManager.workstreams.firstIndex(where: { $0.id == afterWorkstreamID }) {
-            resolvedIndex = peer + 1
+            resolvedIndex = WorkstreamCoordinator<Workspace>.relativeMoveTargetIndex(
+                currentIndex: currentIndex, peerIndex: peer, after: true
+            )
         } else {
             resolvedIndex = nil
         }

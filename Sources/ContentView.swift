@@ -10414,6 +10414,11 @@ struct VerticalTabsSidebar: View {
         // this is the identity filter — no behavior change for non-adopters.
         let drilledInWorkstreamId = tabManager.drilledInWorkstreamId
         let workstreams = tabManager.workstreams
+        // Establish an observation dependency on membership revisions so add/
+        // remove (which only mutate Workspace.workstreamId, not the observed
+        // arrays) re-render this body. `let _ =` (a declaration) is required
+        // here: a bare `_ = expr` statement is rejected by @ViewBuilder.
+        let _ = tabManager.workstreamMembershipRevision
         let visibleTabs = tabs.filter { $0.workstreamId == drilledInWorkstreamId }
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: visibleTabs,
@@ -14251,7 +14256,16 @@ struct TabItemView: View, Equatable {
             let anchorIdsByGroup: [UUID: UUID] = Dictionary(
                 uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
             )
+            // Only rows visible in the current drill-in view are selectable: a
+            // workspace is shown iff its workstreamId matches the drilled-in one
+            // (nil at the top level). Without this, a Shift-click range computed
+            // over the full tabs[] could sweep workspaces hidden in another
+            // workstream and apply bulk actions to rows the user can't see.
+            let drilledInWorkstreamId = tabManager.drilledInWorkstreamId
             let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
+                if tab.workstreamId != drilledInWorkstreamId {
+                    return nil
+                }
                 if let gid = tab.groupId,
                    collapsedGroupIds.contains(gid),
                    anchorIdsByGroup[gid] != tab.id {
