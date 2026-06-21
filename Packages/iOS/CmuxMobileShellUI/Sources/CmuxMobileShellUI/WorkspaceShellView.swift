@@ -131,12 +131,12 @@ struct WorkspaceShellView: View {
                 reconnect: reconnectClosure,
                 showAddDevice: showAddDevice,
                 store: store,
+                openDrawer: drawerOpener,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure,
-                openDrawer: drawerOpener
+                toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -215,12 +215,12 @@ struct WorkspaceShellView: View {
                 reconnect: reconnectClosure,
                 showAddDevice: showAddDevice,
                 store: store,
+                openDrawer: drawerOpener,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure,
-                openDrawer: drawerOpener
+                toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
