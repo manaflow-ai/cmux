@@ -417,6 +417,67 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Repro for the device report: resize/zoom churn, leave the app, then
+    /// return. The failure is not transport loss: the stress producer keeps
+    /// advancing while Ghostty's rendered text stops catching up.
+    @MainActor
+    func testTerminalRenderingSurvivesResizeStressBackgroundRoundTrip() throws {
+        let start = Date()
+        let app = launchZoomStressApp()
+        defer { app.terminate() }
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        let lineProbe = app.otherElements["MobileZoomStressLineProbe"]
+        XCTAssertTrue(lineProbe.waitForExistence(timeout: 8))
+        let firstLine = waitForStressLine(in: lineProbe, timeout: 8)
+        XCTAssertNotNil(firstLine, "Zoom stress surface did not stream terminal output. probe=\(String(describing: lineProbe.value))")
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        if hideKeyboardButton.waitForExistence(timeout: 1), hideKeyboardButton.isHittable {
+            hideKeyboardButton.tap()
+        }
+
+        var lastProducedLine = firstLine ?? 0
+        var lastRenderedLine = renderedStressLineNumber(in: surface) ?? 0
+        XCTAssertGreaterThanOrEqual(
+            try strongTerminalTextPixelCount(in: app),
+            20,
+            "Zoom stress surface started blank. elapsed=\(elapsedSeconds(since: start))s"
+        )
+
+        for cycle in 1...4 {
+            Thread.sleep(forTimeInterval: 0.75)
+            XCUIDevice.shared.press(.home)
+            Thread.sleep(forTimeInterval: 0.35)
+            app.activate()
+            XCTAssertTrue(surface.waitForExistence(timeout: 4), "Surface missing after foreground cycle \(cycle)")
+            if hideKeyboardButton.waitForExistence(timeout: 1), hideKeyboardButton.isHittable {
+                hideKeyboardButton.tap()
+            }
+
+            let deadline = Date().addingTimeInterval(3)
+            var caughtUp = false
+            while Date() < deadline {
+                let produced = stressLineNumber(in: lineProbe) ?? lastProducedLine
+                let rendered = renderedStressLineNumber(in: surface) ?? lastRenderedLine
+                let strongPixels = try strongTerminalTextPixelCount(in: app)
+                lastProducedLine = max(lastProducedLine, produced)
+                lastRenderedLine = max(lastRenderedLine, rendered)
+                if produced > (firstLine ?? 0) + 8,
+                   rendered >= produced - 8,
+                   strongPixels > 10 {
+                    caughtUp = true
+                    break
+                }
+                Thread.sleep(forTimeInterval: 0.25)
+            }
+            XCTAssertTrue(
+                caughtUp,
+                "Rendered terminal text stopped catching up after foreground cycle \(cycle). produced=\(lastProducedLine) rendered=\(lastRenderedLine) elapsed=\(elapsedSeconds(since: start))s"
+            )
+        }
+    }
+
     @MainActor
     private func launchZoomStressApp() -> XCUIApplication {
         launchApp(mockData: false, environment: [
@@ -442,6 +503,21 @@ final class cmuxUITests: XCTestCase {
         let suffix = value[range.upperBound...]
         let digits = suffix.prefix { $0.isNumber }
         return Int(digits)
+    }
+
+    private func renderedStressLineNumber(in surface: XCUIElement) -> Int? {
+        let label = surface.label
+        var searchStart = label.startIndex
+        var maxLine: Int?
+        while let range = label.range(of: "stress line ", range: searchStart..<label.endIndex) {
+            let suffixStart = range.upperBound
+            let digits = label[suffixStart...].prefix { $0.isNumber }
+            if let line = Int(digits) {
+                maxLine = max(maxLine ?? line, line)
+            }
+            searchStart = suffixStart
+        }
+        return maxLine
     }
 
     @MainActor
