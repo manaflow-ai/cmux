@@ -1711,7 +1711,8 @@
       "ohMyClaudeCode": "oh-my-claudecode",
       "changelog": "Changelog",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox (Beta)",
+      "ios": "iOS App"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1759,6 +1760,42 @@
       "configTitle": "cmux.json",
       "configDesc": "Set the same defaults in ~/.config/cmux/cmux.json under terminal:",
       "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces."
+    },
+    "ios": {
+      "metaTitle": "iOS App",
+      "metaDescription": "Set up the cmux iOS companion app: TestFlight access, bring-your-own networking with Tailscale or WireGuard, pairing, notifications, and what data cmux stores.",
+      "title": "iOS App",
+      "intro": "The cmux iOS app is a companion for your Mac. Pair your iPhone or iPad with a Mac running cmux and attach to your terminals from your phone, with optional forwarding of terminal notifications.",
+      "betaNote": "The iOS app is in beta. It ships on TestFlight as cmux BETA.",
+      "accessTitle": "Getting access",
+      "accessDesc": "The app is distributed through TestFlight. Early access is included with <foundersLink>cmux Founders Edition</foundersLink>, alongside other early features.",
+      "prereqTitle": "Prerequisites",
+      "prereqIntro": "Before you start, you need:",
+      "prereq1": "A Mac running cmux and signed in.",
+      "prereq2": "An iPhone or iPad with the cmux BETA app installed from TestFlight.",
+      "prereq3": "A network path from your phone to your Mac (see Bring your own networking below).",
+      "networkingTitle": "Bring your own networking",
+      "networkingDesc": "cmux does not provide networking out of the box. The terminal stream flows directly between your phone and your Mac, so your phone has to be able to reach your Mac on the network. The simplest way is a private overlay network.",
+      "tailscaleTitle": "Tailscale (recommended)",
+      "tailscaleDesc": "Install <link>Tailscale</link> on both your Mac and your phone and sign in to the same tailnet. Your phone can then reach your Mac by its tailnet address from anywhere, with no port forwarding.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "If you already run <link>WireGuard</link>, put your Mac and phone on the same network and use the Mac's WireGuard address.",
+      "networkingNote": "Whichever you choose, the connection is yours. cmux does not proxy or relay terminal traffic between your devices.",
+      "pairTitle": "Pair and connect",
+      "pairStep1": "On the Mac, open the Mobile Connect window in cmux.",
+      "pairStep2": "On your phone, open the cmux BETA app and confirm the pairing shown in Mobile Connect.",
+      "pairStep3": "Once paired, your workspaces and terminals appear on the phone over your network.",
+      "pairNote": "Pairing is per device. A new device, or a reinstalled app, pairs again.",
+      "notificationsTitle": "Notifications",
+      "notificationsDesc": "You can opt in to forward terminal notifications to your phone, so a pane that needs attention pushes to your device. When forwarding is on, the notification text (title and body, drawn from terminal output) is sent through cmux servers to Apple's push service to deliver it. Turn on Hide content in the notification settings to send a generic message instead and keep terminal text on your devices. See <link>notifications</link> for how cmux raises them.",
+      "dataTitle": "What data is stored",
+      "dataIntro": "cmux is built so your terminal stays between your devices. On cmux servers we store only what is needed to sign you in and connect your devices:",
+      "data1": "Your account from sign-in (email), to identify you across devices.",
+      "data2": "A push token for your device, to deliver forwarded terminal notifications.",
+      "data3": "Pairing and device metadata, to connect your phone to your Mac.",
+      "dataNot": "Your interactive terminal session, its contents and keystrokes, flows directly between your phone and your Mac over your own network, and is not relayed through or stored on cmux servers. The one exception is forwarded notification text, which transits cmux and Apple's push service to reach your phone, unless you enable Hide content (see Notifications above).",
+      "enterpriseTitle": "Enterprise and self-hosted",
+      "enterpriseDesc": "For a self-hosted or air-gapped deployment, contact <link>founders@manaflow.com</link>."
     }
   },
   "deeplink": {
