@@ -320,6 +320,10 @@ export async function applyBackupOps(
       if (!provided.color) record.customColor = prev.customColor;
       if (!provided.icon) record.customIcon = prev.customIcon;
     }
+    if (record.isActive) {
+      const clearDeltas = await clearOtherActiveBackupRecords(storage, collection, op.id, nowMs);
+      deltas.push(...clearDeltas);
+    }
     const res = await upsertRecord<PairedMacBackupRecord>(
       storage,
       collection,
@@ -339,6 +343,33 @@ export async function applyBackupOps(
     }
   }
 
+  return deltas;
+}
+
+async function clearOtherActiveBackupRecords(
+  storage: SyncStorage,
+  collection: string,
+  activeID: string,
+  nowMs: number,
+): Promise<SyncDeltaFrame<unknown>[]> {
+  const records = await listRecords<PairedMacBackupRecord>(storage, collection);
+  const deltas: SyncDeltaFrame<unknown>[] = [];
+  for (const stored of records) {
+    if (stored.deleted || stored.id === activeID || !stored.payload.isActive) continue;
+    const next = { ...stored.payload, isActive: false };
+    const res = await upsertRecord<PairedMacBackupRecord>(
+      storage,
+      collection,
+      stored.id,
+      next,
+      nowMs,
+      pairedMacShapeEqual,
+      (record) => record.lastSeenAt,
+    );
+    if (res.delta !== null) {
+      deltas.push(relabelDelta(res.delta));
+    }
+  }
   return deltas;
 }
 

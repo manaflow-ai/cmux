@@ -156,6 +156,27 @@ describe("applyBackupOps", () => {
     expect(changed).toHaveLength(1);
   });
 
+  it("active upserts clear previously active backed-up Macs for that user", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-a", record: record("mac-a", "10.0.0.1", 22) }],
+      T0,
+    );
+    const deltas = await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-b", record: { ...record("mac-b", "10.0.0.2", 22), lastSeenAt: T0 + 1000 } }],
+      T0 + 1000,
+    );
+
+    expect(deltas).toHaveLength(2);
+    const live = await listLiveBackup(storage, "user-1");
+    expect(live.filter((r) => r.isActive).map((r) => r.macDeviceID)).toEqual(["mac-b"]);
+    expect(live.find((r) => r.macDeviceID === "mac-a")?.isActive).toBe(false);
+  });
+
   it("a customization-only change syncs (not a same-shape no-op)", async () => {
     const storage = new FakeStorage();
     const base = record("mac-a", "10.0.0.1", 22);
@@ -352,6 +373,7 @@ describe("applyBackupOps", () => {
       [{ kind: "upsert", id: "m0", record: record("m0", "10.0.0.250", 2222) }],
       T0 + 2000,
     );
-    expect(upd).toHaveLength(1);
+    expect(upd).toHaveLength(2);
+    expect((await live()).filter((r) => r.payload.isActive).map((r) => r.id)).toEqual(["m0"]);
   });
 });

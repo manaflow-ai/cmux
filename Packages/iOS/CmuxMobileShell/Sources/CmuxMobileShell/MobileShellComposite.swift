@@ -3317,6 +3317,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return copy
             }
         }
+        if foregroundKey == Self.foregroundAnonymousKey {
+            derived = derived.map { workspace in
+                guard workspace.macDeviceID == Self.foregroundAnonymousKey else { return workspace }
+                var copy = workspace
+                copy.macDeviceID = nil
+                copy.machineColorIndex = nil
+                return copy
+            }
+        }
         workspaces = derived
         if let selectedWorkspaceID,
            !derived.contains(where: { $0.id == selectedWorkspaceID }) {

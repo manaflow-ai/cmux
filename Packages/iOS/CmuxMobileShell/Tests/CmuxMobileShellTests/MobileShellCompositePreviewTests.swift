@@ -255,6 +255,39 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "terminal-selected")
     }
 
+    @Test func anonymousForegroundRowsDoNotExposeAggregateSentinel() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let anonymousWorkspace = MobileWorkspacePreview(
+            id: "w-anonymous",
+            name: "Manual",
+            terminals: [MobileTerminalPreview(id: "terminal-anonymous", name: "manual")]
+        )
+        let secondaryWorkspace = MobileWorkspacePreview(
+            id: "w-secondary",
+            macDeviceID: "mac-b",
+            name: "Secondary",
+            terminals: [MobileTerminalPreview(id: "terminal-secondary", name: "secondary")]
+        )
+
+        store.setWorkspaceStatesForTesting([
+            MobileShellComposite.foregroundAnonymousKey: MacWorkspaceState(
+                macDeviceID: MobileShellComposite.foregroundAnonymousKey,
+                workspaces: [anonymousWorkspace],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [secondaryWorkspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: nil)
+
+        let foreground = store.workspaces.first { $0.rpcWorkspaceID.rawValue == "w-anonymous" }
+        #expect(foreground?.macDeviceID == nil)
+        #expect(foreground?.remoteWorkspaceID?.rawValue == "w-anonymous")
+    }
+
     @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
         let loopback = try hostPortRoute(
             kind: .debugLoopback,
