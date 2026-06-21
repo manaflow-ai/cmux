@@ -1,5 +1,6 @@
 import Foundation
 import CmuxSettings
+import CmuxWindowing
 
 struct SurfaceNewWorkspaceMoveResult {
     let sourceWindowId: UUID
@@ -175,17 +176,19 @@ extension AppDelegate {
         panelId: UUID,
         panel: any Panel
     ) -> String {
-        let trimmedTitle = explicitTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let trimmedTitle, !trimmedTitle.isEmpty {
-            return trimmedTitle
-        }
-
-        let fallbackTitle = workspace.panelTitle(panelId: panelId) ?? panel.displayTitle
-        let trimmedFallbackTitle = fallbackTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedFallbackTitle.isEmpty {
-            return trimmedFallbackTitle
-        }
-
-        return String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
+        // The decision (which trimmed candidate wins) is the windowing-domain
+        // ``DetachedWorkspaceTitlePolicy``; this shim resolves the app-coupled
+        // candidate strings (surface title from the `Workspace`/`Panel`) and the
+        // app-bundle localized fallback, then forwards. The fallback MUST be
+        // resolved here in the app bundle so non-English (Japanese) translations
+        // are not dropped.
+        DetachedWorkspaceTitlePolicy().title(
+            explicitTitle: explicitTitle,
+            surfaceTitle: workspace.panelTitle(panelId: panelId) ?? panel.displayTitle,
+            localizedFallback: String(
+                localized: "commandPalette.subtitle.tabFallback",
+                defaultValue: "Tab"
+            )
+        )
     }
 }
