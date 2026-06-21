@@ -15613,20 +15613,25 @@ struct SidebarTabDropDelegate: DropDelegate {
             pointerY: plannerPointerY(for: info),
             targetHeight: targetRowHeight
         )
-        let usesTopLevelRows = explicitGroupId == nil && defaultUsesTopLevelRows
+        let usesTopLevelRows = usesTopLevelRowsForDrop(
+            draggedTabId: draggedTabId,
+            explicitGroupId: explicitGroupId,
+            defaultUsesTopLevelRows: defaultUsesTopLevelRows
+        )
+        let plannerTargetTabId = plannerTargetTabId(usesTopLevelRows: usesTopLevelRows)
         let reorderTabIds = tabManager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId,
+            targetWorkspaceId: plannerTargetTabId,
             usesTopLevelRows: usesTopLevelRows
         )
         let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
             forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId,
+            targetWorkspaceId: plannerTargetTabId,
             usesTopLevelRows: usesTopLevelRows
         )
         let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
             forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId,
+            targetWorkspaceId: plannerTargetTabId,
             usesTopLevelRows: usesTopLevelRows,
             explicitGroupId: explicitGroupId
         )
@@ -15638,7 +15643,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         }
         guard let targetIndex = SidebarDropPlanner().targetIndex(
             draggedTabId: draggedTabId,
-            targetTabId: targetTabId,
+            targetTabId: plannerTargetTabId,
             indicator: dragState.dropIndicator,
             tabIds: reorderTabIds,
             pinnedTabIds: pinnedTabIds,
@@ -15680,6 +15685,35 @@ struct SidebarTabDropDelegate: DropDelegate {
             preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
         )
         return didReorder
+    }
+
+    private func usesTopLevelRowsForDrop(
+        draggedTabId: UUID?,
+        explicitGroupId: UUID?,
+        defaultUsesTopLevelRows: Bool
+    ) -> Bool {
+        guard explicitGroupId == nil else { return false }
+        guard !defaultUsesTopLevelRows else { return true }
+        guard let draggedTabId,
+              tabManager.tabs.contains(where: { $0.id == draggedTabId }),
+              let targetTabId,
+              let targetGroupId = workspaceGroupIdByWorkspaceId[targetTabId] ?? nil,
+              let group = tabManager.workspaceGroups.first(where: { $0.id == targetGroupId }),
+              group.anchorWorkspaceId != targetTabId else {
+            return false
+        }
+        return true
+    }
+
+    private func plannerTargetTabId(usesTopLevelRows: Bool) -> UUID? {
+        guard usesTopLevelRows,
+              let targetTabId,
+              let targetGroupId = workspaceGroupIdByWorkspaceId[targetTabId] ?? nil,
+              let group = tabManager.workspaceGroups.first(where: { $0.id == targetGroupId }),
+              group.anchorWorkspaceId != targetTabId else {
+            return targetTabId
+        }
+        return group.anchorWorkspaceId
     }
 
     private func explicitDropTargetGroupId(
@@ -15911,26 +15945,31 @@ struct SidebarTabDropDelegate: DropDelegate {
                 targetHeight: targetRowHeight
             )
         }
-        let usesTopLevelRows = explicitGroupId == nil && defaultUsesTopLevelRows
+        let usesTopLevelRows = usesTopLevelRowsForDrop(
+            draggedTabId: dragState.draggedTabId,
+            explicitGroupId: explicitGroupId,
+            defaultUsesTopLevelRows: defaultUsesTopLevelRows
+        )
+        let plannerTargetTabId = plannerTargetTabId(usesTopLevelRows: usesTopLevelRows)
         let tabIds = tabManager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: dragState.draggedTabId,
-            targetWorkspaceId: targetTabId,
+            targetWorkspaceId: plannerTargetTabId,
             usesTopLevelRows: usesTopLevelRows
         )
         let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
             forDraggedWorkspaceId: dragState.draggedTabId,
-            targetWorkspaceId: targetTabId,
+            targetWorkspaceId: plannerTargetTabId,
             usesTopLevelRows: usesTopLevelRows
         )
         let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
             forDraggedWorkspaceId: dragState.draggedTabId,
-            targetWorkspaceId: targetTabId,
+            targetWorkspaceId: plannerTargetTabId,
             usesTopLevelRows: usesTopLevelRows,
             explicitGroupId: explicitGroupId
         )
         let plannedIndicator = SidebarDropPlanner().indicator(
             draggedTabId: dragState.draggedTabId,
-            targetTabId: targetTabId,
+            targetTabId: plannerTargetTabId,
             tabIds: tabIds,
             pinnedTabIds: pinnedTabIds,
             legalInsertionRange: legalInsertionRange,
