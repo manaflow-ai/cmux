@@ -1015,6 +1015,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         return BrowserOmnibarFocusTracker(selectionRepeat: selectionRepeat)
     }()
+    /// Records which browser web view owns each window field editor, replacing
+    /// the retired `cmuxFieldEditorOwningWebViewAssociationKey` global var + box.
+    /// The composition root holds the one instance; the NSWindow first-responder
+    /// shim forwards through it.
+    let browserFieldEditorOwnershipRegistry = BrowserFieldEditorOwnershipRegistry()
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
@@ -12206,15 +12211,6 @@ private var cmuxFirstResponderGuardHitViewOverride: NSView?
 private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
 private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
-private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
-
-private final class CmuxFieldEditorOwningWebViewBox: NSObject {
-    weak var webView: CmuxWebView?
-
-    init(webView: CmuxWebView?) {
-        self.webView = webView
-    }
-}
 
 private extension NSApplication {
     @objc func cmux_accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
@@ -13445,35 +13441,20 @@ private extension NSWindow {
     }
 
     private static func cmuxTrackFieldEditor(_ fieldEditor: NSTextView, owningWebView webView: CmuxWebView?) {
-        if let webView {
-            objc_setAssociatedObject(
-                fieldEditor,
-                &cmuxFieldEditorOwningWebViewAssociationKey,
-                CmuxFieldEditorOwningWebViewBox(webView: webView),
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        } else {
-            objc_setAssociatedObject(
-                fieldEditor,
-                &cmuxFieldEditorOwningWebViewAssociationKey,
-                nil,
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        }
+        // App-side responder-introspection shim: forward into the package
+        // registry that retired the `cmuxFieldEditorOwningWebViewAssociationKey`
+        // global. `CmuxWebView` is an app-target subclass of the package's
+        // `WKWebView`-typed store.
+        AppDelegate.shared?.browserFieldEditorOwnershipRegistry.setOwningWebView(
+            webView,
+            forFieldEditor: fieldEditor
+        )
     }
 
     private static func cmuxTrackedOwningWebView(for fieldEditor: NSTextView) -> CmuxWebView? {
-        guard let box = objc_getAssociatedObject(
-            fieldEditor,
-            &cmuxFieldEditorOwningWebViewAssociationKey
-        ) as? CmuxFieldEditorOwningWebViewBox else {
-            return nil
-        }
-        guard let webView = box.webView else {
-            cmuxTrackFieldEditor(fieldEditor, owningWebView: nil)
-            return nil
-        }
-        return webView
+        AppDelegate.shared?
+            .browserFieldEditorOwnershipRegistry
+            .owningWebView(forFieldEditor: fieldEditor) as? CmuxWebView
     }
 
     private static func cmuxEventAllowsFirstResponderHitTesting(_ event: NSEvent) -> Bool {
