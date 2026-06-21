@@ -531,25 +531,12 @@ struct cmuxApp: App {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
 
-                Button(
-                    String(
-                        localized: "debug.menu.openStressWorkspacesWithLoadedSurfaces",
-                        defaultValue: "Open Stress Workspaces and Load All Terminals"
-                    )
-                ) {
-                    appDelegate.openDebugStressWorkspacesWithLoadedSurfaces(nil)
-                }
-
-                Button(
-                    String(
-                        localized: "debug.menu.showCanvasCommandScrollHint",
-                        defaultValue: "Show Canvas Scroll Hint"
-                    )
-                ) {
-                    guard let workspace = activeTabManager.selectedWorkspace else { return }
-                    debugShowCanvasCommandScrollHint(in: workspace)
-                }
-                .disabled(activeTabManager.selectedWorkspace?.layoutMode != .canvas)
+                CanvasDebugMenuButtons(
+                    workspace: activeTabManager.selectedWorkspace,
+                    openStressWorkspacesWithLoadedSurfaces: {
+                        appDelegate.openDebugStressWorkspacesWithLoadedSurfaces(nil)
+                    }
+                )
 
                 Divider()
                 Menu("Debug Windows") {
