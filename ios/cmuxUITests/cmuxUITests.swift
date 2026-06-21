@@ -446,6 +446,8 @@ final class cmuxUITests: XCTestCase {
         )
 
         for cycle in 1...4 {
+            let cycleProducedStart = lastProducedLine
+            let cycleRenderedStart = lastRenderedLine
             Thread.sleep(forTimeInterval: 0.75)
             XCUIDevice.shared.press(.home)
             Thread.sleep(forTimeInterval: 0.35)
@@ -463,8 +465,8 @@ final class cmuxUITests: XCTestCase {
                 let strongPixels = try strongTerminalTextPixelCount(in: app)
                 lastProducedLine = max(lastProducedLine, produced)
                 lastRenderedLine = max(lastRenderedLine, rendered)
-                if produced > (firstLine ?? 0) + 8,
-                   rendered >= produced - 8,
+                if produced > cycleProducedStart + 8,
+                   rendered > cycleRenderedStart,
                    strongPixels > 10 {
                     caughtUp = true
                     break
