@@ -6,15 +6,8 @@ import SwiftUI
 /// When other workspaces are unread it reads as "‹ 3"; otherwise it is just the
 /// chevron.
 struct WorkspaceBackButton: View {
-    enum BadgeContrast {
-        /// Use on dark terminal chrome: white circle, black text.
-        case darkBackground
-        /// Use on light chrome: black circle, white text.
-        case lightBackground
-    }
-
     let unreadCount: Int
-    var badgeContrast: BadgeContrast = .lightBackground
+    var badgeContrast: WorkspaceBackButtonBadgeContrast = .lightBackground
     let action: () -> Void
 
     var body: some View {
