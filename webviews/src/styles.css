@@ -104,7 +104,13 @@ body {
   position: relative;
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(124px, 0.9fr) auto;
+  /* Every track is shrinkable to zero so no cell can be starved into
+     overflowing its neighbor. The actions track is `auto` but its contents have
+     min-width:0 and the cell clips, so even a momentarily-too-wide actions row
+     cannot overlay the left cell. The JS priority-overflow keeps the actions
+     within budget; this template + `overflow: clip` on the cells is the hard
+     no-overlap guarantee that holds even if a measurement is briefly stale. */
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, auto);
   align-items: center;
   /* When the Files sidebar is shown, JumpSelect is not rendered (it duplicates
      the sidebar's file navigation). Collapse the centered middle track so
@@ -126,7 +132,7 @@ body {
    re-declares its own template and overrides this for its range. */
 @media (min-width: 521px) {
   body[data-files-hidden="false"] #toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
   }
   body[data-files-hidden="false"] .toolbar-middle {
     display: none;
@@ -138,6 +144,17 @@ body {
   display: flex;
   align-items: center;
   min-width: 0;
+  /* Safety net: grid cells do not clip by default, so a cell whose content is
+     wider than its track would visually overflow into the neighboring cell and
+     overlay it. Clip HORIZONTAL overflow so any residual width spill disappears
+     cleanly instead of overlapping, while leaving the VERTICAL axis visible so
+     the Base picker and options popovers (which drop below the toolbar) still
+     escape. `overflow-x: clip` + `overflow-y: visible` is a safe pair: neither
+     value is coerced, so vertical stays truly visible. The JS priority-overflow
+     keeps content within the track in practice; this is the guarantee, not the
+     mechanism. */
+  overflow-x: clip;
+  overflow-y: visible;
 }
 .toolbar-left,
 .toolbar-middle {
@@ -521,7 +538,7 @@ body {
 }
 @media (max-width: 760px) {
   #toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
     grid-template-areas:
       "source actions"
       "jump actions";
