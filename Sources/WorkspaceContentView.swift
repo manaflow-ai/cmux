@@ -353,7 +353,7 @@ struct WorkspaceContentView: View {
                 )
             } else if workspace.layoutMode == .zoomableSplits {
                 ZoomableSplitHostView(
-                    workspace: workspace,
+                    workspace: workspace, isWorkspaceInputActive: isWorkspaceInputActive,
                     content: AnyView(
                         bonsplitView
                             .environment(\.cmuxCanvasInlineBrowserHosting, true)

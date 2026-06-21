@@ -13,6 +13,7 @@ private final class ZoomableSplitDocumentView: NSView {
 @MainActor
 final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private weak var workspace: Workspace?
+    private var isWorkspaceInputActive: Bool
     private let scrollView = NSScrollView()
     private let documentView = ZoomableSplitDocumentView()
     private let hostingView: NSHostingView<AnyView>
@@ -26,8 +27,9 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private static let minMagnification: CGFloat = 0.1
     private static let maxMagnification: CGFloat = 2.0
 
-    init(workspace: Workspace, content: AnyView) {
+    init(workspace: Workspace, isWorkspaceInputActive: Bool, content: AnyView) {
         self.workspace = workspace
+        self.isWorkspaceInputActive = isWorkspaceInputActive
         self.hostingView = NSHostingView(rootView: content)
         super.init(frame: .zero)
 
@@ -43,9 +45,11 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         nil
     }
 
-    func update(content: AnyView) {
+    func update(isWorkspaceInputActive: Bool, content: AnyView) {
+        self.isWorkspaceInputActive = isWorkspaceInputActive
         hostingView.rootView = content
         workspace?.zoomableSplitViewport = self
+        updateCommandScrollMonitor()
         updateDocumentSize()
         synchronizeViewportGeometry()
     }
@@ -68,7 +72,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         if window == nil {
             removeCommandScrollMonitor()
         } else {
-            installCommandScrollMonitor()
+            updateCommandScrollMonitor()
             synchronizeViewportGeometry()
         }
     }
@@ -239,6 +243,14 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
                 }
             }
         }
+    }
+
+    private func updateCommandScrollMonitor() {
+        guard window != nil, isWorkspaceInputActive else {
+            removeCommandScrollMonitor()
+            return
+        }
+        installCommandScrollMonitor()
     }
 
     private func installCommandScrollMonitor() {

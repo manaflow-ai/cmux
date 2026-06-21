@@ -7,14 +7,22 @@ import SwiftUI
 /// on the whole packed layout as one document.
 struct ZoomableSplitHostView: NSViewRepresentable {
     let workspace: Workspace
+    let isWorkspaceInputActive: Bool
     let content: AnyView
 
     func makeNSView(context: Context) -> ZoomableSplitRootView {
-        ZoomableSplitRootView(workspace: workspace, content: content)
+        ZoomableSplitRootView(
+            workspace: workspace,
+            isWorkspaceInputActive: isWorkspaceInputActive,
+            content: content
+        )
     }
 
     func updateNSView(_ nsView: ZoomableSplitRootView, context: Context) {
-        nsView.update(content: content)
+        nsView.update(
+            isWorkspaceInputActive: isWorkspaceInputActive,
+            content: content
+        )
     }
 
     static func dismantleNSView(_ nsView: ZoomableSplitRootView, coordinator: ()) {
