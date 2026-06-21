@@ -845,11 +845,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// because the seams read late-bound state (`notificationStore`,
     /// `mainWindowContexts`) that is `nil` until startup wiring completes; the
     /// seam contracts already degrade to empty/no-op when that state is absent.
-    /// Performs notification click actions (currently reveal-in-Finder). The
-    /// path-resolution logic lives in the package; `AppDelegate` only supplies
-    /// the `NSWorkspace`/`FileManager` side effect through `FinderRevealing`. The
-    /// single instance is shared by both the navigation coordinator and the
-    /// `UNUserNotificationCenter` delivery coordinator.
+    /// Performs notification click actions (currently reveal-in-Finder). Both the
+    /// path-resolution logic and the `NSWorkspace`/`FileManager` side effect now
+    /// live in the package (`NotificationClickPerformer` over the injected
+    /// `SystemFinderRevealer`); `AppDelegate` only injects the concrete revealer.
+    /// Shared by the navigation coordinator and the delivery coordinator.
     /// Weak-owner adapter that satisfies every notification-nav seam by
     /// forwarding to `AppDelegate` helpers. The coordinator and click performer
     /// strong-ref this adapter; the adapter weak-refs `AppDelegate`, so there is
@@ -857,7 +857,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the app-host test instance). See `AppDelegate+NotificationNavSeams.swift`.
     lazy var notificationNavSeams = NotificationNavSeamAdapter(owner: self)
 
-    lazy var notificationClickPerformer = NotificationClickPerformer(finder: notificationNavSeams)
+    lazy var notificationClickPerformer = NotificationClickPerformer(finder: SystemFinderRevealer())
 
     lazy var notificationNavigation: NotificationNavigationCoordinator =
         NotificationNavigationCoordinator(

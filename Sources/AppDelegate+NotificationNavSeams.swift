@@ -35,7 +35,6 @@ final class NotificationNavSeamAdapter:
     UnreadWorkspaceTargeting,
     NotificationOpenRouting,
     NotificationPopoverPresenting,
-    FinderRevealing,
     FocusedNotificationResolving
 {
     weak var owner: AppDelegate?
@@ -129,20 +128,6 @@ final class NotificationNavSeamAdapter:
 
     func presentMenuBarNotificationsPopover() {
         owner?.presentMenuBarNotificationsPopover()
-    }
-
-    // MARK: FinderRevealing
-
-    func fileExists(atPath path: String) -> Bool {
-        owner?.finderFileExists(atPath: path) ?? false
-    }
-
-    func selectFileInFinder(path: String) -> Bool {
-        owner?.finderSelectFile(path: path) ?? false
-    }
-
-    func openDirectoryInFinder(path: String) -> Bool {
-        owner?.finderOpenDirectory(path: path) ?? false
     }
 
     // MARK: FocusedNotificationResolving
@@ -373,23 +358,6 @@ extension AppDelegate {
 
     func tabTitle(forTabId tabId: UUID) -> String? {
         tabTitle(for: tabId)
-    }
-
-    // MARK: FinderRevealing helpers
-
-    func finderFileExists(atPath path: String) -> Bool {
-        FileManager.default.fileExists(atPath: path)
-    }
-
-    func finderSelectFile(path: String) -> Bool {
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-        // `activateFileViewerSelecting` returns no status; the legacy
-        // `revealInFinder` returned `true` on this branch.
-        return true
-    }
-
-    func finderOpenDirectory(path: String) -> Bool {
-        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
     // MARK: FocusedNotificationResolving helpers
