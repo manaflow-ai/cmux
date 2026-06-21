@@ -736,6 +736,9 @@ private final class CodexTeamsBackfillConnectionMock: CMUXCLI.CodexTeamsAppServe
             guard params?["threadId"] as? String == "thread-1" else {
                 throw CLIError(message: "unexpected thread/resume params: \(params ?? [:])")
             }
+            guard params?["excludeTurns"] as? Bool == true else {
+                throw CLIError(message: "thread/resume must pass excludeTurns: true")
+            }
             guard !resumeResults.isEmpty else {
                 throw CLIError(message: "unexpected extra thread/resume request")
             }
