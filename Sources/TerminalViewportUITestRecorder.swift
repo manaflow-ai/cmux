@@ -14,6 +14,12 @@ final class TerminalViewportUITestRecorder {
 
     private let environment: [String: String]
     private let contextProvider: () -> [AppDelegate.MainWindowContext]
+    /// Resolves a window's per-window ``SidebarState`` by `WindowID` through the
+    /// app delegate's `windowSidebarStates` store. Injected (not read off a
+    /// singleton) so the recorder never assumes which `AppDelegate` is live; the
+    /// per-window sidebar state was peeled out of `MainWindowContext` into the
+    /// `WindowID`-keyed store (owner ruling 2026-06-18).
+    private let sidebarStateProvider: (AppDelegate.MainWindowContext) -> SidebarState
     private let initialWindowSize: NSSize?
     private let initialWindowSizeText: String?
     private let resizeWindowSize: NSSize?
@@ -35,10 +41,12 @@ final class TerminalViewportUITestRecorder {
 
     init(
         environment: [String: String],
-        contextProvider: @escaping () -> [AppDelegate.MainWindowContext]
+        contextProvider: @escaping () -> [AppDelegate.MainWindowContext],
+        sidebarStateProvider: @escaping (AppDelegate.MainWindowContext) -> SidebarState
     ) {
         self.environment = environment
         self.contextProvider = contextProvider
+        self.sidebarStateProvider = sidebarStateProvider
         initialWindowSize = Self.parseWindowSize(environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_WINDOW_SIZE"])
         initialWindowSizeText = Self.requestedWindowSizeText(environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_WINDOW_SIZE"])
         resizeWindowSize = Self.parseWindowSize(environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_RESIZE_WINDOW_SIZE"])
@@ -92,8 +100,9 @@ final class TerminalViewportUITestRecorder {
             ? (resizeWindowSizeText ?? initialWindowSizeText)
             : initialWindowSizeText
 
+        let sidebarState = sidebarStateProvider(context)
         if hideSidebar {
-            context.sidebarState.isVisible = false
+            sidebarState.isVisible = false
         }
         if hideRightSidebar {
             context.fileExplorerState?.setVisible(false)
@@ -115,7 +124,7 @@ final class TerminalViewportUITestRecorder {
             "terminalViewportReady": "1",
             "terminalViewportWindowWidth": Self.format(window.frame.width),
             "terminalViewportWindowHeight": Self.format(window.frame.height),
-            "terminalViewportSidebarVisible": context.sidebarState.isVisible ? "1" : "0",
+            "terminalViewportSidebarVisible": sidebarState.isVisible ? "1" : "0",
             "terminalViewportRightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
             "terminalViewportWorkspaceId": terminalPanel.workspaceId.uuidString,
         ]

@@ -649,7 +649,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     final class MainWindowContext {
         let windowId: UUID
         let tabManager: TabManager
-        let sidebarState: SidebarState
+        // The per-window sidebar state (visibility + persisted width) was peeled
+        // out of this aggregate into `AppDelegate.windowSidebarStates` (a
+        // `WindowID`-keyed ``CmuxWindowing/WindowScopedStore`` whose slice is
+        // dropped by the window teardown paths); resolve it by
+        // `AppDelegate.sidebarState(for:)` (owner ruling 2026-06-18: per-window
+        // state is domain-owned, `WindowID`-keyed).
         // The per-window sidebar-selection state was peeled out of this
         // aggregate into `AppDelegate.windowSidebarSelectionStates` (a
         // `WindowID`-keyed ``CmuxWindowing/WindowScopedStore`` whose slice is
@@ -673,13 +678,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         init(
             windowId: UUID,
             tabManager: TabManager,
-            sidebarState: SidebarState,
             fileExplorerState: FileExplorerState?,
             window: NSWindow?
         ) {
             self.windowId = windowId
             self.tabManager = tabManager
-            self.sidebarState = sidebarState
             self.fileExplorerState = fileExplorerState
             self.window = window
             self.keyboardFocusCoordinator = MainWindowFocusController(
@@ -1257,6 +1260,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let fallback = SidebarSelectionState()
         windowSidebarSelectionStates.setModel(fallback, for: WindowID(context.windowId))
+        return fallback
+    }
+
+    /// Per-window ``SidebarState`` (sidebar visibility + persisted width), keyed
+    /// by ``WindowID`` (peeled out of the rejected `MainWindowContext` aggregate;
+    /// owner ruling 2026-06-18: per-window state is domain-owned and
+    /// `WindowID`-keyed, never bundled into one per-window aggregate). Mirrors
+    /// ``windowSidebarSelectionStates`` exactly: a passive dictionary whose slice
+    /// is seeded at `registerMainWindow` and dropped by the window teardown paths
+    /// (`unregisterMainWindowContext` / `discardOrphanedMainWindowContext`), which
+    /// run for every closing window. It deliberately does NOT subscribe to the
+    /// single-consumer `windowCoordinator.windowClosed` stream, which would split
+    /// close events with the teardown loop and starve it.
+    let windowSidebarStates = WindowScopedStore<SidebarState>()
+
+    /// The per-window ``SidebarState`` for `context`, resolved by ``WindowID``
+    /// through ``windowSidebarStates``. `registerMainWindow` always seeds the
+    /// slice before the context is reachable, so a live context always has one;
+    /// the empty-state fallback only guards an already-torn-down context and
+    /// preserves the never-`nil` invariant the lifted `let` field had.
+    func sidebarState(for context: MainWindowContext) -> SidebarState {
+        if let state = windowSidebarStates.model(for: WindowID(context.windowId)) {
+            return state
+        }
+        let fallback = SidebarState()
+        windowSidebarStates.setModel(fallback, for: WindowID(context.windowId))
         return fallback
     }
 
@@ -2691,8 +2720,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: context.windowId)
             ClosedItemHistoryStore.shared.flushPendingSaves()
         }
-        context.sidebarState.isVisible = snapshot.sidebar.isVisible
-        context.sidebarState.persistedWidth = CGFloat(
+        let restoreSidebarState = sidebarState(for: context)
+        restoreSidebarState.isVisible = snapshot.sidebar.isVisible
+        restoreSidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
         sidebarSelectionState(for: context).selection = snapshot.sidebar.selection.sidebarSelection
@@ -2901,9 +2931,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             )
-            hasher.combine(context.sidebarState.isVisible)
+            let fingerprintSidebarState = sidebarState(for: context)
+            hasher.combine(fingerprintSidebarState.isVisible)
             hasher.combine(
-                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth)).rounded())
+                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(fingerprintSidebarState.persistedWidth)).rounded())
             )
 
             switch sidebarSelectionState(for: context).selection {
@@ -3270,15 +3301,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 
         let window = context.window ?? windowForMainWindowId(context.windowId)
+        let snapshotSidebarState = sidebarState(for: context)
         return SessionWindowSnapshot(
             windowId: context.windowId,
             frame: window.map { SessionRectSnapshot($0.frame) },
             display: displaySnapshot(for: window),
             tabManager: tabManagerSnapshot,
             sidebar: SessionSidebarSnapshot(
-                isVisible: context.sidebarState.isVisible,
+                isVisible: snapshotSidebarState.isVisible,
                 selection: SessionSidebarSelection(selection: sidebarSelectionState(for: context).selection),
-                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
+                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(snapshotSidebarState.persistedWidth))
             )
         )
     }
@@ -3426,11 +3458,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let context = MainWindowContext(
                 windowId: windowId,
                 tabManager: tabManager,
-                sidebarState: sidebarState,
                 fileExplorerState: fileExplorerState,
                 window: window
             )
             mainWindowContexts[key] = context
+            windowSidebarStates.setModel(sidebarState, for: WindowID(windowId))
             windowSidebarSelectionStates.setModel(sidebarSelectionState, for: WindowID(windowId))
             if let cmuxConfigStore {
                 windowConfigStores.setModel(cmuxConfigStore, for: WindowID(windowId))
@@ -3473,10 +3505,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
-            sidebarState: SidebarState(),
             fileExplorerState: fileExplorerState,
             window: nil
         )
+        windowSidebarStates.setModel(SidebarState(), for: WindowID(windowId))
         windowSidebarSelectionStates.setModel(SidebarSelectionState(), for: WindowID(windowId))
         if let cmuxConfigStore {
             windowConfigStores.setModel(cmuxConfigStore, for: WindowID(windowId))
@@ -4756,6 +4788,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // directly), so the store never needs its own `windowClosed` drain.
         windowConfigStores.remove(WindowID(removed.windowId))
         windowSidebarSelectionStates.remove(WindowID(removed.windowId))
+        windowSidebarStates.remove(WindowID(removed.windowId))
         rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
@@ -4778,6 +4811,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // close fired). Explicit removal is the store's only teardown signal.
         windowConfigStores.remove(WindowID(context.windowId))
         windowSidebarSelectionStates.remove(WindowID(context.windowId))
+        windowSidebarStates.remove(WindowID(context.windowId))
         rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
@@ -5089,7 +5123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context else { return tabManager }
         let alreadyActive =
             tabManager === context.tabManager
-            && sidebarState === context.sidebarState
+            && sidebarState === sidebarState(for: context)
             && sidebarSelectionState === sidebarSelectionState(for: context)
         if alreadyActive {
 #if DEBUG
@@ -5103,7 +5137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         } else {
             tabManager = context.tabManager
-            sidebarState = context.sidebarState
+            sidebarState = sidebarState(for: context)
             sidebarSelectionState = sidebarSelectionState(for: context)
             fileExplorerState = context.fileExplorerState
             TerminalController.shared.setActiveTabManager(context.tabManager)
@@ -5238,7 +5272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             setActiveMainWindow(window)
-            context.sidebarState.toggle()
+            sidebarState(for: context).toggle()
             return true
         }
 
@@ -5779,7 +5813,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func sidebarVisibility(windowId: UUID) -> Bool? {
-        mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
+            return nil
+        }
+        return sidebarState(for: context).isVisible
     }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
@@ -6735,7 +6772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let alreadyActive =
             tabManager === context.tabManager
-            && sidebarState === context.sidebarState
+            && sidebarState === sidebarState(for: context)
             && sidebarSelectionState === sidebarSelectionState(for: context)
         if alreadyActive { return true }
 
@@ -6743,7 +6780,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         } else {
             tabManager = context.tabManager
-            sidebarState = context.sidebarState
+            sidebarState = sidebarState(for: context)
             sidebarSelectionState = sidebarSelectionState(for: context)
             fileExplorerState = context.fileExplorerState
             TerminalController.shared.setActiveTabManager(context.tabManager)
@@ -7873,10 +7910,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didSetupTerminalViewportUITest = true
 
         terminalViewportUITestRecorder?.stop()
-        terminalViewportUITestRecorder = TerminalViewportUITestRecorder(environment: env) { [weak self] in
-            guard let self else { return [] }
-            return Array(self.mainWindowContexts.values)
-        }
+        terminalViewportUITestRecorder = TerminalViewportUITestRecorder(
+            environment: env,
+            contextProvider: { [weak self] in
+                guard let self else { return [] }
+                return Array(self.mainWindowContexts.values)
+            },
+            sidebarStateProvider: { [weak self] context in
+                guard let self else { return SidebarState() }
+                return self.sidebarState(for: context)
+            }
+        )
         terminalViewportUITestRecorder?.start()
     }
 
@@ -11674,7 +11718,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         tabManager = context.tabManager
-        sidebarState = context.sidebarState
+        sidebarState = sidebarState(for: context)
         sidebarSelectionState = sidebarSelectionState(for: context)
         fileExplorerState = context.fileExplorerState
         TerminalController.shared.setActiveTabManager(context.tabManager)
