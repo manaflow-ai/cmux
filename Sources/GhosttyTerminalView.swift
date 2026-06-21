@@ -4805,11 +4805,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let previousChangeCount = generalPasteboard.changeCount
         let copied = performBindingAction("copy_to_clipboard")
 
-        let pasteboardString = generalPasteboard.string(forType: .string)
-        // Ghostty owns clipboard formatting when it writes a non-empty string;
-        // the raw selection snapshot is only the no-op/empty pasteboard fallback.
+        // Ghostty owns clipboard formatting when it writes string data;
+        // the raw selection snapshot is only the no-op pasteboard fallback.
         let ghosttyWroteFormattedText = generalPasteboard.changeCount != previousChangeCount
-            && pasteboardString?.isEmpty == false
+            && generalPasteboard.availableType(from: [.string]) != nil
         if ghosttyWroteFormattedText {
             return true
         }
@@ -4818,10 +4817,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return copied
         }
 
-        if pasteboardString != selectedText {
-            GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
-        }
-        return copied || !selectedText.isEmpty
+        GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+        return true
     }
 
     private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
