@@ -157,28 +157,39 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
 
     public func removeAll() async throws {
         // Sign-out wipe: clear local only. The server backup is intentionally
-        // kept so the next sign-in restores the account's saved hosts. Reset the
-        // restore memo (and any in-flight restore) so a same-launch re-sign-in
-        // restores again rather than reading the just-emptied store.
+        // kept so the next sign-in restores the account's saved hosts.
+        //
+        // Cancel AND DRAIN any in-flight restore BEFORE wiping. A restore can pass
+        // its `Task.isCancelled` check and then suspend inside `inner.upsert`;
+        // cancellation does not withdraw that already-queued write. If we wiped
+        // first, that upsert could land AFTER the wipe and resurrect the previous
+        // account's Macs in the just-emptied store (the sign-out privacy boundary).
+        // Awaiting the cancelled tasks guarantees every pending write has completed,
+        // so the subsequent wipe is final.
+        let draining = cancelInFlightRestoresReturningTasks()
+        for task in draining { _ = await task.value }
         try await inner.removeAll()
         restoredScopes.removeAll()
-        // Cancel in-flight restores so a backup fetch suspended across this wipe
-        // cannot resume and re-upsert the previous account's Macs into the just-
-        // emptied local store (sign-out privacy boundary). `PairedMacRestore.run`
-        // checks `Task.isCancelled` after its fetch and skips the writes.
-        await cancelInFlightRestores()
         lastSignedInAccount = nil
     }
 
     public func cancelInFlightRestores() async {
-        // Bump the reset generation so any restore already past its cancellation
-        // checks (suspended at `await task.value`) still bails before memoizing,
-        // and cancel the tasks so `PairedMacRestore.run`'s `Task.isCancelled`
-        // checks fire. Does not touch `inner` — sign-out keeps the per-user rows.
+        _ = cancelInFlightRestoresReturningTasks()
+    }
+
+    /// Invalidate in-flight restores and return their handles so the caller can
+    /// optionally DRAIN them (await completion) before relying on store state.
+    /// Bumps the reset generation so any restore suspended at `await task.value`
+    /// bails before memoizing, and cancels the tasks so `PairedMacRestore.run`'s
+    /// `Task.isCancelled` checks fire. Does not touch `inner` — sign-out keeps the
+    /// per-user rows; only `removeAll` wipes them, after draining.
+    private func cancelInFlightRestoresReturningTasks() -> [Task<RestoreOutcome, Never>] {
         resetGeneration &+= 1
         restoredScopes.removeAll()
-        for (_, task) in inFlight { task.cancel() }
+        let tasks = Array(inFlight.values)
         inFlight.removeAll()
+        for task in tasks { task.cancel() }
+        return tasks
     }
 
     /// Force a backup re-fetch + LWW merge for the signed-in scope, ignoring the

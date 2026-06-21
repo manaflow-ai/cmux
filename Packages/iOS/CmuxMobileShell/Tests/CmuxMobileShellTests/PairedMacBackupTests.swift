@@ -56,6 +56,67 @@ private actor MutableBackup: PairedMacBackingUp {
     func fetches() -> Int { fetchCount }
 }
 
+/// Wraps a real inner store but BLOCKS the first `upsert` until released, so a
+/// test can suspend a restore precisely inside its store write (the exact window
+/// the sign-out wipe must drain) and prove the wipe is final.
+private actor GatedUpsertStore: MobilePairedMacStoring {
+    private let inner: MobilePairedMacStore
+    private var enteredContinuation: CheckedContinuation<Void, Never>?
+    private var entered = false
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var released = false
+    private var gateArmed = true
+
+    init(inner: MobilePairedMacStore) { self.inner = inner }
+
+    func waitUntilUpsertEntered() async {
+        if entered { return }
+        await withCheckedContinuation { enteredContinuation = $0 }
+    }
+    func release() {
+        released = true
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+    private func awaitRelease() async {
+        if released { return }
+        await withCheckedContinuation { releaseContinuation = $0 }
+    }
+
+    func upsert(
+        macDeviceID: String, displayName: String?, routes: [CmxAttachRoute],
+        markActive: Bool, stackUserID: String?, now: Date
+    ) async throws {
+        if gateArmed {
+            gateArmed = false
+            entered = true
+            enteredContinuation?.resume()
+            enteredContinuation = nil
+            await awaitRelease()
+        }
+        try await inner.upsert(
+            macDeviceID: macDeviceID, displayName: displayName, routes: routes,
+            markActive: markActive, stackUserID: stackUserID, now: now)
+    }
+    func loadAll(stackUserID: String?) async throws -> [MobilePairedMac] {
+        try await inner.loadAll(stackUserID: stackUserID)
+    }
+    func activeMac(stackUserID: String?) async throws -> MobilePairedMac? {
+        try await inner.activeMac(stackUserID: stackUserID)
+    }
+    func setActive(macDeviceID: String) async throws { try await inner.setActive(macDeviceID: macDeviceID) }
+    func setCustomization(
+        macDeviceID: String, customName: String?, customColor: String?,
+        customIcon: String?, now: Date
+    ) async throws {
+        try await inner.setCustomization(
+            macDeviceID: macDeviceID, customName: customName, customColor: customColor,
+            customIcon: customIcon, now: now)
+    }
+    func remove(macDeviceID: String) async throws { try await inner.remove(macDeviceID: macDeviceID) }
+    func removeAll() async throws { try await inner.removeAll() }
+}
+
 @Suite struct PairedMacBackupTests {
     private func makeInnerStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
@@ -246,6 +307,36 @@ private actor MutableBackup: PairedMacBackingUp {
         let outcome = await task.value
         #expect(!outcome.completed) // cancelled restore is not a completed restore
         #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty) // nothing written
+    }
+
+    @Test func removeAllDrainsRestoreSuspendedInsideUpsert() async throws {
+        // The sharper sign-out race: a restore passes its cancellation check and is
+        // suspended INSIDE `store.upsert` when the wipe runs. Cancellation does not
+        // withdraw that queued write, so `removeAll` must DRAIN the restore (await
+        // its completion) BEFORE wiping — otherwise the previous account's Mac lands
+        // in the just-emptied store after sign-out.
+        let (real, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let gated = GatedUpsertStore(inner: real)
+        let backing = BackingUpPairedMacStore(
+            inner: gated,
+            backup: FakeBackup(records: [
+                try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true),
+            ])
+        )
+
+        // Kick a restore via a read; it fetches, then blocks inside the gated upsert.
+        let restoreKick = Task { _ = try? await backing.loadAll(stackUserID: "user-1") }
+        await gated.waitUntilUpsertEntered()
+
+        // Sign-out wipe while the restore is mid-upsert. It must drain that write
+        // (so we release the gate to let it finish) and then leave the store empty.
+        let wipe = Task { try await backing.removeAll() }
+        await gated.release()
+        try await wipe.value
+        _ = await restoreKick.value
+
+        #expect(try await real.loadAll(stackUserID: "user-1").isEmpty)
     }
 
     @Test func restoreAppliesCustomizationsFromBackup() async throws {
