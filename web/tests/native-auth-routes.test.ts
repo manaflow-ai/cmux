@@ -91,6 +91,20 @@ describe("native auth routes", () => {
       restoreEnv("CMUX_AUTH_CALLBACK_SCHEME", previousScheme);
     }
   });
+
+  test("rejects dev native callbacks when loopback appears only in forwarded host", () => {
+    const request = new NextRequest("https://cmux.example/handler/after-sign-in", {
+      headers: {
+        host: "cmux.example",
+        "x-forwarded-host": "localhost:4177",
+      },
+    });
+
+    expect(isAllowedNativeReturnTo(
+      "cmux-dev://auth-callback?cmux_auth_state=state-1",
+      request
+    )).toBe(false);
+  });
 });
 
 function restoreEnv(key: string, value: string | undefined) {

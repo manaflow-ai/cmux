@@ -10,7 +10,6 @@ function requestHostCandidates(request: NextRequest): Set<string> {
   const hosts = new Set<string>();
   for (const value of [
     request.headers.get("host"),
-    request.headers.get("x-forwarded-host"),
     request.nextUrl.host,
   ]) {
     const host = firstHeaderValue(value)?.split(":")[0]?.toLowerCase();
