@@ -224,8 +224,7 @@ extension ControlWorkstreamContext {
     func controlCreateWorkstream(
         routing: ControlRoutingSelectors,
         name: String,
-        workspaceIDs: [UUID],
-        workspacesExplicit: Bool
+        workspaceIDs: [UUID]
     ) -> ControlWorkstreamCreateResolution { .tabManagerUnavailable }
 
     func controlRenameWorkstream(routing: ControlRoutingSelectors, workstreamID: UUID, name: String) -> Bool? { nil }

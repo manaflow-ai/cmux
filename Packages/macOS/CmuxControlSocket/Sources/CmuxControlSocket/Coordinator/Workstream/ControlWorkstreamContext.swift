@@ -23,12 +23,10 @@ public protocol ControlWorkstreamContext: AnyObject {
     ///   - name: The workstream name (already defaulted to "" when absent; the
     ///     app applies the localized "Workstream N" auto-name).
     ///   - workspaceIDs: Resolved member workspace ids, in request order.
-    ///   - workspacesExplicit: Whether the caller listed `workspace_ids`.
     func controlCreateWorkstream(
         routing: ControlRoutingSelectors,
         name: String,
-        workspaceIDs: [UUID],
-        workspacesExplicit: Bool
+        workspaceIDs: [UUID]
     ) -> ControlWorkstreamCreateResolution
 
     /// Renames a workstream for `workstream.rename`. Returns `true` if it

@@ -41,8 +41,7 @@ extension TerminalController: ControlWorkstreamContext {
     func controlCreateWorkstream(
         routing: ControlRoutingSelectors,
         name: String,
-        workspaceIDs: [UUID],
-        workspacesExplicit: Bool
+        workspaceIDs: [UUID]
     ) -> ControlWorkstreamCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable

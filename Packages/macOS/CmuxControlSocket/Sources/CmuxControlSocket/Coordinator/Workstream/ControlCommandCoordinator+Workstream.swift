@@ -74,10 +74,8 @@ extension ControlCommandCoordinator {
         let name = rawString(params, "name") ?? ""
 
         let rawWorkspaces: [String]
-        let workspacesExplicit: Bool
         if let provided = workstreamStringArrayExact(params["workspace_ids"]) {
             rawWorkspaces = provided
-            workspacesExplicit = true
         } else if let value = params["workspace_ids"], !workstreamIsNull(value) {
             return .err(
                 code: "invalid_params",
@@ -86,7 +84,6 @@ extension ControlCommandCoordinator {
             )
         } else {
             rawWorkspaces = []
-            workspacesExplicit = false
         }
 
         var unresolved: [String] = []
@@ -108,8 +105,7 @@ extension ControlCommandCoordinator {
         let resolution = context?.controlCreateWorkstream(
             routing: routingSelectors(params),
             name: name,
-            workspaceIDs: parsedWorkspaceIDs,
-            workspacesExplicit: workspacesExplicit
+            workspaceIDs: parsedWorkspaceIDs
         ) ?? .tabManagerUnavailable
 
         switch resolution {

@@ -36,8 +36,7 @@ private final class FakeWorkstreamContext: ControlCommandContext {
     func controlCreateWorkstream(
         routing: ControlRoutingSelectors,
         name: String,
-        workspaceIDs: [UUID],
-        workspacesExplicit: Bool
+        workspaceIDs: [UUID]
     ) -> ControlWorkstreamCreateResolution {
         lastCreateName = name
         lastCreateWorkspaceIDs = workspaceIDs

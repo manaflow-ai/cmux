@@ -72,6 +72,20 @@ struct WorkstreamTests {
         #expect(removed.workstreamId == nil)
     }
 
+    @Test func newWorkspaceWhileDrilledInJoinsWorkstream() throws {
+        // A workspace created while drilled into a workstream must inherit it.
+        // Otherwise it gets workstreamId == nil, fails the drill-in filter
+        // (workstreamId == drilledInWorkstreamId), and is focused-but-invisible.
+        let manager = makeTabManager()
+        let id = manager.createWorkstream(name: "WS")
+        manager.drilledInWorkstreamId = id
+        let created = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        #expect(created.workstreamId == id)
+        // It is visible under the current drill-in filter.
+        let visible = manager.tabs.filter { $0.workstreamId == manager.drilledInWorkstreamId }
+        #expect(visible.contains { $0.id == created.id })
+    }
+
     // MARK: - Persistence round-trip
 
     @Test func sessionSnapshotRoundtripPreservesWorkstreams() throws {

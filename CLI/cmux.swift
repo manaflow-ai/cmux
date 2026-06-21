@@ -8326,7 +8326,11 @@ struct CMUXCLI {
             let (nameOpt, rem0) = parseOption(rest, name: "--name")
             let id = try resolveWorkstreamId(in: rem0)
             params["workstream_id"] = id
-            let positional = rem0.filter { !$0.hasPrefix("--") && $0 != id }
+            // Strip --window <value> before scanning for the positional name, so
+            // `rename <id> --window <win>` (no --name) doesn't consume the window
+            // value as the new name. Mirrors resolveWorkstreamId / the create case.
+            let (_, remNoWindow) = parseOption(rem0, name: "--window")
+            let positional = remNoWindow.filter { !$0.hasPrefix("--") && $0 != id }
             guard let newName = nameOpt ?? positional.first else {
                 throw CLIError(message: "rename requires --name <name>")
             }

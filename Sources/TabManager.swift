@@ -1149,6 +1149,14 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
+            // When the sidebar is drilled into a workstream, a workspace created
+            // from the shared path (Cmd+N, plus button, group creation) must join
+            // that workstream. Otherwise it keeps workstreamId == nil, fails the
+            // drill-in filter (workstreamId == drilledInWorkstreamId), and becomes
+            // a focused-but-invisible row missing from the list and breadcrumb count.
+            if let drilledInWorkstreamId, newWorkspace.workstreamId != drilledInWorkstreamId {
+                newWorkspace.workstreamId = drilledInWorkstreamId
+            }
             if title != nil {
                 newWorkspace.setCustomTitle(title)
             }

@@ -1,7 +1,7 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34528	CLI/cmux.swift
+34532	CLI/cmux.swift
 17668	Sources/AppDelegate.swift
 16103	Sources/ContentView.swift
 13992	Sources/TerminalController.swift
@@ -15,7 +15,7 @@
 7355	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
-6229	Sources/TabManager.swift
+6237	Sources/TabManager.swift
 6220	cmuxTests/GhosttyConfigTests.swift
 6072	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
@@ -196,7 +196,7 @@
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 534	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
-533	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
+532	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
 531	Sources/App/WorkspaceRuntimeSettings.swift
 530	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
 529	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
