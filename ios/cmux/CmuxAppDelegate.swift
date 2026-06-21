@@ -57,7 +57,8 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         let ids = Self.cmuxIDs(from: notification.request.content.userInfo)
         let present = await pushCoordinator?.shouldPresentInForeground(
             workspaceId: ids.workspaceId,
-            surfaceId: ids.surfaceId
+            surfaceId: ids.surfaceId,
+            macDeviceId: ids.macDeviceId
         ) ?? true
         return present ? [.banner, .sound, .badge] : []
     }
@@ -89,7 +90,8 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         ])
         await pushCoordinator?.handleTap(
             workspaceId: ids.workspaceId,
-            surfaceId: ids.surfaceId
+            surfaceId: ids.surfaceId,
+            macDeviceId: ids.macDeviceId
         )
         await pushCoordinator?.handleDismiss(
             notificationId: Self.notificationID(from: request)
@@ -136,9 +138,13 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
 
     private nonisolated static func cmuxIDs(
         from userInfo: [AnyHashable: Any]
-    ) -> (workspaceId: String?, surfaceId: String?) {
-        guard let cmux = userInfo["cmux"] as? [String: Any] else { return (nil, nil) }
-        return (cmux["workspaceId"] as? String, cmux["surfaceId"] as? String)
+    ) -> (workspaceId: String?, surfaceId: String?, macDeviceId: String?) {
+        guard let cmux = userInfo["cmux"] as? [String: Any] else { return (nil, nil, nil) }
+        return (
+            cmux["workspaceId"] as? String,
+            cmux["surfaceId"] as? String,
+            cmux["macDeviceId"] as? String
+        )
     }
 
     /// The stable Mac-side notification id for a delivered request, or `nil` when

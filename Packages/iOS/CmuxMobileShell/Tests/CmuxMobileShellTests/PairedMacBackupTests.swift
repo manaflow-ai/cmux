@@ -30,6 +30,19 @@ import Testing
         )
     }
 
+    @Test func backupClientEndpointURLJoinsBasePath() {
+        #expect(PairedMacBackupClient.endpointURL(
+            serviceBaseURL: "https://presence.example"
+        )?.absoluteString == "https://presence.example/v1/sync/paired-macs")
+        #expect(PairedMacBackupClient.endpointURL(
+            serviceBaseURL: "https://presence.example/"
+        )?.absoluteString == "https://presence.example/v1/sync/paired-macs")
+        #expect(PairedMacBackupClient.endpointURL(
+            serviceBaseURL: "http://127.0.0.1:8799/base/"
+        )?.absoluteString == "http://127.0.0.1:8799/base/v1/sync/paired-macs")
+        #expect(PairedMacBackupClient.endpointURL(serviceBaseURL: "ftp://presence.example") == nil)
+    }
+
     // MARK: - Decorator backup mirroring
 
     @Test func upsertForwardsAndUploads() async throws {

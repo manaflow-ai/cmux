@@ -288,6 +288,49 @@ import Testing
         #expect(foreground?.remoteWorkspaceID?.rawValue == "w-anonymous")
     }
 
+    @Test func deeplinkWorkspaceResolutionUsesMacOwnerWhenWorkspaceIDsCollide() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let workspaceA = MobileWorkspacePreview(
+            id: "shared",
+            macDeviceID: "mac-a",
+            name: "Mac A",
+            terminals: [MobileTerminalPreview(id: "terminal-shared", name: "a")]
+        )
+        let workspaceB = MobileWorkspacePreview(
+            id: "shared",
+            macDeviceID: "mac-b",
+            name: "Mac B",
+            terminals: [MobileTerminalPreview(id: "terminal-shared", name: "b")]
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [workspaceA],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [workspaceB],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+
+        let resolvedWorkspaceID = try #require(store.workspaceID(
+            matchingRemoteWorkspaceID: "shared",
+            macDeviceID: "mac-b"
+        ))
+        let resolvedSurfaceOwnerID = try #require(store.workspaceID(
+            containingSurfaceID: "terminal-shared",
+            macDeviceID: "mac-b"
+        ))
+
+        let workspace = try #require(store.workspaces.first { $0.id == resolvedWorkspaceID })
+        #expect(workspace.macDeviceID == "mac-b")
+        #expect(resolvedSurfaceOwnerID == resolvedWorkspaceID)
+        #expect(store.workspaceID(matchingRemoteWorkspaceID: "shared", macDeviceID: "missing") == nil)
+    }
+
     @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
         let loopback = try hostPortRoute(
             kind: .debugLoopback,

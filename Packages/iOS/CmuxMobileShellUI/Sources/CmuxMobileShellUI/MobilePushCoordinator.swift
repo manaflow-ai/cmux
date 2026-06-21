@@ -56,6 +56,7 @@ public final class MobilePushCoordinator {
     private struct PendingDeeplink {
         let workspaceId: String?
         let surfaceId: String?
+        let macDeviceId: String?
         let createdAt: Date
     }
 
@@ -191,8 +192,14 @@ public final class MobilePushCoordinator {
     /// Whether to show a banner while the app is foreground. Suppressed when the
     /// user is already viewing the terminal the notification is about.
     public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?) -> Bool {
+        shouldPresentInForeground(workspaceId: workspaceId, surfaceId: surfaceId, macDeviceId: nil)
+    }
+
+    /// Whether to show a banner while the app is foreground, scoped to the Mac
+    /// that sent the notification when the payload includes it.
+    public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?, macDeviceId: String?) -> Bool {
         guard let store, let workspaceId,
-              store.selectedWorkspaceMatches(remoteWorkspaceID: workspaceId) else {
+              store.selectedWorkspaceMatches(remoteWorkspaceID: workspaceId, macDeviceID: macDeviceId) else {
             return true
         }
         if let surfaceId {
@@ -209,9 +216,16 @@ public final class MobilePushCoordinator {
     /// immediately in those states is what stranded users on the workspaces
     /// home screen.
     public func handleTap(workspaceId: String?, surfaceId: String?) {
+        handleTap(workspaceId: workspaceId, surfaceId: surfaceId, macDeviceId: nil)
+    }
+
+    /// Deep-link to the workspace/terminal a tapped notification refers to,
+    /// using the sending Mac id to disambiguate duplicate Mac-local ids.
+    public func handleTap(workspaceId: String?, surfaceId: String?, macDeviceId: String?) {
         pendingDeeplink = PendingDeeplink(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
+            macDeviceId: macDeviceId,
             createdAt: now()
         )
         applyPendingDeeplinkIfReady()
@@ -235,10 +249,16 @@ public final class MobilePushCoordinator {
         // the tap is never spent on a selection that cannot navigate.
         let workspaceTarget: MobileWorkspacePreview.ID
         if let workspaceId = pending.workspaceId {
-            guard let resolved = store.workspaceID(matchingRemoteWorkspaceID: workspaceId) else { return }
+            guard let resolved = store.workspaceID(
+                matchingRemoteWorkspaceID: workspaceId,
+                macDeviceID: pending.macDeviceId
+            ) else { return }
             workspaceTarget = resolved
         } else if let surfaceId = pending.surfaceId {
-            guard let owner = store.workspaceID(containingSurfaceID: surfaceId) else { return }
+            guard let owner = store.workspaceID(
+                containingSurfaceID: surfaceId,
+                macDeviceID: pending.macDeviceId
+            ) else { return }
             workspaceTarget = owner
         } else {
             pendingDeeplink = nil
@@ -255,6 +275,7 @@ public final class MobilePushCoordinator {
             pendingDeeplink = PendingDeeplink(
                 workspaceId: nil,
                 surfaceId: surfaceId,
+                macDeviceId: pending.macDeviceId,
                 createdAt: pending.createdAt
             )
             return

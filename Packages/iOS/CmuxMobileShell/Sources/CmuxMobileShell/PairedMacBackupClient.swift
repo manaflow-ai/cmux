@@ -32,6 +32,26 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     private static let path = "/v1/sync/paired-macs"
 
+    /// Build the paired-Mac backup endpoint from a service base URL. The base
+    /// may include or omit a trailing slash, and may include a deployment base
+    /// path, but must be an HTTP(S) URL.
+    static func endpointURL(serviceBaseURL: String) -> URL? {
+        guard var components = URLComponents(string: serviceBaseURL) else { return nil }
+        switch components.scheme?.lowercased() {
+        case "http", "https":
+            break
+        default:
+            return nil
+        }
+        let basePath = components.path.hasSuffix("/")
+            ? String(components.path.dropLast())
+            : components.path
+        components.path = basePath + Self.path
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+
     /// Upload backup mutations to the presence worker.
     public func upload(ops: [PairedMacBackupOp]) async {
         let teamID = await teamIDProvider()
@@ -81,7 +101,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     private func makeRequest(method: String, body: Data?, teamID: String?) async -> URLRequest? {
         guard let accessToken = await tokenSource.accessToken(),
-              let url = URL(string: serviceBaseURL + Self.path) else {
+              let url = Self.endpointURL(serviceBaseURL: serviceBaseURL) else {
             return nil
         }
         var request = URLRequest(url: url)
