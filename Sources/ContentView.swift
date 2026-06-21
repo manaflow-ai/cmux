@@ -5965,13 +5965,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 
     private func commandPaletteRenameInputFocusPolicy() -> CommandPaletteInputFocusPolicy {
         let selectAllOnFocus = CommandPaletteSettingsStore(defaults: .standard).renameSelectsAllOnFocus
-        let selectionBehavior: CommandPaletteTextSelectionBehavior = selectAllOnFocus
-            ? .selectAll
-            : .caretAtEnd
-        return CommandPaletteInputFocusPolicy(
-            focusTarget: .rename,
-            selectionBehavior: selectionBehavior
-        )
+        return CommandPaletteInputFocusPolicy.renameInput(selectsAllOnFocus: selectAllOnFocus)
     }
 
     private func applyCommandPaletteInputFocusPolicy(_ policy: CommandPaletteInputFocusPolicy) {
@@ -5999,20 +5993,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             commandPalettePresentation.pendingTextSelectionBehavior = nil
             return
         }
-        guard let behavior = commandPalettePresentation.pendingTextSelectionBehavior else { return }
-        switch behavior {
-        case .selectAll:
-            guard case .renameInput = commandPalettePresentation.mode else { return }
-        case .caretAtEnd:
-            switch commandPalettePresentation.mode {
-            case .commands, .renameInput:
-                break
-            case .renameConfirm:
-                return
-            case .workspaceDescriptionInput:
-                return
-            }
-        }
+        // Pure mode/behavior gating lives on the package presentation model; the
+        // field-editor lookup, the range application, and the post-apply clear
+        // stay app-side. A `.skip` plan leaves the queued behavior pending for a
+        // later focus, exactly as the legacy early-returns did.
+        let plan = commandPalettePresentation.pendingTextSelectionPlan()
+        guard plan != .skip else { return }
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
 
         guard let editor = window.firstResponder as? NSTextView,
@@ -6020,7 +6006,9 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             return
         }
         let length = (editor.string as NSString).length
-        switch behavior {
+        switch plan {
+        case .skip:
+            return
         case .selectAll:
             editor.setSelectedRange(NSRange(location: 0, length: length))
         case .caretAtEnd:
