@@ -7,7 +7,7 @@
 11994	Sources/ContentView.swift
 11411	Sources/Panels/BrowserPanel.swift
 11285	Sources/Workspace.swift
-11115	Sources/GhosttyTerminalView.swift
+11131	Sources/GhosttyTerminalView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7992	Sources/Panels/BrowserPanelView.swift
 7303	cmuxTests/WorkspaceUnitTests.swift
@@ -48,8 +48,8 @@
 2047	cmuxTests/ShortcutAndCommandPaletteTests.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1942	Sources/KeyboardShortcutSettingsFileStore.swift
+1898	Sources/TerminalController+ControlDebugContext.swift
 1880	Sources/RestorableAgentSession.swift
-1861	Sources/TerminalController+ControlDebugContext.swift
 1848	cmuxTests/NotificationAndMenuBarTests.swift
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
@@ -200,6 +200,7 @@
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
+535	cmuxUITests/GTVHotPathPerfUITests.swift
 534	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 534	Sources/TerminalController+ControlBrowserContext.swift
 531	Sources/App/WorkspaceRuntimeSettings.swift
@@ -220,6 +221,7 @@
 519	Sources/CmuxConfigExecutor.swift
 518	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
 516	Sources/TerminalImageTransfer.swift
+515	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Debug/ControlCommandCoordinator+Debug.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
 511	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/RemotePTY/ControlRemotePTYWorker.swift
