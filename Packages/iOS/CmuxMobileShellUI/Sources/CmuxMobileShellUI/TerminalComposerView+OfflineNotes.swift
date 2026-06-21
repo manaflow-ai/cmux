@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileShell
+import CmuxMobileSupport
 import SwiftUI
 
 extension TerminalComposerView {
