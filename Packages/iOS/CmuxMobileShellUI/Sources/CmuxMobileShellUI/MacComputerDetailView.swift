@@ -276,7 +276,7 @@ struct MacComputerDetailView: View {
             Text(L10n.string("mobile.computers.section.presence", defaultValue: "Presence (from server)"))
         } footer: {
             Text(L10n.string("mobile.computers.presenceFooter",
-                defaultValue: "Presence is the Mac's own heartbeat to the presence service, which is currently a DEV-only feature — stable cmux Macs don't announce it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone — usually a Tailscale or route problem."))
+                defaultValue: "Presence is the Mac's own heartbeat to the presence service, which is currently a DEV-only feature. Stable cmux Macs don't announce it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone, usually a Tailscale or route problem."))
         }
     }
 

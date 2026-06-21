@@ -30,6 +30,8 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// connecting/reconnecting/offline and the derivation can decide whether a
     /// dropped Mac's last-known rows stay (greyed) or are dropped.
     public var status: MobileMacConnectionStatus
+    /// Workspace actions supported by this Mac.
+    public var actionCapabilities: MobileWorkspaceActionCapabilities
 
     /// Stable identity for SwiftUI lists and dictionaries.
     public var id: String { macDeviceID }
@@ -40,12 +42,14 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
         displayName: String? = nil,
         workspaces: [MobileWorkspacePreview] = [],
         groups: [MobileWorkspaceGroupPreview] = [],
-        status: MobileMacConnectionStatus = .reconnecting
+        status: MobileMacConnectionStatus = .reconnecting,
+        actionCapabilities: MobileWorkspaceActionCapabilities = .none
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
         self.workspaces = workspaces
         self.groups = groups
         self.status = status
+        self.actionCapabilities = actionCapabilities
     }
 }

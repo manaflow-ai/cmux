@@ -65,6 +65,7 @@ public struct MobileWorkspaceAggregation: Sendable {
                 let remoteID = workspace.remoteWorkspaceID ?? workspace.id
                 stamped.remoteWorkspaceID = shouldScopeRowIDs && !ownerID.isEmpty ? remoteID : workspace.remoteWorkspaceID
                 stamped.macConnectionStatus = state.status
+                stamped.actionCapabilities = state.actionCapabilities
                 if shouldScopeRowIDs && !ownerID.isEmpty {
                     stamped.id = rowID(macDeviceID: ownerID, workspaceID: remoteID)
                 }

@@ -89,6 +89,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// from offline secondary Macs can render unavailable while the foreground
     /// Mac remains connected. `nil` outside an aggregated/per-Mac derivation.
     public var macConnectionStatus: MobileMacConnectionStatus? = nil
+    /// Workspace actions supported by the Mac that owns this row.
+    public var actionCapabilities: MobileWorkspaceActionCapabilities = .none
 
     /// The workspace id to use in RPC params.
     public var rpcWorkspaceID: ID {

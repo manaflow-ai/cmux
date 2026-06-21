@@ -559,10 +559,9 @@ struct WorkspaceDetailView: View {
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
         }
 
-        // Rename the current workspace from the terminal-icon menu, mirroring the
-        // workspace list's rename action. Gated on the same capability the list
-        // uses, so it stays hidden on older Macs.
-        if store.supportsWorkspaceActions {
+        // Rename the current workspace from the terminal-icon menu, mirroring
+        // the workspace list's row-scoped capability gate.
+        if workspace.actionCapabilities.supportsWorkspaceActions {
             Section {
                 Button(action: presentRenameFromMenu) {
                     Label(
@@ -575,9 +574,8 @@ struct WorkspaceDetailView: View {
         }
 
         // Mark the current workspace read/unread from the terminal-icon menu,
-        // mirroring the workspace list's swipe action. Only when the Mac supports
-        // read-state actions, so it stays hidden on older Macs.
-        if store.supportsWorkspaceReadStateActions {
+        // mirroring the workspace list's row-scoped capability gate.
+        if workspace.actionCapabilities.supportsReadStateActions {
             Section {
                 Button(action: toggleWorkspaceReadStateFromMenu) {
                     Label(

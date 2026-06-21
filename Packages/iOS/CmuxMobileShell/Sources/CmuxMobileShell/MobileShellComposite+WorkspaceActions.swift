@@ -24,6 +24,7 @@ extension MobileShellComposite {
     ///   - id: The workspace to rename.
     ///   - title: The new title. Whitespace-only titles are ignored.
     public func renameWorkspace(id: MobileWorkspacePreview.ID, title: String) async {
+        guard workspaceActionCapabilities(for: id).supportsWorkspaceActions else { return }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         var params = workspaceMutationParams(id: id)
@@ -46,6 +47,7 @@ extension MobileShellComposite {
     ///   - id: The workspace to pin or unpin.
     ///   - pinned: `true` to pin, `false` to unpin.
     public func setWorkspacePinned(id: MobileWorkspacePreview.ID, _ pinned: Bool) async {
+        guard workspaceActionCapabilities(for: id).supportsWorkspaceActions else { return }
         var params = workspaceMutationParams(id: id)
         params["action"] = pinned ? "pin" : "unpin"
         await sendWorkspaceMutation(
@@ -62,6 +64,7 @@ extension MobileShellComposite {
     ///   - id: The workspace to mark.
     ///   - unread: `true` to mark unread, `false` to mark read.
     public func setWorkspaceUnread(id: MobileWorkspacePreview.ID, _ unread: Bool) async {
+        guard workspaceActionCapabilities(for: id).supportsReadStateActions else { return }
         var params = workspaceMutationParams(id: id)
         params["action"] = unread ? "mark_unread" : "mark_read"
         await sendWorkspaceMutation(
@@ -79,12 +82,17 @@ extension MobileShellComposite {
     /// the last workspace, the refresh restores the row state on iOS.
     /// - Parameter id: The workspace to close.
     public func closeWorkspace(id: MobileWorkspacePreview.ID) async {
+        guard workspaceActionCapabilities(for: id).supportsCloseActions else { return }
         await sendWorkspaceMutation(
             method: "workspace.close",
             params: workspaceMutationParams(id: id),
             id: id,
             actionName: "close"
         )
+    }
+
+    private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {
+        workspaces.first { $0.id == id }?.actionCapabilities ?? .none
     }
 
     private func sendWorkspaceMutation(

@@ -34,10 +34,16 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     /// Upload backup mutations to the presence worker.
     public func upload(ops: [PairedMacBackupOp]) async {
+        let teamID = await teamIDProvider()
+        await upload(ops: ops, teamID: teamID)
+    }
+
+    /// Upload backup mutations to the presence worker for an already-captured team.
+    public func upload(ops: [PairedMacBackupOp], teamID: String?) async {
         guard !ops.isEmpty else { return }
         let body = PairedMacBackupRequestBody(ops: ops.map(PairedMacBackupOpWire.init(op:)))
         guard let data = try? JSONEncoder().encode(body),
-              let request = await makeRequest(method: "POST", body: data) else {
+              let request = await makeRequest(method: "POST", body: data, teamID: teamID) else {
             return
         }
         do {
@@ -52,7 +58,13 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     /// Fetch every backed-up paired Mac for the current user/team scope.
     public func fetchAll() async -> [PairedMacBackupRecord]? {
-        guard let request = await makeRequest(method: "GET", body: nil) else { return nil }
+        let teamID = await teamIDProvider()
+        return await fetchAll(teamID: teamID)
+    }
+
+    /// Fetch every backed-up paired Mac for an already-captured user/team scope.
+    public func fetchAll(teamID: String?) async -> [PairedMacBackupRecord]? {
+        guard let request = await makeRequest(method: "GET", body: nil, teamID: teamID) else { return nil }
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
@@ -67,7 +79,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         }
     }
 
-    private func makeRequest(method: String, body: Data?) async -> URLRequest? {
+    private func makeRequest(method: String, body: Data?, teamID: String?) async -> URLRequest? {
         guard let accessToken = await tokenSource.accessToken(),
               let url = URL(string: serviceBaseURL + Self.path) else {
             return nil
@@ -76,7 +88,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         request.httpMethod = method
         request.timeoutInterval = requestTimeout
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        if let teamID = await teamIDProvider(), !teamID.isEmpty {
+        if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
         if let body {

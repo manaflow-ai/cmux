@@ -89,6 +89,36 @@ import Testing
         #expect(derived.first { $0.rpcWorkspaceID.rawValue == "w2" }?.macConnectionStatus == .unavailable)
     }
 
+    @Test func rowActionCapabilitiesComeFromOwningMac() {
+        let foregroundCapabilities = MobileWorkspaceActionCapabilities(supportsWorkspaceActions: true)
+        let backgroundCapabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: true,
+            supportsReadStateActions: true,
+            supportsCloseActions: true
+        )
+        let states = [
+            "mac-fg": MacWorkspaceState(
+                macDeviceID: "mac-fg",
+                displayName: "FG",
+                workspaces: [ws("w1", mac: "mac-fg")],
+                status: .connected,
+                actionCapabilities: foregroundCapabilities
+            ),
+            "mac-bg": MacWorkspaceState(
+                macDeviceID: "mac-bg",
+                displayName: "BG",
+                workspaces: [ws("w2", mac: "mac-bg")],
+                status: .connected,
+                actionCapabilities: backgroundCapabilities
+            ),
+        ]
+
+        let derived = MobileWorkspaceAggregation().derivedWorkspaces(statesByMac: states, foregroundMacDeviceID: "mac-fg")
+
+        #expect(derived.first { $0.rpcWorkspaceID.rawValue == "w1" }?.actionCapabilities == foregroundCapabilities)
+        #expect(derived.first { $0.rpcWorkspaceID.rawValue == "w2" }?.actionCapabilities == backgroundCapabilities)
+    }
+
     @Test func emptyStateMapDerivesEmptyList() {
         #expect(MobileWorkspaceAggregation().derivedWorkspaces(statesByMac: [:], foregroundMacDeviceID: "mac-a").isEmpty)
     }

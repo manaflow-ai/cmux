@@ -276,6 +276,7 @@ struct WorkspaceListView: View {
 
     @ViewBuilder
     private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool) -> some View {
+        let capabilities = workspace.actionCapabilities
         WorkspaceNavigationRow(
             workspace: workspace,
             connectionStatus: workspace.macConnectionStatus ?? connectionStatus,
@@ -287,14 +288,14 @@ struct WorkspaceListView: View {
             profilePictureLeftShift: profilePictureLeftShift,
             profilePictureSize: profilePictureSize,
             selectWorkspace: selectWorkspace,
-            renameWorkspace: renameWorkspace,
-            setPinned: setPinned,
-            setUnread: setUnread,
-            closeWorkspace: requestWorkspaceClose,
+            renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
+            setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
+            setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
+            closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
-            confirmCloseWorkspace: closeWorkspace == nil ? nil : { _ in
+            confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
                 confirmCloseWorkspace()
-            }
+            } : nil
         )
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)

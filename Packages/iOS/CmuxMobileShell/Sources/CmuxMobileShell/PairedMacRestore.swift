@@ -41,7 +41,7 @@ public struct PairedMacRestore: Sendable {
         teamID: String? = nil,
         now: Date = Date()
     ) async -> RestoreOutcome {
-        guard let remote = await backup.fetchAll() else {
+        guard let remote = await backup.fetchAll(teamID: teamID) else {
             return RestoreOutcome(completed: false, restored: 0)
         }
         // Sign-out (or any wipe) can race this restore: if the owning task was

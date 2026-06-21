@@ -93,14 +93,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // preserved instead of clobbered with nil.
         guard let account = stackUserID, !account.isEmpty else { return }
         lastSignedInAccount = account
-        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account)
+        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account, teamID: team)
         // `markActive` clears the active flag of the account's previously-active
         // host locally; mirror THAT one record too so the backup keeps its
         // single-active invariant — without re-uploading the whole account, which
         // would copy other-team hosts into the selected team's DO (the local rows
         // carry no team id to filter by). See `setActive`.
         if markActive, let previouslyActive, previouslyActive.macDeviceID != macDeviceID {
-            await uploadCurrentRecord(macDeviceID: previouslyActive.macDeviceID, account: account)
+            await uploadCurrentRecord(macDeviceID: previouslyActive.macDeviceID, account: account, teamID: team)
         }
     }
 
@@ -216,7 +216,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // Only mirror the delete while signed in; an anonymous removal has no
         // per-user backup to delete and would just fail auth and log noise.
         guard account != nil || lastSignedInAccount != nil else { return }
-        await backup.upload(ops: [.delete(macDeviceID: macDeviceID)])
+        await backup.upload(ops: [.delete(macDeviceID: macDeviceID)], teamID: team)
     }
 
     /// Clear local paired Macs without deleting the user's server backup.
@@ -332,7 +332,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         let team = await resolvedTeam(teamID)
         guard let mac = (try? await inner.loadAll(stackUserID: account, teamID: team))?
             .first(where: { $0.macDeviceID == macDeviceID }) else { return }
-        await backup.upload(ops: [.upsert(Self.backupRecord(from: mac))])
+        await backup.upload(ops: [.upsert(Self.backupRecord(from: mac))], teamID: team)
     }
 
     /// Run the backup restore once per signed-in (account, team) scope this

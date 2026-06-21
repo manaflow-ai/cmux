@@ -1350,13 +1350,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Presence is the Mac's own heartbeat to the presence service, not your phone's connection. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone — usually a Tailscale or route problem."
+            "value": "Presence is the Mac's own heartbeat to the presence service, which is currently a DEV-only feature. Stable cmux Macs don't announce it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone, usually a Tailscale or route problem."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プレゼンスは Mac 自身のハートビートであり、電話の接続ではありません。プレゼンスがオンラインなのに「この電話」が未接続の場合、Mac は他からは到達できるが電話からは到達できません。通常は Tailscale かルートの問題です。"
+            "value": "プレゼンスは Mac 自身のプレゼンスサービスへのハートビートで、現在は DEV 限定の機能です。安定版の cmux Mac はまだ通知しないため、接続中の Mac でもサーバーハートビートが表示されないことがあります。プレゼンスがオンラインなのに「この電話」が未接続の場合、Mac は他からは到達できるが電話からは到達できません。通常は Tailscale かルートの問題です。"
           }
         }
       }

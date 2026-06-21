@@ -378,6 +378,22 @@ import Testing
         #expect(try await store.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-a"])
     }
 
+    @Test func upsertMirrorsUsingCapturedTeamScope() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup()
+        let team = MutableTeam("team-a")
+        let store = BackingUpPairedMacStore(
+            inner: inner, backup: backup, teamIDProvider: { await team.value })
+
+        try await store.upsert(
+            macDeviceID: "mac-a", displayName: "A", routes: [try route("10.0.0.1", 22)],
+            markActive: true, stackUserID: "user-1", now: Date())
+
+        await team.set("team-b")
+        #expect(await backup.uploadTeams().compactMap { $0 } == ["team-a"])
+    }
+
     @Test func teamSwitchReRestores() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }

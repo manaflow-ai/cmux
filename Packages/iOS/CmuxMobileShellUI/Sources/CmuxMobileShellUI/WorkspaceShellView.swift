@@ -219,31 +219,28 @@ struct WorkspaceShellView: View {
         }
     }
 
-    /// Rename/pin closures, present only when the connected Mac advertises the
-    /// `workspace.actions.v1` capability so the row affordances stay hidden on
-    /// older Macs that lack the handler. Built as explicit closure literals (not
-    /// a method-reference ternary, which the compiler fails to type-check inside
-    /// the large `WorkspaceListView` initializer).
+    /// Workspace action closures, always present for the real store. Row and
+    /// detail affordances gate themselves on each workspace's owning-Mac
+    /// capability snapshot, so a secondary Mac is not hidden behind the
+    /// foreground Mac's advertised capabilities. Built as explicit closure
+    /// literals (not method-reference ternaries, which the compiler fails to
+    /// type-check inside the large `WorkspaceListView` initializer).
     private var renameWorkspaceClosure: ((MobileWorkspacePreview.ID, String) -> Void)? {
-        guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, title in Task { await store.renameWorkspace(id: id, title: title) } }
     }
 
     private var setWorkspacePinnedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
     }
 
     private var setWorkspaceUnreadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        guard store.supportsWorkspaceReadStateActions else { return nil }
         let store = store
         return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
     }
 
     private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard store.supportsWorkspaceCloseActions else { return nil }
         let store = store
         return { id in Task { await store.closeWorkspace(id: id) } }
     }

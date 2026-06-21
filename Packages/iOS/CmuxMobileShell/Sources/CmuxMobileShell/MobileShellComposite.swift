@@ -57,6 +57,14 @@ private func makeManualHostAttachTicket(
     )
 }
 
+private func workspaceActionCapabilities(from supportedHostCapabilities: Set<String>) -> MobileWorkspaceActionCapabilities {
+    MobileWorkspaceActionCapabilities(
+        supportsWorkspaceActions: supportedHostCapabilities.contains("workspace.actions.v1"),
+        supportsReadStateActions: supportedHostCapabilities.contains("workspace.read_state.v1"),
+        supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1")
+    )
+}
+
 /// Transitional alias for the decomposed shell facade.
 ///
 /// The iOS views and push coordinator still bind to `CMUXMobileShellStore`;
@@ -2185,8 +2193,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
         replaceRemoteClient(with: sub.client)
         foregroundMacDeviceID = macID
+        supportedHostCapabilities = sub.supportedHostCapabilities
         workspacesByMac[macID] = MacWorkspaceState(
-            macDeviceID: macID, displayName: displayName, workspaces: previews, status: .connected
+            macDeviceID: macID,
+            displayName: displayName,
+            workspaces: previews,
+            status: .connected,
+            actionCapabilities: sub.actionCapabilities
         )
         // The previous foreground's live client was just replaced; drop its stale
         // rows (re-added as a secondary by scheduleSecondaryAggregation below).
@@ -2925,7 +2938,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: ticket,
             allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
         )
-        return SecondaryClientHandle(client: client, route: route, ticket: ticket)
+        let capabilities = await fetchSecondaryHostCapabilities(on: client)
+        return SecondaryClientHandle(
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: capabilities,
+            actionCapabilities: workspaceActionCapabilities(from: capabilities)
+        )
+    }
+
+    private func fetchSecondaryHostCapabilities(on client: MobileCoreRPCClient) async -> Set<String> {
+        guard let runtime else { return [] }
+        do {
+            let data = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
+                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+            )
+            guard let payload = try? MobileHostStatusResponse.decode(data) else { return [] }
+            return Set(payload.capabilities)
+        } catch {
+            mobileShellLog.warning("secondary host status failed: \(String(describing: error), privacy: .private)")
+            return []
+        }
     }
 
     /// Fetch one Mac's workspace list over an EXISTING client, tagged with its
@@ -3024,7 +3059,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         macDeviceID: mac.macDeviceID,
                         displayName: mac.displayName,
                         workspaces: previews,
-                        status: .connected
+                        status: .connected,
+                        actionCapabilities: existing.actionCapabilities
                     )
                 } else {
                     existing.cancel()
@@ -3062,7 +3098,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let subscription = SecondaryMacSubscription(
-            macDeviceID: macID, client: client, route: handle.route, ticket: handle.ticket
+            macDeviceID: macID,
+            client: client,
+            route: handle.route,
+            ticket: handle.ticket,
+            supportedHostCapabilities: handle.supportedHostCapabilities,
+            actionCapabilities: handle.actionCapabilities
         )
         secondaryMacSubscriptions[macID] = subscription
         let displayName = mac.displayName
@@ -3079,7 +3120,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         if let previews {
             workspacesByMac[macID] = MacWorkspaceState(
-                macDeviceID: macID, displayName: displayName, workspaces: previews, status: .connected
+                macDeviceID: macID,
+                displayName: displayName,
+                workspaces: previews,
+                status: .connected,
+                actionCapabilities: subscription.actionCapabilities
             )
         }
         subscription.task = Task { @MainActor [weak self] in
@@ -3141,7 +3186,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       current.client === client else { return }
                 if let previews {
                     self.workspacesByMac[macID] = MacWorkspaceState(
-                        macDeviceID: macID, displayName: displayName, workspaces: previews, status: .connected
+                        macDeviceID: macID,
+                        displayName: displayName,
+                        workspaces: previews,
+                        status: .connected,
+                        actionCapabilities: current.actionCapabilities
                     )
                 }
             } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
@@ -3229,6 +3278,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// The key the foreground Mac's state lives under in ``workspacesByMac``.
     private var foregroundMacKey: String { foregroundMacDeviceID ?? Self.foregroundAnonymousKey }
+
+    private func updateForegroundWorkspaceActionCapabilities() {
+        guard var state = workspacesByMac[foregroundMacKey] else { return }
+        state.actionCapabilities = workspaceActionCapabilities(from: supportedHostCapabilities)
+        workspacesByMac[foregroundMacKey] = state
+    }
 
     /// Recompute the derived ``workspaces`` / ``workspaceGroups`` from the per-Mac
     /// source of truth. Pure and cheap; the only place those two are assigned,
@@ -3338,6 +3393,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         if let groups { state.groups = groups }
         state.status = .connected
+        state.actionCapabilities = workspaceActionCapabilities(from: supportedHostCapabilities)
         workspacesByMac[key] = state
     }
 
@@ -5473,6 +5529,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return fallback
             }
             supportedHostCapabilities = Set(payload.capabilities)
+            updateForegroundWorkspaceActionCapabilities()
             await applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
