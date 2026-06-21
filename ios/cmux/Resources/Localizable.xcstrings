@@ -1973,91 +1973,6 @@
         }
       }
     },
-    "mobile.drawer.account": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Account"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アカウント"
-          }
-        }
-      }
-    },
-    "mobile.drawer.close": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close menu"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メニューを閉じる"
-          }
-        }
-      }
-    },
-    "mobile.drawer.currentTeam": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Current team"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在のチーム"
-          }
-        }
-      }
-    },
-    "mobile.drawer.open": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open menu"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メニューを開く"
-          }
-        }
-      }
-    },
-    "mobile.drawer.teams": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Teams"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チーム"
-          }
-        }
-      }
-    },
     "mobile.feedback.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -3737,6 +3652,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macを切り替え"
+          }
+        }
+      }
+    },
+    "mobile.settings.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チーム"
+          }
+        }
+      }
+    },
+    "mobile.settings.teamFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switches which Stack team's Macs and devices this app shows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリに表示する Stack チームの Mac とデバイスを切り替えます。"
           }
         }
       }

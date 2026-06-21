@@ -50,11 +50,6 @@ struct WorkspaceListView: View {
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
-    /// Open the left-edge nav drawer (account, teams, Settings, Sign out). When
-    /// present (the iOS shell), the leading toolbar shows a menu/avatar button that
-    /// invokes this instead of the standalone Settings button — the drawer subsumes
-    /// Settings + Sign out. `nil` on macOS / previews, where `settingsMenu` is shown.
-    var openDrawer: (() -> Void)?
 
     /// Machines present in the (aggregated) workspace list, for the filter's
     /// machine multi-select. Single-machine yields no machine section. Names
@@ -190,11 +185,7 @@ struct WorkspaceListView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .topBarLeading) {
-                if let openDrawer {
-                    drawerButton(openDrawer)
-                } else {
-                    settingsMenu
-                }
+                settingsMenu
             }
             if store != nil {
                 ToolbarItem(placement: .topBarLeading) {
@@ -238,16 +229,6 @@ struct WorkspaceListView: View {
     }
 
     #if os(iOS)
-    private func drawerButton(_ openDrawer: @escaping () -> Void) -> some View {
-        Button {
-            openDrawer()
-        } label: {
-            Image(systemName: "line.3.horizontal")
-        }
-        .accessibilityLabel(L10n.string("mobile.drawer.open", defaultValue: "Open menu"))
-        .accessibilityIdentifier("MobileNavDrawerButton")
-    }
-
     private var devicesButton: some View {
         Button {
             showingDeviceTree = true
