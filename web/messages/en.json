@@ -1787,13 +1787,13 @@
       "pairStep3": "Once paired, your workspaces and terminals appear on the phone over your network.",
       "pairNote": "Pairing is per device. A new device, or a reinstalled app, pairs again.",
       "notificationsTitle": "Notifications",
-      "notificationsDesc": "You can opt in to forward terminal notifications to your phone, so a pane that needs attention pushes to your device. See <link>notifications</link> for how cmux raises them.",
+      "notificationsDesc": "You can opt in to forward terminal notifications to your phone, so a pane that needs attention pushes to your device. When forwarding is on, the notification text (title and body, drawn from terminal output) is sent through cmux servers to Apple's push service to deliver it. Turn on Hide content in the notification settings to send a generic message instead and keep terminal text on your devices. See <link>notifications</link> for how cmux raises them.",
       "dataTitle": "What data is stored",
       "dataIntro": "cmux is built so your terminal stays between your devices. On cmux servers we store only what is needed to sign you in and connect your devices:",
       "data1": "Your account from sign-in (email), to identify you across devices.",
       "data2": "A push token for your device, to deliver forwarded terminal notifications.",
       "data3": "Pairing and device metadata, to connect your phone to your Mac.",
-      "dataNot": "Terminal contents and keystrokes flow directly between your phone and your Mac over your own network. They are not relayed through or stored on cmux servers.",
+      "dataNot": "Your interactive terminal session, its contents and keystrokes, flows directly between your phone and your Mac over your own network, and is not relayed through or stored on cmux servers. The one exception is forwarded notification text, which transits cmux and Apple's push service to reach your phone, unless you enable Hide content (see Notifications above).",
       "enterpriseTitle": "Enterprise and self-hosted",
       "enterpriseDesc": "For a self-hosted or air-gapped deployment, contact <link>founders@manaflow.com</link>."
     }
