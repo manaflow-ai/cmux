@@ -1927,6 +1927,17 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// seam because those require the live panel registry and the C bridge.
     let surfaceCreation = SurfaceCreationCoordinator()
 
+    /// Routes external drag-and-drop onto the split layout (CmuxWorkspaces): the
+    /// `handleExternalTabDrop` dispatch (session-index / file-preview drag →
+    /// brand-new surface, otherwise a cross-window tab move) and the per-drop
+    /// insert/split branching for the session and file paths. `Workspace`
+    /// forwards `handleExternalTabDrop` / `handleFilePreviewDrop` /
+    /// `handleExternalFileDrop` here and conforms to ``WorkspaceDropHosting``
+    /// (witnessed in `Workspace+WorkspaceDropHosting.swift`) so registry
+    /// consumption, surface creation, the live pane lookup, the cross-window
+    /// move, and DEBUG tracing stay app-side. `attach(host: self)`-ed in `init`.
+    let workspaceDrop = WorkspaceDropCoordinator<Workspace>()
+
     /// The package-pure open-or-focus reuse resolver (CmuxWorkspaces) the
     /// file-backed `openOrFocus…` entry points route their scan-and-route
     /// decision through; stateless and held so it is not re-instantiated per call.
@@ -2913,6 +2924,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         self.agentHibernationCoordinator = AgentHibernationCoordinator(model: agentHibernation)
         agentHibernationCoordinator.attach(host: self)
         agentForkCoordinator.attach(host: self)
+        workspaceDrop.attach(host: self)
         remoteSurfaceCoordinator.attach(host: self)
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
@@ -3333,7 +3345,10 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     private var detachSourceCapture: (panelId: UUID, panel: any Panel, paneId: PaneID?)?
 
 #if DEBUG
-    private func debugElapsedMs(since start: TimeInterval) -> String {
+    /// Relaxed from `private` to `internal` so the lifted drop-routing seam
+    /// conformance (`Workspace+WorkspaceDropHosting.swift`) can format the
+    /// `split.externalDrop.end` elapsed time; the body is unchanged.
+    func debugElapsedMs(since start: TimeInterval) -> String {
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
         return String(format: "%.2f", ms)
     }
@@ -9431,98 +9446,34 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         )
     }
 
-    private func handleSessionDrop(
-        entry: SessionEntry,
-        destination: BonsplitController.ExternalTabDropRequest.Destination
-    ) -> Bool {
-        guard let resumeCommand = entry.resumeCommand else { return false }
-        let inputWithReturn = resumeCommand + "\n"
-        switch destination {
-        case .insert(let paneId, _):
-            let panel = newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: entry.resumeWorkingDirectory,
-                initialInput: inputWithReturn
-            )
-            return panel != nil
-        case .split(let paneId, let orientation, let insertFirst):
-            let panel = splitPaneWithNewTerminal(
-                targetPane: paneId,
-                orientation: orientation,
-                insertFirst: insertFirst,
-                workingDirectory: entry.resumeWorkingDirectory,
-                initialInput: inputWithReturn
-            )
-            return panel != nil
-        }
-    }
-
+    /// Forwards to ``WorkspaceDropCoordinator/handleFilePreviewDrop`` indirectly
+    /// via the resolved payload. Kept as a `Workspace` method because the
+    /// browser/terminal pane drop target views call it directly with the live
+    /// `FilePreviewDragEntry`; the routing now lives in the coordinator, reached
+    /// through the ``WorkspaceDropHosting`` seam.
     func handleFilePreviewDrop(
         entry: FilePreviewDragEntry,
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
-        switch destination {
-        case .insert(let paneId, let index):
-            return !openFileSurfaces(
-                inPane: paneId,
-                filePaths: [entry.filePath],
-                focus: true,
-                targetIndex: index
-            ).isEmpty
-        case .split(let paneId, let orientation, let insertFirst):
-            return splitPaneWithFileSurface(
-                targetPane: paneId,
-                orientation: orientation,
-                insertFirst: insertFirst,
-                filePath: entry.filePath
-            ) != nil
-        }
+        workspaceDrop.handleFileDrop(
+            payload: WorkspaceFileDropPayload(filePath: entry.filePath),
+            destination: destination
+        )
     }
 
+    /// Forwards to ``WorkspaceDropCoordinator/handleExternalFileDrop(_:)``. Kept
+    /// as a `Workspace` method because the bonsplit `onExternalFileDrop` handler
+    /// and the pane drop target views call it directly.
     func handleExternalFileDrop(_ request: BonsplitController.ExternalFileDropRequest) -> Bool {
-        let entries = request.urls
-            .filter(\.isFileURL)
-            .map {
-                FilePreviewDragEntry(
-                    filePath: $0.path,
-                    displayTitle: $0.lastPathComponent
-                )
-            }
-        guard !entries.isEmpty else { return false }
-
-        switch request.destination {
-        case .insert(let paneId, let index):
-            return !openFileSurfaces(
-                inPane: paneId,
-                filePaths: entries.map(\.filePath),
-                focus: true,
-                targetIndex: index
-            ).isEmpty
-
-        case .split(let sourcePaneId, let orientation, let insertFirst):
-            guard let first = entries.first,
-                  let firstPanel = splitPaneWithFileSurface(
-                    targetPane: sourcePaneId,
-                    orientation: orientation,
-                    insertFirst: insertFirst,
-                    filePath: first.filePath
-                  ) else {
-                return false
-            }
-
-            let targetPane = paneId(forPanelId: firstPanel.id) ?? sourcePaneId
-            _ = openFileSurfaces(
-                inPane: targetPane,
-                filePaths: entries.dropFirst().map(\.filePath),
-                focus: true
-            )
-            return true
-        }
+        workspaceDrop.handleExternalFileDrop(request)
     }
 
+    /// Relaxed from `private` to `internal` so the lifted drop-routing seam
+    /// conformance (`Workspace+WorkspaceDropHosting.swift`) can call it for the
+    /// file-drop split branches; the body is the unchanged markdown-vs-preview
+    /// split-creation primitive, which stays app-side (Wave-4 surface creation).
     @discardableResult
-    private func splitPaneWithFileSurface(
+    func splitPaneWithFileSurface(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
@@ -9709,67 +9660,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         return nil
     }
 
+    /// Forwards to ``WorkspaceDropCoordinator/handleExternalTabDrop(_:)``. Kept
+    /// as a `Workspace` method because the bonsplit `onExternalTabDrop` handler
+    /// and the portal pane drop call it directly. The session/file-registry
+    /// consumption, the cross-window-move decomposition, and the DEBUG tracing
+    /// now live in the coordinator, reached through the ``WorkspaceDropHosting``
+    /// seam this `Workspace` conforms to.
     func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
-        // Session-index drag → spawn a brand new terminal at the destination instead
-        // of moving an existing tab.
-        if let entry = SessionDragRegistry.shared.consume(id: request.tabId.uuid) {
-            return handleSessionDrop(entry: entry, destination: request.destination)
-        }
-        if let entry = FilePreviewDragRegistry.shared.consume(id: request.tabId.uuid) {
-            return handleFilePreviewDrop(entry: entry, destination: request.destination)
-        }
-
-        guard let app = AppDelegate.shared else { return false }
-#if DEBUG
-        let dropStart = ProcessInfo.processInfo.systemUptime
-#endif
-
-        let targetPane: PaneID
-        let targetIndex: Int?
-        let splitTarget: (orientation: SplitOrientation, insertFirst: Bool)?
-#if DEBUG
-        let destinationLabel: String
-#endif
-
-        switch request.destination {
-        case .insert(let paneId, let index):
-            targetPane = paneId
-            targetIndex = index
-            splitTarget = nil
-#if DEBUG
-            destinationLabel = "insert pane=\(paneId.id.uuidString.prefix(5)) index=\(index.map(String.init) ?? "nil")"
-#endif
-        case .split(let paneId, let orientation, let insertFirst):
-            targetPane = paneId
-            targetIndex = nil
-            splitTarget = (orientation, insertFirst)
-#if DEBUG
-            destinationLabel = "split pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation.rawValue) insertFirst=\(insertFirst ? 1 : 0)"
-#endif
-        }
-
-        #if DEBUG
-        cmuxDebugLog(
-            "split.externalDrop.begin ws=\(id.uuidString.prefix(5)) tab=\(request.tabId.uuid.uuidString.prefix(5)) " +
-            "sourcePane=\(request.sourcePaneId.id.uuidString.prefix(5)) destination=\(destinationLabel)"
-        )
-        #endif
-        let moved = app.moveBonsplitTab(
-            tabId: request.tabId.uuid,
-            toWorkspace: id,
-            targetPane: targetPane,
-            targetIndex: targetIndex,
-            splitTarget: splitTarget,
-            focus: true,
-            focusWindow: true
-        )
-#if DEBUG
-        cmuxDebugLog(
-            "split.externalDrop.end ws=\(id.uuidString.prefix(5)) tab=\(request.tabId.uuid.uuidString.prefix(5)) " +
-            "moved=\(moved ? 1 : 0) elapsedMs=\(debugElapsedMs(since: dropStart))"
-        )
-#endif
-        return moved
+        workspaceDrop.handleExternalTabDrop(request)
     }
 
 }
