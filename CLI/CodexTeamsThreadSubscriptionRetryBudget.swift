@@ -44,6 +44,10 @@ struct CodexTeamsThreadSubscriptionRetryBudget {
         clearDeadlineIfIdle()
     }
 
+    func isPending(_ threadId: String) -> Bool {
+        pendingThreadIds.contains(threadId)
+    }
+
     mutating func resetDeadline() {
         deadline = nil
     }

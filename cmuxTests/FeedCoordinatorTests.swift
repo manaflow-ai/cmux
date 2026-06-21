@@ -782,6 +782,7 @@ struct FeedCoordinatorTests {
 
         let firstPendingMark = budget.markPending("thread-1")
         #expect(firstPendingMark)
+        #expect(budget.isPending("thread-1"))
         let duplicatePendingMark = budget.markPending("thread-1")
         #expect(duplicatePendingMark)
         #expect(Set(budget.pendingThreadIdSnapshot()) == Set(["thread-1"]))
@@ -791,13 +792,16 @@ struct FeedCoordinatorTests {
         #expect(budget.pendingRetryTimeout() == nil)
 
         budget.beginRetry("thread-1")
+        #expect(!budget.isPending("thread-1"))
         let secondRoundPendingMark = budget.markPending("thread-1")
         #expect(secondRoundPendingMark)
+        #expect(budget.isPending("thread-1"))
         let duplicateSecondRoundPendingMark = budget.markPending("thread-1")
         #expect(duplicateSecondRoundPendingMark)
         budget.beginRetry("thread-1")
         let exhaustedPendingMark = budget.markPending("thread-1")
         #expect(!exhaustedPendingMark)
+        #expect(!budget.isPending("thread-1"))
         #expect(budget.pendingThreadIdSnapshot().isEmpty)
         #expect(budget.pendingRetryTimeout() == nil)
 

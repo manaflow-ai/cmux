@@ -19588,6 +19588,7 @@ struct CMUXCLI {
         private var readinessProbeThreadIds = Set<String>()
         private var attachableThreadIds = Set<String>()
         private let readinessLock = NSLock()
+        // Synchronous websocket callbacks need immediate short critical sections without actor hops.
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
         private var subscribingThreadIds = Set<String>()
@@ -19724,7 +19725,7 @@ struct CMUXCLI {
                 return
             }
             try observeThreadSafely(thread)
-            if allowThreadSubscribe {
+            if allowThreadSubscribe && !isPendingThreadSubscriptionRetry(thread.id) {
                 do {
                     try subscribeToThreadIfNeeded(thread.id, connection: connection)
                     clearPendingThreadSubscriptionRetry(thread.id)
@@ -19829,6 +19830,13 @@ struct CMUXCLI {
             stateLock.lock()
             pendingThreadSubscriptionRetryBudget.clear(threadId)
             stateLock.unlock()
+        }
+
+        private func isPendingThreadSubscriptionRetry(_ threadId: String) -> Bool {
+            stateLock.lock()
+            let isPending = pendingThreadSubscriptionRetryBudget.isPending(threadId)
+            stateLock.unlock()
+            return isPending
         }
 
         private func pendingThreadSubscriptionRetryIdSnapshot() -> [String] {
