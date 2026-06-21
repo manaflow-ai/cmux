@@ -15725,10 +15725,9 @@ struct SidebarTabDropDelegate: DropDelegate {
         let policy = SidebarWorkspaceGroupDropIntentPolicy(
             memberIndent: SidebarWorkspaceGroupingMetrics.memberIndent
         )
-        let pointerXInSidebarLane = pointerX + targetLeadingIndent
         let targetGroupId = targetTabId.flatMap { workspaceGroupIdByWorkspaceId[$0] ?? nil }
         if policy.prefersGroupScope(
-            pointerX: pointerXInSidebarLane,
+            pointerX: pointerX,
             targetLeadingIndent: targetLeadingIndent
         ), let targetGroupId,
            canDragWorkspace(draggedTabId, intoGroupTargetedBy: targetTabId) {
