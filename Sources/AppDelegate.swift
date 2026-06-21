@@ -816,6 +816,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             openRouting: notificationNavSeams,
             clickRouting: notificationClickPerformer,
             focusedResolving: notificationNavSeams,
+            popoverPresenting: notificationNavSeams,
             // Route the focused-mark jump through `AppDelegate.jumpToLatestUnread`
             // so its `#if DEBUG` `jumpUnreadInvoked` recorder and nil-store guard
             // still fire exactly as before; map the resolved notification back to
@@ -7672,7 +7673,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         makeMainWindowActivationResolver().mainWindowsForVisibilityController()
     }
 
+    /// Forwards to `notificationNavigation` (the extracted
+    /// `NotificationNavigationCoordinator`). The coordinator sequences the
+    /// surface-window-then-present flow; the window resolve-or-create,
+    /// `bringToFront`, and the delayed `NSPopover` present stay here behind
+    /// `NotificationPopoverPresenting` (reached via `NotificationNavSeamAdapter`)
+    /// because they read late-bound `NSWindow`/`NSApp` state and drive the
+    /// app-side titlebar accessory controller. Behavior is byte-identical.
     func showNotificationsPopoverFromMenuBar() {
+        notificationNavigation.showNotificationsPopoverFromMenuBar()
+    }
+
+    /// Surfaces (or creates) and brings to front the main window that should host
+    /// the menu-bar notifications popover. Lifted from the first phase of the
+    /// legacy `showNotificationsPopoverFromMenuBar()`; kept on `AppDelegate` so it
+    /// retains access to the live window-context registry and `NSApp`.
+    func surfaceWindowForMenuBarNotificationsPopover() {
         let context: RegisteredMainWindow? = {
             if let keyWindow = NSApp.keyWindow,
                let keyContext = contextForMainTerminalWindow(keyWindow) {
@@ -7690,7 +7706,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
+    }
 
+    /// Presents the notifications popover from the menu bar. Lifted from the final
+    /// phase of the legacy `showNotificationsPopoverFromMenuBar()`; the
+    /// `asyncAfter` present delay is an AppKit timing side effect preserved
+    /// byte-identically (it must stay app-side, not in package code).
+    func presentMenuBarNotificationsPopover() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.titlebarAccessoryController.showNotificationsPopover(animated: false)
         }

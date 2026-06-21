@@ -99,6 +99,16 @@ private final class FakeClickRouting: NotificationClickRouting {
     }
 }
 
+/// Recording popover presenter: logs the surface-window and present calls in
+/// order so a test can prove the coordinator sequences surface-then-present.
+@MainActor
+private final class FakePopoverPresenting: NotificationPopoverPresenting {
+    private(set) var log: [String] = []
+
+    func surfaceWindowForMenuBarNotificationsPopover() { log.append("surface") }
+    func presentMenuBarNotificationsPopover() { log.append("present") }
+}
+
 @MainActor
 private func makeCoordinator(
     store: FakeStore = FakeStore(),
@@ -106,7 +116,8 @@ private func makeCoordinator(
     unreadTargeting: FakeUnreadTargeting = FakeUnreadTargeting(),
     openRouting: FakeOpenRouting = FakeOpenRouting(),
     clickRouting: FakeClickRouting = FakeClickRouting(),
-    focusedResolving: FakeFocusedResolving = FakeFocusedResolving()
+    focusedResolving: FakeFocusedResolving = FakeFocusedResolving(),
+    popoverPresenting: FakePopoverPresenting = FakePopoverPresenting()
 ) -> NotificationNavigationCoordinator {
     NotificationNavigationCoordinator(
         store: store,
@@ -114,7 +125,8 @@ private func makeCoordinator(
         unreadTargeting: unreadTargeting,
         openRouting: openRouting,
         clickRouting: clickRouting,
-        focusedResolving: focusedResolving
+        focusedResolving: focusedResolving,
+        popoverPresenting: popoverPresenting
     )
 }
 
@@ -369,6 +381,18 @@ struct NotificationNavigationCoordinatorTests {
         let coordinator = makeCoordinator(openRouting: openRouting)
 
         #expect(coordinator.tabTitle(forTabId: tab) == "My Workspace")
+    }
+
+    // MARK: - Popover
+
+    @Test("showNotificationsPopoverFromMenuBar surfaces the window then presents")
+    func popoverSurfacesThenPresents() {
+        let popover = FakePopoverPresenting()
+        let coordinator = makeCoordinator(popoverPresenting: popover)
+
+        coordinator.showNotificationsPopoverFromMenuBar()
+
+        #expect(popover.log == ["surface", "present"])
     }
 
     private func short(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(4)) } ?? "nil" }

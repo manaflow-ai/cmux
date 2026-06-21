@@ -34,6 +34,7 @@ final class NotificationNavSeamAdapter:
     MainWindowContextResolving,
     UnreadWorkspaceTargeting,
     NotificationOpenRouting,
+    NotificationPopoverPresenting,
     FinderRevealing,
     FocusedNotificationResolving
 {
@@ -118,6 +119,16 @@ final class NotificationNavSeamAdapter:
 
     func tabTitle(forTabId tabId: UUID) -> String? {
         owner?.tabTitle(forTabId: tabId) ?? nil
+    }
+
+    // MARK: NotificationPopoverPresenting
+
+    func surfaceWindowForMenuBarNotificationsPopover() {
+        owner?.surfaceWindowForMenuBarNotificationsPopover()
+    }
+
+    func presentMenuBarNotificationsPopover() {
+        owner?.presentMenuBarNotificationsPopover()
     }
 
     // MARK: FinderRevealing
