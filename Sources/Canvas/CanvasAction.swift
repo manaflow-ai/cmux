@@ -22,10 +22,6 @@ enum CanvasAction: Equatable {
     case zoomReset
     /// Apply an alignment/distribution/tidy command to all panes.
     case alignment(CanvasAlignmentCommand)
-#if DEBUG
-    /// Show the Command+scroll discovery hint for visual testing.
-    case showCommandScrollHint
-#endif
 }
 
 extension KeyboardShortcutSettings.Action {
@@ -120,13 +116,6 @@ struct CanvasActionExecutor {
                 workspace.canvasModel.viewport?.modelDidChangeExternally(animated: true)
             }
             return changed
-#if DEBUG
-        case .showCommandScrollHint:
-            guard workspace.layoutMode == .canvas,
-                  let viewport = workspace.canvasModel.viewport else { return false }
-            viewport.debugShowCommandScrollHint()
-            return true
-#endif
         }
     }
 }

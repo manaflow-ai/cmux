@@ -120,17 +120,7 @@ extension CanvasRootView {
         presentCommandScrollHint(markSessionShown: true, replacingExisting: false)
     }
 
-#if DEBUG
-    /// Shows the Command+scroll discovery hint immediately for debug-menu and
-    /// automation testing, replacing any visible hint and leaving the
-    /// production one-time discovery flag unchanged.
-    public func debugShowCommandScrollHint() {
-        commandScrollHintTask?.cancel()
-        presentCommandScrollHint(markSessionShown: false, replacingExisting: true)
-    }
-#endif
-
-    private func presentCommandScrollHint(markSessionShown: Bool, replacingExisting: Bool) {
+    func presentCommandScrollHint(markSessionShown: Bool, replacingExisting: Bool) {
         if replacingExisting {
             commandScrollHintHost?.removeFromSuperview()
             commandScrollHintHost = nil

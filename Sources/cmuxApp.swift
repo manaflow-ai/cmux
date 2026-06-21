@@ -547,7 +547,7 @@ struct cmuxApp: App {
                     )
                 ) {
                     guard let workspace = activeTabManager.selectedWorkspace else { return }
-                    CanvasActionExecutor(workspace: workspace).perform(.showCommandScrollHint)
+                    debugShowCanvasCommandScrollHint(in: workspace)
                 }
                 .disabled(activeTabManager.selectedWorkspace?.layoutMode != .canvas)
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCanvasUI
 import CmuxControlSocket
 import CmuxSettings
 import Foundation
@@ -23,6 +24,18 @@ import CmuxTerminal
 /// In release builds `ControlDebugContext` has no requirements, so the
 /// conformance is an empty extension — matching the legacy `#if DEBUG` switch
 /// cases that compiled the whole domain out.
+#if DEBUG
+@MainActor
+func debugShowCanvasCommandScrollHint(in workspace: Workspace) -> Bool {
+    guard workspace.layoutMode == .canvas,
+          let rootView = workspace.canvasModel.viewport as? CanvasRootView else {
+        return false
+    }
+    rootView.debugShowCommandScrollHint()
+    return true
+}
+#endif
+
 extension TerminalController: ControlDebugContext {
 #if DEBUG
     // MARK: - Session-snapshot benchmarks
@@ -108,7 +121,7 @@ extension TerminalController: ControlDebugContext {
         guard workspace.layoutMode == .canvas else {
             return .notCanvasMode
         }
-        guard CanvasActionExecutor(workspace: workspace).perform(.showCommandScrollHint) else {
+        guard debugShowCanvasCommandScrollHint(in: workspace) else {
             return .viewportUnavailable
         }
         return .ok(mode: workspace.layoutMode.rawValue)
