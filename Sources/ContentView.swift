@@ -9164,59 +9164,11 @@ private struct ExtensionSidebarBrowserStackEmptyArea: View {
 // and bridge only sidebar-visible workspace changes into local state.
 // Do NOT add @EnvironmentObject or new @Binding without updating ==.
 // Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
-struct SidebarWorkspaceSnapshotBuilder {
-    struct PresentationKey: Equatable {
-        let showsWorkspaceDescription: Bool
-        let usesVerticalBranchLayout: Bool
-        let showsGitBranch: Bool
-        let usesViewportAwarePath: Bool
-        let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
-    }
-
-    struct VerticalBranchDirectoryLine: Equatable {
-        let branch: String?
-        // Ordered longest → shortest. Empty means no directory to show.
-        // First element is the canonical display string when only one is needed.
-        let directoryCandidates: [String]
-
-        var directory: String? { directoryCandidates.first }
-    }
-
-    struct PullRequestDisplay: Identifiable, Equatable {
-        let id: String
-        let number: Int
-        let label: String
-        let url: URL
-        let status: SidebarPullRequestStatus
-        let isStale: Bool
-    }
-
-    struct Snapshot: Equatable {
-        let presentationKey: PresentationKey
-        let title: String
-        let customDescription: String?
-        let isPinned: Bool
-        let customColorHex: String?
-        let remoteWorkspaceSidebarText: String?
-        let remoteConnectionStatusText: String
-        let remoteStateHelpText: String
-        let showsRemoteReconnectAffordance: Bool
-        let copyableSidebarSSHError: String?
-        let latestConversationMessage: String?
-        let metadataEntries: [SidebarStatusEntry]
-        let metadataBlocks: [SidebarMetadataBlock]
-        let latestLog: SidebarLogEntry?
-        let progress: SidebarProgressState?
-        let compactGitBranchSummaryText: String?
-        let compactDirectoryCandidates: [String]
-        let compactBranchDirectoryCandidates: [String]
-        let branchDirectoryLines: [VerticalBranchDirectoryLine]
-        let branchLinesContainBranch: Bool
-        let pullRequestRows: [PullRequestDisplay]
-        let listeningPorts: [Int]
-        let finderDirectoryPath: String?
-    }
-}
+/// Lifted to `CmuxSidebar.SidebarWorkspaceSnapshotBuilder`; this typealias keeps
+/// the unqualified `SidebarWorkspaceSnapshotBuilder` spelling (and its nested
+/// `.Snapshot`/`.PresentationKey`/`.VerticalBranchDirectoryLine`/
+/// `.PullRequestDisplay` access) resolving for app-target consumers.
+typealias SidebarWorkspaceSnapshotBuilder = CmuxSidebar.SidebarWorkspaceSnapshotBuilder
 
 private final class SidebarTabItemContextMenuState: ObservableObject {
     var hasDeferredWorkspaceObservationInvalidation = false
@@ -11097,26 +11049,10 @@ struct TabItemView: View, Equatable {
 /// each TabItemView so the row's `==` covers group changes (renames, adds,
 /// deletes) — the row's snapshot-boundary rule forbids reading
 /// `tabManager.workspaceGroups` from inside the contextMenu builder.
-enum SidebarTabDragPayload {
-    static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
-    static let dropContentType = UTType(exportedAs: typeIdentifier)
-    static let dropContentTypes: [UTType] = [dropContentType]
-    static let prefix = "cmux.sidebar-tab."
-
-    static func provider(for tabId: UUID) -> NSItemProvider {
-        let provider = NSItemProvider()
-        let payload = "\(prefix)\(tabId.uuidString)"
-        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
-            let data = payload.data(using: .utf8)
-            Task { @MainActor in
-                completion(data, nil)
-            }
-            return nil
-        }
-        return provider
-    }
-
-}
+/// Lifted to `CmuxSidebar.SidebarTabDragPayload`; this typealias keeps the
+/// unqualified `SidebarTabDragPayload` spelling resolving for app-target
+/// consumers (ContentView drop wiring and `DragOverlayRoutingPolicy`).
+typealias SidebarTabDragPayload = CmuxSidebar.SidebarTabDragPayload
 
 enum BonsplitTabDragPayload {
     static let typeIdentifier = "com.splittabbar.tabtransfer"
@@ -11702,198 +11638,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         guard let indicator else { return "nil" }
         let tabText = indicator.tabId.map { String($0.uuidString.prefix(5)) } ?? "end"
         return "\(tabText):\(indicator.edge == .top ? "top" : "bottom")"
-    }
-}
-
-private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
-    let targetWorkspaceId: UUID
-    let orderedRows: [ExtensionSidebarBrowserStackDropRow]
-    @Binding var draggedTabId: UUID?
-    let targetRowHeight: CGFloat?
-    let dragAutoScrollController: SidebarDragAutoScrollController
-    @Binding var dropIndicator: SidebarDropIndicator?
-    let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
-
-    func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
-            && draggedTabId != nil
-            && orderedRows.count > 1
-    }
-
-    func dropEntered(info: DropInfo) {
-        dragAutoScrollController.updateFromDragLocation()
-        updateDropIndicator(for: info)
-    }
-
-    func dropExited(info: DropInfo) {
-        if dropIndicator?.tabId == targetWorkspaceId {
-            dropIndicator = nil
-        }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        dragAutoScrollController.updateFromDragLocation()
-        updateDropIndicator(for: info)
-        return DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        defer {
-            draggedTabId = nil
-            dropIndicator = nil
-            dragAutoScrollController.stop()
-        }
-        guard let draggedTabId else {
-            return false
-        }
-        let resolvedDropIndicator = plannedDropIndicator(for: info)
-        guard let insertionPosition = insertionPosition(
-            draggedWorkspaceId: draggedTabId,
-            indicator: resolvedDropIndicator
-        ) else {
-            return false
-        }
-        guard let move = move(
-            draggedWorkspaceId: draggedTabId,
-            insertionPosition: insertionPosition,
-            indicator: resolvedDropIndicator
-        ) else {
-            return false
-        }
-        return onMove(move)
-    }
-
-    private func updateDropIndicator(for info: DropInfo) {
-        let nextIndicator = plannedDropIndicator(for: info)
-        guard dropIndicator != nextIndicator else { return }
-        dropIndicator = nextIndicator
-    }
-
-    private func plannedDropIndicator(for info: DropInfo) -> SidebarDropIndicator? {
-        let workspaceIds = orderedRows.map(\.workspaceId)
-        return SidebarDropPlanner().indicator(
-            draggedTabId: draggedTabId,
-            targetTabId: targetWorkspaceId,
-            tabIds: workspaceIds,
-            pinnedTabIds: [],
-            pointerY: info.location.y,
-            targetHeight: targetRowHeight
-        ) ?? ExtensionSidebarBrowserStackDropPlanner(orderedRows: orderedRows).sectionBoundaryIndicator(
-            draggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetWorkspaceId,
-            pointerY: info.location.y,
-            targetHeight: targetRowHeight
-        )
-    }
-
-    private func insertionPosition(draggedWorkspaceId: UUID, indicator: SidebarDropIndicator?) -> Int? {
-        let workspaceIds = orderedRows.map(\.workspaceId)
-        if let indicator {
-            if let indicatorWorkspaceId = indicator.tabId {
-                guard let indicatorIndex = workspaceIds.firstIndex(of: indicatorWorkspaceId) else { return nil }
-                return indicator.edge == .bottom ? indicatorIndex + 1 : indicatorIndex
-            }
-            return workspaceIds.count
-        }
-
-        guard let sourceIndex = workspaceIds.firstIndex(of: draggedWorkspaceId),
-              let targetIndex = workspaceIds.firstIndex(of: targetWorkspaceId) else {
-            return nil
-        }
-        return sourceIndex < targetIndex ? targetIndex + 1 : targetIndex
-    }
-
-    private func move(
-        draggedWorkspaceId: UUID,
-        insertionPosition: Int,
-        indicator: SidebarDropIndicator?
-    ) -> CmuxSidebarProviderWorkspaceMove? {
-        ExtensionSidebarBrowserStackDropPlanner(orderedRows: orderedRows).move(
-            draggedWorkspaceId: draggedWorkspaceId,
-            insertionPosition: insertionPosition,
-            preferredTargetSectionId: preferredTargetSectionId(indicator: indicator)
-        )
-    }
-
-    private func preferredTargetSectionId(indicator: SidebarDropIndicator?) -> String? {
-        ExtensionSidebarBrowserStackDropPlanner(orderedRows: orderedRows).preferredSectionId(
-            targetWorkspaceId: targetWorkspaceId,
-            indicator: indicator
-        )
-    }
-}
-
-private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
-    let orderedRows: [ExtensionSidebarBrowserStackDropRow]
-    @Binding var draggedTabId: UUID?
-    let dragAutoScrollController: SidebarDragAutoScrollController
-    @Binding var dropIndicator: SidebarDropIndicator?
-    let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
-
-    func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
-            && draggedTabId != nil
-            && orderedRows.count > 1
-    }
-
-    func dropEntered(info: DropInfo) {
-        dragAutoScrollController.updateFromDragLocation()
-        updateDropIndicator()
-    }
-
-    func dropExited(info: DropInfo) {
-        if dropIndicator?.tabId == nil {
-            dropIndicator = nil
-        }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        dragAutoScrollController.updateFromDragLocation()
-        updateDropIndicator()
-        return DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        defer {
-            draggedTabId = nil
-            dropIndicator = nil
-            dragAutoScrollController.stop()
-        }
-        guard let draggedTabId,
-              let insertionPosition = insertionPositionForEndMove(draggedWorkspaceId: draggedTabId),
-              let move = ExtensionSidebarBrowserStackDropPlanner(orderedRows: orderedRows).move(
-                draggedWorkspaceId: draggedTabId,
-                insertionPosition: insertionPosition
-              ) else {
-            return false
-        }
-        return onMove(move)
-    }
-
-    private func updateDropIndicator() {
-        let workspaceIds = orderedRows.map(\.workspaceId)
-        let nextIndicator = SidebarDropPlanner().indicator(
-            draggedTabId: draggedTabId,
-            targetTabId: nil,
-            tabIds: workspaceIds,
-            pinnedTabIds: []
-        )
-        guard dropIndicator != nextIndicator else { return }
-        dropIndicator = nextIndicator
-    }
-
-    private func insertionPositionForEndMove(draggedWorkspaceId: UUID) -> Int? {
-        let workspaceIds = orderedRows.map(\.workspaceId)
-        guard workspaceIds.contains(draggedWorkspaceId) else { return nil }
-        guard SidebarDropPlanner().indicator(
-            draggedTabId: draggedWorkspaceId,
-            targetTabId: nil,
-            tabIds: workspaceIds,
-            pinnedTabIds: []
-        ) != nil else {
-            return nil
-        }
-        return workspaceIds.count
     }
 }
 
