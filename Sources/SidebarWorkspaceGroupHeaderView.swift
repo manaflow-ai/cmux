@@ -409,6 +409,10 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     let reorderDelegate: SidebarTabDropDelegate
     let firstMemberReorderDelegate: SidebarTabDropDelegate?
 
+    private var effectiveDraggedTabId: UUID? {
+        dragState.draggedTabId ?? dragState.currentWorkspaceDragId
+    }
+
     func validateDrop(info: DropInfo) -> Bool {
         edgeReorderDelegate(for: info).validateDrop(info: info) || groupHeaderCenterDropAction(info) != nil
     }
@@ -450,10 +454,22 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     }
 
     private func routesBottomEdgeToFirstMember(_ info: DropInfo) -> Bool {
-        firstMemberReorderDelegate != nil && SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(
-            locationY: info.location.y,
-            rowHeight: targetRowHeight ?? 1
+        guard let firstMemberReorderDelegate,
+              let firstMemberId = firstMemberReorderDelegate.targetTabId,
+              let draggedTabId = effectiveDraggedTabId,
+              SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(
+                  locationY: info.location.y,
+                  rowHeight: targetRowHeight ?? 1
+              ) else {
+            return false
+        }
+        let policy = SidebarWorkspaceGroupDropIntentPolicy(
+            memberIndent: SidebarWorkspaceGroupingMetrics.memberIndent
         )
+        return policy.prefersGroupScope(
+            pointerX: info.location.x,
+            targetLeadingIndent: SidebarWorkspaceGroupingMetrics.memberIndent
+        ) && canDragWorkspace(draggedTabId, intoGroupTargetedBy: firstMemberId)
     }
 
     private func edgeReorderDelegate(for info: DropInfo) -> SidebarTabDropDelegate {
@@ -518,5 +534,12 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     private func clearDropState() {
         dragState.clearDrag()
         dragAutoScrollController.stop()
+    }
+
+    private func canDragWorkspace(_ draggedTabId: UUID, intoGroupTargetedBy targetTabId: UUID) -> Bool {
+        guard tabManager.tabs.contains(where: { $0.id == draggedTabId }) else { return false }
+        return !tabManager.workspaceGroups.contains { group in
+            group.anchorWorkspaceId == draggedTabId || group.anchorWorkspaceId == targetTabId
+        }
     }
 }
