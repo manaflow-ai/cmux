@@ -7965,7 +7965,7 @@ struct VerticalTabsSidebar: View {
                 ?? .rejected(String(localized: "sidebar.extensions.action.surfaceCreateRejected", defaultValue: "Surface could not be created"))
 
         case .createBrowserSurface(let workspaceId, let urlString):
-            let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
+            let validatedURL = SidebarExtensionOptionalHTTPURL(validating: urlString)
             guard validatedURL.accepted else {
                 return .rejected(String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened"))
             }
@@ -8014,7 +8014,7 @@ struct VerticalTabsSidebar: View {
             return CmuxSidebarActionResult(accepted: true, message: panelId.uuidString)
 
         case .splitBrowser(let workspaceId, let surfaceId, let direction, let urlString):
-            let validatedURL = cmuxSidebarExtensionOptionalHTTPURL(from: urlString)
+            let validatedURL = SidebarExtensionOptionalHTTPURL(validating: urlString)
             guard validatedURL.accepted else {
                 return .rejected(String(localized: "sidebar.extensions.action.urlRejected", defaultValue: "URL could not be opened"))
             }
@@ -8036,7 +8036,7 @@ struct VerticalTabsSidebar: View {
             return .accepted
 
         case .openURL(let urlString):
-            guard let url = cmuxSidebarExtensionRequiredHTTPURL(from: urlString),
+            guard let url = URL.sidebarExtensionHTTPURL(from: urlString),
                   NSWorkspace.shared.open(url) else {
                 return CmuxSidebarActionResult(
                     accepted: false,
@@ -8045,27 +8045,6 @@ struct VerticalTabsSidebar: View {
             }
             return .accepted
         }
-    }
-
-    private func cmuxSidebarExtensionOptionalHTTPURL(from urlString: String?) -> (url: URL?, accepted: Bool) {
-        guard let urlString, !urlString.isEmpty else {
-            return (nil, true)
-        }
-        guard let url = cmuxSidebarExtensionRequiredHTTPURL(from: urlString) else {
-            return (nil, false)
-        }
-        return (url, true)
-    }
-
-    private func cmuxSidebarExtensionRequiredHTTPURL(from urlString: String) -> URL? {
-        guard let url = URL(string: urlString),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              let host = url.host,
-              !host.isEmpty else {
-            return nil
-        }
-        return url
     }
 
     private func splitDirection(from direction: CmuxSidebarSplitDirection) -> SplitDirection? {
@@ -8503,8 +8482,8 @@ struct VerticalTabsSidebar: View {
         size: CGFloat
     ) -> some View {
         let shape = icon?.shape ?? .circle
-        let foreground = extensionSidebarColor(hex: icon?.foregroundColorHex, fallback: .primary)
-        let background = extensionSidebarColor(hex: icon?.backgroundColorHex, fallback: Color.primary.opacity(0.16))
+        let foreground = Color.sidebarHexColor(icon?.foregroundColorHex, fallback: .primary)
+        let background = Color.sidebarHexColor(icon?.backgroundColorHex, fallback: Color.primary.opacity(0.16))
         return ZStack {
             if shape == .circle {
                 Circle().fill(background)
@@ -8534,19 +8513,6 @@ struct VerticalTabsSidebar: View {
         case .relativeDate(let date, _):
             return CmuxExtensionRelativeTimeFormatter.string(from: date, to: now)
         }
-    }
-
-    private func extensionSidebarColor(hex: String?, fallback: Color) -> Color {
-        guard let hex else { return fallback }
-        let trimmed = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-        guard trimmed.count == 6 else { return fallback }
-        var value: UInt64 = 0
-        guard Scanner(string: trimmed).scanHexInt64(&value) else { return fallback }
-        return Color(
-            red: Double((value >> 16) & 0xFF) / 255.0,
-            green: Double((value >> 8) & 0xFF) / 255.0,
-            blue: Double(value & 0xFF) / 255.0
-        )
     }
 
     @ViewBuilder
