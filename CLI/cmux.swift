@@ -19658,7 +19658,11 @@ struct CMUXCLI {
                 },
                 responseTimeout: 10
             )
-            let threadIds = loaded["data"] as? [String] ?? []
+            var threadIds = loaded["data"] as? [String] ?? []
+            for pendingThreadId in pendingThreadSubscriptionRetryIdSnapshot()
+                where !threadIds.contains(pendingThreadId) {
+                threadIds.append(pendingThreadId)
+            }
             for threadId in threadIds {
                 do {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
@@ -19770,7 +19774,6 @@ struct CMUXCLI {
             stateLock.lock()
             subscribingThreadIds.removeAll(keepingCapacity: true)
             subscribedThreadIds.removeAll(keepingCapacity: true)
-            pendingThreadSubscriptionRetryIds.removeAll(keepingCapacity: true)
             pendingThreadSubscriptionRetryDeadline = nil
             stateLock.unlock()
         }
@@ -19811,6 +19814,13 @@ struct CMUXCLI {
                 pendingThreadSubscriptionRetryDeadline = nil
             }
             stateLock.unlock()
+        }
+
+        private func pendingThreadSubscriptionRetryIdSnapshot() -> [String] {
+            stateLock.lock()
+            let threadIds = Array(pendingThreadSubscriptionRetryIds)
+            stateLock.unlock()
+            return threadIds
         }
 
         private func pendingThreadSubscriptionRetryTimeout() -> TimeInterval? {
