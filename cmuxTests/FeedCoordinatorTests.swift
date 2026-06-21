@@ -780,8 +780,10 @@ struct FeedCoordinatorTests {
     @Test func codexTeamsThreadSubscriptionRetryBudgetBoundsReconnectRounds() {
         var budget = CodexTeamsThreadSubscriptionRetryBudget(maxPendingRounds: 2, retryInterval: 1)
 
-        #expect(budget.markPending("thread-1"))
-        #expect(budget.markPending("thread-1"))
+        let firstPendingMark = budget.markPending("thread-1")
+        #expect(firstPendingMark)
+        let duplicatePendingMark = budget.markPending("thread-1")
+        #expect(duplicatePendingMark)
         #expect(Set(budget.pendingThreadIdSnapshot()) == Set(["thread-1"]))
 
         budget.resetDeadline()
@@ -789,16 +791,21 @@ struct FeedCoordinatorTests {
         #expect(budget.pendingRetryTimeout() == nil)
 
         budget.beginRetry("thread-1")
-        #expect(budget.markPending("thread-1"))
-        #expect(budget.markPending("thread-1"))
+        let secondRoundPendingMark = budget.markPending("thread-1")
+        #expect(secondRoundPendingMark)
+        let duplicateSecondRoundPendingMark = budget.markPending("thread-1")
+        #expect(duplicateSecondRoundPendingMark)
         budget.beginRetry("thread-1")
-        #expect(!budget.markPending("thread-1"))
+        let exhaustedPendingMark = budget.markPending("thread-1")
+        #expect(!exhaustedPendingMark)
         #expect(budget.pendingThreadIdSnapshot().isEmpty)
         #expect(budget.pendingRetryTimeout() == nil)
 
-        #expect(!budget.markPending("thread-1"))
+        let stillExhaustedPendingMark = budget.markPending("thread-1")
+        #expect(!stillExhaustedPendingMark)
         budget.clear("thread-1")
-        #expect(budget.markPending("thread-1"))
+        let resetPendingMark = budget.markPending("thread-1")
+        #expect(resetPendingMark)
     }
 
     private static func resetFeedCoordinatorTestHooks() {
