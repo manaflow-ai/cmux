@@ -81,27 +81,34 @@ import Testing
         #expect(tall > short)
     }
 
-    @Test func pointerEdgeHeightIsOnlyUsedForWidthIndependentRows() {
-        #expect(SidebarWorkspaceRowDropMetrics.shouldUsePointerEdgeHeight(
-            wrapsWorkspaceTitles: false,
-            hasDescription: false,
-            hasMetadataBlocks: false
+    @Test func workspaceRowDropTargetHeightKeepsPointerEdgeMetricsForWrappedAndRichRows() throws {
+        let snapshot = workspaceSnapshot(
+            title: String(repeating: "Long workspace title ", count: 12),
+            customDescription: "First description line\nSecond description line",
+            metadataEntries: [
+                SidebarStatusEntry(key: "state", value: "running"),
+                SidebarStatusEntry(key: "phase", value: "building"),
+                SidebarStatusEntry(key: "owner", value: "agent")
+            ],
+            metadataBlocks: [
+                SidebarMetadataBlock(
+                    key: "notes",
+                    markdown: "Line one\nLine two\nLine three",
+                    priority: 0,
+                    timestamp: Date()
+                )
+            ]
+        )
+
+        let height = try #require(SidebarWorkspaceRowDropMetrics.dropTargetHeight(
+            snapshot: snapshot,
+            settings: settings(wrapsWorkspaceTitles: true),
+            effectiveSubtitle: "Recent update",
+            metadataEntryIsExpanded: false,
+            metadataBlocksAreExpanded: false
         ))
-        #expect(!SidebarWorkspaceRowDropMetrics.shouldUsePointerEdgeHeight(
-            wrapsWorkspaceTitles: true,
-            hasDescription: false,
-            hasMetadataBlocks: false
-        ))
-        #expect(!SidebarWorkspaceRowDropMetrics.shouldUsePointerEdgeHeight(
-            wrapsWorkspaceTitles: false,
-            hasDescription: true,
-            hasMetadataBlocks: false
-        ))
-        #expect(!SidebarWorkspaceRowDropMetrics.shouldUsePointerEdgeHeight(
-            wrapsWorkspaceTitles: false,
-            hasDescription: false,
-            hasMetadataBlocks: true
-        ))
+
+        #expect(height > workspaceRowHeight())
     }
 
     private func workspaceRowHeight(
@@ -135,6 +142,64 @@ import Testing
             branchDirectoryRowCount: branchDirectoryRowCount,
             pullRequestRowCount: pullRequestRowCount,
             hasPorts: hasPorts
+        )
+    }
+
+    private func settings(wrapsWorkspaceTitles: Bool = false) -> SidebarTabItemSettingsSnapshot {
+        let suiteName = "SidebarWorkspaceDropMetricsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Unable to create test UserDefaults suite")
+        }
+        defaults.set(wrapsWorkspaceTitles, forKey: SidebarWorkspaceTitleWrapSettings.key)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        defaults.removePersistentDomain(forName: suiteName)
+        return settings
+    }
+
+    private func workspaceSnapshot(
+        title: String = "workspace",
+        customDescription: String? = nil,
+        metadataEntries: [SidebarStatusEntry] = [],
+        metadataBlocks: [SidebarMetadataBlock] = []
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+        let visibleAuxiliaryDetails = SidebarWorkspaceAuxiliaryDetailVisibility(
+            showsMetadata: true,
+            showsLog: true,
+            showsProgress: true,
+            showsBranchDirectory: true,
+            showsPullRequests: true,
+            showsPorts: true
+        )
+        return SidebarWorkspaceSnapshotBuilder.Snapshot(
+            presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey(
+                showsWorkspaceDescription: true,
+                usesVerticalBranchLayout: true,
+                showsGitBranch: true,
+                usesViewportAwarePath: false,
+                visibleAuxiliaryDetails: visibleAuxiliaryDetails
+            ),
+            title: title,
+            customDescription: customDescription,
+            isPinned: false,
+            customColorHex: nil,
+            remoteWorkspaceSidebarText: nil,
+            remoteConnectionStatusText: "",
+            remoteStateHelpText: "",
+            showsRemoteReconnectAffordance: false,
+            copyableSidebarSSHError: nil,
+            latestConversationMessage: nil,
+            metadataEntries: metadataEntries,
+            metadataBlocks: metadataBlocks,
+            latestLog: nil,
+            progress: nil,
+            compactGitBranchSummaryText: nil,
+            compactDirectoryCandidates: [],
+            compactBranchDirectoryCandidates: [],
+            branchDirectoryLines: [],
+            branchLinesContainBranch: false,
+            pullRequestRows: [],
+            listeningPorts: [],
+            finderDirectoryPath: nil
         )
     }
 }

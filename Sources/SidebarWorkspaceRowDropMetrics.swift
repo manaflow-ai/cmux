@@ -82,14 +82,6 @@ struct SidebarWorkspaceRowDropMetrics {
         return estimatedLineCount(description, maxLines: maxDescriptionLines)
     }
 
-    static func shouldUsePointerEdgeHeight(
-        wrapsWorkspaceTitles: Bool,
-        hasDescription: Bool,
-        hasMetadataBlocks: Bool
-    ) -> Bool {
-        !wrapsWorkspaceTitles && !hasDescription && !hasMetadataBlocks
-    }
-
     private static func metadataEntriesHeight(
         entryCount: Int,
         isExpanded: Bool,
@@ -190,14 +182,6 @@ struct SidebarWorkspaceRowDropMetrics {
         metadataEntryIsExpanded: Bool,
         metadataBlocksAreExpanded: Bool
     ) -> CGFloat? {
-        let visibleDetails = settings.visibleAuxiliaryDetails
-        guard shouldUsePointerEdgeHeight(
-            wrapsWorkspaceTitles: settings.wrapsWorkspaceTitles,
-            hasDescription: snapshot.customDescription != nil,
-            hasMetadataBlocks: visibleDetails.showsMetadata && !snapshot.metadataBlocks.isEmpty
-        ) else {
-            return nil
-        }
         return targetHeight(
             snapshot: snapshot,
             settings: settings,
