@@ -7739,6 +7739,7 @@ struct VerticalTabsSidebar: View {
                 dragAutoScrollController: dragAutoScrollController,
                 draggedTabId: draggedTabIdBinding,
                 dropIndicator: dropIndicatorBinding,
+                accent: cmuxAccentColor(),
                 onNewTab: onNewTab,
                 onMove: { move in
                     handleExtensionSidebarMutation(.moveWorkspace(move))
@@ -8635,87 +8636,6 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
     }
 }
 
-private struct SidebarExternalDropOverlay: View {
-    let draggedTabId: UUID?
-
-    var body: some View {
-        let dragPasteboardTypes = NSPasteboard(name: .drag).types
-        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureSidebarExternalOverlay(
-            draggedTabId: draggedTabId,
-            pasteboardTypes: dragPasteboardTypes
-        )
-        Group {
-            if shouldCapture {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(true)
-                    .onDrop(
-                        of: SidebarTabDragPayload.dropContentTypes,
-                        delegate: SidebarExternalDropDelegate(draggedTabId: draggedTabId)
-                    )
-            } else {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(false)
-            }
-        }
-    }
-}
-
-private struct SidebarExternalDropDelegate: DropDelegate {
-    let draggedTabId: UUID?
-
-    func validateDrop(info: DropInfo) -> Bool {
-        let hasSidebarPayload = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
-        let shouldReset = SidebarOutsideDropResetPolicy().shouldResetDrag(
-            draggedTabId: draggedTabId,
-            hasSidebarDragPayload: hasSidebarPayload
-        )
-#if DEBUG
-        cmuxDebugLog(
-            "sidebar.dropOutside.validate tab=\(debugShortSidebarTabId(draggedTabId)) " +
-            "hasType=\(hasSidebarPayload) allowed=\(shouldReset)"
-        )
-#endif
-        return shouldReset
-    }
-
-    func dropEntered(info: DropInfo) {
-#if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.entered tab=\(debugShortSidebarTabId(draggedTabId))")
-#endif
-    }
-
-    func dropExited(info: DropInfo) {
-#if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.exited tab=\(debugShortSidebarTabId(draggedTabId))")
-#endif
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard validateDrop(info: info) else { return nil }
-#if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.updated tab=\(debugShortSidebarTabId(draggedTabId)) op=move")
-#endif
-        // Explicit move proposal avoids AppKit showing a copy (+) cursor.
-        return DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard validateDrop(info: info) else { return false }
-#if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.perform tab=\(debugShortSidebarTabId(draggedTabId))")
-#endif
-        SidebarDragLifecycleNotification().postClearRequest(reason: "outside_sidebar_drop")
-        return true
-    }
-
-    private func debugShortSidebarTabId(_ id: UUID?) -> String {
-        guard let id else { return "nil" }
-        return String(id.uuidString.prefix(5))
-    }
-}
-
 private struct SidebarFooter: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -9076,48 +8996,6 @@ private struct SidebarEmptyArea: View {
                 .frame(maxWidth: .infinity, minHeight: minimumHeight ?? 0)
                 .contentShape(Rectangle())
         }
-    }
-}
-
-private struct ExtensionSidebarBrowserStackEmptyArea: View {
-    let rowSpacing: CGFloat
-    let orderedRows: [ExtensionSidebarBrowserStackDropRow]
-    let dragAutoScrollController: SidebarDragAutoScrollController
-    @Binding var draggedTabId: UUID?
-    @Binding var dropIndicator: SidebarDropIndicator?
-    let onNewTab: () -> Void
-    let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
-
-    var body: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onTapGesture(count: 2, perform: onNewTab)
-            .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackEndDropDelegate(
-                orderedRows: orderedRows,
-                draggedTabId: $draggedTabId,
-                dragAutoScrollController: dragAutoScrollController,
-                dropIndicator: $dropIndicator,
-                onMove: onMove
-            ))
-            .overlay(alignment: .top) {
-                if shouldShowTopDropIndicator {
-                    Rectangle()
-                        .fill(cmuxAccentColor())
-                        .frame(height: 2)
-                        .padding(.horizontal, 8)
-                        .offset(y: -(rowSpacing / 2))
-                }
-            }
-    }
-
-    private var shouldShowTopDropIndicator: Bool {
-        guard let indicator = dropIndicator else { return false }
-        if indicator.tabId == nil {
-            return true
-        }
-        guard indicator.edge == .bottom, let lastWorkspaceId = orderedRows.last?.workspaceId else { return false }
-        return indicator.tabId == lastWorkspaceId
     }
 }
 

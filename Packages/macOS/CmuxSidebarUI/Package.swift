@@ -21,6 +21,8 @@ let package = Package(
         .package(path: "../CmuxSidebarProviderKit"),
         // SidebarDragAutoScrollController drives edge auto-scroll during a drag.
         .package(path: "../CmuxAppKitSupportUI"),
+        // DEBUG-only drag-trace logging for the external-drop delegate.
+        .package(path: "../CMUXDebugLog"),
     ],
     targets: [
         .target(
@@ -30,6 +32,7 @@ let package = Package(
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSidebarProviderKit", package: "CmuxSidebarProviderKit"),
                 .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
+                .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
