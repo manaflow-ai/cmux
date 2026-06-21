@@ -152,6 +152,7 @@ struct CanvasSettingsFileStoreTests {
                 }
             }
         }
+        keys.forEach { defaults.removeObject(forKey: $0) }
         try body()
     }
 }
