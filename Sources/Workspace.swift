@@ -3476,9 +3476,9 @@ final class Workspace: Identifiable, ObservableObject {
         tabStripCloseButtonByTabId[surfaceId] = false
     }
     @discardableResult
-    func markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(surfaceId: TabID, tabStripClose: Bool, tabCloseButton: Bool) -> Bool {
+    func markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(surfaceId: TabID, tabStripClose: Bool, tabCloseButton: Bool, explicitUserClose: Bool = false) -> Bool {
         let shouldClose = shouldCloseWorkspaceOnLastSurface(for: surfaceId, tabStripClose: tabStripClose)
-        let shouldKeepOpen = shouldKeepWorkspaceOpenOnLastSurface(for: surfaceId)
+        let shouldKeepOpen = shouldKeepWorkspaceOpenOnLastSurface(for: surfaceId, explicitUserClose: explicitUserClose, tabStripClose: tabStripClose)
         remoteTmuxWorkspaceCloseButtonByTabId[surfaceId] = shouldClose ? Optional(tabCloseButton) : nil
         if shouldClose {
             remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false
@@ -3504,18 +3504,17 @@ final class Workspace: Identifiable, ObservableObject {
         if remoteTmuxKeepWorkspaceOpenTabIds.isEmpty { remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false }
     }
 
-    private func recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: Bool, tabId: TabID, panelId: UUID, explicitUserClose _: Bool, tabStripClose: Bool, tabCloseButton: Bool) {
+    private func recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: Bool, tabId: TabID, panelId: UUID, explicitUserClose: Bool, tabStripClose: Bool, tabCloseButton: Bool) {
         if routed {
             _ = markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(
                 surfaceId: tabId,
                 tabStripClose: tabStripClose,
-                tabCloseButton: tabCloseButton
+                tabCloseButton: tabCloseButton,
+                explicitUserClose: explicitUserClose
             )
         } else {
             clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
-            if !routed {
-                clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
-            }
+            clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         }
     }
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
@@ -11129,9 +11128,9 @@ extension Workspace: PaneTreeHosting {
 
 extension Workspace: BonsplitDelegate {
     @MainActor
-    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID, tabStripClose _: Bool) -> Bool { lastSurfaceClosePreference(for: tabId) == true }
+    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID, tabStripClose: Bool) -> Bool { lastSurfaceClosePreference(for: tabId).map { tabStripClose ? $0 : true } ?? false }
 
-    private func shouldKeepWorkspaceOpenOnLastSurface(for tabId: TabID) -> Bool { lastSurfaceClosePreference(for: tabId) == false }
+    private func shouldKeepWorkspaceOpenOnLastSurface(for tabId: TabID, explicitUserClose: Bool, tabStripClose: Bool) -> Bool { (!explicitUserClose || tabStripClose) && lastSurfaceClosePreference(for: tabId) == false }
 
     private func lastSurfaceClosePreference(for tabId: TabID) -> Bool? {
         let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
