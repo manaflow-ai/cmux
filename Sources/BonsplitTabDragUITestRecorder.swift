@@ -62,7 +62,7 @@ final class BonsplitTabDragUITestRecorder: UITestRecording {
                 guard let raw = window.identifier?.rawValue else { continue }
                 guard raw == "cmux.main" || raw.hasPrefix("cmux.main.") else { continue }
                 guard let context = self.appDelegate.contextForMainTerminalWindow(window),
-                      context.fileExplorerState != nil else {
+                      self.appDelegate.fileExplorerState(for: context) != nil else {
                     continue
                 }
                 return (window, context)
@@ -164,7 +164,7 @@ final class BonsplitTabDragUITestRecorder: UITestRecording {
                 self.appDelegate.sidebarState(for: context).isVisible = false
             }
             if showRightSidebar {
-                guard let fileExplorerState = context.fileExplorerState else {
+                guard let fileExplorerState = self.appDelegate.fileExplorerState(for: context) else {
                     self.writeBonsplitTabDragUITestData(["setupError": "Missing right sidebar state"])
                     return
                 }
@@ -174,7 +174,7 @@ final class BonsplitTabDragUITestRecorder: UITestRecording {
             self.writeBonsplitTabDragUITestData([
                 "ready": "1",
                 "sidebarVisible": startWithHiddenSidebar ? "0" : "1",
-                "rightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
+                "rightSidebarVisible": self.appDelegate.fileExplorerState(for: context)?.isVisible == true ? "1" : "0",
                 "workspaceId": workspace.id.uuidString,
                 "workspaceTitle": workspaceTitle,
                 "alphaTitle": alphaTitle,
