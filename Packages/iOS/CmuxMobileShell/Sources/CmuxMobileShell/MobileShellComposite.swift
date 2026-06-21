@@ -5339,8 +5339,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func debugSetTerminalEventListenerActiveForTesting(_ active: Bool) {
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = active ? Task { @MainActor in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let stream = AsyncStream<Void> { _ in }
+            for await _ in stream {
             }
         } : nil
     }
