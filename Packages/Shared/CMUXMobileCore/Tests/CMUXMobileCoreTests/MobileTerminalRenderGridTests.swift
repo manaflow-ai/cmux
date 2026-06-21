@@ -888,6 +888,34 @@ import Testing
     #expect(vt.contains("\u{1B}]12;rgb:07/08/09\u{1B}\\"))
 }
 
+@Test func renderGridPlainTextCaptureCapsRowsBeforeFlatteningScrollback() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 80,
+        rows: 2,
+        full: true,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "visible-1"),
+            .init(row: 1, column: 0, text: "visible-2"),
+        ],
+        scrollbackRows: 4,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old-1"),
+            .init(row: 1, column: 0, text: "old-2"),
+            .init(row: 2, column: 0, text: "old-3"),
+            .init(row: 3, column: 0, text: "old-4"),
+        ]
+    )
+    let snapshot = MobileTerminalRenderGridSnapshot(frame: frame)
+
+    let capture = snapshot.cappedPlainText(lineBudget: 3)
+
+    #expect(capture.text == "old-4\nvisible-1\nvisible-2")
+    #expect(capture.isTruncated)
+    #expect(capture.lineBudget == 3)
+}
+
 @Test func replaySynthesizerMatchesFrameForwardersAcrossFrameShapes() throws {
     // Full primary-screen snapshot with scrollback, styles, and a cursor.
     let fullFrame = try MobileTerminalRenderGridFrame(

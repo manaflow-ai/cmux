@@ -34,6 +34,11 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
         rows.map(\.plainText).joined(separator: "\n")
     }
 
+    /// Bounded plain text for the active screen without flattening full scrollback first.
+    public func cappedPlainText(lineBudget: Int) -> MobileTerminalPlainTextCapture {
+        MobileTerminalPlainTextCapture.capped(rows: rows, lineBudget: lineBudget)
+    }
+
     private var primaryRows: [MobileTerminalRenderGridSnapshotRow]
     private var alternateRows: [MobileTerminalRenderGridSnapshotRow]
     private var primaryVisibleRowCount: Int
@@ -382,4 +387,72 @@ private func viewportOverlap(
         }
     }
     return nil
+}
+
+/// A bounded plain-text terminal capture for mobile copy/view-as-text flows.
+public struct MobileTerminalPlainTextCapture: Equatable, Sendable {
+    /// Text after applying ``lineBudget``.
+    public let text: String
+
+    /// Whether older rows were dropped to fit ``lineBudget``.
+    public let isTruncated: Bool
+
+    /// Maximum number of lines retained in ``text``.
+    public let lineBudget: Int
+
+    public init(text: String, isTruncated: Bool, lineBudget: Int) {
+        self.text = text
+        self.isTruncated = isTruncated
+        self.lineBudget = lineBudget
+    }
+
+    /// Caps already-flattened terminal text to the last `lineBudget` lines.
+    public static func capped(
+        fullText: String,
+        lineBudget: Int
+    ) -> MobileTerminalPlainTextCapture {
+        precondition(lineBudget > 0, "lineBudget must be positive")
+        var lines = fullText.split(separator: "\n", omittingEmptySubsequences: false)[...]
+        while let last = lines.last, last.allSatisfy(\.isWhitespace) {
+            lines = lines.dropLast()
+        }
+        let isTruncated = lines.count > lineBudget
+        if isTruncated {
+            lines = lines.suffix(lineBudget)
+        }
+        return MobileTerminalPlainTextCapture(
+            text: lines.joined(separator: "\n"),
+            isTruncated: isTruncated,
+            lineBudget: lineBudget
+        )
+    }
+
+    /// Caps semantic render-grid rows without first flattening full scrollback.
+    public static func capped(
+        rows: [MobileTerminalRenderGridSnapshotRow],
+        lineBudget: Int
+    ) -> MobileTerminalPlainTextCapture {
+        precondition(lineBudget > 0, "lineBudget must be positive")
+        var end = rows.endIndex
+        while end > rows.startIndex {
+            let previous = rows.index(before: end)
+            if !rows[previous].plainText.allSatisfy(\.isWhitespace) {
+                break
+            }
+            end = previous
+        }
+        let retainedCount = rows.distance(from: rows.startIndex, to: end)
+        let isTruncated = retainedCount > lineBudget
+        let start = isTruncated
+            ? rows.index(end, offsetBy: -lineBudget)
+            : rows.startIndex
+        let text = rows[start..<end]
+            .map(\.plainText)
+            .joined(separator: "\n")
+        return MobileTerminalPlainTextCapture(
+            text: text,
+            isTruncated: isTruncated,
+            lineBudget: lineBudget
+        )
+    }
 }

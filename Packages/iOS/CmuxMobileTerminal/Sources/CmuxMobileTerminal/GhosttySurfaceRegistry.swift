@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import GhosttyKit
 import UIKit
 
@@ -72,9 +73,12 @@ extension GhosttySurfaceView {
     ///   view as ``hostSurfaceID``). The lookup is scoped to that id so a
     ///   second visible surface — another iPad scene, an in-flight transition —
     ///   can never leak a different workspace's terminal into the capture.
-    /// - Returns: The surface's screen text, or nil when that terminal has no
-    ///   mounted surface or the read fails.
-    public static func copyableTerminalText(surfaceID: String) async -> String? {
+    /// - Returns: The surface's capped screen text, or nil when that terminal
+    ///   has no mounted surface or the read fails.
+    public static func copyableTerminalText(
+        surfaceID: String,
+        lineBudget: Int
+    ) async -> MobileTerminalPlainTextCapture? {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         // Scoped pick: only views stamped with the requested id qualify, and
         // only while actually on screen (same visibility filter as
@@ -94,7 +98,9 @@ extension GhosttySurfaceView {
                     && candidate.alpha > 0.01
             }
         if let snapshot = matchingView?.renderGridSnapshot {
-            return snapshot.plainText
+            return await Task.detached(priority: .userInitiated) {
+                snapshot.cappedPlainText(lineBudget: lineBudget)
+            }.value
         }
         guard let surface = matchingView?.surface else { return nil }
         let handle = CopyableTextSurfaceHandle(surface: surface)
@@ -104,7 +110,10 @@ extension GhosttySurfaceView {
                 // viewport-only read if the screen read fails outright.
                 let text = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_SCREEN)
                     ?? surfaceText(handle.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
-                continuation.resume(returning: text)
+                let capped = text.map {
+                    MobileTerminalPlainTextCapture.capped(fullText: $0, lineBudget: lineBudget)
+                }
+                continuation.resume(returning: capped)
             }
         }
     }
