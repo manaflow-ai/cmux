@@ -52,55 +52,6 @@ extension VerticalTabsSidebar {
             dragState.beginDragging(tabId: anchorId)
             return SidebarTabDragPayload.provider(for: anchorId)
         }
-        let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
-            groupId = group.id,
-            anchorId = group.anchorWorkspaceId,
-            firstMemberWorkspaceId = group.isCollapsed ? nil : memberWorkspaceIds.first { $0 != group.anchorWorkspaceId },
-            workspaceGroupIdByWorkspaceId = renderContext.workspaceGroupIdByWorkspaceId,
-            visibleWorkspaceRowIds = renderContext.visibleWorkspaceRowIds,
-            selectedTabIds = $selectedTabIds,
-            lastSidebarSelectionIndex = $lastSidebarSelectionIndex
-        ] rowHeight in
-            let reorderDelegate = SidebarTabDropDelegate(
-                targetTabId: anchorId,
-                tabManager: tabManager,
-                workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
-                visibleWorkspaceRowIds: visibleWorkspaceRowIds,
-                dragState: dragState,
-                selectedTabIds: selectedTabIds,
-                lastSidebarSelectionIndex: lastSidebarSelectionIndex,
-                targetRowHeight: rowHeight,
-                targetLeadingIndent: 0,
-                forcedDropEdge: nil,
-                dragAutoScrollController: dragAutoScrollController
-            )
-            let firstMemberReorderDelegate = firstMemberWorkspaceId.map { memberId in
-                SidebarTabDropDelegate(
-                    targetTabId: memberId,
-                    tabManager: tabManager,
-                    workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
-                    visibleWorkspaceRowIds: visibleWorkspaceRowIds,
-                    dragState: dragState,
-                    selectedTabIds: selectedTabIds,
-                    lastSidebarSelectionIndex: lastSidebarSelectionIndex,
-                    targetRowHeight: rowHeight,
-                    targetLeadingIndent: SidebarWorkspaceGroupingMetrics.memberIndent,
-                    forcedDropEdge: .top,
-                    dragAutoScrollController: dragAutoScrollController
-                )
-            }
-            return SidebarWorkspaceGroupHeaderDropDelegate(
-                targetGroupId: groupId,
-                targetAnchorWorkspaceId: anchorId,
-                tabManager: tabManager,
-                dragState: dragState,
-                targetRowHeight: rowHeight,
-                dragAutoScrollController: dragAutoScrollController,
-                reorderDelegate: reorderDelegate,
-                firstMemberReorderDelegate: firstMemberReorderDelegate
-            )
-        }
-
         let header = SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
@@ -125,7 +76,6 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: topDropIndicatorVisible,
             onDragStart: onDragStart,
-            tabDropDelegateFactory: tabDropDelegateFactory,
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
