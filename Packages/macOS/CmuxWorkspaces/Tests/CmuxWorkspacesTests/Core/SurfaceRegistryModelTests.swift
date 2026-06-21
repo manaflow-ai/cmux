@@ -444,4 +444,116 @@ struct SurfaceRegistryModelPanelAccessTests {
         #expect(host.tabs[0].isPinned == true)
         #expect(host.tabs[0].kind == "terminal")
     }
+
+    // MARK: - Close-history eligibility
+
+    @Test("markExplicitClose marks explicit, surface eligibility, and panel eligibility when resolved")
+    func markExplicitCloseFull() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let surface = TabID()
+        let panel = UUID()
+        model.markExplicitClose(surfaceId: surface, panelId: panel)
+        #expect(model.explicitUserCloseTabIds == [surface])
+        #expect(model.closeHistoryEligibleTabIds == [surface])
+        #expect(model.closeHistoryEligiblePanelIds == [panel])
+    }
+
+    @Test("markExplicitClose with nil panel leaves the panel eligibility set untouched")
+    func markExplicitCloseNoPanel() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let surface = TabID()
+        model.markExplicitClose(surfaceId: surface, panelId: nil)
+        #expect(model.explicitUserCloseTabIds == [surface])
+        #expect(model.closeHistoryEligibleTabIds == [surface])
+        #expect(model.closeHistoryEligiblePanelIds.isEmpty)
+    }
+
+    @Test("markCloseHistoryEligible marks panel and resolved surface, but not explicit close")
+    func markCloseHistoryEligibleBoth() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let surface = TabID()
+        let panel = UUID()
+        model.markCloseHistoryEligible(panelId: panel, surfaceId: surface)
+        #expect(model.closeHistoryEligiblePanelIds == [panel])
+        #expect(model.closeHistoryEligibleTabIds == [surface])
+        #expect(model.explicitUserCloseTabIds.isEmpty)
+    }
+
+    @Test("markTabCloseButtonClose marks explicit-close and button-close, not history eligibility")
+    func markTabCloseButton() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let surface = TabID()
+        model.markTabCloseButtonClose(surfaceId: surface)
+        #expect(model.explicitUserCloseTabIds == [surface])
+        #expect(model.tabCloseButtonCloseTabIds == [surface])
+        #expect(model.closeHistoryEligibleTabIds.isEmpty)
+        #expect(model.closeHistoryEligiblePanelIds.isEmpty)
+    }
+
+    @Test("consumeCloseHistoryEligibility removes both keys and reports eligibility via OR")
+    func consumeEligibility() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let surface = TabID()
+        let panel = UUID()
+
+        // Eligible by tab only.
+        model.closeHistoryEligibleTabIds = [surface]
+        #expect(model.consumeCloseHistoryEligibility(tabId: surface, panelId: panel) == true)
+        #expect(model.closeHistoryEligibleTabIds.isEmpty)
+
+        // Eligible by panel only.
+        model.closeHistoryEligiblePanelIds = [panel]
+        #expect(model.consumeCloseHistoryEligibility(tabId: surface, panelId: panel) == true)
+        #expect(model.closeHistoryEligiblePanelIds.isEmpty)
+
+        // Neither eligible → false; nil panel does not consume a panel key.
+        #expect(model.consumeCloseHistoryEligibility(tabId: surface, panelId: nil) == false)
+    }
+
+    @Test("consumeCloseHistoryEligibility always removes the tab key even when consuming a panel-eligible close")
+    func consumeRemovesBothKeys() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let surface = TabID()
+        let panel = UUID()
+        model.closeHistoryEligibleTabIds = [surface]
+        model.closeHistoryEligiblePanelIds = [panel]
+        #expect(model.consumeCloseHistoryEligibility(tabId: surface, panelId: panel) == true)
+        #expect(model.closeHistoryEligibleTabIds.isEmpty)
+        #expect(model.closeHistoryEligiblePanelIds.isEmpty)
+    }
+
+    @Test("clearCloseHistoryEligibility removes both keys without reporting")
+    func clearEligibility() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let surface = TabID()
+        let panel = UUID()
+        model.closeHistoryEligibleTabIds = [surface]
+        model.closeHistoryEligiblePanelIds = [panel]
+        model.clearCloseHistoryEligibility(tabId: surface, panelId: panel)
+        #expect(model.closeHistoryEligibleTabIds.isEmpty)
+        #expect(model.closeHistoryEligiblePanelIds.isEmpty)
+    }
+
+    @Test("consume/remove flag helpers drain the explicit and button-close sets")
+    func consumeFlagHelpers() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let surface = TabID()
+        model.tabCloseButtonCloseTabIds = [surface]
+        model.explicitUserCloseTabIds = [surface]
+
+        #expect(model.consumeTabCloseButtonClose(surface) == true)
+        #expect(model.tabCloseButtonCloseTabIds.isEmpty)
+        #expect(model.consumeTabCloseButtonClose(surface) == false)
+
+        #expect(model.consumeExplicitUserClose(surface) == true)
+        #expect(model.explicitUserCloseTabIds.isEmpty)
+        #expect(model.consumeExplicitUserClose(surface) == false)
+
+        // removeTabCloseButtonClose is an idempotent no-op when absent.
+        model.tabCloseButtonCloseTabIds = [surface]
+        model.removeTabCloseButtonClose(surface)
+        #expect(model.tabCloseButtonCloseTabIds.isEmpty)
+        model.removeTabCloseButtonClose(surface)
+        #expect(model.tabCloseButtonCloseTabIds.isEmpty)
+    }
 }
