@@ -32,6 +32,11 @@ extension VerticalTabsSidebar {
             }
             return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
         }()
+        let canMarkGroupRead = notificationStore.canMarkWorkspaceRead(forTabIds: memberWorkspaceIds)
+        let canMarkGroupUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: memberWorkspaceIds)
+        let groupHasLatestNotifications = memberWorkspaceIds.contains {
+            notificationStore.latestNotification(forTabId: $0) != nil
+        }
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
         let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
             at: anchorIndex,
@@ -91,6 +96,9 @@ extension VerticalTabsSidebar {
             isAnchorActive: isAnchorActive,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
+            canMarkRead: canMarkGroupRead,
+            canMarkUnread: canMarkGroupUnread,
+            hasLatestNotifications: groupHasLatestNotifications,
             shortcutDigit: shortcutDigit,
             shortcutModifierSymbol: modifierSymbol,
             showsShortcutHint: showsHintForAnchor,
@@ -143,6 +151,24 @@ extension VerticalTabsSidebar {
             },
             onTogglePinned: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
+            },
+            onMarkRead: { [weak notificationStore, memberWorkspaceIds] in
+                guard let notificationStore else { return }
+                for id in memberWorkspaceIds {
+                    notificationStore.markRead(forTabId: id)
+                }
+            },
+            onMarkUnread: { [weak notificationStore, memberWorkspaceIds] in
+                guard let notificationStore else { return }
+                for id in memberWorkspaceIds {
+                    notificationStore.markUnread(forTabId: id)
+                }
+            },
+            onClearLatestNotifications: { [weak notificationStore, memberWorkspaceIds] in
+                guard let notificationStore else { return }
+                for id in memberWorkspaceIds {
+                    notificationStore.clearLatestNotification(forTabId: id)
+                }
             },
             onUngroup: { [weak tabManager, groupId = group.id] in
                 tabManager?.ungroupWorkspaceGroup(groupId: groupId)

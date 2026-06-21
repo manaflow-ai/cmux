@@ -21,6 +21,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isAnchorActive == rhs.isAnchorActive &&
             lhs.memberCount == rhs.memberCount &&
             lhs.anchorUnreadCount == rhs.anchorUnreadCount &&
+            lhs.canMarkRead == rhs.canMarkRead &&
+            lhs.canMarkUnread == rhs.canMarkUnread &&
+            lhs.hasLatestNotifications == rhs.hasLatestNotifications &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
@@ -45,6 +48,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isAnchorActive: Bool
     let memberCount: Int
     let anchorUnreadCount: Int
+    let canMarkRead: Bool
+    let canMarkUnread: Bool
+    let hasLatestNotifications: Bool
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -65,6 +71,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
+    let onMarkRead: () -> Void
+    let onMarkUnread: () -> Void
+    let onClearLatestNotifications: () -> Void
     let onUngroup: () -> Void
     let onDelete: () -> Void
     let onEditConfig: () -> Void
@@ -264,6 +273,31 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     ),
                 action: onTogglePinned
             )
+            Divider()
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markRead",
+                    defaultValue: "Mark Group as Read"
+                ),
+                action: onMarkRead
+            )
+            .disabled(!canMarkRead)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markUnread",
+                    defaultValue: "Mark Group as Unread"
+                ),
+                action: onMarkUnread
+            )
+            .disabled(!canMarkUnread)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.clearLatestNotifications",
+                    defaultValue: "Clear Latest Notifications"
+                ),
+                action: onClearLatestNotifications
+            )
+            .disabled(!hasLatestNotifications)
             Divider()
             Button(
                 String(
