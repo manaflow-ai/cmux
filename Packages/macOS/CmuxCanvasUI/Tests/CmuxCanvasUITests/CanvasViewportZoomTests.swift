@@ -74,6 +74,30 @@ struct CanvasViewportZoomTests {
         #expect(abs(root.currentCenterInCanvas.y - centerAfterReveal.y) < 0.5)
     }
 
+    @Test func lowZoomDiscreteZoomCommitsViewportBeforeAnimation() throws {
+        let root = makeRoot()
+        root.setViewport(center: CGPoint(x: 420, y: 180), magnification: 0.262144, notifySettled: false)
+        root.layoutSubtreeIfNeeded()
+
+        let sourceMagnification = root.currentMagnification
+        let targetMagnification = max(root.scrollView.minMagnification, sourceMagnification / 1.25)
+        let centerBefore = root.currentCenterInCanvas
+
+        root.zoom(by: 1 / 1.25)
+
+        #expect(abs(root.currentMagnification - targetMagnification) < 0.0001)
+        #expect(abs(root.currentCenterInCanvas.x - centerBefore.x) < 0.5)
+        #expect(abs(root.currentCenterInCanvas.y - centerBefore.y) < 0.5)
+
+        let centerAfterCommit = root.currentCenterInCanvas
+        root.finishDiscreteZoomAnimation()
+        root.layoutSubtreeIfNeeded()
+
+        #expect(abs(root.currentMagnification - targetMagnification) < 0.0001)
+        #expect(abs(root.currentCenterInCanvas.x - centerAfterCommit.x) < 0.5)
+        #expect(abs(root.currentCenterInCanvas.y - centerAfterCommit.y) < 0.5)
+    }
+
     private func makeRoot(
         panelFrames: [(UUID, CGRect)] = [(UUID(), CGRect(x: 0, y: 0, width: 640, height: 360))]
     ) -> CanvasRootView {
