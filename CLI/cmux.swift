@@ -19293,6 +19293,7 @@ struct CMUXCLI {
     private static let codexTeamsMaxAutoDepth = 2
     private static let codexTeamsReconcileInterval: TimeInterval = 1
     private static let codexTeamsMaxPendingThreadSubscriptionRetryRounds = 3
+    private static let codexTeamsMaxExhaustedThreadSubscriptionRetryIds = 500
     private static let codexTeamsMaxCachedApprovalItems = 500
     static let codexTeamsApprovalMethods: Set<String> = [
         "item/commandExecution/requestApproval",
@@ -19595,7 +19596,8 @@ struct CMUXCLI {
         private var subscribedThreadIds = Set<String>()
         private var pendingThreadSubscriptionRetryBudget = CodexTeamsThreadSubscriptionRetryBudget(
             maxPendingRounds: CMUXCLI.codexTeamsMaxPendingThreadSubscriptionRetryRounds,
-            retryInterval: CMUXCLI.codexTeamsReconcileInterval
+            retryInterval: CMUXCLI.codexTeamsReconcileInterval,
+            maxExhaustedThreadIds: CMUXCLI.codexTeamsMaxExhaustedThreadSubscriptionRetryIds
         )
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []

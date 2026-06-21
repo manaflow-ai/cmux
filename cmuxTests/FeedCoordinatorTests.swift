@@ -812,6 +812,31 @@ struct FeedCoordinatorTests {
         #expect(resetPendingMark)
     }
 
+    @Test func codexTeamsThreadSubscriptionRetryBudgetBoundsExhaustedThreads() {
+        var budget = CodexTeamsThreadSubscriptionRetryBudget(
+            maxPendingRounds: 1,
+            retryInterval: 1,
+            maxExhaustedThreadIds: 1
+        )
+
+        let firstThreadInitialMark = budget.markPending("thread-1")
+        #expect(firstThreadInitialMark)
+        budget.beginRetry("thread-1")
+        let firstThreadExhaustedMark = budget.markPending("thread-1")
+        #expect(!firstThreadExhaustedMark)
+        let firstThreadTombstonedMark = budget.markPending("thread-1")
+        #expect(!firstThreadTombstonedMark)
+
+        let secondThreadInitialMark = budget.markPending("thread-2")
+        #expect(secondThreadInitialMark)
+        budget.beginRetry("thread-2")
+        let secondThreadExhaustedMark = budget.markPending("thread-2")
+        #expect(!secondThreadExhaustedMark)
+
+        let firstThreadEvictedMark = budget.markPending("thread-1")
+        #expect(firstThreadEvictedMark)
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
