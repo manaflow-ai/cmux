@@ -21,10 +21,16 @@ extension PresenceClient {
     public static let serviceURLInfoPlistKey = "CMUXPresenceBaseURL"
     /// The dev/staging worker (dev Stack project); see workers/presence/README.md.
     public static let debugDefaultServiceURL = "https://cmux-presence-dev.debussy.workers.dev"
+    /// The production presence worker (prod Stack project); see
+    /// workers/presence/README.md. The Release default, so a stable iOS app
+    /// subscribes to the same presence service stable Macs heartbeat to.
+    public static let productionServiceURL = "https://presence.cmux.dev"
 
-    /// The presence service base URL for this process, or `nil` when presence is
-    /// disabled (no override and not a Debug build). Override precedence: env, then
-    /// UserDefaults, then the baked Info.plist value, then the Debug default.
+    /// The presence service base URL for this process. Override precedence: env,
+    /// then UserDefaults, then the baked Info.plist value, then the build default
+    /// (dev worker on Debug, production worker on Release). Never `nil` now — the
+    /// phone always has a presence service to subscribe to; whether a given Mac
+    /// shows up depends on that Mac heartbeating (mobile enabled) to the same one.
     public static func resolvedServiceBaseURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard,
@@ -40,7 +46,7 @@ extension PresenceClient {
         if let override, !override.isEmpty {
             return override
         }
-        return isDebugBuild ? debugDefaultServiceURL : nil
+        return isDebugBuild ? debugDefaultServiceURL : productionServiceURL
     }
 
     /// Whether this is a Debug build (compile-time; parameterized above so the

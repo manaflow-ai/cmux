@@ -115,13 +115,17 @@ final class PresenceHeartbeatClient {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? defaults.string(forKey: PresenceSettings.serviceURLKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        #if DEBUG
         if raw == nil || raw?.isEmpty == true {
+            #if DEBUG
             // Debug builds authenticate against the dev Stack project, which is
             // what the dev/staging worker verifies — see PresenceSettings.
             raw = PresenceSettings.debugDefaultServiceURL
+            #else
+            // Release builds talk to the production presence worker, so stable
+            // cmux announces presence once mobile is enabled (gated by isEnabled).
+            raw = PresenceSettings.productionServiceURL
+            #endif
         }
-        #endif
         guard let raw, !raw.isEmpty else { return nil }
         return URL(string: raw)
     }
