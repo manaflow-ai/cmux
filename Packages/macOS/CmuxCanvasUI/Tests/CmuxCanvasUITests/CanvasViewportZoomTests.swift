@@ -14,8 +14,8 @@ struct CanvasViewportZoomTests {
 
         root.zoom(by: 0.8)
 
-        #expect(root.currentMagnification == 1)
-        #expect(root.pendingDiscreteZoomAnimation?.magnification == 0.8)
+        #expect(abs(root.currentMagnification - 0.8) < 0.0001)
+        #expect(root.isDiscreteZoomAnimationActive)
         root.finishDiscreteZoomAnimation()
 
         #expect(abs(root.currentMagnification - 0.8) < 0.0001)
@@ -40,13 +40,13 @@ struct CanvasViewportZoomTests {
         root.setViewport(center: CGPoint(x: 420, y: 180), magnification: 1, notifySettled: false)
 
         root.zoom(by: 0.8)
-        #expect(root.pendingDiscreteZoomAnimation != nil)
+        #expect(root.isDiscreteZoomAnimationActive)
 
         root.toggleOverview()
         let magnificationAfterOverview = root.currentMagnification
         let centerAfterOverview = root.currentCenterInCanvas
 
-        #expect(root.pendingDiscreteZoomAnimation == nil)
+        #expect(!root.isDiscreteZoomAnimationActive)
         root.finishDiscreteZoomAnimation()
         #expect(abs(root.currentMagnification - magnificationAfterOverview) < 0.0001)
         #expect(abs(root.currentCenterInCanvas.x - centerAfterOverview.x) < 0.5)
@@ -63,12 +63,12 @@ struct CanvasViewportZoomTests {
         root.setViewport(center: CGPoint(x: 320, y: 180), magnification: 1, notifySettled: false)
 
         root.zoom(by: 0.8)
-        #expect(root.pendingDiscreteZoomAnimation != nil)
+        #expect(root.isDiscreteZoomAnimationActive)
 
         root.revealPane(panelB, animated: false)
         let centerAfterReveal = root.currentCenterInCanvas
 
-        #expect(root.pendingDiscreteZoomAnimation == nil)
+        #expect(!root.isDiscreteZoomAnimationActive)
         root.finishDiscreteZoomAnimation()
         #expect(abs(root.currentCenterInCanvas.x - centerAfterReveal.x) < 0.5)
         #expect(abs(root.currentCenterInCanvas.y - centerAfterReveal.y) < 0.5)

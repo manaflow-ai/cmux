@@ -51,7 +51,7 @@ public final class CanvasRootView: NSView {
     /// A saved viewport waiting to be applied once the scroll view is laid
     /// out (contentSize settled). Cleared when successfully applied.
     private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
-    var pendingDiscreteZoomAnimation: (canvasCenter: CGPoint, magnification: CGFloat)?
+    var isDiscreteZoomAnimationActive = false
     var discreteZoomAnimationGeneration: UInt64 = 0
     /// True while programmatically applying a saved viewport, so the scroll
     /// events that causes don't overwrite the saved value with transients.
@@ -188,7 +188,7 @@ public final class CanvasRootView: NSView {
         clipBoundsObserver = nil
         scrollSettleObservers.forEach { NotificationCenter.default.removeObserver($0) }
         scrollSettleObservers = []
-        cancelDiscreteZoomAnimation(commitPending: false)
+        cancelDiscreteZoomAnimation()
         commandScrollHintTask?.cancel()
         commandScrollHintTask = nil
         resetMinimapVisibility()
