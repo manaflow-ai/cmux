@@ -174,6 +174,7 @@ struct LastSurfaceClosePreferenceTests {
             let secondPanelId = try #require(secondWorkspace.focusedPanelId)
             let secondSurfaceId = try #require(secondWorkspace.surfaceIdFromPanelId(secondPanelId))
 
+            secondWorkspace.isRemoteTmuxMirror = true
             secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
             #expect(!secondWorkspace.markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(
                 surfaceId: secondSurfaceId,
@@ -186,6 +187,38 @@ struct LastSurfaceClosePreferenceTests {
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
+            #expect(!secondWorkspace.isRemoteTmuxMirror)
+            #expect(secondWorkspace.panels[secondPanelId] == nil)
+            #expect(secondWorkspace.panels.count == 1)
+            #expect(secondWorkspace.focusedPanelId != secondPanelId)
+        }
+    }
+
+    @Test
+    func remoteTmuxWindowCloseBeforeSessionEndKeepsWorkspaceOpenForShortcut() throws {
+        try withManager(closeWorkspaceOnLastSurface: false) { manager in
+            let firstWorkspace = manager.tabs[0]
+            let secondWorkspace = manager.addWorkspace()
+            manager.selectWorkspace(secondWorkspace)
+
+            let secondPanelId = try #require(secondWorkspace.focusedPanelId)
+            let secondSurfaceId = try #require(secondWorkspace.surfaceIdFromPanelId(secondPanelId))
+
+            secondWorkspace.isRemoteTmuxMirror = true
+            secondWorkspace.markCloseHistoryEligible(panelId: secondPanelId)
+            #expect(!secondWorkspace.markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(
+                surfaceId: secondSurfaceId,
+                tabStripClose: false,
+                tabCloseButton: false
+            ))
+            #expect(secondWorkspace.closePanel(secondPanelId, force: true))
+            drainMainQueue()
+            drainMainQueue()
+
+            #expect(secondWorkspace.handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded())
+            #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
+            #expect(manager.selectedTabId == secondWorkspace.id)
+            #expect(!secondWorkspace.isRemoteTmuxMirror)
             #expect(secondWorkspace.panels[secondPanelId] == nil)
             #expect(secondWorkspace.panels.count == 1)
             #expect(secondWorkspace.focusedPanelId != secondPanelId)
