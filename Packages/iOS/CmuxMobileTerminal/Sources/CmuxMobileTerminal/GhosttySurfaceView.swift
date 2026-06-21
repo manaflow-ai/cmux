@@ -2223,7 +2223,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
             var fallbackSnapshot: String?
-            if shouldReadFallbackSnapshot {
+            let snapshotNow = CACurrentMediaTime()
+            if shouldReadFallbackSnapshot,
+               snapshotNow - Self.lastSnapshotFallbackTextTime > 0.25 {
+                Self.lastSnapshotFallbackTextTime = snapshotNow
                 fallbackSnapshot = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT)
             }
             #if DEBUG
@@ -2264,7 +2267,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                    !fallbackSnapshot.isEmpty,
                    self.shouldKeepSnapshotFallbackActive {
                     self.showSnapshotFallback(text: fallbackSnapshot)
-                } else if self.hasVisibleGhosttyRendererLayer() {
+                } else if !self.shouldKeepSnapshotFallbackActive,
+                          self.hasVisibleGhosttyRendererLayer() {
                     self.snapshotFallbackView.isHidden = true
                 }
                 let now = CACurrentMediaTime()
@@ -2445,6 +2449,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `processOutput`. Accessed only on the serial `outputQueue`, so the
     /// unchecked mutation is safe.
     nonisolated(unsafe) fileprivate static var lastAccessibilityTextTime: CFTimeInterval = 0
+    /// Throttle stamp for snapshot fallback text reads in `processOutput`.
+    /// Accessed only on the serial `outputQueue`, so the unchecked mutation is
+    /// safe.
+    nonisolated(unsafe) fileprivate static var lastSnapshotFallbackTextTime: CFTimeInterval = 0
 
     /// Off-main equivalent of ``accessibilityRenderedTextForTesting()`` that
     /// reads via the raw surface handle so it can run on the serial output queue
