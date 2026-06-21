@@ -60,6 +60,10 @@ actor GatedUpsertStore: MobilePairedMacStoring {
         try await inner.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)
     }
 
+    func clearActive(stackUserID: String?, teamID: String?) async throws {
+        try await inner.clearActive(stackUserID: stackUserID, teamID: teamID)
+    }
+
     func setCustomization(
         macDeviceID: String, customName: String?, customColor: String?,
         customIcon: String?, stackUserID: String?, teamID: String?, now: Date

@@ -92,4 +92,38 @@ import Testing
         #expect(visible?.customColor == "palette:4")
         #expect(visible?.customIcon == "terminal")
     }
+
+    @Test func activatingVisibleLegacyRowClearsSelectedTeamActiveMac() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = TeamScopedPairedMacStore(
+            inner: inner,
+            teamIDProvider: { "team-a" }
+        )
+
+        try await inner.upsert(
+            macDeviceID: "mac-legacy",
+            displayName: "Legacy",
+            routes: [try route("10.0.0.1")],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await inner.upsert(
+            macDeviceID: "mac-team",
+            displayName: "Team",
+            routes: [try route("10.0.0.2")],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        try await store.setActive(macDeviceID: "mac-legacy", stackUserID: "user-1", teamID: nil)
+
+        let visible = try await store.loadAll(stackUserID: "user-1")
+        #expect(visible.filter(\.isActive).map(\.macDeviceID) == ["mac-legacy"])
+        #expect(try await store.activeMac(stackUserID: "user-1")?.macDeviceID == "mac-legacy")
+    }
 }

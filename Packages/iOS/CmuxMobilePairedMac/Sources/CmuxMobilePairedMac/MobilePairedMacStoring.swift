@@ -49,6 +49,14 @@ public protocol MobilePairedMacStoring: Sendable {
     ///   - teamID: Stack team this activation belongs to, if any.
     func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws
 
+    /// Clear the active pairing for one visible owner scope.
+    /// - Parameters:
+    ///   - stackUserID: Owning Stack Auth user, if any.
+    ///   - teamID: Stack team whose visible rows should be cleared. When set,
+    ///     team-less legacy rows are cleared too because they are visible in that
+    ///     team scope.
+    func clearActive(stackUserID: String?, teamID: String?) async throws
+
     /// Set the user's per-Mac customizations (synced per user). Leaves the
     /// Mac-reported name, routes, and active flag untouched, and bumps
     /// `lastSeenAt` so the change is the freshest write for LWW sync.

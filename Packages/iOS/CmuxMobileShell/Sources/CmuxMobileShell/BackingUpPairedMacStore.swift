@@ -171,6 +171,17 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         }
     }
 
+    /// Clear the active paired Mac locally and mirror the changed row to backup.
+    public func clearActive(stackUserID: String?, teamID: String?) async throws {
+        let team = await resolvedTeam(teamID)
+        let previous = stackUserID != nil
+            ? try? await inner.activeMac(stackUserID: stackUserID, teamID: team) : nil
+        try await inner.clearActive(stackUserID: stackUserID, teamID: team)
+        guard let stackUserID, let previous else { return }
+        lastSignedInAccount = stackUserID
+        await uploadCurrentRecord(macDeviceID: previous.macDeviceID, account: stackUserID, teamID: team)
+    }
+
     /// Persist local customizations in one explicit owner scope, then mirror the
     /// complete scoped row to backup.
     public func setCustomization(

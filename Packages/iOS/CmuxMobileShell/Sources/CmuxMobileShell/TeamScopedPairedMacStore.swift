@@ -65,11 +65,19 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
     public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let team = await resolvedTeam(teamID)
         let scope = try await visibleScope(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: team)
+        if scope.teamID != team {
+            try await inner.clearActive(stackUserID: scope.stackUserID, teamID: team)
+        }
         try await inner.setActive(
             macDeviceID: macDeviceID,
             stackUserID: scope.stackUserID,
             teamID: scope.teamID
         )
+    }
+
+    /// Clear the active paired Mac in the selected team scope.
+    public func clearActive(stackUserID: String?, teamID: String?) async throws {
+        try await inner.clearActive(stackUserID: stackUserID, teamID: await resolvedTeam(teamID))
     }
 
     /// Persist local customizations without changing the row's team scope.

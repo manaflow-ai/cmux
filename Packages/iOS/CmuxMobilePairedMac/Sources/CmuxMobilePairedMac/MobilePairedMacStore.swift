@@ -402,6 +402,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// Clear the active paired Mac in the optional Stack user and team scope.
+    public func clearActive(stackUserID: String? = nil, teamID: String? = nil) throws {
+        try ensureReady()
+        try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
+    }
+
     /// Persist user-facing customizations for one paired Mac.
     public func setCustomization(
         macDeviceID: String,
