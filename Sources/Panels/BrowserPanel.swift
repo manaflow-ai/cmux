@@ -10565,7 +10565,7 @@ final class BrowserDataImportCoordinator {
         }
 
         private func registerStaticFont(_ label: NSTextField, size: CGFloat, weight: NSFont.Weight = .regular) {
-            let action = { [weak label] in
+            let action: () -> Void = { [weak label] in
                 label?.font = GlobalFontMagnification.systemFont(ofSize: size, weight: weight)
             }
             staticFontActions.append(action)
@@ -10573,7 +10573,7 @@ final class BrowserDataImportCoordinator {
         }
 
         private func registerStaticControlFont(_ control: NSControl, size: CGFloat = NSFont.systemFontSize) {
-            let action = { [weak control] in
+            let action: () -> Void = { [weak control] in
                 control?.font = GlobalFontMagnification.systemFont(ofSize: size)
             }
             staticFontActions.append(action)
