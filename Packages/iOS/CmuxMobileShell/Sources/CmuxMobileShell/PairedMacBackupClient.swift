@@ -35,7 +35,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     /// Upload backup mutations to the presence worker.
     public func upload(ops: [PairedMacBackupOp]) async {
         guard !ops.isEmpty else { return }
-        let body = BackupRequestBody(ops: ops.map(OpWire.init(op:)))
+        let body = PairedMacBackupRequestBody(ops: ops.map(PairedMacBackupOpWire.init(op:)))
         guard let data = try? JSONEncoder().encode(body),
               let request = await makeRequest(method: "POST", body: data) else {
             return
@@ -60,7 +60,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
                 return nil
             }
             // A 2xx with an undecodable body is a real failure, not "no hosts".
-            return (try? JSONDecoder().decode(ListResponse.self, from: data))?.records
+            return (try? JSONDecoder().decode(PairedMacBackupListResponse.self, from: data))?.records
         } catch {
             pairedMacBackupLog.warning("paired-mac backup fetch error: \(String(describing: error), privacy: .public)")
             return nil
@@ -84,38 +84,5 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             request.httpBody = body
         }
         return request
-    }
-
-    // MARK: - Wire shapes
-
-    // Intentional file-organization exception: these DTOs are private to this
-    // one backup endpoint and encode/decode exactly beside the request builders
-    // they serve. Splitting them would export no reusable abstraction.
-    private struct ListResponse: Decodable {
-        let records: [PairedMacBackupRecord]
-    }
-
-    private struct BackupRequestBody: Encodable {
-        let ops: [OpWire]
-    }
-
-    /// `{ macDeviceID, deleted?, record? }` matching the server's parse.
-    private struct OpWire: Encodable {
-        let macDeviceID: String
-        let deleted: Bool?
-        let record: PairedMacBackupRecord?
-
-        init(op: PairedMacBackupOp) {
-            switch op {
-            case .upsert(let record):
-                self.macDeviceID = record.macDeviceID
-                self.deleted = nil
-                self.record = record
-            case .delete(let macDeviceID):
-                self.macDeviceID = macDeviceID
-                self.deleted = true
-                self.record = nil
-            }
-        }
     }
 }

@@ -5,22 +5,27 @@ import Foundation
 /// multi-Mac list. The UI layer maps a returned slot in `0..<slotCount` to a
 /// concrete gradient; this stays free of SwiftUI so it is unit-testable.
 ///
-/// This is intentionally a pure namespace: it owns no state or environment, and
-/// dependency injection would only wrap deterministic hash derivation in ceremony.
-public enum MachineAvatarPalette {
+public struct MachineAvatarPalette: Sendable {
     /// Default number of distinct color slots. The UI passes its real palette
     /// count so the slot is always in range.
-    public static let slotCount = 8
+    public static let defaultSlotCount = 8
+
+    /// Number of distinct color slots in the target palette.
+    public var slotCount: Int
+
+    /// Create a palette slot resolver.
+    public init(slotCount: Int = Self.defaultSlotCount) {
+        self.slotCount = slotCount
+    }
 
     /// Stable color slot for a workspace. Keyed to `machineID` so same-machine
     /// workspaces collide on one color by design; falls back to `fallbackID`
     /// (the workspace id) when the machine is unknown — e.g. a local single-Mac
     /// session before its device id resolves — so the avatar still has a stable
     /// color.
-    public static func slot(
+    public func slot(
         machineID: String?,
-        fallbackID: String,
-        slotCount: Int = slotCount
+        fallbackID: String
     ) -> Int {
         let source = (machineID?.isEmpty == false) ? machineID! : fallbackID
         // djb2: spreads similar ids (UUID fragments, hostnames that share a

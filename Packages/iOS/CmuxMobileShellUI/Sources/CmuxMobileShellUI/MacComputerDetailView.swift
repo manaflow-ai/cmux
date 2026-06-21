@@ -25,6 +25,9 @@ struct MacComputerDetailView: View {
     @State private var customColorPick = Color.blue
     @State private var customEmoji = ""
     @State private var didLoadEdits = false
+    @State private var pendingCustomName: String?
+    @State private var pendingCustomColor: String?
+    @State private var pendingCustomIcon: String?
 
     /// Curated icon choices: a few computer/utility SF Symbols + emojis.
     private static let symbolChoices = [
@@ -61,8 +64,12 @@ struct MacComputerDetailView: View {
         .onAppear {
             guard !didLoadEdits else { return }
             didLoadEdits = true
-            editName = pairedMac?.customName ?? ""
-            if let hex = pairedMac?.customColor, let color = Color(hexString: hex) {
+            let mac = pairedMac
+            pendingCustomName = mac?.customName
+            pendingCustomColor = mac?.customColor
+            pendingCustomIcon = mac?.customIcon
+            editName = mac?.customName ?? ""
+            if let hex = mac?.customColor, let color = Color(hexString: hex) {
                 customColorPick = color
             }
         }
@@ -101,7 +108,7 @@ struct MacComputerDetailView: View {
                     .font(.subheadline)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        autoChip(isSelected: pairedMac?.customColor == nil) { applyColor(nil) }
+                        autoChip(isSelected: pendingCustomColor == nil) { applyColor(nil) }
                         ForEach(Array(MachineAvatarColors.palettes.indices), id: \.self) { i in
                             colorSwatch(index: i)
                         }
@@ -136,7 +143,7 @@ struct MacComputerDetailView: View {
         let symbols = Self.symbolChoices.map { MacAvatarIcon.symbol($0) }
         let emojis = Self.emojiChoices.map { MacAvatarIcon.emoji($0) }
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
-            autoChip(isSelected: pairedMac?.customIcon == nil) { applyIcon(nil) }
+            autoChip(isSelected: pendingCustomIcon == nil) { applyIcon(nil) }
             ForEach(symbols + emojis, id: \.self) { icon in iconChip(icon) }
         }
     }
@@ -144,7 +151,7 @@ struct MacComputerDetailView: View {
     @ViewBuilder
     private func iconChip(_ icon: MacAvatarIcon) -> some View {
         let value: String = { if case let .symbol(s) = icon { return s } else if case let .emoji(e) = icon { return e } else { return "" } }()
-        let isSelected = pairedMac?.customIcon == value
+        let isSelected = pendingCustomIcon == value
         Button { applyIcon(value) } label: {
             Group {
                 switch icon {
@@ -161,7 +168,7 @@ struct MacComputerDetailView: View {
 
     @ViewBuilder
     private func colorSwatch(index: Int) -> some View {
-        let isSelected = pairedMac?.customColor == "palette:\(index)"
+        let isSelected = pendingCustomColor == "palette:\(index)"
         Button { applyColor("palette:\(index)") } label: {
             Circle()
                 .fill(MachineAvatarColors.gradient(index: index))
@@ -184,37 +191,30 @@ struct MacComputerDetailView: View {
     }
 
     private func applyName(_ name: String?) {
-        let mac = pairedMac
         let n = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            await store.updateMacCustomization(
-                macDeviceID: macDeviceID,
-                customName: (n?.isEmpty == false) ? n : nil,
-                customColor: mac?.customColor,
-                customIcon: mac?.customIcon
-            )
-        }
+        pendingCustomName = (n?.isEmpty == false) ? n : nil
+        persistCustomization()
     }
 
     private func applyColor(_ color: String?) {
-        let mac = pairedMac
-        Task {
-            await store.updateMacCustomization(
-                macDeviceID: macDeviceID,
-                customName: mac?.customName,
-                customColor: color,
-                customIcon: mac?.customIcon
-            )
-        }
+        pendingCustomColor = color
+        persistCustomization()
     }
 
     private func applyIcon(_ icon: String?) {
-        let mac = pairedMac
+        pendingCustomIcon = icon
+        persistCustomization()
+    }
+
+    private func persistCustomization() {
+        let name = pendingCustomName
+        let color = pendingCustomColor
+        let icon = pendingCustomIcon
         Task {
             await store.updateMacCustomization(
                 macDeviceID: macDeviceID,
-                customName: mac?.customName,
-                customColor: mac?.customColor,
+                customName: name,
+                customColor: color,
                 customIcon: icon
             )
         }

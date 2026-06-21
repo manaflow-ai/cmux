@@ -22,7 +22,7 @@ struct WorkspaceListFilterMenu: View {
                 L10n.string("mobile.workspaces.filter.readState", defaultValue: "Show"),
                 selection: $filter.readState
             ) {
-                ForEach(MobileWorkspaceListFilter.ReadState.allCases, id: \.self) { state in
+                ForEach(MobileWorkspaceReadStateFilter.allCases, id: \.self) { state in
                     Text(state.displayName).tag(state)
                 }
             }
@@ -61,7 +61,7 @@ struct WorkspaceListFilterMenu: View {
     }
 }
 
-extension MobileWorkspaceListFilter.ReadState {
+extension MobileWorkspaceReadStateFilter {
     /// The localized menu title for this read-state option.
     var displayName: String {
         switch self {

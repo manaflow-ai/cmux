@@ -140,23 +140,3 @@ private func macPairedMacBackupParseBool(_ raw: String) -> Bool {
     default: return false
     }
 }
-
-// Kept beside the Mac self-publisher because these wire DTOs are private to
-// that endpoint and mirror the server parser exactly.
-private struct MacPairedMacBackupBody: Encodable {
-    let ops: [MacPairedMacBackupOpWire]
-}
-
-private struct MacPairedMacBackupOpWire: Encodable {
-    let macDeviceID: String
-    let record: MacPairedMacBackupRecordWire
-}
-
-private struct MacPairedMacBackupRecordWire: Encodable {
-    let macDeviceID: String
-    let displayName: String?
-    let routes: [CmxAttachRoute]
-    let createdAt: Double
-    let lastSeenAt: Double
-    let isActive: Bool
-}

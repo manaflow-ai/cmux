@@ -9,24 +9,13 @@
 /// A row passes when it satisfies BOTH dimensions. The identity filter
 /// (`readState == .all`, `machines` empty) shows everything.
 public struct MobileWorkspaceListFilter: Hashable, Sendable {
-    // Intentional nested type: `ReadState` is one dimension of
-    // `MobileWorkspaceListFilter`, has no independent API surface, and keeping it
-    // nested prevents a generic "read state" type from leaking into the model.
-    /// The read-state dimension.
-    public enum ReadState: String, CaseIterable, Hashable, Sendable {
-        /// No read-state narrowing; every row matches.
-        case all
-        /// Only workspaces with unread activity (the iMessage-style unread dot).
-        case unread
-    }
-
     /// Read-state narrowing for the filter.
-    public var readState: ReadState
+    public var readState: MobileWorkspaceReadStateFilter
     /// `macDeviceID`s to include. Empty means all machines (no machine narrowing).
     public var machines: Set<String>
 
     /// Create a workspace list filter from read-state and machine dimensions.
-    public init(readState: ReadState = .all, machines: Set<String> = []) {
+    public init(readState: MobileWorkspaceReadStateFilter = .all, machines: Set<String> = []) {
         self.readState = readState
         self.machines = machines
     }

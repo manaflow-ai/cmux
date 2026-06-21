@@ -1,13 +1,13 @@
 /// Pure derivations from the per-Mac state map to the flat, user-facing shapes.
 ///
-/// This is intentionally a pure namespace, not an injectable service: every
-/// function is a total, side-effect-free function of its inputs (same input,
-/// same output), and unit tests cover the derivation directly.
-public enum MobileWorkspaceAggregation {
-    private static let rowIDSeparator = "\u{1F}"
+public struct MobileWorkspaceAggregation: Sendable {
+    private let rowIDSeparator = "\u{1F}"
+
+    /// Create a workspace aggregation derivation helper.
+    public init() {}
 
     /// The Macs in deterministic display order.
-    public static func orderedMacIDs(
+    public func orderedMacIDs(
         statesByMac: [String: MacWorkspaceState],
         foregroundMacDeviceID: String?
     ) -> [String] {
@@ -23,7 +23,7 @@ public enum MobileWorkspaceAggregation {
     }
 
     /// A distinct stable color index per Mac, keyed by `macDeviceID`.
-    public static func machineColorIndex(
+    public func machineColorIndex(
         statesByMac: [String: MacWorkspaceState]
     ) -> [String: Int] {
         var result: [String: Int] = [:]
@@ -38,7 +38,7 @@ public enum MobileWorkspaceAggregation {
     /// The separator is the ASCII unit separator, which is not emitted by cmux
     /// workspace ids. The id is opaque and never parsed; the original Mac-local
     /// id remains on ``MobileWorkspacePreview/remoteWorkspaceID`` for RPC.
-    public static func rowID(
+    public func rowID(
         macDeviceID: String,
         workspaceID: MobileWorkspacePreview.ID
     ) -> MobileWorkspacePreview.ID {
@@ -46,7 +46,7 @@ public enum MobileWorkspaceAggregation {
     }
 
     /// Derive the flat, ordered workspace list across all Macs.
-    public static func derivedWorkspaces(
+    public func derivedWorkspaces(
         statesByMac: [String: MacWorkspaceState],
         foregroundMacDeviceID: String?
     ) -> [MobileWorkspacePreview] {
@@ -75,7 +75,7 @@ public enum MobileWorkspaceAggregation {
     }
 
     /// Derive the group sections to show for the foreground Mac.
-    public static func derivedGroups(
+    public func derivedGroups(
         statesByMac: [String: MacWorkspaceState],
         foregroundMacDeviceID: String?
     ) -> [MobileWorkspaceGroupPreview] {

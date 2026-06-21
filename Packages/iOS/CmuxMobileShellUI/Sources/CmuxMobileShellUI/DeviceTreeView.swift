@@ -1,5 +1,6 @@
 #if os(iOS)
 import CMUXMobileCore
+import Combine
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -121,17 +122,14 @@ struct DeviceTreeView: View {
                 // This screen is the user's connection-debug view. The online dots
                 // (presence) and secondary workspace counts already update live via
                 // push subscriptions, so keeping it "live" just needs a gentle,
-                // bounded refresh of the local rows + connected foreground state.
+                // timer-driven refresh of the local rows + connected foreground state.
                 // `refreshComputersScreen()` deliberately does NOT dial offline Macs
                 // on the timer (that would fan out a reconnect storm to every saved
                 // Mac); presence-push recovery and the explicit pull-to-refresh /
-                // per-Mac Reconnect button handle reconnects. The loop is sequential
-                // (each refresh completes before the next sleep) and is cancelled on
-                // dismiss.
+                // per-Mac Reconnect button handle reconnects. The timer sequence is
+                // cancelled on dismiss by the surrounding SwiftUI `.task`.
                 await reload()
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(10))
-                    if Task.isCancelled { break }
+                for await _ in Timer.publish(every: 10, on: .main, in: .common).autoconnect().values {
                     await store.refreshComputersScreen()
                 }
             }

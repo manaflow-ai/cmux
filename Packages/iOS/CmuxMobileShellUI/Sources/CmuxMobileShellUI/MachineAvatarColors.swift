@@ -10,9 +10,7 @@ import UIKit
 /// (``MachineAvatarPalette``); this maps it to concrete SwiftUI colors. Keep the
 /// entries visually distinct so adjacent Macs read apart.
 ///
-/// This is intentionally a pure UI namespace: it maps explicit inputs to colors
-/// and has no state, lifetime, or environment to inject.
-enum MachineAvatarColors {
+struct MachineAvatarColors {
     static let palettes: [[Color]] = [
         [Color.blue, Color.cyan],
         [Color.green, Color.teal],
@@ -37,11 +35,8 @@ enum MachineAvatarColors {
     /// machine is unknown). Used only where no assigned color index is available
     /// (a non-aggregated preview); the hash can collide, so prefer ``gradient(index:)``.
     static func gradient(machineID: String?, fallbackID: String) -> LinearGradient {
-        let slot = MachineAvatarPalette.slot(
-            machineID: machineID,
-            fallbackID: fallbackID,
-            slotCount: palettes.count
-        )
+        let slot = MachineAvatarPalette(slotCount: palettes.count)
+            .slot(machineID: machineID, fallbackID: fallbackID)
         return LinearGradient(colors: palettes[slot], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 

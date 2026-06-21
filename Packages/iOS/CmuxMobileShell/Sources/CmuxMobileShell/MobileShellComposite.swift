@@ -203,6 +203,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var workspacesByMac: [String: MacWorkspaceState] = [:] {
         didSet { recomputeDerivedWorkspaceState() }
     }
+    private let workspaceAggregation = MobileWorkspaceAggregation()
     /// The flat aggregated workspace list the UI renders. A materialized
     /// derivation of ``workspacesByMac``: only ``recomputeDerivedWorkspaceState``
     /// assigns it, so it is never independently mutated.
@@ -226,7 +227,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// workspace avatars use), so the Computers screen can color each Mac's row to
     /// match its workspaces. Keyed by `macDeviceID`.
     public var machineColorIndex: [String: Int] {
-        MobileWorkspaceAggregation.machineColorIndex(statesByMac: workspacesByMac)
+        workspaceAggregation.machineColorIndex(statesByMac: workspacesByMac)
     }
 
     /// The PHONE'S OWN live connection status to each Mac (foreground or live
@@ -518,6 +519,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Durable outbox for phone→Mac dismissals.
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
+    private let multiMacAggregationDefaults: UserDefaults
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
@@ -753,6 +755,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
         pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
+        multiMacAggregationDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
@@ -769,6 +772,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
+        self.multiMacAggregationDefaults = multiMacAggregationDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
@@ -1000,7 +1004,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
-        if Self.multiMacAggregationEnabled, connectionState == .connected {
+        if multiMacAggregationEnabled, connectionState == .connected {
             self.scheduleSecondaryAggregation()
         }
     }
@@ -2916,7 +2920,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func refreshSecondaryMacWorkspaces() async {
-        guard let pairedMacStore, Self.multiMacAggregationEnabled else { return }
+        guard let pairedMacStore, multiMacAggregationEnabled else { return }
         let generation = secondaryAggregationScopeGeneration
         // Require a concrete signed-in user before any load/connection: a nil/empty
         // account would make `loadAll(stackUserID: nil)` read EVERY locally stored
@@ -3143,16 +3147,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// then UserDefaults, then DEBUG on / Release off — so the aggregation (still
     /// being hardened) ships dark in Release and the single-Mac list is the exact
     /// prior behavior unless explicitly turned on.
-    static var multiMacAggregationEnabled: Bool {
+    private var multiMacAggregationEnabled: Bool {
         if let raw = ProcessInfo.processInfo.environment["CMUX_MULTI_MAC_AGGREGATION"]?
             .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
             return ["1", "true", "yes", "on"].contains(raw.lowercased())
         }
-        // UserDefaults.standard is read only at the composition root for the shell's
-        // runtime feature flag; tests exercise the resulting branch through the store
-        // surface rather than injecting defaults into every workspace mutation path.
-        if UserDefaults.standard.object(forKey: "multiMacAggregation") != nil {
-            return UserDefaults.standard.bool(forKey: "multiMacAggregation")
+        if multiMacAggregationDefaults.object(forKey: "multiMacAggregation") != nil {
+            return multiMacAggregationDefaults.bool(forKey: "multiMacAggregation")
         }
         #if DEBUG
         return true
@@ -3181,7 +3182,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             foregroundKey = nil
         }
-        var derived = MobileWorkspaceAggregation.derivedWorkspaces(
+        var derived = workspaceAggregation.derivedWorkspaces(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
         // workspace avatar matches its computer's customization (same place the
@@ -3199,7 +3200,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         workspaces = derived
-        workspaceGroups = MobileWorkspaceAggregation.derivedGroups(
+        workspaceGroups = workspaceAggregation.derivedGroups(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
     }
 
@@ -3528,7 +3529,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Cross-Mac open (P5): a workspace from the aggregated list may belong to
         // a Mac other than the current foreground connection. Switch the
         // foreground to that Mac first so the terminal attaches to the right one.
-        if Self.multiMacAggregationEnabled,
+        if multiMacAggregationEnabled,
            let macDeviceID = ownerMacDeviceID,
            !macDeviceID.isEmpty,
            macDeviceID != foregroundMacDeviceID {
@@ -4348,7 +4349,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // Aggregate the user's other Macs' workspaces in the
                     // background (no-op / off in Release). Best-effort; never
                     // blocks the foreground connect.
-                    if Self.multiMacAggregationEnabled {
+                    if multiMacAggregationEnabled {
                         self.scheduleSecondaryAggregation()
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
@@ -6343,7 +6344,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Re-aggregate the other Macs too, so pull-to-refresh surfaces
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
-            if Self.multiMacAggregationEnabled {
+            if self?.multiMacAggregationEnabled == true {
                 await self?.refreshSecondaryMacWorkspaces()
             }
         }

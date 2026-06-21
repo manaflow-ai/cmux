@@ -100,7 +100,7 @@ public struct PresenceMap: Equatable, Sendable {
         return DeviceSummary(
             online: online,
             lastSeenAt: Date(timeIntervalSince1970: lastSeenMs / 1000),
-            buildLabel: MacBuildChannel.label(bundleID: labelInstance?.bundleId, tag: labelInstance?.tag)
+            buildLabel: MacBuildChannel().label(bundleID: labelInstance?.bundleId, tag: labelInstance?.tag)
         )
     }
 }

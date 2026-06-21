@@ -7,13 +7,14 @@
 /// `CMUX_TAG`, so any non-`"default"` tag means a DEV build and the tag is the
 /// thing worth showing. Otherwise the channel comes from the bundle-id suffix.
 ///
-/// This is intentionally a pure namespace: it has no state, dependencies, or
-/// lifecycle to inject, and tests cover same-input to same-output derivation.
-public enum MacBuildChannel {
+public struct MacBuildChannel: Sendable {
+    /// Create a build-channel labeler.
+    public init() {}
+
     /// A label like `"DEV · my-tag"`, `"Nightly"`, `"RC"`, `"Staging"`, or
     /// `"Stable"`, or `nil` when there is nothing identifiable to show (an older
     /// host that reports neither a meaningful tag nor a known bundle id).
-    public static func label(bundleID: String?, tag: String?) -> String? {
+    public func label(bundleID: String?, tag: String?) -> String? {
         let trimmedTag = tag?.trimmingCharacters(in: .whitespacesAndNewlines)
         let devTag = (trimmedTag?.isEmpty == false && trimmedTag != "default") ? trimmedTag : nil
         if let devTag {
