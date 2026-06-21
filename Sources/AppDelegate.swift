@@ -11391,44 +11391,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         appIconApplier.applyResolvedMode()
     }
 
+    /// Builds the composition-root ``AppLaunchBootstrap`` for this app bundle.
+    /// The launch-services-registration / single-instance / duplicate-launch
+    /// logic moved into `CmuxWindowing`; this is the single app-side
+    /// construction site, injecting the live bundle/process state plus the
+    /// app-target startup breadcrumb sink and current-app activation.
+    private func makeAppLaunchBootstrap(
+        bundleURL: URL = Bundle.main.bundleURL
+    ) -> AppLaunchBootstrap {
+        AppLaunchBootstrap(
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            bundleURL: bundleURL,
+            currentPid: ProcessInfo.processInfo.processIdentifier,
+            runningApplications: { bundleId in
+                NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+            },
+            activateCurrent: {
+                NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            },
+            startupBreadcrumb: { event, fields in
+                StartupBreadcrumbLog.append(event, fields: fields)
+            }
+        )
+    }
+
     private func scheduleLaunchServicesBundleRegistration(
         bundleURL: URL = Bundle.main.bundleURL.standardizedFileURL,
         scheduler: @escaping (@escaping @Sendable () -> Void) -> Void = AppDelegate.enqueueLaunchServicesRegistrationWork,
-        register: @escaping (CFURL) -> OSStatus = { url in
+        register: @escaping @Sendable (CFURL) -> OSStatus = { url in
             LSRegisterURL(url, true)
         },
-        breadcrumb: @escaping (_ message: String, _ data: [String: Any]) -> Void = { message, data in
+        breadcrumb: @escaping @Sendable (_ message: String, _ data: [String: Any]) -> Void = { message, data in
             sentryBreadcrumb(message, category: "startup", data: data)
         }
     ) {
-        let normalizedURL = bundleURL.standardizedFileURL
-        breadcrumb("launchservices.register.schedule", [
-            "bundlePath": normalizedURL.path
-        ])
-
-        scheduler {
-            let startedAt = CFAbsoluteTimeGetCurrent()
-            let registerStatus = register(normalizedURL as CFURL)
-            let durationMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000).rounded())
-
-            breadcrumb("launchservices.register.complete", [
-                "bundlePath": normalizedURL.path,
-                "status": Int(registerStatus),
-                "durationMs": durationMs
-            ])
-
-            if registerStatus != noErr {
-                NSLog("LaunchServices registration failed (status: \(registerStatus)) for \(normalizedURL.path)")
-            }
-        }
+        makeAppLaunchBootstrap(bundleURL: bundleURL).scheduleLaunchServicesRegistration(
+            scheduler: scheduler,
+            register: register,
+            breadcrumb: breadcrumb
+        )
     }
 
 #if DEBUG
     func scheduleLaunchServicesBundleRegistrationForTesting(
         bundleURL: URL,
         scheduler: @escaping (@escaping @Sendable () -> Void) -> Void,
-        register: @escaping (CFURL) -> OSStatus,
-        breadcrumb: @escaping (_ message: String, _ data: [String: Any]) -> Void = { _, _ in }
+        register: @escaping @Sendable (CFURL) -> OSStatus,
+        breadcrumb: @escaping @Sendable (_ message: String, _ data: [String: Any]) -> Void = { _, _ in }
     ) {
         scheduleLaunchServicesBundleRegistration(
             bundleURL: bundleURL,
@@ -11440,77 +11449,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func enforceSingleInstance() {
-        guard let bundleId = Bundle.main.bundleIdentifier else {
-            StartupBreadcrumbLog.append("singleInstance.enforce.skip", fields: ["reason": "missingBundleId"])
-            return
-        }
-        let currentPid = ProcessInfo.processInfo.processIdentifier
-        var terminatedPids: [String] = []
-
-        for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
-            guard app.processIdentifier != currentPid else { continue }
-            terminatedPids.append(String(app.processIdentifier))
-            app.terminate()
-            if !app.isTerminated {
-                _ = app.forceTerminate()
-            }
-        }
-        StartupBreadcrumbLog.append(
-            "singleInstance.enforce.complete",
-            fields: [
-                "bundleIdentifier": bundleId,
-                "currentPid": String(currentPid),
-                "terminatedPids": terminatedPids.joined(separator: ",")
-            ]
-        )
+        makeAppLaunchBootstrap().enforceSingleInstance()
     }
 
     private func observeDuplicateLaunches() {
-        guard let bundleId = Bundle.main.bundleIdentifier else {
-            StartupBreadcrumbLog.append("singleInstance.observe.skip", fields: ["reason": "missingBundleId"])
-            return
-        }
-        let embeddedCLIURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-        let currentPid = ProcessInfo.processInfo.processIdentifier
-        StartupBreadcrumbLog.append(
-            "singleInstance.observe.install",
-            fields: [
-                "bundleIdentifier": bundleId,
-                "currentPid": String(currentPid)
-            ]
-        )
-
-        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didLaunchApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard self != nil else { return }
-            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            guard app.bundleIdentifier == bundleId, app.processIdentifier != currentPid else { return }
-            if let executableURL = app.executableURL?
-                   .standardizedFileURL
-                   .resolvingSymlinksInPath(),
-               executableURL == embeddedCLIURL {
-                return
-            }
-
-            StartupBreadcrumbLog.append(
-                "singleInstance.observe.terminateDuplicate",
-                fields: [
-                    "duplicatePid": String(app.processIdentifier),
-                    "duplicateBundleIdentifier": app.bundleIdentifier ?? "nil"
-                ]
-            )
-            app.terminate()
-            if !app.isTerminated {
-                _ = app.forceTerminate()
-            }
-            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-        }
+        workspaceObserver = makeAppLaunchBootstrap().observeDuplicateLaunches()
     }
 
     nonisolated func userNotificationCenter(
