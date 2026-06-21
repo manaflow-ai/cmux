@@ -300,21 +300,75 @@ final class GTVHotPathPerfUITests: XCTestCase {
     private func configuredApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
-        app.launchEnvironment["CMUX_TAG"] = launchTag
-        // Probe knobs: log EVERY typing/turn event, to the tagged path.
-        app.launchEnvironment["CMUX_KEY_LATENCY_PROBE"] = "1"
-        app.launchEnvironment["CMUX_DEBUG_LOG"] = debugLogPath
-        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
-            app.launchEnvironment["PATH"] = path
+
+        // The env this run needs. On the AWS GUI path (`xcodebuild` launched via
+        // `launchctl asuser`) `launchEnvironment` is NOT propagated to the test
+        // host, so the host boots untagged, trips
+        // `SocketControlSettings.shouldBlockUntaggedDebugLaunch()`, prints
+        // "refusing to launch untagged cmux DEV" and `exit(64)`s before the
+        // socket comes up. Launch ARGUMENTS do propagate, and
+        // `UITestLaunchManifest.applyIfPresent()` (cmuxApp.swift) runs before
+        // that guard, applying this env via `setenv` from a manifest pointed to
+        // by the `-cmuxUITestLaunchManifest` argument. So write the env into a
+        // manifest and pass it as an argument; keep `launchEnvironment` too (it
+        // is harmless and still works on the normal CI/local path).
+        let environment: [String: String] = launchEnvironmentValues()
+        for (key, value) in environment {
+            app.launchEnvironment[key] = value
+        }
+        if let manifestArgument = writeLaunchManifest(environment: environment) {
+            app.launchArguments += manifestArgument
         }
         return app
+    }
+
+    /// All env vars the perf run depends on. `CMUX_UI_TEST_*` keys also make
+    /// `shouldBlockUntaggedDebugLaunch()` short-circuit (line that checks for any
+    /// `CMUX_UI_TEST_` prefix), so the untagged-launch guard never fires.
+    private func launchEnvironmentValues() -> [String: String] {
+        var environment: [String: String] = [
+            "CMUX_UI_TEST_MODE": "1",
+            "CMUX_SOCKET_ENABLE": "1",
+            "CMUX_SOCKET_MODE": "allowAll",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            "CMUX_UI_TEST_SOCKET_SANITY": "1",
+            "CMUX_UI_TEST_DIAGNOSTICS_PATH": diagnosticsPath,
+            "CMUX_TAG": launchTag,
+            // Probe knobs: log EVERY typing/turn event, to the tagged path.
+            "CMUX_KEY_LATENCY_PROBE": "1",
+            "CMUX_DEBUG_LOG": debugLogPath,
+        ]
+        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
+            environment["PATH"] = path
+        }
+        return environment
+    }
+
+    /// Writes a `{ "environment": { … } }` manifest matching
+    /// `UITestLaunchManifest.Payload` and returns the
+    /// `-cmuxUITestLaunchManifest <path>` launch argument pair. The file lives in
+    /// a temp dir tracked by `temporaryRoots` so `tearDown` removes it.
+    private func writeLaunchManifest(environment: [String: String]) -> [String]? {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-gtvperf-manifest-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+        temporaryRoots.append(root)
+        let manifestURL = root.appendingPathComponent("launch-manifest.json")
+        let payload: [String: Any] = ["environment": environment]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+            return nil
+        }
+        do {
+            try data.write(to: manifestURL, options: .atomic)
+        } catch {
+            return nil
+        }
+        return ["-cmuxUITestLaunchManifest", manifestURL.path]
     }
 
     private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
