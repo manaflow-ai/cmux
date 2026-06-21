@@ -1,3 +1,5 @@
+public import SwiftUI
+
 /// The window-agnostic decision of whether a candidate selection-move delta
 /// should be routed to the visible command palette.
 ///
@@ -26,5 +28,30 @@ public struct CommandPaletteSelectionNavigation: Sendable, Equatable {
     public var shouldRoute: Bool {
         guard delta != nil, isInteractive else { return false }
         return !usesInlineTextHandling
+    }
+
+    /// The command ID to anchor the selection on, for the result at
+    /// `selectedIndex` within `resultIDs` (clamped into range), or `nil` when
+    /// there are no results.
+    public static func selectionAnchorCommandID(
+        selectedIndex: Int,
+        resultIDs: [String]
+    ) -> String? {
+        guard !resultIDs.isEmpty else { return nil }
+        let resolvedIndex = min(max(selectedIndex, 0), resultIDs.count - 1)
+        return resultIDs[resolvedIndex]
+    }
+
+    /// The scroll anchor that keeps `selectedIndex` visible: `.top` at the head,
+    /// `.bottom` at the tail, `nil` (no forced scroll) in the middle or when the
+    /// result list is empty.
+    public static func scrollPositionAnchor(
+        selectedIndex: Int,
+        resultCount: Int
+    ) -> UnitPoint? {
+        guard resultCount > 0 else { return nil }
+        if selectedIndex <= 0 { return UnitPoint.top }
+        if selectedIndex >= resultCount - 1 { return UnitPoint.bottom }
+        return nil
     }
 }

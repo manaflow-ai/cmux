@@ -1718,7 +1718,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let resultIDs = ["command.0", "command.1", "command.2"]
 
         XCTAssertEqual(
-            ContentView.commandPaletteResolvedSelectionIndex(
+            CommandPalettePendingActivation.resolvedSelectionIndex(
                 preferredCommandID: "command.2",
                 fallbackSelectedIndex: 0,
                 resultIDs: resultIDs
@@ -1726,7 +1726,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             2
         )
         XCTAssertEqual(
-            ContentView.commandPaletteResolvedSelectionIndex(
+            CommandPalettePendingActivation.resolvedSelectionIndex(
                 preferredCommandID: "missing",
                 fallbackSelectedIndex: 9,
                 resultIDs: resultIDs
@@ -1734,7 +1734,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             2
         )
         XCTAssertEqual(
-            ContentView.commandPaletteResolvedSelectionIndex(
+            CommandPalettePendingActivation.resolvedSelectionIndex(
                 preferredCommandID: nil,
                 fallbackSelectedIndex: 1,
                 resultIDs: []
@@ -1747,64 +1747,52 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let resultIDs = ["command.0", "command.1", "command.2"]
 
         XCTAssertEqual(
-            ContentView.commandPaletteResolvedPendingActivation(
-                .selected(requestID: 41, fallbackSelectedIndex: 0, preferredCommandID: "command.2"),
-                requestID: 41,
-                resultIDs: resultIDs
-            ),
+            CommandPalettePendingActivation
+                .selected(requestID: 41, fallbackSelectedIndex: 0, preferredCommandID: "command.2")
+                .resolved(requestID: 41, resultIDs: resultIDs),
             .selected(index: 2)
         )
         XCTAssertEqual(
-            ContentView.commandPaletteResolvedPendingActivation(
-                .command(requestID: 41, commandID: "command.1"),
-                requestID: 41,
-                resultIDs: resultIDs
-            ),
+            CommandPalettePendingActivation
+                .command(requestID: 41, commandID: "command.1")
+                .resolved(requestID: 41, resultIDs: resultIDs),
             .command(commandID: "command.1")
         )
         XCTAssertNil(
-            ContentView.commandPaletteResolvedPendingActivation(
-                .command(requestID: 41, commandID: "missing"),
-                requestID: 41,
-                resultIDs: resultIDs
-            )
+            CommandPalettePendingActivation
+                .command(requestID: 41, commandID: "missing")
+                .resolved(requestID: 41, resultIDs: resultIDs)
         )
         XCTAssertNil(
-            ContentView.commandPaletteResolvedPendingActivation(
-                .selected(requestID: 40, fallbackSelectedIndex: 0, preferredCommandID: nil),
-                requestID: 41,
-                resultIDs: resultIDs
-            )
+            CommandPalettePendingActivation
+                .selected(requestID: 40, fallbackSelectedIndex: 0, preferredCommandID: nil)
+                .resolved(requestID: 41, resultIDs: resultIDs)
         )
     }
 
     func testPendingActivationRebasesWhenIndexReadyRefreshRestartsSearch() {
         XCTAssertEqual(
-            ContentView.commandPalettePendingActivation(
-                .selected(requestID: 41, fallbackSelectedIndex: 2, preferredCommandID: "command.2"),
-                rebasedTo: 42
-            ),
+            CommandPalettePendingActivation
+                .selected(requestID: 41, fallbackSelectedIndex: 2, preferredCommandID: "command.2")
+                .rebased(toRequestID: 42),
             .selected(requestID: 42, fallbackSelectedIndex: 2, preferredCommandID: "command.2")
         )
         XCTAssertEqual(
-            ContentView.commandPalettePendingActivation(
-                .command(requestID: 41, commandID: "command.1"),
-                rebasedTo: 42
-            ),
+            CommandPalettePendingActivation
+                .command(requestID: 41, commandID: "command.1")
+                .rebased(toRequestID: 42),
             .command(requestID: 42, commandID: "command.1")
         )
-        XCTAssertNil(ContentView.commandPalettePendingActivation(nil, rebasedTo: 42))
+        XCTAssertNil((nil as CommandPalettePendingActivation?)?.rebased(toRequestID: 42))
     }
 
     func testPendingActivationResolutionClearsAndResolvesRebasedSynchronousSearch() {
         let resultIDs = ["command.0", "command.1", "command.2"]
-        let rebasedActivation = ContentView.commandPalettePendingActivation(
-            .selected(requestID: 41, fallbackSelectedIndex: 0, preferredCommandID: "command.2"),
-            rebasedTo: 42
-        )
+        let rebasedActivation: CommandPalettePendingActivation? = CommandPalettePendingActivation
+            .selected(requestID: 41, fallbackSelectedIndex: 0, preferredCommandID: "command.2")
+            .rebased(toRequestID: 42)
 
-        let resolution = ContentView.commandPalettePendingActivationResolution(
-            rebasedActivation,
+        let resolution = rebasedActivation.resolution(
             requestID: 42,
             resultIDs: resultIDs
         )
@@ -1814,8 +1802,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     }
 
     func testPendingActivationResolutionKeepsStaleActivation() {
-        let resolution = ContentView.commandPalettePendingActivationResolution(
-            .command(requestID: 41, commandID: "command.1"),
+        let pendingActivation: CommandPalettePendingActivation? = .command(requestID: 41, commandID: "command.1")
+        let resolution = pendingActivation.resolution(
             requestID: 42,
             resultIDs: ["command.1"]
         )
@@ -1826,21 +1814,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     func testSelectionAnchorTracksVisiblePendingSelection() {
         let resultIDs = ["command.0", "command.1", "command.2"]
-        let visibleAnchor = ContentView.commandPaletteSelectionAnchorCommandID(
+        let visibleAnchor = CommandPaletteSelectionNavigation.selectionAnchorCommandID(
             selectedIndex: 2,
             resultIDs: resultIDs
         )
 
         XCTAssertEqual(
-            ContentView.commandPaletteResolvedPendingActivation(
+            CommandPalettePendingActivation
                 .selected(
                     requestID: 41,
                     fallbackSelectedIndex: 0,
                     preferredCommandID: visibleAnchor
-                ),
-                requestID: 41,
-                resultIDs: resultIDs
-            ),
+                )
+                .resolved(requestID: 41, resultIDs: resultIDs),
             .selected(index: 2)
         )
     }
