@@ -3366,6 +3366,29 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             : .rejectedMirrorTab
     }
 
+    /// Closes the surface identified by `surfaceId`, recording it in close
+    /// history. If the surface maps to a tab, routes through the tab-close path
+    /// (non-interactive when `force`); otherwise marks the panel close-history
+    /// eligible and closes the panel directly.
+    ///
+    /// Single source of truth for the socket control plane's "close one surface
+    /// recording history" behavior: the `surface.close`, `surface.action close`,
+    /// `sidebar.tab close`, and `browser.tab close` witnesses all call this, as
+    /// did the former `TerminalController.closeSurfaceRecordingHistory(in:…)` and
+    /// its two byte-identical conformance twins.
+    @discardableResult
+    func closeSurfaceRecordingHistory(surfaceId: UUID, force: Bool) -> Bool {
+        if let tabId = surfaceIdFromPanelId(surfaceId) {
+            if force {
+                return requestNonInteractiveCloseTabRecordingHistory(tabId)
+            }
+            return requestCloseTabRecordingHistory(tabId, force: force)
+        }
+
+        markCloseHistoryEligible(panelId: surfaceId)
+        return closePanel(surfaceId, force: force)
+    }
+
     func withClosedPanelHistorySuppressed(_ body: () -> Void) {
         let previous = suppressClosedPanelHistory
         suppressClosedPanelHistory = true

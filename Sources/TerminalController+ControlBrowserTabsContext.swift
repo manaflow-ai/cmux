@@ -224,7 +224,7 @@ extension TerminalController {
                 return
             }
 
-            let ok = closeSurfaceRecordingHistory(in: ws, surfaceId: targetId, force: true)
+            let ok = ws.closeSurfaceRecordingHistory(surfaceId: targetId, force: true)
             resolution = ok
                 ? .resolved(workspaceID: ws.id, surfaceID: targetId)
                 : .closeFailed(surfaceID: targetId)

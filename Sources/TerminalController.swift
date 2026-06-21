@@ -2552,20 +2552,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     // MARK: - V2 Surface Methods
 
-    @MainActor
-    @discardableResult
-    func closeSurfaceRecordingHistory(in workspace: Workspace, surfaceId: UUID, force: Bool) -> Bool {
-        if let tabId = workspace.surfaceIdFromPanelId(surfaceId) {
-            if force {
-                return workspace.requestNonInteractiveCloseTabRecordingHistory(tabId)
-            }
-            return workspace.requestCloseTabRecordingHistory(tabId, force: force)
-        }
-
-        workspace.markCloseHistoryEligible(panelId: surfaceId)
-        return workspace.closePanel(surfaceId, force: force)
-    }
-
     func v2ResolveWorkspace(params: [String: Any], tabManager: TabManager) -> Workspace? {
         if let wsId = v2UUID(params, "workspace_id") {
             return tabManager.tabs.first(where: { $0.id == wsId })
