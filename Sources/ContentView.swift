@@ -9608,40 +9608,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
 }
 
 
-/// Attaches the worktree management context menu (Open Terminal Inside / Remove
-/// Worktree) to a Project Worktrees sidebar row, but only when the row's
-/// workspace is rooted in a cmux-managed worktree. Non-worktree rows are left
-/// untouched so they don't show an empty context menu. Receives only value
-/// snapshots and action closures — never a store — to stay snapshot-safe.
-private struct ExtensionSidebarWorktreeRowContextMenu: ViewModifier {
-    let worktree: CmuxExtensionWorktreeIdentity?
-    let onOpenTerminal: (String) -> Void
-    let onRemove: (String) -> Void
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if let worktree {
-            content.contextMenu {
-                Button(String(
-                    localized: "sidebar.extension.openTerminalInside",
-                    defaultValue: "Open Terminal Inside"
-                )) {
-                    onOpenTerminal(worktree.worktreePath)
-                }
-                Button(
-                    String(localized: "sidebar.extension.removeWorktree", defaultValue: "Remove Worktree\u{2026}"),
-                    role: .destructive
-                ) {
-                    onRemove(worktree.worktreePath)
-                }
-            }
-        } else {
-            content
-        }
-    }
-}
-
-
 enum CmuxExtensionSidebarSelection {
     static let defaultsKey = "cmuxExtensionSidebar.providerId"
     static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
@@ -10058,7 +10024,7 @@ struct VerticalTabsSidebar: View {
     @State private var frozenShortcutHintsValue: Bool = false
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
-    @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
+    @State var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
@@ -10959,7 +10925,7 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    private func refreshExtensionSidebarSnapshot() {
+    func refreshExtensionSidebarSnapshot() {
         extensionSidebarUpdateToken &+= 1
     }
 
@@ -11790,41 +11756,12 @@ struct VerticalTabsSidebar: View {
                 Spacer(minLength: 0)
 
                 if let worktreeIdentity {
-                    Button {
-                        openTerminalInExtensionWorktree(worktreePath: worktreeIdentity.worktreePath)
-                    } label: {
-                        Image(systemName: "terminal")
-                            .font(.system(size: 11, weight: .regular))
-                            .frame(width: 18, height: 18)
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(String(
-                        localized: "sidebar.extension.openTerminalInside.help",
-                        defaultValue: "Open terminal inside this worktree"
-                    ))
-                    .accessibilityLabel(Text(String(
-                        localized: "sidebar.extension.openTerminalInside.help",
-                        defaultValue: "Open terminal inside this worktree"
-                    )))
-                    .accessibilityIdentifier("ExtensionSidebarOpenWorktreeTerminalButton.\(section.id)")
-
-                    Button {
-                        requestRemoveExtensionWorktree(worktreePath: worktreeIdentity.worktreePath)
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 11, weight: .regular))
-                            .frame(width: 18, height: 18)
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(String(
-                        localized: "sidebar.extension.removeWorktree.help",
-                        defaultValue: "Remove this worktree"
-                    ))
-                    .accessibilityLabel(Text(String(
-                        localized: "sidebar.extension.removeWorktree.help",
-                        defaultValue: "Remove this worktree"
-                    )))
-                    .accessibilityIdentifier("ExtensionSidebarRemoveWorktreeButton.\(section.id)")
+                    ExtensionSidebarWorktreeHeaderControls(
+                        worktree: worktreeIdentity,
+                        sectionId: section.id,
+                        onOpenTerminal: { openTerminalInExtensionWorktree(worktreePath: $0) },
+                        onRemove: { requestRemoveExtensionWorktree(worktreePath: $0) }
+                    )
                 } else if canCreateWorktree {
                     Button {
                         createExtensionWorktreeWorkspace(for: section.treeSection)
@@ -11892,147 +11829,6 @@ struct VerticalTabsSidebar: View {
         selectedTabIds = [workspaceId]
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == workspaceId }
         tabManager.selectWorkspace(workspace)
-    }
-
-    private func createExtensionWorktreeWorkspace(for section: CmuxSidebarProviderTreeSection) {
-        guard let projectRootPath = section.projectRootPath,
-              !extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id) else {
-            return
-        }
-
-        extensionSidebarWorktreeCreationInFlightSectionIds.insert(section.id)
-        Task {
-            do {
-                let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRootPath)
-                let spawnArgs = result.workspaceSpawnArgs()
-                tabManager.addWorkspace(
-                    title: spawnArgs.title,
-                    workingDirectory: spawnArgs.workingDirectory,
-                    initialTerminalInput: spawnArgs.initialTerminalInput,
-                    inheritWorkingDirectory: spawnArgs.inheritWorkingDirectory,
-                    select: true,
-                    eagerLoadTerminal: false,
-                    autoWelcomeIfNeeded: spawnArgs.initialTerminalInput == nil
-                )
-            } catch {
-                NSSound.beep()
-#if DEBUG
-                cmuxDebugLog("extensionSidebar.worktree.failed project=\(projectRootPath) error=\(error.localizedDescription)")
-#endif
-            }
-            extensionSidebarWorktreeCreationInFlightSectionIds.remove(section.id)
-        }
-    }
-
-    /// Opens a new terminal workspace rooted at an existing worktree path. The
-    /// workspace's main process is the interactive login shell (no one-shot
-    /// command), so the tab stays alive — matching `cmux new-workspace --cwd`.
-    private func openTerminalInExtensionWorktree(worktreePath: String) {
-        let args = CmuxExtensionWorktreePrototype.openTerminalArgs(worktreePath: worktreePath)
-        tabManager.addWorkspace(
-            title: args.title,
-            workingDirectory: args.workingDirectory,
-            inheritWorkingDirectory: args.inheritWorkingDirectory,
-            select: true,
-            eagerLoadTerminal: false
-        )
-    }
-
-    /// Removes a worktree from the Project Worktrees sidebar. Inspects for
-    /// unsaved/unpushed work, confirms (unless suppressed and clean), removes
-    /// the worktree on disk, and closes every workspace tab rooted in it.
-    private func requestRemoveExtensionWorktree(worktreePath: String) {
-        Task { @MainActor in
-            let safety: CmuxExtensionWorktreeRemovalSafety
-            do {
-                safety = try await CmuxExtensionWorktreePrototype.inspectRemovalSafety(worktreePath: worktreePath)
-            } catch {
-                // If inspection fails the worktree's state is unknown: mark it
-                // so removal always confirms (never suppressible) and never
-                // force-removes — git still refuses a dirty tree without force.
-                safety = CmuxExtensionWorktreeRemovalSafety(
-                    hasUncommittedChanges: false,
-                    unpushedCommitCount: 0,
-                    inspectionFailed: true
-                )
-            }
-
-            let settings = UserDefaultsSettingsClient(defaults: .standard)
-            let catalog = SettingCatalog()
-            let suppressed = settings.value(for: catalog.sidebar.worktreeRemovalSuppressed)
-            let worktreeName = URL(fileURLWithPath: worktreePath, isDirectory: true).lastPathComponent
-
-            if CmuxExtensionWorktreePrototype.removalRequiresConfirmation(
-                safety: safety,
-                suppressionEnabled: suppressed
-            ) {
-                let decision = confirmRemoveExtensionWorktree(worktreeName: worktreeName, safety: safety)
-                guard decision.confirmed else { return }
-                if decision.suppressFuturePrompts {
-                    settings.set(true, for: catalog.sidebar.worktreeRemovalSuppressed)
-                }
-            }
-
-            await performRemoveExtensionWorktree(
-                worktreePath: worktreePath,
-                worktreeName: worktreeName,
-                force: safety.requiresForce
-            )
-        }
-    }
-
-    private func performRemoveExtensionWorktree(
-        worktreePath: String,
-        worktreeName: String,
-        force: Bool
-    ) async {
-        // Resolve the tabs to close before removal, matching on each tab's live
-        // current directory (its authoritative cwd) rather than the async,
-        // possibly-stale extensionSidebarProjectRootPath. Snapshot the matching
-        // Workspace objects once so closing them stays linear.
-        let idsToClose = Set(CmuxExtensionWorktreePrototype.workspaceIdsRooted(
-            inWorktreePath: worktreePath,
-            workspaces: tabManager.tabs.map { (id: $0.id, currentDirectory: $0.currentDirectory) }
-        ))
-        let workspacesToClose = tabManager.tabs.filter { idsToClose.contains($0.id) }
-
-        do {
-            try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktreePath, force: force)
-        } catch {
-            NSSound.beep()
-#if DEBUG
-            cmuxDebugLog("extensionSidebar.worktree.remove.failed path=\(worktreePath) error=\(error.localizedDescription)")
-#endif
-            let details = (error as NSError).userInfo["CmuxExtensionWorktreePrototypeDetails"] as? String
-            presentExtensionWorktreeRemovalFailure(
-                worktreeName: worktreeName,
-                message: details?.nilIfEmpty ?? error.localizedDescription
-            )
-            return
-        }
-
-        // `closeWorkspace` refuses to close the last workspace in a window. If
-        // every remaining tab is rooted in the removed worktree, spawn a live
-        // replacement (rooted at the parent repo) first so no tab is left
-        // stranded over the now-deleted directory.
-        if CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(
-            totalWorkspaceCount: tabManager.tabs.count,
-            closingCount: workspacesToClose.count
-        ) {
-            let parentRepo = CmuxExtensionWorktreePrototype
-                .managedWorktreeIdentity(gitRootPath: worktreePath)?.parentRepoPath
-            tabManager.addWorkspace(
-                workingDirectory: parentRepo,
-                inheritWorkingDirectory: parentRepo == nil,
-                select: true,
-                eagerLoadTerminal: false
-            )
-        }
-
-        for workspace in workspacesToClose {
-            tabManager.closeWorkspace(workspace, recordHistory: false)
-        }
-        refreshExtensionSidebarSnapshot()
     }
 
     private func workspaceScrollContent(
@@ -13858,7 +13654,7 @@ struct TabItemView: View, Equatable {
         // row is always animating, so the sidebar-wide layout re-runs at display
         // refresh rate (#5764 / #5845). Lazy rows must be height-stable after
         // they appear; content changes now apply in one discrete layout pass.
-        .padding(.horizontal, 10)
+        .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -13886,7 +13682,7 @@ struct TabItemView: View, Equatable {
             fontSize: scaledFontSize(10)
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)

@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — Terminal napravljen za multitasking",
-    "description": "Nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
-    "ogDescription": "Nativni macOS terminal za AI agente za kodiranje. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom."
+    "description": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
+    "ogDescription": "Besplatan i otvorenog koda macOS terminal za AI agente za kodiranje. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom."
   },
   "common": {
     "downloadForMac": "Preuzmi za Mac",
@@ -40,13 +40,14 @@
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Jezik",
-    "assets": "Materijali"
+    "assets": "Materijali",
+    "openSource": "Otvoreni kod"
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
-    "subtitle": "Nativna macOS aplikacija izgrađena na Ghostty-ju. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
+    "subtitle": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
     "communitySection": "Zajednica",
@@ -59,14 +60,16 @@
       "inAppBrowserDesc": ": podijelite preglednik pored terminala sa skriptabilnim API-jem",
       "splitPanes": "Podijeljeni paneli",
       "splitPanesDesc": ": horizontalni i vertikalni razdjelnici unutar svakog taba",
-      "scriptable": "Skriptabilan",
+      "scriptable": "Programabilan",
       "scriptableDesc": ": CLI i socket API za automatizaciju i skriptovanje",
       "gpuAccelerated": "GPU-ubrzano",
       "gpuAcceleratedDesc": ": pokreće libghostty za glatko renderiranje",
       "lightweight": "Lagano",
       "lightweightDesc": ": nativni Swift + AppKit, bez Electron-a",
       "keyboardShortcuts": "Prečice na tastaturi",
-      "keyboardShortcutsDesc": ": <link>opsežne prečice</link> za radne prostore, razdjelnice, preglednik i više"
+      "keyboardShortcutsDesc": ": <link>opsežne prečice</link> za radne prostore, razdjelnice, preglednik i više",
+      "openSource": "Otvoreni kod",
+      "openSourceDesc": ": besplatan i licenciran pod GPL"
     },
     "faqGhosttyQ": "Kakav je odnos cmux-a i Ghostty-ja?",
     "faqGhosttyA": "cmux nije fork Ghostty-ja. Koristi <link>libghostty</link> kao biblioteku za renderiranje terminala, na isti način kao što aplikacije koriste WebKit za web prikaze. Ghostty je samostalni terminal; cmux je drugačija aplikacija izgrađena na njegovom rendering engine-u.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "Sa kojim coding agentima cmux radi?",
     "faqAgentsA": "Sa svima. cmux je terminal, tako da svaki agent koji radi u terminalu funkcioniše odmah: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent i sve ostalo što možete pokrenuti iz komandne linije.",
     "faqNotificationsQ": "Kako funkcionišu notifikacije?",
-    "faqNotificationsA": "Kada proces treba pažnju, cmux prikazuje notifikacijske prstenove oko panela, bedževe nepročitanih u bočnoj traci, notifikacijski popover i macOS desktop notifikaciju. Ovi se aktiviraju automatski putem standardnih terminalskih escape sekvenci (OSC 9/99/777), ili ih možete pokrenuti pomoću <cliLink>cmux CLI</cliLink> i <hooksLink>Claude Code hooks</hooksLink>.",
+    "faqNotificationsA": "Kada proces treba pažnju, cmux prikazuje notifikacijske prstenove oko panela, oznake nepročitanog u bočnoj traci, skočni prozor s notifikacijama i macOS desktop notifikaciju. One se automatski okidaju putem standardnih terminalskih escape sekvenci (OSC 9/99/777), ili ih možete pokrenuti pomoću <cliLink>cmux CLI</cliLink> i <hooksLink>agentskih kuka</hooksLink>. Radi svaki agent koji podržava kuke ili OSC, uključujući Claude Code, Codex, OpenCode i pi.",
     "faqShortcutsQ": "Mogu li prilagoditi prečice na tastaturi?",
     "faqShortcutsA": "Terminalne prečice se čitaju iz vaše Ghostty konfiguracijske datoteke (<configPath>~/.config/ghostty/config</configPath>). cmux-specifične prečice (radni prostori, razdjelnice, preglednik, notifikacije) se mogu prilagoditi u Postavkama. Pogledajte <link>podrazumijevane prečice</link> za kompletnu listu.",
     "faqTmuxQ": "Kako se poredi sa tmux-om?",
-    "faqTmuxA": "tmux je multiplekser terminala koji radi unutar bilo kojeg terminala. cmux je nativna macOS aplikacija sa GUI-jem: vertikalni tabovi, podijeljeni paneli, ugrađeni preglednik i socket API su svi ugrađeni. Nisu potrebne konfiguracijske datoteke niti prefix tasteri.",
+    "faqTmuxA": "tmux je terminalski multiplekser koji radi unutar bilo kojeg terminala. cmux je nativna macOS aplikacija s grafičkim sučeljem: vertikalni tabovi, podijeljeni paneli, ugrađeni preglednik i socket API, sve ugrađeno, bez potrebe za konfiguracijskim datotekama ili prefiksnim tipkama. Ipak, mnogi ljudi rado koriste cmux zajedno sa SSH-om i tmux-om, a cmux se može nativno povezati na vaše udaljene tmux sesije (<link>beta</link>).",
     "faqFreeQ": "Da li je cmux besplatan?",
-    "faqFreeA": "Da, cmux je besplatan za korištenje. Izvorni kod je dostupan na <link>GitHub-u</link>."
+    "faqFreeA": "Da, cmux je besplatan za korištenje. Izvorni kod je dostupan na <link>GitHub-u</link>.",
+    "faqSessionsQ": "Da li se moje sesije čuvaju?",
+    "faqSessionsA": "Da. cmux vraća vaše prozore, radne prostore, panele, radne direktorije i historiju pomicanja kada ga ponovo pokrenete, a stanje preživljava potpuno ponovno pokretanje računara, ne samo zatvaranje aplikacije. Vraćaju se i sesije agenata poput Claude Code, Codex i OpenCode. Pogledajte <link>vraćanje sesije</link>.",
+    "faqScriptableQ": "Da li je cmux programabilan?",
+    "faqScriptableA": "Da. Svaka radnja je dostupna kroz cmux CLI i Unix socket: kreiranje radnih prostora, otvaranje podijeljenih panela, slanje unosa, čitanje sadržaja ekrana, snimanje ekrana i upravljanje preglednikom unutar aplikacije. Pogledajte <cliLink>CLI referencu</cliLink> i dokumentaciju za <browserLink>automatizaciju preglednika</browserLink>.",
+    "faqRemoteQ": "Mogu li koristiti cmux s udaljenim mašinama?",
+    "faqRemoteA": "Da. Otvarajte radne prostore preko SSH-a i povezujte se na udaljene tmux sesije, tako da agenti mogu raditi na udaljenom hostu dok ih vi vodite iz cmux-a. Pogledajte <link>SSH i udaljeni rad</link>.",
+    "faqOrchestrationQ": "Može li cmux orkestrirati više agenata i podagenata?",
+    "faqOrchestrationA": "Da. Kada agent pokrene podagente ili saradnike, cmux ih pretvara u nativne panele i podjele umjesto skrivenih pozadinskih procesa. Podržava <teamsLink>Claude Code timove</teamsLink> i <omoLink>oh-my-opencode</omoLink> višemodelno orkestriranje, tako da je svaki agent u izvođenju vidljiv i upravljiv.",
+    "faqCustomizeQ": "Mogu li prilagoditi cmux?",
+    "faqCustomizeA": "Da. Renderiranje terminala koristi vašu Ghostty konfiguraciju, pa se teme, fontovi, boje i kursor prenose direktno. Vlastite postavke cmux-a u <path>~/.config/cmux/cmux.json</path> kontrolišu bočnu traku, traku tabova, podijeljene panele i ponašanje, a svaka <shortcutsLink>tipkovnička prečica</shortcutsLink> je izmjenjiva. Pogledajte <link>konfiguraciju</link>.",
+    "faqIosQ": "Postoji li iOS aplikacija?",
+    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA.",
+    "faqSkillsQ": "Ima li cmux skills-e?",
+    "faqSkillsA": "Da. Skills su ponovo iskoristivi tokovi rada koje možete dati bilo kojem agentu koji radi u cmux-u, za stvari poput kontrole CLI-ja, automatizacije radnog prostora, postavki i panela preglednika. Pregledajte otvorenu kolekciju na <skillsLink>cmux-skills</skillsLink> ili pročitajte <link>dokumentaciju za skills</link>.",
+    "faqBrowserQ": "Šta može ugrađeni preglednik?",
+    "faqBrowserA": "cmux može podijeliti pravi panel preglednika pored vašeg terminala i potpuno je programabilan: navigirajte, snimite DOM, kliknite, kucajte, izvršite JavaScript i čitajte aktivnost konzole i mreže preko istog socket API-ja. Agenti ga koriste da provjere vlastite web izmjene bez napuštanja cmux-a. Pogledajte <link>automatizaciju preglednika</link>.",
+    "faqSupportQ": "Kako mogu podržati cmux?",
+    "faqSupportA": "cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqFeatureQ": "Imam prijedlog za funkciju ili sam pronašao grešku",
+    "faqFeatureA": "Želimo to čuti. Otvorite <issuesLink>issue</issuesLink> ili <prLink>pull request</prLink> na GitHub-u, ili nam <mailLink>pošaljite e-mail</mailLink>."
   },
   "community": {
     "title": "Zajednica",
@@ -1386,6 +1409,10 @@
       "configTitle": "cmux.json",
       "configDesc": "Iste zadane vrijednosti postavite u ~/.config/cmux/cmux.json pod terminal:",
       "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine."
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode: OpenCode više agenata u cmux-u",
+      "metaDescription": "oh-my-opencode (cmux omo) pokreće OpenCode CLI s dodatkom oh-my-openagent unutar cmux-a. Orkestrirajte Claude, GPT, Gemini i Grok kao paralelne agente, svaki u nativnoj cmux podjeli."
     }
   },
   "legal": {
