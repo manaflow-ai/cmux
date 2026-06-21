@@ -146,6 +146,62 @@ import Testing
     #expect(delivered.map(\.frame.stateSeq) == [30, 40])
 }
 
+@Test func terminalRenderSessionDeliversBufferedViewportDeltaAtSnapshotSequence() throws {
+    let surfaceID = "terminal"
+    var session = TerminalRenderSession()
+    session.beginSnapshot()
+
+    let liveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 30,
+        columns: 16,
+        rows: 2,
+        text: "same-sequence-live",
+        full: false,
+        changedRows: [0, 1]
+    )
+    let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 30,
+        columns: 16,
+        rows: 2,
+        text: "snapshot"
+    )
+
+    #expect(session.receiveLive(try .viewportDelta(liveFrame)).isEmpty)
+
+    let delivered = session.receiveSnapshot(try .snapshot(snapshotFrame))
+
+    #expect(delivered.map(\.frame.stateSeq) == [30, 30])
+    #expect(delivered.last?.frame.full == false)
+}
+
+@Test func terminalRenderSessionDeliversLiveViewportDeltaAtCurrentSequence() throws {
+    let surfaceID = "terminal"
+    var session = TerminalRenderSession()
+    let snapshotFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 30,
+        columns: 16,
+        rows: 2,
+        text: "snapshot"
+    )
+    let liveFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 30,
+        columns: 16,
+        rows: 2,
+        text: "same-sequence-live",
+        full: false,
+        changedRows: [0, 1]
+    )
+
+    _ = session.receiveSnapshot(try .snapshot(snapshotFrame))
+    let delivered = session.receiveLive(try .viewportDelta(liveFrame))
+
+    #expect(delivered.map(\.frame.stateSeq) == [30])
+}
+
 @Test func terminalRenderSessionBoundsLiveBufferWhileAwaitingSnapshot() throws {
     let surfaceID = "terminal"
     var session = TerminalRenderSession()
@@ -175,7 +231,7 @@ import Testing
     )
     let delivered = session.receiveSnapshot(try .snapshot(snapshotFrame))
 
-    #expect(delivered.map(\.frame.stateSeq) == [90] + Array(91...100))
+    #expect(delivered.map(\.frame.stateSeq) == [90] + Array(90...100))
 }
 
 @Test func terminalRenderSessionCoalescesReplaceableLiveDeltaWhileAwaitingSnapshot() throws {
