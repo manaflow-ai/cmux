@@ -432,7 +432,8 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         guard let action = groupHeaderCenterDropAction(info) else {
-            if shouldConsumeGroupHeaderNoOpEdgeDrop(info) {
+            if !routesBottomEdgeToFirstMember(info),
+               shouldConsumeGroupHeaderNoOpEdgeDrop(info) {
                 clearDropState()
                 return true
             }
@@ -448,11 +449,15 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
         return true
     }
 
-    private func edgeReorderDelegate(for info: DropInfo) -> SidebarTabDropDelegate {
-        if SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(
+    private func routesBottomEdgeToFirstMember(_ info: DropInfo) -> Bool {
+        firstMemberReorderDelegate != nil && SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(
             locationY: info.location.y,
             rowHeight: targetRowHeight ?? 1
-        ), let firstMemberReorderDelegate {
+        )
+    }
+
+    private func edgeReorderDelegate(for info: DropInfo) -> SidebarTabDropDelegate {
+        if routesBottomEdgeToFirstMember(info), let firstMemberReorderDelegate {
             return firstMemberReorderDelegate
         }
         return reorderDelegate
