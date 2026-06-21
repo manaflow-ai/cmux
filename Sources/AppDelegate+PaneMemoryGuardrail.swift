@@ -21,7 +21,7 @@ extension AppDelegate {
             managers.append(manager)
         }
 
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             append(context.tabManager)
         }
         for route in recoverableMainWindowRoutes() {

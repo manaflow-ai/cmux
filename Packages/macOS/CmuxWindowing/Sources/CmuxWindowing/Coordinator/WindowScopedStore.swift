@@ -65,4 +65,18 @@ public final class WindowScopedStore<Value> {
     public var models: [Value] {
         Array(entries.values)
     }
+
+    /// The ``WindowID`` of every window that currently has a model, in no
+    /// guaranteed order. Lets a sweep that needs the window identity (not just
+    /// the model) enumerate the live windows this domain knows about.
+    public var ids: [WindowID] {
+        Array(entries.keys)
+    }
+
+    /// Every `(WindowID, Value)` pair, in no guaranteed order. Mirrors the
+    /// legacy aggregate's `values` iteration for callers that resolve a
+    /// per-window value alongside its identity in one pass.
+    public var pairs: [(id: WindowID, model: Value)] {
+        entries.map { (id: $0.key, model: $0.value) }
+    }
 }

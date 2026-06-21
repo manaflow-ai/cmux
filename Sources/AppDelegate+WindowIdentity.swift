@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWindowing
 import Foundation
 
 @MainActor
@@ -8,8 +9,12 @@ extension AppDelegate {
     }
 
     func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
-        if let ctx = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
-           let window = ctx.window {
+        // Resolve the live handle from `windowCoordinator` directly (the owner of
+        // window↔id identity). This must NOT route through
+        // `registeredMainWindow(for:)`, which itself falls back to this method —
+        // that would recurse. The coordinator lookup replaces the old "registered
+        // context with a live `.window`" read.
+        if let window = windowCoordinator.window(for: WindowID(windowId)) {
             return window
         }
         let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
@@ -24,13 +29,13 @@ extension AppDelegate {
 
     func availableWindowIdForNewMainWindow(preferredWindowId: UUID?) -> UUID? {
         guard let preferredWindowId else { return nil }
-        guard !mainWindowContexts.values.contains(where: { $0.windowId == preferredWindowId }) else { return nil }
+        guard !registeredMainWindows.contains(where: { $0.windowId == preferredWindowId }) else { return nil }
         return preferredWindowId
     }
 
     func refreshWindowTitlesAcrossMainWindows() {
         var seenManagers = Set<ObjectIdentifier>()
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             let identifier = ObjectIdentifier(context.tabManager)
             guard seenManagers.insert(identifier).inserted else { continue }
             context.tabManager.refreshWindowTitle()

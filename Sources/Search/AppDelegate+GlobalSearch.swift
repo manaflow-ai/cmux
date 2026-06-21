@@ -64,7 +64,7 @@ extension AppDelegate {
             }
         }
 
-        let liveContexts = mainWindowContexts.values.sorted { lhs, rhs in
+        let liveContexts = registeredMainWindows.sorted { lhs, rhs in
             let lhsRank = orderedWindowRanks[lhs.windowId] ?? Int.max
             let rhsRank = orderedWindowRanks[rhs.windowId] ?? Int.max
             if lhsRank != rhsRank { return lhsRank < rhsRank }
@@ -141,7 +141,7 @@ extension AppDelegate {
             return nil
         }
 
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             if let result = inspect(
                 windowID: context.windowId,
                 tabManager: context.tabManager,

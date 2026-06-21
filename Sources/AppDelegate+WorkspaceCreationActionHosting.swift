@@ -30,8 +30,8 @@ extension AppDelegate: WorkspaceCreationActionHosting {
     typealias SelectionContext = WorkspaceCreationActionSelector
 
     /// Resolves a `WindowID` token to its live `MainWindowContext`.
-    private func mainWindowContext(for token: WindowID) -> MainWindowContext? {
-        mainWindowContexts.values.first(where: { WindowID($0.windowId) == token })
+    private func mainWindowContext(for token: WindowID) -> RegisteredMainWindow? {
+        registeredMainWindows.first(where: { WindowID($0.windowId) == token })
     }
 
     func livePreferredWindowToken(for selector: SelectionContext) -> WindowID? {
@@ -48,7 +48,7 @@ extension AppDelegate: WorkspaceCreationActionHosting {
         return WindowID(preferredContext.windowId)
     }
 
-    var hasNoMainWindows: Bool { mainWindowContexts.isEmpty }
+    var hasNoMainWindows: Bool { registeredMainWindows.isEmpty }
 
     func preferredWindowTokenForCreation(selector: SelectionContext, debugSource: String) -> WindowID? {
         preferredMainWindowContextForWorkspaceCreation(
@@ -141,7 +141,7 @@ extension AppDelegate: WorkspaceCreationActionHosting {
     func focusInitialBrowserAddressBar(workspaceId: UUID) {
         // Legacy `focusInitialBrowserAddressBar(in:)` resolved the live workspace;
         // resolve it by id across the live windows, then focus its browser panel.
-        guard let workspace = mainWindowContexts.values
+        guard let workspace = registeredMainWindows
             .flatMap({ $0.tabManager.tabs })
             .first(where: { $0.id == workspaceId }) else {
             return

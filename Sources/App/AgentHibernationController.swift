@@ -463,7 +463,7 @@ extension AppDelegate {
             }
         }
 
-        for context in mainWindowContexts.values {
+        for context in registeredMainWindows {
             let visibleWorkspaceId = context.window?.isVisible == true ? context.tabManager.selectedTabId : nil
             visit(tabManager: context.tabManager, visibleWorkspaceId: visibleWorkspaceId)
         }

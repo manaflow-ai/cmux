@@ -61,8 +61,8 @@ final class JumpUnreadUITestRecorder: UITestRecording {
                 // In UI tests, the initial SwiftUI `WindowGroup` window can lag behind launch. Wait for a
                 // registered main terminal window context so notifications can be routed back correctly.
                 let deadline = Date().addingTimeInterval(8.0)
-                @MainActor func waitForContext(_ completion: @escaping (AppDelegate.MainWindowContext) -> Void) {
-                    if let context = self.appDelegate.mainWindowContexts.values.first,
+                @MainActor func waitForContext(_ completion: @escaping (AppDelegate.RegisteredMainWindow) -> Void) {
+                    if let context = self.appDelegate.registeredMainWindows.first,
                        context.window != nil {
                         completion(context)
                         return

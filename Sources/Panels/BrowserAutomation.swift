@@ -350,7 +350,7 @@ enum BrowserProfileAutomation {
     @MainActor
     private static func liveBrowserPanelCount(profileID: UUID) -> Int {
         guard let app = AppDelegate.shared else { return 0 }
-        return app.mainWindowContexts.values.reduce(0) { contextCount, context in
+        return app.registeredMainWindows.reduce(0) { contextCount, context in
             contextCount + context.tabManager.tabs.reduce(0) { workspaceCount, workspace in
                 workspaceCount + workspace.panels.values.reduce(0) { panelCount, panel in
                     guard let browserPanel = panel as? BrowserPanel,
