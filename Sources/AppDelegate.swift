@@ -935,7 +935,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarSelectionState: SidebarSelectionState?
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     private var workspaceObserver: NSObjectProtocol?
-    private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
@@ -1542,7 +1541,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // True while remote tmux kill-before-quit owns the terminate reply.
     private var isAwaitingTerminateKills = false
     private var terminateKillWatchdogTask: Task<Void, Never>?
-    private var didInstallLifecycleSnapshotObservers = false
+    /// Owns the three `NSWorkspace` session-lifecycle observers
+    /// (willPowerOff / sessionDidResignActive / didWake) and surfaces them as a
+    /// typed ``SessionLifecycleEvent`` `AsyncStream` (CmuxWorkspaces);
+    /// composition-root owned. `AppDelegate` consumes the stream on the main
+    /// actor in ``lifecycleSnapshotConsumeTask`` and forwards each event to the
+    /// same app-coupled save / socket-restart bodies the legacy
+    /// `NotificationCenter` closures called.
+    private let sessionLifecycleObserver = SessionLifecycleObserver()
+    /// The main-actor task draining ``sessionLifecycleObserver``'s event stream.
+    /// Replaces the legacy `didInstallLifecycleSnapshotObservers` install-once
+    /// latch; created once in `installLifecycleSnapshotObserversIfNeeded()`.
+    private var lifecycleSnapshotConsumeTask: Task<Void, Never>?
     /// Owns the control-socket listener lifecycle policy (configuration
     /// resolution, start/ensure/restart sequencing, the sudden-termination
     /// latch); the live listener and tab-manager resolution stay here behind the
@@ -2963,51 +2973,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
-        guard !didInstallLifecycleSnapshotObservers else { return }
-        didInstallLifecycleSnapshotObservers = true
-
-        let workspaceCenter = NSWorkspace.shared.notificationCenter
-        let powerOffObserver = workspaceCenter.addObserver(
-            forName: NSWorkspace.willPowerOffNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+        guard lifecycleSnapshotConsumeTask == nil else { return }
+        sessionLifecycleObserver.installIfNeeded()
+        lifecycleSnapshotConsumeTask = Task { @MainActor [weak self] in
+            guard let observer = self?.sessionLifecycleObserver else { return }
+            for await event in observer.events {
                 guard let self else { return }
-                self.isTerminatingApp = true
-                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                self.handleSessionLifecycleEvent(event)
+            }
+        }
+    }
+
+    /// Forwards one ``SessionLifecycleEvent`` to the app-coupled session-save /
+    /// socket-restart body the legacy lifecycle observer closure ran, preserving
+    /// the `isTerminatingApp` branch exactly.
+    private func handleSessionLifecycleEvent(_ event: SessionLifecycleEvent) {
+        switch event {
+        case .willPowerOff:
+            isTerminatingApp = true
+            _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+            ClosedItemHistoryStore.shared.flushPendingSaves()
+        case .sessionDidResignActive:
+            if isTerminatingApp {
+                _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                 ClosedItemHistoryStore.shared.flushPendingSaves()
+            } else {
+                saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
             }
+        case .didWake:
+            restartSocketListenerIfEnabled(source: "workspace.didWake")
         }
-        lifecycleSnapshotObservers.append(powerOffObserver)
-
-        let sessionResignObserver = workspaceCenter.addObserver(
-            forName: NSWorkspace.sessionDidResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-                    ClosedItemHistoryStore.shared.flushPendingSaves()
-                } else {
-                    self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
-                }
-            }
-        }
-        lifecycleSnapshotObservers.append(sessionResignObserver)
-
-        let didWakeObserver = workspaceCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
-            }
-        }
-        lifecycleSnapshotObservers.append(didWakeObserver)
     }
 
     // Internal (not private) so the DEBUG `MultiWindowNotificationUITestScaffold`
