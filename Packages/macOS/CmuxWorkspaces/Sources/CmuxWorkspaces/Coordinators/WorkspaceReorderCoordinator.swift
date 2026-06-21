@@ -112,6 +112,10 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         isDragOperation: Bool = false,
         explicitGroupId: UUID? = nil
     ) -> Bool {
+        if let explicitGroupId,
+           !model.workspaceGroups.contains(where: { $0.id == explicitGroupId }) {
+            return false
+        }
         let plan: WorkspaceReorderPlanItem?
         if isDragOperation, explicitGroupId != nil {
             plan = explicitGroupWorkspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
@@ -400,8 +404,8 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             model.normalizeWorkspaceGroupContiguity()
             return
         }
-        if let explicitGroupId,
-           model.workspaceGroups.contains(where: { $0.id == explicitGroupId }) {
+        if let explicitGroupId {
+            guard model.workspaceGroups.contains(where: { $0.id == explicitGroupId }) else { return }
             if tab.groupId != explicitGroupId {
                 tab.groupId = explicitGroupId
             }

@@ -255,6 +255,34 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func staleExplicitGroupDropDoesNotInferMembership() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let dragged = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child1, child2, dragged, outside]
+        _ = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let draggedIndex = try #require(model.tabs.firstIndex { $0.id == dragged.id })
+        let previousOrder = model.tabs.map(\.id)
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: draggedIndex,
+            isDragOperation: true,
+            explicitGroupId: UUID()
+        )
+
+        #expect(!moved)
+        #expect(dragged.groupId == nil)
+        #expect(model.tabs.map(\.id) == previousOrder)
+    }
+
+    @Test
     func explicitGroupDropFromAnotherGroupPreservesTargetGroupSlot() throws {
         let (model, host, groups, reorder) = makeWorld()
         _ = host
