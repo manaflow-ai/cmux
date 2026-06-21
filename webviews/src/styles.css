@@ -176,13 +176,20 @@ body {
   font: inherit;
 }
 #source-select {
-  /* The source select tells the user whether they are viewing
-     unstaged/staged/branch/last-turn, so it must never collapse to invisible.
-     A real min-width floor keeps a few chars of label + the dropdown chevron
-     always on screen; low flex-shrink so it ellipsizes gracefully instead of
-     vanishing as the toolbar narrows. */
-  flex: 0 1 76px;
+  /* Toolbar picker width strategy (source/repo/base):
+     - flex-basis auto => each picker sizes to its CONTENT, so when there is
+       free toolbar space it shows the full value instead of truncating at a
+       fixed basis (the old `flex: 0 1 76px` truncated "Last turn" / long repo
+       labels even with empty space to the right).
+     - max-width caps each so no single picker dominates.
+     - min-width floors keep label + chevron visible, never collapsing to zero.
+     - flex-shrink encodes PRIORITY for the no-free-space case: the base picker
+       (the comparison) shrinks last, the source select next, the repo select
+       first. So under pressure the repo path ellipsizes before the source mode,
+       and the base comparison before either is ever crushed. */
+  flex: 0 3 auto;
   min-width: 58px;
+  max-width: 124px;
 }
 #source-select:hover,
 #repo-select:hover,
@@ -201,11 +208,12 @@ body {
   width: 100%;
 }
 #repo-select {
-  /* Same floor rationale as #source-select: degrade by ellipsis, never to zero
-     width. Repo labels are longer so it keeps a slightly larger floor and a bit
-     more shrink than the source select. */
-  flex: 0 2 92px;
-  min-width: 54px;
+  /* Content-sized like #source-select, with a larger max-width (repo labels are
+     longer) and the HIGHEST shrink so it is the first to ellipsize when the
+     toolbar runs out of room. */
+  flex: 0 5 auto;
+  min-width: 56px;
+  max-width: 188px;
 }
 #base-select {
   flex: 0 1 120px;
@@ -229,13 +237,15 @@ body {
   display: flex;
   align-items: center;
   min-width: 0;
-  /* Base is the primary action of this toolbar: it claims the remaining space in
-     toolbar-left. Its floor is lowered to 120px so the source/repo selects keep
-     their own min-width floors (58px / 54px) and stay visible in a narrow panel
-     instead of being crushed to zero. The base ref itself still has its own 6ch
-     floor inside the button. */
-  flex: 1 1 auto;
-  min-width: 120px;
+  /* Base is the primary action and the highest-priority picker: it is content
+     sized (no flex-grow, so it does not stretch into a half-empty button) and
+     has the LOWEST shrink, so it is the last to give up width. Its min-width
+     floor keeps `<head> -> <base>` legible; the secondaries (reason,
+     ahead/behind) shed via .base-picker-meta + the toolbar-left container
+     queries before the ref itself ellipsizes. Free toolbar space is left empty
+     to the right rather than padding out this button. */
+  flex: 0 1 auto;
+  min-width: 150px;
 }
 .base-picker-button {
   display: inline-flex;
