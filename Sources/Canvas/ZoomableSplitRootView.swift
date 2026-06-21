@@ -6,10 +6,15 @@ import QuartzCore
 import SwiftUI
 
 @MainActor
+private final class ZoomableSplitDocumentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+@MainActor
 final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private weak var workspace: Workspace?
     private let scrollView = NSScrollView()
-    private let documentView = NSView()
+    private let documentView = ZoomableSplitDocumentView()
     private let hostingView: NSHostingView<AnyView>
     private var commandScrollEventRouter: CanvasCommandScrollEventRouter?
     private var clipBoundsObserver: (any NSObjectProtocol)?
