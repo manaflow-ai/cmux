@@ -192,10 +192,14 @@ class TabManager: ObservableObject {
     // timing (objectWillChange + bridge publishers in willSet, selection
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
+    private var workspacesById: [UUID: Workspace] = [:]
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
-        set { workspaces.tabs = newValue }
+        set {
+            workspaces.tabs = newValue
+            workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        }
     }
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
@@ -534,7 +538,7 @@ class TabManager: ObservableObject {
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                      let workspace = tabs.first(where: { $0.id == tabId }),
+                      let workspace = workspacesById[tabId],
                       workspace.owningTabManager === self,
                       let change = GhosttyTitleChange(notification: notification) else { return }
                 enqueuePanelTitleUpdate(tabId: change.tabId, panelId: change.surfaceId, title: change.title)

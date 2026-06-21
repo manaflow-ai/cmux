@@ -48,6 +48,32 @@ private func waitForTitleCondition(
 
 @MainActor
 final class TabManagerTitleUpdateTests: XCTestCase {
+    func testCoalescerReschedulesWhenDelayChangesMidBurst() {
+        let coalescer = NotificationBurstCoalescer(delay: 0.02)
+        let flushed = XCTestExpectation(description: "flush after updated delay")
+        var flushCount = 0
+
+        coalescer.signal {
+            flushCount += 1
+            flushed.fulfill()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.005) {
+            coalescer.signal(delay: 0.25) {
+                flushCount += 1
+                flushed.fulfill()
+            }
+        }
+
+        let oldDelayWindowPassed = XCTestExpectation(description: "old delay window passed")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+            oldDelayWindowPassed.fulfill()
+        }
+        XCTAssertEqual(XCTWaiter().wait(for: [oldDelayWindowPassed], timeout: 1.0), .completed)
+        XCTAssertEqual(flushCount, 0)
+        XCTAssertEqual(XCTWaiter().wait(for: [flushed], timeout: 1.0), .completed)
+        XCTAssertEqual(flushCount, 1)
+    }
+
     func testTitleCoalescingDelayUsesCurrentSettingsAtNotificationTime() throws {
         let suiteName = "TabManagerTitleCoalescingSettings.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

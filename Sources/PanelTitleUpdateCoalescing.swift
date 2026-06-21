@@ -32,6 +32,7 @@ enum PanelTitleUpdateCoalescingSettings {
 final class NotificationBurstCoalescer {
     private var delay: TimeInterval
     private var isFlushScheduled = false
+    private var scheduledGeneration: UInt64 = 0
     private var pendingAction: (() -> Void)?
 
     init(delay: TimeInterval = 1.0 / 30.0) {
@@ -40,23 +41,30 @@ final class NotificationBurstCoalescer {
 
     func signal(delay newDelay: TimeInterval? = nil, _ action: @escaping () -> Void) {
         precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
+        let previousDelay = delay
         if let newDelay {
             delay = max(0, newDelay)
         }
         pendingAction = action
+        if isFlushScheduled, delay != previousDelay {
+            isFlushScheduled = false
+        }
         scheduleFlushIfNeeded()
     }
 
     private func scheduleFlushIfNeeded() {
         guard !isFlushScheduled else { return }
         isFlushScheduled = true
+        scheduledGeneration &+= 1
+        let generation = scheduledGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.flush()
+            self?.flush(scheduledGeneration: generation)
         }
     }
 
-    private func flush() {
+    private func flush(scheduledGeneration generation: UInt64) {
         precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
+        guard generation == scheduledGeneration else { return }
         isFlushScheduled = false
         guard let action = pendingAction else { return }
         pendingAction = nil
