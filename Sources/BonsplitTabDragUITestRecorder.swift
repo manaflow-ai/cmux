@@ -161,7 +161,7 @@ final class BonsplitTabDragUITestRecorder: UITestRecording {
                 )
             }
             if startWithHiddenSidebar {
-                context.sidebarState.isVisible = false
+                self.appDelegate.sidebarState(for: context).isVisible = false
             }
             if showRightSidebar {
                 guard let fileExplorerState = context.fileExplorerState else {
