@@ -412,30 +412,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// The per-terminal composer-draft seam. `nil` in previews/tests that do not
-    /// exercise drafts; every draft hook is then a no-op and the in-memory
-    /// ``terminalInputText`` behaves exactly as before. Injected from the app
-    /// composition root.
     private let draftStore: (any TerminalDraftStoring)?
-    /// Durable queue for text notes captured while the Mac is unreachable.
-    private let offlineAgentNoteQueue: (any OfflineAgentNoteQueueStoring)?
-    /// Notes loaded from ``offlineAgentNoteQueue`` and rendered in the composer.
-    public private(set) var offlineAgentNotes: [OfflineAgentNote] = []
-    /// Guards the initial queue load from storage.
-    @ObservationIgnored private var isLoadingOfflineAgentNotes = false
-    /// Guards reconnect/retry drains so two connection edges cannot replay the
-    /// same note concurrently.
-    @ObservationIgnored private var isDrainingOfflineAgentNotes = false
+    let offlineAgentNoteQueue: (any OfflineAgentNoteQueueStoring)?
+    public internal(set) var offlineAgentNotes: [OfflineAgentNote] = []
+    @ObservationIgnored var isLoadingOfflineAgentNotes = false
+    @ObservationIgnored var isDrainingOfflineAgentNotes = false
 
-    /// True while a saved draft is being loaded INTO ``terminalInputText``, so
-    /// its `didSet` does not immediately re-save the just-loaded value (which
-    /// would also race the key swap). Not observed: it gates a write, not view
-    /// state.
     @ObservationIgnored private var isLoadingDraft = false
-    /// Tail of the FIFO draft pipeline (see ``enqueueDraftOperation(_:)``).
-    /// Every draft-store operation chains onto this so store effects apply in
-    /// exactly the order they were issued from the main actor. Not observed: it
-    /// sequences async work, not view state.
     @ObservationIgnored private var draftOperationTail: Task<Void, Never>?
     /// Latest unflushed keystroke draft per terminal (see
     /// ``persistCurrentDraft()``). Keystroke saves coalesce here: each edit
@@ -474,7 +457,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// intentionally left out of the set and allowed to autofocus.
     private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
 
-    private let runtime: (any MobileSyncRuntime)?
+    let runtime: (any MobileSyncRuntime)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
     /// Best-effort, team-scoped lookup of fresher attach routes from the device
     /// registry. Optional and failure-tolerant: when `nil` or unreachable,
@@ -503,7 +486,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp
     /// The injected, fire-and-forget product-analytics emitter. Defaults to
     /// ``NoopAnalytics`` so previews/tests inject nothing.
-    private let analytics: any AnalyticsEmitting
+    let analytics: any AnalyticsEmitting
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
     private var connectionOutageThrottle = ConnectionOutageThrottle()
     /// When the current outage began, for the recovered event's duration.
@@ -3004,8 +2987,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         }
         // Reject a re-entrant send (e.g. a double tap on Send) so the same text
-        // is not pasted twice. The flag is set/cleared on the main actor around
-        // the await, so no second call can slip past it.
         guard !isSubmittingComposerInput else { return false }
         isSubmittingComposerInput = true
         defer { isSubmittingComposerInput = false }
@@ -3016,24 +2997,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalID: terminalID
         )
         guard sent else { return false }
-        // Reconcile against the CAPTURED terminal, not the live selection: if the
-        // user switched terminals while the ack was in flight, the switch persists
-        // the outgoing text as the captured terminal's draft, and the sent text
-        // must be cleared from that key, not from whatever terminal is selected
-        // when the ack returns.
         await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: terminalID)
         return true
     }
 
-    /// Send the composer's staged attachments then its text, iMessage-style: the
-    /// images are delivered first (in pick order) so their injected file paths
-    /// land before the message that references them, then the text is submitted.
-    /// Attachments for the submitted terminal are cleared once they have all been
-    /// sent.
-    ///
-    /// Allowed with empty text as long as at least one attachment is staged; an
-    /// images-only send skips the (no-op) text submit.
-    ///
     /// Captures the target workspace + terminal ONCE up front and threads them
     /// through both the image sends and the text send, so a terminal switch while
     /// an (awaited) image send is in flight cannot reroute later images or the
@@ -3907,163 +3874,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = selectedWorkspace.preferredTerminal?.id
     }
 
-    // MARK: - Offline agent notes
-
-    private func loadOfflineAgentNotes() {
-        guard let offlineAgentNoteQueue, !isLoadingOfflineAgentNotes else { return }
-        isLoadingOfflineAgentNotes = true
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let loaded = await offlineAgentNoteQueue.loadNotes()
-            let loadedIDs = Set(loaded.map(\.id))
-            let locallyQueued = self.offlineAgentNotes.filter { !loadedIDs.contains($0.id) }
-            self.offlineAgentNotes = loaded + locallyQueued
-            self.isLoadingOfflineAgentNotes = false
-            self.scheduleOfflineAgentNoteDrain()
-        }
-    }
-
-    private func persistOfflineAgentNotes() {
-        guard let offlineAgentNoteQueue else { return }
-        let snapshot = offlineAgentNotes
-        Task { await offlineAgentNoteQueue.saveNotes(snapshot) }
-    }
-
-    @discardableResult
-    private func enqueueOfflineAgentNote(
-        text: String,
-        workspaceID: MobileWorkspacePreview.ID?,
-        terminalID: MobileTerminalPreview.ID?
-    ) async -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        let now = runtime?.now() ?? Date()
-        let note = OfflineAgentNote(
-            text: text,
-            workspaceID: workspaceID?.rawValue,
-            terminalID: terminalID?.rawValue,
-            createdAt: now,
-            updatedAt: now
-        )
-        offlineAgentNotes.append(note)
-        persistOfflineAgentNotes()
-        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: terminalID)
-        analytics.capture("ios_offline_agent_note_queued", [
-            "has_target_terminal": .bool(terminalID != nil),
-        ])
-        return true
-    }
-
-    public func retryOfflineAgentNotes() async {
-        for index in offlineAgentNotes.indices where offlineAgentNotes[index].status == .failed {
-            offlineAgentNotes[index].status = .pending
-            offlineAgentNotes[index].lastError = nil
-            offlineAgentNotes[index].updatedAt = runtime?.now() ?? Date()
-        }
-        persistOfflineAgentNotes()
-        await drainOfflineAgentNotes()
-    }
-
-    public func deleteOfflineAgentNote(id: OfflineAgentNote.ID) async {
-        offlineAgentNotes.removeAll { $0.id == id }
-        persistOfflineAgentNotes()
-    }
-
-    public func clearSentOfflineAgentNotes() async {
-        offlineAgentNotes.removeAll { $0.status == .sent }
-        persistOfflineAgentNotes()
-    }
-
-    private func scheduleOfflineAgentNoteDrain() {
-        guard connectionState == .connected,
-              remoteClient != nil,
-              offlineAgentNotes.contains(where: { $0.status == .pending || $0.status == .failed }) else {
-            return
-        }
-        Task { @MainActor [weak self] in
-            await self?.drainOfflineAgentNotes()
-        }
-    }
-
-    private func drainOfflineAgentNotes() async {
-        guard !isDrainingOfflineAgentNotes,
-              connectionState == .connected,
-              remoteClient != nil else {
-            return
-        }
-        isDrainingOfflineAgentNotes = true
-        defer { isDrainingOfflineAgentNotes = false }
-
-        for noteID in offlineAgentNotes
-            .filter({ $0.status == .pending || $0.status == .failed })
-            .map(\.id) {
-            guard connectionState == .connected, remoteClient != nil else { break }
-            guard let index = offlineAgentNotes.firstIndex(where: { $0.id == noteID }) else { continue }
-            let note = offlineAgentNotes[index]
-            guard let target = offlineAgentNoteTarget(for: note) else {
-                markOfflineAgentNote(
-                    id: noteID,
-                    status: .failed,
-                    lastError: "No terminal is available for this note."
-                )
-                continue
-            }
-            markOfflineAgentNote(id: noteID, status: .sending, lastError: nil)
-            let sent = await sendRemoteTerminalPaste(
-                note.text,
-                submitKey: "return",
-                workspaceID: target.workspaceID,
-                terminalID: target.terminalID
-            )
-            if sent {
-                markOfflineAgentNote(id: noteID, status: .sent, lastError: nil, sentAt: runtime?.now() ?? Date())
-                analytics.capture("ios_offline_agent_note_sent", [:])
-            } else {
-                markOfflineAgentNote(
-                    id: noteID,
-                    status: .failed,
-                    lastError: "The Mac did not accept this note. Retry when the connection is stable."
-                )
-                analytics.capture("ios_offline_agent_note_failed", [:])
-            }
-        }
-    }
-
-    private func markOfflineAgentNote(
-        id: OfflineAgentNote.ID,
-        status: OfflineAgentNote.Status,
-        lastError: String?,
-        sentAt: Date? = nil
-    ) {
-        guard let index = offlineAgentNotes.firstIndex(where: { $0.id == id }) else { return }
-        offlineAgentNotes[index].status = status
-        offlineAgentNotes[index].lastError = lastError
-        offlineAgentNotes[index].sentAt = sentAt ?? offlineAgentNotes[index].sentAt
-        offlineAgentNotes[index].updatedAt = runtime?.now() ?? Date()
-        persistOfflineAgentNotes()
-    }
-
-    private func offlineAgentNoteTarget(
-        for note: OfflineAgentNote
-    ) -> (workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID)? {
-        if let workspaceID = note.workspaceID,
-           let terminalID = note.terminalID,
-           workspaces.contains(where: { workspace in
-               workspace.id.rawValue == workspaceID
-                   && workspace.terminals.contains(where: { $0.id.rawValue == terminalID })
-           }) {
-            return (
-                MobileWorkspacePreview.ID(rawValue: workspaceID),
-                MobileTerminalPreview.ID(rawValue: terminalID)
-            )
-        }
-        guard let workspace = selectedWorkspace,
-              let terminal = selectedTerminal else {
-            return nil
-        }
-        return (workspace.id, terminal.id)
-    }
-
     // MARK: - Per-terminal composer drafts
 
     /// Enqueue one draft-store operation on a strictly ordered (FIFO) pipeline.
@@ -4343,7 +4153,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   `method_not_found` from an older host). Callers use this to keep the
     ///   composer text on failure instead of clearing it optimistically.
     @discardableResult
-    private func sendRemoteTerminalPaste(
+    func sendRemoteTerminalPaste(
         _ text: String,
         submitKey: String,
         workspaceID: MobileWorkspacePreview.ID,
