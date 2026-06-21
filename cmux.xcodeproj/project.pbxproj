@@ -831,7 +831,6 @@
 		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
-		C9A57405C9A57405C9A57405 /* TabItemViewDropSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57406C9A57406C9A57406 /* TabItemViewDropSupport.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
 		E3309A03 /* TabManager+EqualizeSplits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A04 /* TabManager+EqualizeSplits.swift */; };
 		E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */; };
@@ -1860,7 +1859,6 @@
 		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
-		C9A57406C9A57406C9A57406 /* TabItemViewDropSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabItemViewDropSupport.swift; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
 		E3309A04 /* TabManager+EqualizeSplits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+EqualizeSplits.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusHistoryHosting.swift"; sourceTree = "<group>"; };
@@ -2395,7 +2393,6 @@
 				C9A57202C9A57202C9A57202 /* SidebarWorkspaceRenderItem.swift */,
 				C9A57402C9A57402C9A57402 /* SidebarWorkspaceRowDropMetrics.swift */,
 				C0DE5F210000000000000002 /* SidebarMetadataMarkdownRenderer.swift */,
-				C9A57406C9A57406C9A57406 /* TabItemViewDropSupport.swift */,
 				C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */,
 				C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */,
 				C9A57204C9A57204C9A57204 /* WorkspaceGroupMenuSnapshot.swift */,
@@ -4090,7 +4087,6 @@
 				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
-				C9A57405C9A57405C9A57405 /* TabItemViewDropSupport.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
 				E3309A03 /* TabManager+EqualizeSplits.swift in Sources */,
 				E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */,

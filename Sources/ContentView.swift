@@ -13002,8 +13002,8 @@ struct TabItemView: View, Equatable {
     @State private var observedIsActive: Bool?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State var metadataRowsExpanded = false
-    @State var metadataBlocksExpanded = false
+    @State private var metadataRowsExpanded = false
+    @State private var metadataBlocksExpanded = false
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     private static let maxDisplayedTitleCharacters = 2048
@@ -13305,6 +13305,19 @@ struct TabItemView: View, Equatable {
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
+        )
+    }
+
+    private func workspaceDropTargetHeight(
+        snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        effectiveSubtitle: String?
+    ) -> CGFloat? {
+        SidebarWorkspaceRowDropMetrics.dropTargetHeight(
+            snapshot: snapshot,
+            settings: settings,
+            effectiveSubtitle: effectiveSubtitle,
+            metadataEntryIsExpanded: metadataRowsExpanded,
+            metadataBlocksAreExpanded: metadataBlocksExpanded
         )
     }
 
