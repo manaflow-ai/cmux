@@ -1875,6 +1875,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// `WorkspaceSurfaceTreeReading`; the legacy accessors below forward here.
     let surfaceList = WorkspaceSurfaceListModel()
 
+    /// The bonsplit tab context-menu coordinator (CmuxWorkspaces): owns the
+    /// close-to-left/right/others slicing, the create-to-right index math, and
+    /// the "Move Tab To…" destination encoding + routing. `Workspace` is its
+    /// ``WorkspaceContextMenuHosting`` host (conformed in
+    /// `Workspace+WorkspaceContextMenuHosting.swift`); the `splitTabBar`
+    /// context-action dispatch and the move-destinations provider forward here.
+    private lazy var contextMenuCoordinator = WorkspaceContextMenuCoordinator(surfaceList: surfaceList)
+
     /// The per-workspace title sub-model (CmuxWorkspaces): owns the custom-title
     /// / custom-description state-transition logic, reaching the workspace's
     /// `@Published` title vocabulary through ``WorkspaceTitleHosting`` (which
@@ -2913,6 +2921,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         surfaceDirectoryMetadata.attach(host: self)
         titleModel.attach(host: self)
         appearanceModel.attach(host: self)
+        contextMenuCoordinator.attach(host: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
@@ -3011,7 +3020,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             self?.handleExternalFileDrop(request) ?? false
         }
         bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
-            self?.bonsplitTabMoveDestinations(for: tabId) ?? []
+            self?.contextMenuMoveDestinations(for: tabId) ?? []
         }
         bonsplitController.tabContextForkConversationAvailabilityProvider = { [weak self] tabId, _ in
             guard let self,
@@ -3689,7 +3698,10 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         surfaceRegistry.normalizePinnedTabs(in: paneId)
     }
 
-    private func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
+    // Internal (not private) so `Workspace`'s `WorkspaceContextMenuHosting`
+    // conformance can use it as the protocol witness for the create-to-right
+    // index math the context-menu coordinator drives.
+    func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
         surfaceRegistry.insertionIndexToRight(of: anchorTabId, inPane: paneId)
     }
 
@@ -8356,18 +8368,6 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         return shortcuts
     }
 
-    private func copyIdentifiersToPasteboard(surfaceId: UUID) {
-        let paneId = paneId(forPanelId: surfaceId)?.id
-        WorkspaceSurfaceIdentifierClipboardText.copy(
-            WorkspaceSurfaceIdentifierClipboardText.makeWorkspacePaneSurfaceIdentifiers(
-                workspaceId: id,
-                paneId: paneId,
-                surfaceId: surfaceId,
-                includeRefs: true
-            )
-        )
-    }
-
     // MARK: - Flash/Notification Support
 
     func triggerFocusFlash(panelId: UUID) {
@@ -9355,44 +9355,6 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         runRefreshPass(0.03)
     }
 
-    private func closeTabs(_ tabIds: [TabID], skipPinned: Bool = true) { closeTabsFromContextMenu(tabIds, skipPinned: skipPinned) }
-
-    private func tabIdsToLeft(of anchorTabId: TabID, inPane paneId: PaneID) -> [TabID] {
-        surfaceList.surfaceIdsToLeft(of: anchorTabId.uuid, inPaneId: paneId.id).map { TabID(uuid: $0) }
-    }
-
-    private func tabIdsToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> [TabID] {
-        surfaceList.surfaceIdsToRight(of: anchorTabId.uuid, inPaneId: paneId.id).map { TabID(uuid: $0) }
-    }
-
-    private func tabIdsToCloseOthers(of anchorTabId: TabID, inPane paneId: PaneID) -> [TabID] {
-        surfaceList.surfaceIdsToCloseOthers(of: anchorTabId.uuid, inPaneId: paneId.id).map { TabID(uuid: $0) }
-    }
-
-    private func createTerminalToRight(of anchorTabId: TabID, inPane paneId: PaneID) {
-        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let sourcePanelId = panelIdFromSurfaceId(anchorTabId)
-        guard let newPanel = newTerminalSurface(
-            inPane: paneId,
-            focus: true,
-            inheritWorkingDirectoryFallback: true,
-            workingDirectoryFallbackSourcePanelId: sourcePanelId
-        ) else { return }
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
-    }
-
-    private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
-        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        let preferredProfileID = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0)?.profileID }
-        guard let newPanel = newBrowserSurface(
-            inPane: paneId,
-            url: url,
-            focus: true,
-            preferredProfileID: preferredProfileID
-        ) else { return }
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
-    }
-
     @discardableResult
     func duplicateBrowserToRight(panelId: UUID, focus: Bool = true) -> BrowserPanel? {
         guard let anchorTabId = surfaceIdFromPanelId(panelId),
@@ -9413,93 +9375,15 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         return newPanel
     }
 
-    private func promptRenamePanel(tabId: TabID) {
-        guard let panelId = panelIdFromSurfaceId(tabId),
-              let panel = panels[panelId] else { return }
-
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.renameTab.title", defaultValue: "Rename Tab")
-        alert.informativeText = String(localized: "alert.renameTab.message", defaultValue: "Enter a custom name for this tab.")
-        let currentTitle = panelCustomTitles[panelId] ?? panelTitles[panelId] ?? panel.displayTitle
-        let input = NSTextField(string: currentTitle)
-        input.placeholderString = String(localized: "alert.renameTab.placeholder", defaultValue: "Tab name")
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.renameTab.rename", defaultValue: "Rename"))
-        alert.addButton(withTitle: String(localized: "alert.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return }
-        setPanelCustomTitle(panelId: panelId, title: input.stringValue)
-    }
-
-    private static let bonsplitMoveNewWorkspaceDestinationId = "new-workspace"
-    private static let bonsplitMoveExistingWorkspacePrefix = "workspace:"
-
-    private func bonsplitTabMoveDestinations(for tabId: TabID) -> [TabContextMoveDestination] {
-        guard let panelId = panelIdFromSurfaceId(tabId),
-              let app = AppDelegate.shared else { return [] }
-
-        let workspaceTargets = app.workspaceMoveTargets(forBonsplitTab: tabId.uuid)
-        var destinations: [TabContextMoveDestination] = []
-        if app.canMoveSurfaceToNewWorkspace(panelId: panelId) {
-            destinations.append(TabContextMoveDestination(
-                id: Self.bonsplitMoveNewWorkspaceDestinationId,
-                title: String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
-            ))
-        }
-        destinations.append(contentsOf: workspaceTargets.map { target in
-            TabContextMoveDestination(
-                id: Self.bonsplitMoveExistingWorkspacePrefix + target.workspaceId.uuidString,
-                title: target.label
-            )
-        })
-        return destinations
-    }
-
-    @discardableResult
-    private func moveBonsplitTab(_ tabId: TabID, toMoveDestination destinationId: String) -> Bool {
-        guard let panelId = panelIdFromSurfaceId(tabId),
-              let app = AppDelegate.shared else { return false }
-
-        let moved: Bool
-        if destinationId == Self.bonsplitMoveNewWorkspaceDestinationId {
-            moved = app.moveSurfaceToNewWorkspace(
-                panelId: panelId,
-                focus: true,
-                focusWindow: false
-            ) != nil
-        } else if destinationId.hasPrefix(Self.bonsplitMoveExistingWorkspacePrefix) {
-            let rawWorkspaceId = destinationId.dropFirst(Self.bonsplitMoveExistingWorkspacePrefix.count)
-            guard let workspaceId = UUID(uuidString: String(rawWorkspaceId)) else { return false }
-            moved = app.moveSurface(
-                panelId: panelId,
-                toWorkspace: workspaceId,
-                focus: true,
-                focusWindow: true
-            )
-        } else {
-            moved = false
-        }
-
-        if !moved {
-            showMoveTabFailureAlert()
-        }
-        return moved
-    }
-
-    private func showMoveTabFailureAlert() {
-        let failure = NSAlert()
-        failure.alertStyle = .warning
-        failure.messageText = String(localized: "alert.moveTab.failed.title", defaultValue: "Move Failed")
-        failure.informativeText = String(localized: "alert.moveTab.failed.message", defaultValue: "cmux could not move this tab to the selected destination.")
-        failure.addButton(withTitle: String(localized: "alert.ok", defaultValue: "OK"))
-        _ = failure.runModal()
+    /// Resolves the bonsplit "Move Tab To…" destinations for `tabId` through the
+    /// context-menu coordinator, passing the localized "New Workspace" label
+    /// resolved app-side (`String(localized:)` must bind to the app bundle, not
+    /// the package bundle, to keep non-English translations).
+    private func contextMenuMoveDestinations(for tabId: TabID) -> [TabContextMoveDestination] {
+        contextMenuCoordinator.moveDestinations(
+            for: tabId,
+            newWorkspaceTitle: String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
+        )
     }
 
     private func handleSessionDrop(
@@ -11396,22 +11280,21 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
         switch action {
         case .rename:
-            promptRenamePanel(tabId: tab.id)
+            contextMenuCoordinator.renameTab(tab.id)
         case .clearName:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             setPanelCustomTitle(panelId: panelId, title: nil)
         case .copyIdentifiers:
-            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
-            copyIdentifiersToPasteboard(surfaceId: panelId)
+            contextMenuCoordinator.copyIdentifiers(for: tab.id)
         case .closeToLeft:
-            closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
+            contextMenuCoordinator.closeTabsToLeft(of: tab.id, inPane: pane)
         case .closeToRight:
-            closeTabs(tabIdsToRight(of: tab.id, inPane: pane))
+            contextMenuCoordinator.closeTabsToRight(of: tab.id, inPane: pane)
         case .closeOthers:
-            closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
+            contextMenuCoordinator.closeOtherTabs(than: tab.id, inPane: pane)
         case .move:
-            if let destination = bonsplitTabMoveDestinations(for: tab.id).first {
-                _ = moveBonsplitTab(tab.id, toMoveDestination: destination.id)
+            if let destination = contextMenuMoveDestinations(for: tab.id).first {
+                _ = contextMenuCoordinator.moveTab(tab.id, toMoveDestination: destination.id)
             }
         case .moveToNewWorkspace:
             _ = AppDelegate.shared?.moveBonsplitTabToNewWorkspace(tabId: tab.id.uuid, focus: true, focusWindow: false)
@@ -11422,9 +11305,9 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             _ = moveSurfaceToAdjacentPane(panelId: panelId, direction: .right)
         case .newTerminalToRight:
-            createTerminalToRight(of: tab.id, inPane: pane)
+            contextMenuCoordinator.createTerminalToRight(of: tab.id, inPane: pane)
         case .newBrowserToRight:
-            createBrowserToRight(of: tab.id, inPane: pane)
+            contextMenuCoordinator.createBrowserToRight(of: tab.id, inPane: pane)
         case .reload:
             guard let panelId = panelIdFromSurfaceId(tab.id),
                   let browser = browserPanel(for: panelId) else { return }
@@ -11568,7 +11451,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabMoveToDestination destinationId: String, for tab: Bonsplit.Tab, inPane pane: PaneID) {
-        _ = moveBonsplitTab(tab.id, toMoveDestination: destinationId)
+        _ = contextMenuCoordinator.moveTab(tab.id, toMoveDestination: destinationId)
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
