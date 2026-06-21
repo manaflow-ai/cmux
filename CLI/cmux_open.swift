@@ -1937,11 +1937,16 @@ extension CMUXCLI {
         // case and fall through to the default base. The rendered diff computes
         // `merge-base HEAD <base>` regardless, so a real integration upstream
         // still yields fork-point semantics.
-        if let upstream = try? gitSingleLine(
+        if let branchName,
+           let upstream = try? gitSingleLine(
             ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
             in: repoRoot
         ), !upstream.isEmpty,
-           upstream.split(separator: "/").last.map(String.init) != branchName,
+           // Strip ONLY the remote prefix (first segment); the branch part can
+           // itself contain slashes (e.g. origin/feature/foo). Compare the whole
+           // remainder to the current branch name so `feature/foo` tracking
+           // `origin/feature/foo` is correctly recognized as its own remote ref.
+           String(upstream.drop(while: { $0 != "/" }).dropFirst()) != branchName,
            gitRefExists(upstream, in: repoRoot) {
             return DiffBranchBase(ref: upstream, reason: DiffBranchBaseReason.forkPoint, confidence: "high")
         }
