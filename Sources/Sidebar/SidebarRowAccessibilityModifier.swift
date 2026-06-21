@@ -15,6 +15,8 @@ struct SidebarRowAccessibilityModifier: ViewModifier {
     let onMoveUp: () -> Void
     let onMoveDown: () -> Void
 
+    /// Applies combined (normal) or contained (editing) accessibility behavior
+    /// to the row so the inline field stays reachable while renaming.
     func body(content: Content) -> some View {
         if isEditing {
             content.accessibilityElement(children: .contain)
