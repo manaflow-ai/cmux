@@ -9,6 +9,9 @@
 /// A row passes when it satisfies BOTH dimensions. The identity filter
 /// (`readState == .all`, `machines` empty) shows everything.
 public struct MobileWorkspaceListFilter: Hashable, Sendable {
+    // Intentional nested type: `ReadState` is one dimension of
+    // `MobileWorkspaceListFilter`, has no independent API surface, and keeping it
+    // nested prevents a generic "read state" type from leaking into the model.
     /// The read-state dimension.
     public enum ReadState: String, CaseIterable, Hashable, Sendable {
         /// No read-state narrowing; every row matches.

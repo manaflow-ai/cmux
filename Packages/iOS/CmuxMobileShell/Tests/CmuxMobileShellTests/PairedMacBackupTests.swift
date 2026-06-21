@@ -4,6 +4,10 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
+// Intentional test file-organization exception: the small actors below are
+// suite-local fixtures for the backup decorator/restore races, kept inline so
+// each race test reads next to the exact fake behavior it relies on.
+
 /// In-memory backup double: records uploaded ops, counts fetches, and can be
 /// told to fail the first N fetches (to exercise the retry path).
 private actor FakeBackup: PairedMacBackingUp {

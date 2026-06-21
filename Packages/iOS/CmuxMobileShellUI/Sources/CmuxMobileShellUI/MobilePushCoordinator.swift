@@ -192,7 +192,7 @@ public final class MobilePushCoordinator {
     /// user is already viewing the terminal the notification is about.
     public func shouldPresentInForeground(workspaceId: String?, surfaceId: String?) -> Bool {
         guard let store, let workspaceId,
-              store.selectedWorkspaceID?.rawValue == workspaceId else {
+              store.selectedWorkspaceMatches(remoteWorkspaceID: workspaceId) else {
             return true
         }
         if let surfaceId {
@@ -235,8 +235,8 @@ public final class MobilePushCoordinator {
         // the tap is never spent on a selection that cannot navigate.
         let workspaceTarget: MobileWorkspacePreview.ID
         if let workspaceId = pending.workspaceId {
-            workspaceTarget = MobileWorkspacePreview.ID(rawValue: workspaceId)
-            guard store.workspaces.contains(where: { $0.id == workspaceTarget }) else { return }
+            guard let resolved = store.workspaceID(matchingRemoteWorkspaceID: workspaceId) else { return }
+            workspaceTarget = resolved
         } else if let surfaceId = pending.surfaceId {
             guard let owner = store.workspaceID(containingSurfaceID: surfaceId) else { return }
             workspaceTarget = owner

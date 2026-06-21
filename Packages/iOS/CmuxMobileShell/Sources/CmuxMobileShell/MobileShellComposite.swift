@@ -646,6 +646,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// switch can cancel it; its scope guards then bail before any cross-account
     /// write. Replaced (cancelling the prior) on each scheduled pass.
     private var secondaryAggregationTask: Task<Void, Never>?
+    /// Bumped on Stack team switches so every aggregation caller, including
+    /// direct pull-to-refresh calls that are not owned by
+    /// ``secondaryAggregationTask``, can reject old-team results after awaits.
+    private var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -675,6 +679,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return workspaces.first
         }
         return workspaces.first { $0.id == selectedWorkspaceID } ?? workspaces.first
+    }
+
+    /// Resolve a UI row id back to the Mac-local workspace id expected by RPC.
+    ///
+    /// Multi-Mac aggregation scopes row ids by Mac to avoid collisions, while
+    /// the Mac host still expects its original local workspace id.
+    func remoteWorkspaceID(for id: MobileWorkspacePreview.ID) -> MobileWorkspacePreview.ID {
+        workspaces.first { $0.id == id }?.rpcWorkspaceID ?? id
+    }
+
+    /// Resolve a Mac-local workspace id to the current UI row id.
+    func rowWorkspaceID(
+        forRemoteWorkspaceID remoteID: MobileWorkspacePreview.ID,
+        macDeviceID: String?
+    ) -> MobileWorkspacePreview.ID? {
+        workspaces.first { workspaceMatchesRemoteID($0, remoteID: remoteID, macDeviceID: macDeviceID) }?.id
+    }
+
+    private func workspaceMatchesRemoteID(
+        _ workspace: MobileWorkspacePreview,
+        remoteID: MobileWorkspacePreview.ID,
+        macDeviceID: String?
+    ) -> Bool {
+        guard workspace.rpcWorkspaceID == remoteID else { return false }
+        guard let macDeviceID, !macDeviceID.isEmpty else { return true }
+        return workspace.macDeviceID == macDeviceID
+    }
+
+    private func remoteWorkspaceID(containingTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
+        workspaces.first { workspace in
+            workspace.terminals.contains(where: { $0.id.rawValue == terminalID })
+        }?.rpcWorkspaceID
     }
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -809,6 +845,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
+        teardownSecondaryMacSubscriptions()
         if let remoteClient {
             Task { await remoteClient.disconnect() }
         }
@@ -952,6 +989,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isLoadingDraft = false
     }
 
+    /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
@@ -977,6 +1015,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// never drops the terminal the user is in (the chosen "keep session, re-scope
     /// lists" behavior).
     public func currentTeamDidChange() {
+        secondaryAggregationScopeGeneration &+= 1
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
         presenceTask?.cancel()
@@ -1014,10 +1053,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         do {
+            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.mouse",
                 params: [
-                    "workspace_id": workspaceID.rawValue,
+                    "workspace_id": remoteWorkspaceID.rawValue,
                     "surface_id": surfaceID,
                     "client_id": clientID,
                     "col": col,
@@ -2854,14 +2894,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``workspacesByMac`` entry current via `workspace.updated` (slice 3); the
     /// derived ``workspaces`` recomputes automatically. Idempotent and best-effort:
     /// safe to call repeatedly (attach, pull-to-refresh, foreground).
-    /// True while the multi-Mac aggregation is still running for `account` and was
-    /// not cancelled: signed in, the signed-in user is unchanged, and the owning
-    /// task is live. Mutating per-Mac aggregation state (`secondaryMacSubscriptions`
-    /// / `workspacesByMac`) after a sign-out or account switch would leak the
-    /// previous user's Macs and workspaces into the signed-out / new-account UI, so
-    /// every mutation below is gated on this after each await.
-    private func isAggregationScopeValid(_ account: String?) -> Bool {
-        !Task.isCancelled && isSignedIn && identityProvider?.currentUserID == account
+    /// True while the multi-Mac aggregation is still running for the captured
+    /// account/team scope and was not cancelled: signed in, the signed-in user is
+    /// unchanged, and no Stack team switch bumped the scope generation. Mutating
+    /// per-Mac aggregation state (`secondaryMacSubscriptions` / `workspacesByMac`)
+    /// after a sign-out, account switch, or team switch would leak old-scope Macs
+    /// into the new UI, so every mutation below is gated on this after each await.
+    private func isAggregationScopeValid(_ account: String?, generation: Int) -> Bool {
+        !Task.isCancelled
+            && isSignedIn
+            && identityProvider?.currentUserID == account
+            && secondaryAggregationScopeGeneration == generation
     }
 
     /// Launch the multi-Mac aggregation in a tracked task so sign-out / account
@@ -2874,6 +2917,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func refreshSecondaryMacWorkspaces() async {
         guard let pairedMacStore, Self.multiMacAggregationEnabled else { return }
+        let generation = secondaryAggregationScopeGeneration
         // Require a concrete signed-in user before any load/connection: a nil/empty
         // account would make `loadAll(stackUserID: nil)` read EVERY locally stored
         // Mac across Stack accounts and publish another account's workspaces into
@@ -2885,9 +2929,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let refresher = pairedMacStore as? PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: account)
         }
-        guard isAggregationScopeValid(account) else { return }
+        guard isAggregationScopeValid(account, generation: generation) else { return }
         let macs = (try? await pairedMacStore.loadAll(stackUserID: account)) ?? []
-        guard isAggregationScopeValid(account) else { return }
+        guard isAggregationScopeValid(account, generation: generation) else { return }
         let wanted = Set(macs.map(\.macDeviceID))
             .subtracting(foregroundMacDeviceID.map { [$0] } ?? [])
             .subtracting([""])
@@ -2903,12 +2947,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // suspended while backgrounded or whose pushes never started. If the
         // existing client is dead, recreate the subscription.
         for mac in macs where wanted.contains(mac.macDeviceID) {
-            // Re-check before each Mac so a sign-out / account switch mid-loop stops
-            // us before we connect to or write state for another account.
-            guard isAggregationScopeValid(account) else { return }
+            // Re-check before each Mac so a sign-out / account/team switch
+            // mid-loop stops us before we connect to or write state for another
+            // scope.
+            guard isAggregationScopeValid(account, generation: generation) else { return }
             if let existing = secondaryMacSubscriptions[mac.macDeviceID] {
                 let previews = await fetchSecondaryWorkspaces(on: existing.client, macDeviceID: mac.macDeviceID)
-                guard isAggregationScopeValid(account) else { return }
+                guard isAggregationScopeValid(account, generation: generation) else { return }
                 if let previews {
                     workspacesByMac[mac.macDeviceID] = MacWorkspaceState(
                         macDeviceID: mac.macDeviceID,
@@ -2919,10 +2964,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 } else {
                     existing.cancel()
                     secondaryMacSubscriptions[mac.macDeviceID] = nil
-                    await establishSecondaryMacSubscription(for: mac, account: account)
+                    await establishSecondaryMacSubscription(
+                        for: mac, account: account, generation: generation)
                 }
             } else {
-                await establishSecondaryMacSubscription(for: mac, account: account)
+                await establishSecondaryMacSubscription(
+                    for: mac, account: account, generation: generation)
             }
         }
     }
@@ -2932,16 +2979,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// each change. Fully best-effort: on any failure the entry is torn down and
     /// the pull-to-refresh / foreground re-aggregate path remains the fallback, so
     /// a secondary subscription can never crash or block the foreground.
-    private func establishSecondaryMacSubscription(for mac: MobilePairedMac, account: String?) async {
+    private func establishSecondaryMacSubscription(
+        for mac: MobilePairedMac,
+        account: String?,
+        generation: Int
+    ) async {
         let macID = mac.macDeviceID
         guard secondaryMacSubscriptions[macID] == nil,
               let handle = await makeSecondaryClient(for: mac) else { return }
         let client = handle.client
         // Re-check after the async client build so a concurrent refresh cannot
-        // open a duplicate connection, AND so a sign-out / account switch during
-        // the connect does not leave a previous account's connection live or write
+        // open a duplicate connection, AND so a sign-out / account/team switch
+        // during the connect does not leave an old-scope connection live or write
         // its state; the loser disconnects its client.
-        guard secondaryMacSubscriptions[macID] == nil, isAggregationScopeValid(account) else {
+        guard secondaryMacSubscriptions[macID] == nil,
+              isAggregationScopeValid(account, generation: generation) else {
             await client.disconnect()
             return
         }
@@ -2953,7 +3005,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
         // The fetch await is another sign-out window: drop the just-opened
         // connection and entry rather than seed another account's workspaces.
-        guard isAggregationScopeValid(account),
+        guard isAggregationScopeValid(account, generation: generation),
               secondaryMacSubscriptions[macID] === subscription else {
             subscription.cancel()
             if secondaryMacSubscriptions[macID] === subscription {
@@ -3470,11 +3522,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
         let workspace = workspaces.first { $0.id == id }
+        let remoteWorkspaceID = workspace?.rpcWorkspaceID ?? id
+        let ownerMacDeviceID = workspace?.macDeviceID
+        let workspaceHadUnread = workspace?.hasUnread == true
         // Cross-Mac open (P5): a workspace from the aggregated list may belong to
         // a Mac other than the current foreground connection. Switch the
         // foreground to that Mac first so the terminal attaches to the right one.
         if Self.multiMacAggregationEnabled,
-           let macDeviceID = workspace?.macDeviceID,
+           let macDeviceID = ownerMacDeviceID,
            !macDeviceID.isEmpty,
            macDeviceID != foregroundMacDeviceID {
             // Only proceed if that Mac actually became the foreground connection.
@@ -3492,19 +3547,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
         }
+        let resolvedRowID = rowWorkspaceID(
+            forRemoteWorkspaceID: remoteWorkspaceID,
+            macDeviceID: ownerMacDeviceID
+        ) ?? (workspaces.contains(where: { $0.id == id }) ? id : nil)
+        guard let resolvedRowID else {
+            mobileShellLog.error("openWorkspace: workspace disappeared after switch id=\(remoteWorkspaceID.rawValue, privacy: .private) mac=\(ownerMacDeviceID ?? "", privacy: .public)")
+            if selectedWorkspaceID == id {
+                setSelectedWorkspaceID(nil)
+            }
+            return
+        }
         analytics.capture("ios_workspace_opened", [
             "terminal_count": .int(workspace?.terminals.count ?? 0),
             "is_pinned": .bool(workspace?.isPinned ?? false),
             "source": .string("list_tap"),
         ])
-        setSelectedWorkspaceID(id)
+        setSelectedWorkspaceID(resolvedRowID)
         // Tapping into a workspace is a read receipt: clear its unread on the Mac
         // (like opening a thread marks it read), so it drops out of the unread
         // list and the back-button count. Only when the Mac advertises read-state
         // actions and the workspace is actually unread, so older Macs and
         // already-read workspaces send nothing.
-        if supportsWorkspaceReadStateActions, workspace?.hasUnread == true {
-            await setWorkspaceUnread(id: id, false)
+        if supportsWorkspaceReadStateActions, workspaceHadUnread {
+            await setWorkspaceUnread(id: resolvedRowID, false)
         }
     }
 
@@ -4426,7 +4492,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let activeTicketWorkspaceID = activeTicket.map { MobileWorkspacePreview.ID(rawValue: $0.workspaceID) }
             applyRemoteWorkspaceList(
                 response,
-                preferActiveTicketTarget: selectedWorkspaceID == nil || selectedWorkspaceID == activeTicketWorkspaceID
+                preferActiveTicketTarget: selectedWorkspaceID == nil || selectedWorkspace?.rpcWorkspaceID == activeTicketWorkspaceID
             )
             return true
         } catch {
@@ -4978,7 +5044,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
             if let createdWorkspace {
-                setSelectedWorkspaceID(createdWorkspace)
+                setSelectedWorkspaceID(rowWorkspaceID(
+                    forRemoteWorkspaceID: createdWorkspace,
+                    macDeviceID: foregroundMacDeviceID
+                ) ?? createdWorkspace)
             }
             syncSelectedTerminalForWorkspace()
             if createdWorkspace != nil {
@@ -4998,21 +5067,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
         guard let client = remoteClient,
-              let workspaceID = (explicitWorkspaceID ?? selectedWorkspace?.id)?.rawValue else { return }
-        let requestedWorkspaceID = MobileWorkspacePreview.ID(rawValue: workspaceID)
+              let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
+        let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.create",
-                    params: ["workspace_id": workspaceID]
+                    params: ["workspace_id": requestedWorkspaceID.rawValue]
                 )
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            if selectedWorkspaceID == requestedWorkspaceID,
+            if selectedWorkspaceID == rowWorkspaceID,
                let createdID = response.createdTerminalID {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
                 selectedTerminalID = createdTerminalID
@@ -5054,8 +5123,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.debug("send remote terminal input byteCount=\(text.utf8.count, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
             let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
             var params: [String: Any] = [
-                "workspace_id": workspaceID.rawValue,
+                "workspace_id": remoteWorkspaceID.rawValue,
                 "surface_id": terminalID.rawValue,
                 "text": text,
                 "client_id": clientID,
@@ -5123,8 +5193,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.debug("send remote terminal paste byteCount=\(text.utf8.count, privacy: .public) submit=\(submitKey, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
             #endif
             let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
             var params: [String: Any] = [
-                "workspace_id": workspaceID.rawValue,
+                "workspace_id": remoteWorkspaceID.rawValue,
                 "surface_id": terminalID.rawValue,
                 "text": text,
                 "submit_key": submitKey,
@@ -5224,8 +5295,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #if DEBUG
             mobileShellLog.debug("send remote terminal paste image byteCount=\(data.count, privacy: .public) format=\(format, privacy: .public)")
             #endif
+            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
             let params: [String: Any] = [
-                "workspace_id": workspaceID.rawValue,
+                "workspace_id": remoteWorkspaceID.rawValue,
                 "surface_id": terminalID.rawValue,
                 "image_base64": data.base64EncodedString(),
                 "image_format": format,
@@ -5940,10 +6012,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return nil
         }
         do {
+            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
                 params: [
-                    "workspace_id": workspaceID.rawValue,
+                    "workspace_id": remoteWorkspaceID.rawValue,
                     "surface_id": surfaceID,
                     "client_id": clientID,
                     "viewport_columns": columns,
@@ -5971,11 +6044,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let id = clientID
+        let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
         Task { @MainActor in
             let request = try? MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
                 params: [
-                    "workspace_id": workspaceID.rawValue,
+                    "workspace_id": remoteWorkspaceID.rawValue,
                     "surface_id": surfaceID,
                     "client_id": id,
                     "clear": true,
@@ -6004,6 +6078,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
+        let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
         guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
             #if DEBUG
             mobileShellLog.info("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=in_flight")
@@ -6018,7 +6093,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
                     params: [
-                        "workspace_id": workspaceID.rawValue,
+                        "workspace_id": remoteWorkspaceID.rawValue,
                         "surface_id": surfaceID,
                     ]
                 )
@@ -6313,10 +6388,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             syncSelectedTerminalForWorkspace()
             return
         }
+        let selectedRemoteID = response.workspaces.first(where: \.isSelected)
+            .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
         setSelectedWorkspaceID(
-            response.workspaces.first(where: \.isSelected)
-                .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
-                ?? workspaces.first?.id
+            selectedRemoteID.flatMap {
+                rowWorkspaceID(forRemoteWorkspaceID: $0, macDeviceID: foregroundMacDeviceID)
+            }
+            ?? workspaces.first?.id
         )
         syncSelectedTerminalForWorkspace()
     }
@@ -6330,7 +6408,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // multi-Mac list can group and filter by machine (P1 of the multi-Mac
             // work). Today there is one connected Mac, so all rows share its id.
             workspace.macDeviceID = activeTicket?.macDeviceID
-            guard let existingWorkspace = workspaces.first(where: { $0.id == workspace.id }) else {
+            let foregroundMacID = foregroundMacDeviceID ?? activeTicket?.macDeviceID
+            guard let existingWorkspace = workspaces.first(where: {
+                workspaceMatchesRemoteID($0, remoteID: workspace.id, macDeviceID: foregroundMacID)
+            }) else {
                 return workspace
             }
             workspace.terminals = workspace.terminals.map { remoteTerminal in
@@ -6350,10 +6431,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
         let ticketWorkspaceID = MobileWorkspacePreview.ID(rawValue: activeTicket.workspaceID)
-        guard let workspace = workspaces.first(where: { $0.id == ticketWorkspaceID }) else {
+        guard let workspace = workspaces.first(where: {
+            workspaceMatchesRemoteID($0, remoteID: ticketWorkspaceID, macDeviceID: foregroundMacDeviceID ?? activeTicket.macDeviceID)
+        }) else {
             return false
         }
-        setSelectedWorkspaceID(ticketWorkspaceID)
+        setSelectedWorkspaceID(workspace.id)
         if let ticketTerminalID = activeTicket.terminalID.map(MobileTerminalPreview.ID.init(rawValue:)),
            workspace.terminals.contains(where: { $0.id == ticketTerminalID }) {
             selectedTerminalID = ticketTerminalID
@@ -6411,13 +6494,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private static func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {
-        if left.priority == right.priority {
-            return left.id < right.id
-        }
-        return left.priority < right.priority
-    }
-
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {
         let terminalID = ticket.terminalID ?? "attached-terminal"
         setForegroundWorkspaceState(
@@ -6439,6 +6515,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
     }
+}
+
+private func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {
+    if left.priority == right.priority {
+        return left.id < right.id
+    }
+    return left.priority < right.priority
 }
 
 private struct MobileTerminalViewportKey: Hashable, Sendable {

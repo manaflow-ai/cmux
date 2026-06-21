@@ -4,6 +4,8 @@
 /// function is a total, side-effect-free function of its inputs (same input,
 /// same output), and unit tests cover the derivation directly.
 public enum MobileWorkspaceAggregation {
+    private static let rowIDSeparator = "\u{1F}"
+
     /// The Macs in deterministic display order.
     public static func orderedMacIDs(
         statesByMac: [String: MacWorkspaceState],
@@ -31,19 +33,41 @@ public enum MobileWorkspaceAggregation {
         return result
     }
 
-    /// Derive the flat, ordered, de-duplicated workspace list across all Macs.
+    /// Stable row id for one Mac-local workspace inside the aggregated list.
+    ///
+    /// The separator is the ASCII unit separator, which is not emitted by cmux
+    /// workspace ids. The id is opaque and never parsed; the original Mac-local
+    /// id remains on ``MobileWorkspacePreview/remoteWorkspaceID`` for RPC.
+    public static func rowID(
+        macDeviceID: String,
+        workspaceID: MobileWorkspacePreview.ID
+    ) -> MobileWorkspacePreview.ID {
+        MobileWorkspacePreview.ID(rawValue: "\(macDeviceID)\(rowIDSeparator)\(workspaceID.rawValue)")
+    }
+
+    /// Derive the flat, ordered workspace list across all Macs.
     public static func derivedWorkspaces(
         statesByMac: [String: MacWorkspaceState],
         foregroundMacDeviceID: String?
     ) -> [MobileWorkspacePreview] {
         let colorIndex = machineColorIndex(statesByMac: statesByMac)
+        let shouldScopeRowIDs = statesByMac.keys.filter { !$0.isEmpty }.count > 1
         var result: [MobileWorkspacePreview] = []
-        var seen = Set<MobileWorkspacePreview.ID>()
         for macID in orderedMacIDs(statesByMac: statesByMac, foregroundMacDeviceID: foregroundMacDeviceID) {
             guard let state = statesByMac[macID] else { continue }
-            for workspace in state.workspaces where seen.insert(workspace.id).inserted {
+            for workspace in state.workspaces {
+                let ownerID = workspace.macDeviceID ?? state.macDeviceID
                 var stamped = workspace
-                stamped.machineColorIndex = workspace.macDeviceID.flatMap { colorIndex[$0] }
+                if !ownerID.isEmpty {
+                    stamped.macDeviceID = ownerID
+                    stamped.machineColorIndex = colorIndex[ownerID]
+                }
+                let remoteID = workspace.remoteWorkspaceID ?? workspace.id
+                stamped.remoteWorkspaceID = shouldScopeRowIDs && !ownerID.isEmpty ? remoteID : workspace.remoteWorkspaceID
+                stamped.macConnectionStatus = state.status
+                if shouldScopeRowIDs && !ownerID.isEmpty {
+                    stamped.id = rowID(macDeviceID: ownerID, workspaceID: remoteID)
+                }
                 result.append(stamped)
             }
         }

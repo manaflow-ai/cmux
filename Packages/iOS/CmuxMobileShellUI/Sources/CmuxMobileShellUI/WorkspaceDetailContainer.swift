@@ -37,7 +37,7 @@ struct WorkspaceDetailContainer: View {
         if let workspace {
             WorkspaceDetailView(
                 host: store.connectedHostName,
-                connectionStatus: store.macConnectionStatus,
+                connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
                 workspace: workspace,
                 store: store,
                 createWorkspace: createWorkspace,

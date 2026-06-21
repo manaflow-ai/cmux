@@ -88,6 +88,9 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     // MARK: - Wire shapes
 
+    // Intentional file-organization exception: these DTOs are private to this
+    // one backup endpoint and encode/decode exactly beside the request builders
+    // they serve. Splitting them would export no reusable abstraction.
     private struct ListResponse: Decodable {
         let records: [PairedMacBackupRecord]
     }

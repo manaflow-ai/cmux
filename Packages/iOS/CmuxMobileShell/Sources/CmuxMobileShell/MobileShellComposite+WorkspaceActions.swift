@@ -129,7 +129,7 @@ extension MobileShellComposite {
 
     private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
         var params: [String: Any] = [
-            "workspace_id": id.rawValue,
+            "workspace_id": remoteWorkspaceID(for: id).rawValue,
             "client_id": clientID,
         ]
         if let windowID = workspaces.first(where: { $0.id == id })?.windowID {

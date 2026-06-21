@@ -25,8 +25,18 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         }
     }
 
-    /// The workspace's stable identifier.
+    /// The workspace's stable row identifier.
+    ///
+    /// In a single-Mac list this is the Mac-local workspace id. In the aggregated
+    /// multi-Mac list it may be scoped by the owning Mac so two Macs can expose
+    /// the same local workspace id without colliding in SwiftUI navigation.
     public var id: ID
+    /// The Mac-local workspace identifier to send back over RPC.
+    ///
+    /// Aggregated rows can use a Mac-scoped ``id`` for UI identity while keeping
+    /// this original id for Mac requests. `nil` means ``id`` is already the
+    /// remote id.
+    public var remoteWorkspaceID: ID?
     /// The stable device id of the Mac this workspace belongs to. Carried so the
     /// aggregated multi-Mac workspace list can group and filter by machine, and
     /// so opening a workspace attaches the right Mac. `nil` when connected to a
@@ -75,6 +85,15 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// The owning Mac's user icon override (SF Symbol name or emoji), stamped
     /// during aggregation. `nil` = the automatic icon.
     public var machineCustomIcon: String? = nil
+    /// The owning Mac's connection status, stamped during aggregation so rows
+    /// from offline secondary Macs can render unavailable while the foreground
+    /// Mac remains connected. `nil` outside an aggregated/per-Mac derivation.
+    public var macConnectionStatus: MobileMacConnectionStatus? = nil
+
+    /// The workspace id to use in RPC params.
+    public var rpcWorkspaceID: ID {
+        remoteWorkspaceID ?? id
+    }
 
     /// Creates a workspace preview.
     /// - Parameters:
@@ -102,6 +121,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         terminals: [MobileTerminalPreview]
     ) {
         self.id = id
+        self.remoteWorkspaceID = nil
         self.macDeviceID = macDeviceID
         self.windowID = windowID
         self.name = name

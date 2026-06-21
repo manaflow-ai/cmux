@@ -278,7 +278,7 @@ struct WorkspaceListView: View {
     private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool) -> some View {
         WorkspaceNavigationRow(
             workspace: workspace,
-            connectionStatus: connectionStatus,
+            connectionStatus: workspace.macConnectionStatus ?? connectionStatus,
             isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
             navigationStyle: navigationStyle,
             wrapWorkspaceTitles: wrapWorkspaceTitles,

@@ -174,20 +174,22 @@ public struct CMUXMobileRootScene: View {
         )
     }
 
-    /// Wrap the local paired-Mac store with the DO-backup decorator when the
-    /// `mobilePairedMacBackup` flag is on and a presence service URL resolves, so
-    /// saved hosts/IPs are mirrored to the per-team DO and restored on sign-in.
-    /// Falls back to the bare local store when the flag is off, presence has no
-    /// URL (Release without an override), or the store failed to open. Auth
-    /// mirrors `makePresenceClient()`.
+    /// Wrap the local paired-Mac store with selected-team scoping, and then add
+    /// the DO-backup decorator when `mobilePairedMacBackup` is on and a presence
+    /// service URL resolves. Team scoping is unconditional: selected-team
+    /// boundaries must hold even in Release builds where backup is off.
     @MainActor
     private func makeBackedUpPairedMacStore() -> (any MobilePairedMacStoring)? {
         guard let store = pairedMacStore else { return nil }
+        let coordinator = auth.coordinator
+        let scopedStore = TeamScopedPairedMacStore(
+            inner: store,
+            teamIDProvider: { await coordinator.resolvedTeamID }
+        )
         guard MobilePairedMacBackup.resolved().isEnabled,
               let baseURL = PresenceClient.resolvedServiceBaseURL() else {
-            return store
+            return scopedStore
         }
-        let coordinator = auth.coordinator
         let client = PairedMacBackupClient(
             serviceBaseURL: baseURL,
             tokenSource: PresenceTokenSource(
@@ -196,7 +198,7 @@ public struct CMUXMobileRootScene: View {
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
         return BackingUpPairedMacStore(
-            inner: store,
+            inner: scopedStore,
             backup: client,
             teamIDProvider: { await coordinator.resolvedTeamID }
         )

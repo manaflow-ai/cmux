@@ -371,7 +371,14 @@ struct WorkspaceDetailView: View {
             // the user staring at an unrendered surface).
             if connectionStatus != .connected {
                 TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
-                    Task { await store.reconnectOrRefresh() }
+                    Task {
+                        if let macDeviceID = workspace.macDeviceID,
+                           !macDeviceID.isEmpty,
+                           await store.switchToMac(macDeviceID: macDeviceID) {
+                            return
+                        }
+                        await store.reconnectOrRefresh()
+                    }
                 }
             }
         }

@@ -34,6 +34,21 @@ extension CMUXMobileShellStore {
         return deeplinkWorkspaceNavigationRequest?.workspaceID
     }
 
+    /// The current UI row id for a Mac-local workspace id, if that workspace is
+    /// loaded. Push payloads carry Mac-local ids; the aggregated list may scope
+    /// row ids by Mac for SwiftUI identity.
+    public func workspaceID(matchingRemoteWorkspaceID remoteWorkspaceID: String) -> MobileWorkspacePreview.ID? {
+        rowWorkspaceID(
+            forRemoteWorkspaceID: MobileWorkspacePreview.ID(rawValue: remoteWorkspaceID),
+            macDeviceID: nil
+        )
+    }
+
+    /// Whether the visible selection matches a Mac-local workspace id.
+    public func selectedWorkspaceMatches(remoteWorkspaceID: String) -> Bool {
+        selectedWorkspace?.rpcWorkspaceID.rawValue == remoteWorkspaceID
+    }
+
     /// The workspace whose terminal list contains `surfaceID`, if any. Used by
     /// the push coordinator to resolve surface-only notification deep links to
     /// a navigable workspace, and to keep a tap parked until the terminal's
