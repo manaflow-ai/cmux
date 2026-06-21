@@ -411,7 +411,7 @@ public final class GhosttyRuntime {
         len: UInt64,
         for surface: ghostty_surface_t
     ) {
-        let surfaceIdentifier = GhosttySurfaceView.surfaceIdentifier(for: surface)
+        let surfaceIdentifier = UInt(bitPattern: UnsafeRawPointer(surface))
         Task { @MainActor in
             GhosttySurfaceView.enqueueScrollbarUpdate(
                 total: total,
