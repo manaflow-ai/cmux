@@ -2895,6 +2895,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         minimumWindowHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
     )
 
+    /// New-window cascade-positioning math, lifted to ``CmuxWindowing/NewWindowCascadePlanner``.
+    private nonisolated static let newWindowCascadePlanner = NewWindowCascadePlanner()
+
     /// Pure persist/autosave decision policy, lifted to
     /// ``CmuxWorkspaces/SessionPersistenceDecisionPolicy``. A stateless value,
     /// so a shared constant rather than per-call instantiation. The static
@@ -6946,29 +6949,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func positionNewMainWindow(_ window: NSWindow, relativeTo sourceWindow: NSWindow) {
         let sourceFrame = sourceWindow.frame
-        let sourceScreen = sourceWindow.screen
-            ?? NSScreen.screens.first(where: { $0.frame.intersects(sourceFrame) })
-        guard let visibleFrame = sourceScreen?.visibleFrame else {
+        let visibleFrame = (sourceWindow.screen
+            ?? NSScreen.screens.first(where: { $0.frame.intersects(sourceFrame) }))?.visibleFrame
+        let planner = Self.newWindowCascadePlanner
+        switch planner.placement(sourceFrame: sourceFrame, hasResolvableScreen: visibleFrame != nil, windowSize: window.frame.size) {
+        case .center:
             window.center()
-            return
+        case .frame(let candidateFrame):
+            window.setFrame(
+                SessionWindowFrameResolver.clampFrame(candidateFrame, within: visibleFrame ?? candidateFrame, minWidth: planner.minimumWindowSize.width, minHeight: planner.minimumWindowSize.height),
+                display: false
+            )
         }
-
-        let cascadeOffset: CGFloat = 24
-        let minimumWindowSize = NSSize(width: 460, height: 360)
-        var frame = window.frame
-        frame.origin = NSPoint(
-            x: sourceFrame.minX + cascadeOffset,
-            y: sourceFrame.maxY - cascadeOffset - frame.height
-        )
-        window.setFrame(
-            SessionWindowFrameResolver.clampFrame(
-                frame,
-                within: visibleFrame,
-                minWidth: minimumWindowSize.width,
-                minHeight: minimumWindowSize.height
-            ),
-            display: false
-        )
     }
 
     @discardableResult
