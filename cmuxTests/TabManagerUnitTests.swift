@@ -862,7 +862,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         )
 
         let enqueued = waitForCondition(timeout: 1.0, pollInterval: 0.002) {
-            manager.pendingPanelTitleUpdateCountForTesting() > 0
+            manager.pendingPanelTitleUpdates.count > 0
         }
         XCTAssertTrue(enqueued, "owning manager should enqueue title update for its own tab")
     }
@@ -887,7 +887,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         // TabManager receives it. Waiting for the owning manager to enqueue
         // proves the notification has been delivered to both observers.
         let delivered = waitForCondition(timeout: 1.0, pollInterval: 0.002) {
-            owningManager.pendingPanelTitleUpdateCountForTesting() > 0
+            owningManager.pendingPanelTitleUpdates.count > 0
         }
         XCTAssertTrue(delivered, "owning manager should enqueue title update for its own tab")
 
@@ -895,7 +895,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         // pending queue must still be empty if the boundary guard held.
         // Before the fix this was 1 (2x fan-out across managers — see #6551).
         XCTAssertEqual(
-            foreignManager.pendingPanelTitleUpdateCountForTesting(),
+            foreignManager.pendingPanelTitleUpdates.count,
             0,
             "non-owning manager must not enqueue title updates for foreign tabs"
         )
