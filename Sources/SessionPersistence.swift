@@ -2174,10 +2174,11 @@ extension SessionPersistencePolicy {
             let originalAnchorWorkspaceId = group.anchorWorkspaceId ?? group.anchorMemberIndex.flatMap { index in
                 originalMembers.indices.contains(index) ? originalMembers[index].workspaceId : nil
             }
-            copy.anchorMemberIndex = originalAnchorWorkspaceId.flatMap { anchorId in
+            let newAnchorIndex = originalAnchorWorkspaceId.flatMap { anchorId in
                 keptMembers.firstIndex { $0.workspaceId == anchorId }
             } ?? 0
-            copy.anchorWorkspaceId = originalAnchorWorkspaceId
+            copy.anchorMemberIndex = newAnchorIndex
+            copy.anchorWorkspaceId = keptMembers[newAnchorIndex].workspaceId
             return copy
         }
         return pruned.isEmpty ? nil : pruned
