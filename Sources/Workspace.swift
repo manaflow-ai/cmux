@@ -4750,7 +4750,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
         guard terminalPanel(for: panelId) != nil,
-              let startupInput = binding.startupInput,
+              let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
