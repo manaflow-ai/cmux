@@ -742,7 +742,7 @@ enum MenuBarIconRenderer {
         paragraph.alignment = .center
         let fontSize: CGFloat = text.count > 1 ? config.multiDigitFontSize : config.singleDigitFontSize
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: GlobalFontMagnification.systemFont(ofSize: fontSize, weight: .bold),
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold), // Fixed 18x18 status-item bitmap.
             .foregroundColor: NSColor.systemBlue,
             .paragraphStyle: paragraph,
         ]
