@@ -20,18 +20,23 @@ public struct CanvasPaneDescriptor: Identifiable {
     /// returns the lifecycle handle. Called once per mount; a panel mounts
     /// only while it is its pane's selected tab.
     public let makeMount: (NSView) -> any CanvasPaneContentMounting
+    /// Applies host-owned content state, such as terminal focus visuals, to
+    /// an existing mount. Called after mounting and on every descriptor sync.
+    public let updateMount: (any CanvasPaneContentMounting) -> Void
 
     public init(
         id: UUID,
         tab: CanvasTabChrome,
         isFocused: Bool,
         closeActionLabel: String,
-        makeMount: @escaping (NSView) -> any CanvasPaneContentMounting
+        makeMount: @escaping (NSView) -> any CanvasPaneContentMounting,
+        updateMount: @escaping (any CanvasPaneContentMounting) -> Void = { _ in }
     ) {
         self.id = id
         self.tab = tab
         self.isFocused = isFocused
         self.closeActionLabel = closeActionLabel
         self.makeMount = makeMount
+        self.updateMount = updateMount
     }
 }
