@@ -441,6 +441,11 @@ final class RemoteTmuxController {
 
         mirror.setSessionName(safeName)
         mirror.connection.setSessionName(safeName)
+        // Reverse of the cmux→tmux rename push: a remote `rename-session` (or an
+        // automatic session rename) re-titles the mirror's sidebar workspace.
+        // This updates the workspace title directly (no `rename-session`
+        // feedback); see `applySessionNameToWorkspaceTitle`.
+        mirror.applySessionNameToWorkspaceTitle(safeName)
 
         if oldKey != newKey {
             if let entry = sessionMirrors.removeValue(forKey: oldKey) {

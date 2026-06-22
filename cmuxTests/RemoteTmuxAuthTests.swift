@@ -199,6 +199,26 @@ import Testing
         #expect(connection.pastePane(paneId: 1, text: "") == false)
     }
 
+    @Test @MainActor func sessionRenamedUpdatesTrackedNameAndEmitsObserver() {
+        // A remote `rename-session` arrives as `%session-renamed`. The connection
+        // must track the new name (reused for reconnect) and fire the
+        // session-changed observer the mirror listens on to re-title its workspace.
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "old"
+        )
+        var observed: (old: String, new: String)?
+        let token = connection.addObserver(onSessionChanged: { old, new in
+            observed = (old, new)
+        })
+        defer { connection.removeObserver(token) }
+
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: 3, name: "dev"))
+
+        #expect(connection.sessionName == "dev")
+        #expect(observed?.old == "old")
+        #expect(observed?.new == "dev")
+    }
+
     @Test @MainActor func attachBlockDrainQueuesInitialWindowRequest() {
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         let pipe = Pipe()

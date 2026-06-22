@@ -189,6 +189,13 @@ struct RemoteTmuxControlStreamParser {
             // Session names may contain spaces; join the remaining fields.
             return .sessionChanged(sessionId: id, name: Self.fieldsFrom(line, 2))
         }
+        if line.hasPrefix("%session-renamed ") {
+            // tmux emits this for `rename-session` (NOT `%session-changed`, which
+            // fires on an attached-session switch). Session names may contain
+            // spaces; join the remaining fields.
+            guard let id = Self.fieldId(line, 1, sigil: "$") else { return .unparsed(line) }
+            return .sessionRenamed(sessionId: id, name: Self.fieldsFrom(line, 2))
+        }
         if line == "%sessions-changed" { return .sessionsChanged }
         if line.hasPrefix("%window-add ") {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }

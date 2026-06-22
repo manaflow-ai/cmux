@@ -146,6 +146,18 @@ import Testing
         #expect(messages == [.sessionChanged(sessionId: 1, name: "my session name")])
     }
 
+    @Test func sessionRenamedParsesToDistinctMessage() {
+        // tmux emits %session-renamed (NOT %session-changed) for `rename-session`;
+        // cmux must parse it so a remote rename re-titles the mirror workspace.
+        let messages = parse("%session-renamed $1 renamed-session-actual\r\n")
+        #expect(messages == [.sessionRenamed(sessionId: 1, name: "renamed-session-actual")])
+    }
+
+    @Test func sessionRenamedKeepsMultiWordName() {
+        let messages = parse("%session-renamed $2 my renamed session\r\n")
+        #expect(messages == [.sessionRenamed(sessionId: 2, name: "my renamed session")])
+    }
+
     @Test func layoutChangeCarriesRawLayoutString() {
         let messages = parse("%layout-change @4 f92f,80x24,0,0,1 @4 1\r\n")
         #expect(messages == [.layoutChange(windowId: 4, layout: "f92f,80x24,0,0,1")])
